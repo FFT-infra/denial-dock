@@ -1,5 +1,0 @@
-dependency_overrides:
-  denial_sdk:
-    path: /home/xinyang/.local/state/denial/plugins/build-kits/50e89ce865e78faa0cab6cff0a90d35a800e5c84bb4373b99b4bb0d35525c69a/runtime/packages/denial_sdk
-  denial_flutter_sdk:
-    path: /home/xinyang/.local/state/denial/plugins/build-kits/50e89ce865e78faa0cab6cff0a90d35a800e5c84bb4373b99b4bb0d35525c69a/runtime/packages/denial_flutter_sdk

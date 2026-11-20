@@ -1,5 +1,5 @@
 name: denial_dock
-description: A refined macOS-style floating Dock with smootherstep wave magnification, live window previews, and zero-conflict ShellSurface integration for Denial.
+description: A macOS-style floating dock for Denial with wave magnification, live window previews, drag-to-reorder and smart auto-hide.
 publish_to: none
 version: 0.1.0
 environment:

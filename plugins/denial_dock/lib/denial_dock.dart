@@ -8,23 +8,14 @@ import 'package:flutter/widgets.dart';
 import 'src/dock_container.dart';
 import 'src/dock_preferences.dart';
 
-/// Refined macOS-style Dock plugin for Denial.
+/// A floating, macOS-style dock for Denial.
 ///
-/// Features:
-/// - Quintic smootherstep wave magnification & integral push physics (NextKDE).
-/// - 60Hz/120Hz/240Hz frame-rate agnostic first-order decay tracking.
-/// - Live window preview thumbnails via [ShellWindowServices.buildWindowPreview].
-/// - Real-time window peeking emphasis via [ShellWindowServices.emphasizeWindow].
-/// - Ballistic launch bounce animation.
-/// - Single continuous in-surface name label.
-/// - Zero ShellWorkArea conflict, co-existing seamlessly with official Top Bar.
+/// The compositor reserves only the top bar, so the dock sits above windows and
+/// retracts while a window covers its strip. Magnification uses the NextKDE
+/// smootherstep wave with real layout growth.
 @Provides(ShellSurface)
 final class DockPlugin implements ShellSurface {
   const DockPlugin();
-
-  static const _preferences = DockPreferences();
-  static final double surfaceHeight =
-      _preferences.restingThickness + _preferences.visualHeadroom + 30.0;
 
   @override
   String get id => 'denial_dock.panel';
@@ -41,9 +32,9 @@ final class DockPlugin implements ShellSurface {
     final outputRect = environment.output.logicalRect;
     final bounds = Rect.fromLTWH(
       outputRect.left,
-      outputRect.bottom - surfaceHeight,
+      outputRect.bottom - dockSurfaceHeight,
       outputRect.width,
-      surfaceHeight,
+      dockSurfaceHeight,
     );
 
     return ShellSurfacePlacement(
@@ -59,20 +50,13 @@ final class DockPlugin implements ShellSurface {
     );
   }
 
-  static final _dockInstances = <int, DockContainer>{};
-
   @override
   Widget build(BuildContext context, {required ShellSurfaceContext surface}) {
-    final monitorId = surface.environment.output.monitorId;
-    final existing = _dockInstances[monitorId];
-    if (existing != null && identical(existing.services, surface.services)) {
-      return existing;
-    }
-
-    return _dockInstances[monitorId] = DockContainer(
-      monitorId: monitorId,
+    return DockContainer(
+      key: ValueKey(surface.environment.output.monitorId),
+      monitorId: surface.environment.output.monitorId,
       services: surface.services,
-      preferences: _preferences,
+      environment: surface.environment,
     );
   }
 }

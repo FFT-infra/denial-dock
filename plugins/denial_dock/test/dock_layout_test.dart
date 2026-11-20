@@ -1,0 +1,111 @@
+import 'package:denial_dock/src/dock_layout.dart';
+
+void main() {
+  const surface = 1000.0;
+  const padding = 8.0;
+  const gap = 8.0;
+  const maxScale = 1.6;
+  const radius = 140.0;
+  final slots = [
+    const DockSlot(half: 24),
+    const DockSlot(half: 24),
+    const DockSlot(half: 0.5, growable: false),
+    const DockSlot(half: 24),
+  ];
+
+  DockLayoutFrame layout(double pointer, double hover) => DockLayout.compute(
+    surfaceWidth: surface,
+    slots: slots,
+    padding: padding,
+    gap: gap,
+    pointerX: pointer,
+    hover: hover,
+    maxScale: maxScale,
+    radius: radius,
+  );
+
+  // Resting layout: no growth, capsule centred.
+  final rest = layout(-10000, 0);
+  _expect(rest.total == 0, 'rest total ${rest.total}');
+  _expect(rest.width == rest.restWidth, 'rest width ${rest.width}');
+  for (final slot in rest.slots) {
+    _expect(slot.scale == 1.0, 'rest scale ${slot.scale}');
+    _expect((slot.center - slot.restCenter).abs() < 1e-9, 'rest dx');
+  }
+  final restCenter =
+      (rest.slots.first.center -
+          rest.slots.first.half +
+          rest.slots.last.center +
+          rest.slots.last.half) /
+      2;
+  _expect((restCenter - surface / 2).abs() < 1e-9, 'rest centre $restCenter');
+
+  // Hover the second icon: it reaches full scale, the capsule grows, and the
+  // grown row stays centred on the surface.
+  final hovered = layout(rest.slots[1].center, 1);
+  _expect(
+    (hovered.slots[1].scale - maxScale).abs() < 1e-9,
+    'hovered scale ${hovered.slots[1].scale}',
+  );
+  _expect(hovered.total > 0, 'total ${hovered.total}');
+  _expect(
+    (hovered.width - (rest.restWidth + hovered.total)).abs() < 1e-9,
+    'width ${hovered.width}',
+  );
+  _expect(
+    (hovered.slots[2].scale - 1.0).abs() < 1e-9,
+    'divider must not grow: ${hovered.slots[2].scale}',
+  );
+  final hoveredCenter =
+      (hovered.slots.first.center -
+          hovered.slots.first.half +
+          hovered.slots.last.center +
+          hovered.slots.last.half) /
+      2;
+  _expect(
+    (hoveredCenter - surface / 2).abs() < 1e-6,
+    'hovered centre $hoveredCenter',
+  );
+
+  // Real push: painted neighbours keep the resting gap and never overlap.
+  for (var i = 0; i < hovered.slots.length - 1; i++) {
+    final right = hovered.slots[i].center + hovered.slots[i].half;
+    final nextLeft = hovered.slots[i + 1].center - hovered.slots[i + 1].half;
+    final spacing = nextLeft - right;
+    _expect((spacing - gap).abs() < 1e-6, 'gap $i = $spacing');
+  }
+
+  // The capsule hugs the painted row.
+  final firstLeft = hovered.slots.first.center - hovered.slots.first.half;
+  final lastRight = hovered.slots.last.center + hovered.slots.last.half;
+  _expect(
+    (firstLeft - (hovered.capsuleLeft + padding)).abs() < 1e-6,
+    'left hug ${firstLeft - hovered.capsuleLeft}',
+  );
+  _expect(
+    (hovered.capsuleLeft + hovered.width - padding - lastRight).abs() < 1e-6,
+    'right hug',
+  );
+
+  // Nearest slot selection follows painted centres.
+  final nearest = hovered.nearest(hovered.slots[3].center + 2);
+  _expect(nearest != null && nearest.$1 == 3, 'nearest ${nearest?.$1}');
+
+  // Empty dock is just the capsule padding.
+  final empty = DockLayout.compute(
+    surfaceWidth: surface,
+    slots: const [],
+    padding: padding,
+    gap: gap,
+    pointerX: 0,
+    hover: 1,
+    maxScale: maxScale,
+    radius: radius,
+  );
+  _expect(empty.width == padding * 2, 'empty width ${empty.width}');
+  _expect(empty.slots.isEmpty, 'empty slots');
+}
+
+void _expect(bool condition, String message) {
+  if (!condition) throw StateError(message);
+}
