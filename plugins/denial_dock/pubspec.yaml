@@ -1,0 +1,19 @@
+name: denial_dock
+description: A refined macOS-style floating Dock with smootherstep wave magnification, live window previews, and zero-conflict ShellSurface integration for Denial.
+publish_to: none
+version: 0.1.0
+environment:
+  sdk: ^3.13.0
+  flutter: 3.47.5
+dependencies:
+  denial_sdk: '0.0.0'
+  denial_flutter_sdk: '0.0.0'
+  flutter:
+    sdk: flutter
+  flutter_riverpod: ^3.3.2
+
+denial_plugin:
+  schema: 1
+  name: Dock
+  provides:
+    - contract: package:denial_flutter_sdk/surfaces.dart#ShellSurface
