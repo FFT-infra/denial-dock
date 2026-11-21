@@ -1117,8 +1117,12 @@ class _DockContainerState extends ConsumerState<DockContainer>
     final visible = onOutput.isEmpty ? scene : onOutput;
     final width = math.min(248.0, math.max(0.0, visible.width - 16));
     final capsuleTopScene = anchor.top + _surfaceHeight - _capsuleFar;
-    final capsuleLeftScene = anchor.left + _capsuleCross;
-    final capsuleRightScene = anchor.left + _capsuleFar;
+    final capsuleLeftScene = _position == DockPosition.right
+        ? anchor.left + _surfaceWidth - _capsuleFar
+        : anchor.left + _capsuleCross;
+    final capsuleRightScene = _position == DockPosition.right
+        ? anchor.left + _surfaceWidth - _capsuleCross
+        : anchor.left + _capsuleFar;
     final menuAnchorRect = switch (_position) {
       DockPosition.bottom => Rect.fromLTWH(
         anchor.left + _menuAnchor,

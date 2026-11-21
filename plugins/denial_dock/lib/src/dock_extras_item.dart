@@ -200,7 +200,9 @@ class _DockAccessoryItemState extends State<DockAccessoryItem> {
     final output = widget.monitorBounds.intersect(scene);
     final bounds = output.isEmpty ? scene : output;
     final width = math.min(236.0, math.max(0.0, bounds.width - 16));
-    final maxHeight = math.max(0.0, anchor.top - bounds.top - 16);
+    final maxHeight = widget.position == DockPosition.bottom
+        ? math.max(0.0, anchor.top - bounds.top - 16)
+        : math.max(0.0, bounds.height - 16);
     if (width <= 0 || maxHeight <= 0) return const SizedBox.shrink();
     final placement = dockMenuAnchor(
       anchor: anchor,

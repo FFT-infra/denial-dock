@@ -703,7 +703,9 @@ class _DockItemWidgetState extends State<DockItemWidget>
       position: widget.position,
     );
     if (placement == null) return const SizedBox.shrink();
-    final maxHeight = math.max(0.0, geometry.anchor.top - output.top - 16);
+    final maxHeight = widget.position == DockPosition.bottom
+        ? math.max(0.0, geometry.anchor.top - output.top - 16)
+        : math.max(0.0, output.height - 16);
     final radius = theme.borderRadius(14);
     return ShellInputRegion(
       debugLabel: 'Dock application menu',
@@ -829,10 +831,13 @@ class _DockItemWidgetState extends State<DockItemWidget>
     final geometry = _geometry(layout);
     final output = geometry.output;
     final theme = context.shellTheme;
+    final side = widget.position != DockPosition.bottom;
     final available = math.max(0.0, output.width - 16);
     final maxHeight = math.min(
       200.0,
-      math.max(0.0, geometry.anchor.top - output.top - 40),
+      side
+          ? math.max(0.0, output.height - 16)
+          : math.max(0.0, geometry.anchor.top - output.top - 40),
     );
     if (available <= 0 || maxHeight <= 0) {
       _clearEmphasis();
@@ -848,11 +853,28 @@ class _DockItemWidgetState extends State<DockItemWidget>
         (sizes.length - 1) * 8;
     final width = math.min(available, contentWidth + 16);
     final height = cardHeight + 16;
-    final left = (geometry.anchor.center.dx - width / 2).clamp(
-      output.left + 8,
-      math.max(output.left + 8, output.right - width - 8),
-    );
-    final top = math.max(output.top + 8, geometry.anchor.top - height - 12);
+    final left = switch (widget.position) {
+      DockPosition.bottom => (geometry.anchor.center.dx - width / 2).clamp(
+        output.left + 8,
+        math.max(output.left + 8, output.right - width - 8),
+      ),
+      DockPosition.left => math.max(
+        output.left + 8,
+        geometry.anchor.right + 12,
+      ),
+      DockPosition.right => math.max(
+        output.left + 8,
+        geometry.anchor.left - width - 12,
+      ),
+    };
+    final top =
+        (widget.position == DockPosition.bottom
+                ? geometry.anchor.top - height - 12
+                : geometry.anchor.center.dy - height / 2)
+            .clamp(
+              output.top + 8,
+              math.max(output.top + 8, output.bottom - height - 8),
+            );
     final radius = theme.borderRadius(16);
     return Stack(
       children: [
