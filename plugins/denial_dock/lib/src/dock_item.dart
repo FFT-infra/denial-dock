@@ -6,9 +6,12 @@ import 'package:denial_flutter_sdk/input.dart';
 import 'package:denial_flutter_sdk/services.dart';
 import 'package:denial_flutter_sdk/surfaces.dart';
 import 'package:denial_flutter_sdk/theme.dart';
+import 'package:flutter/gestures.dart' show kPrimaryButton;
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 
 import 'dock_math.dart';
+import 'dock_menu.dart';
 
 /// A single application icon in the dock. Menus and window previews live in the
 /// shell overlay; a shell surface has no Navigator or Scaffold of its own.
@@ -76,6 +79,7 @@ class DockItemWidget extends StatefulWidget {
 class _DockItemWidgetState extends State<DockItemWidget>
     with SingleTickerProviderStateMixin {
   final OverlayPortalController _portal = OverlayPortalController();
+  final FocusNode _focus = FocusNode(debugLabel: 'Dock application');
   late final AnimationController _bounce;
 
   Timer? _showPreviewTimer;
@@ -85,6 +89,7 @@ class _DockItemWidgetState extends State<DockItemWidget>
   int? _emphasisWindow;
 
   Offset? _downPosition;
+  int _downButtons = 0;
 
   bool _menuOpen = false;
   bool _previewsOpen = false;
@@ -129,6 +134,7 @@ class _DockItemWidgetState extends State<DockItemWidget>
     _showPreviewTimer?.cancel();
     _hidePreviewTimer?.cancel();
     _clearEmphasis();
+    _focus.dispose();
     _bounce.dispose();
     super.dispose();
   }
@@ -172,6 +178,7 @@ class _DockItemWidgetState extends State<DockItemWidget>
       _previewsOpen = false;
     });
     if (!_portal.isShowing) _portal.show();
+    _focus.requestFocus();
     widget.onOverlayChanged(true);
   }
 
@@ -222,9 +229,12 @@ class _DockItemWidgetState extends State<DockItemWidget>
 
   Future<void> _launch() async {
     if (_launching) return;
+    final chinese = Localizations.localeOf(context).languageCode == 'zh';
     final launchId = widget.launchId;
     if (launchId == null) {
-      _launchError = '这个窗口没有可用的启动项';
+      _launchError = chinese
+          ? '这个窗口没有可用的启动项'
+          : 'This window has no launch entry';
       _openMenu();
       return;
     }
@@ -245,7 +255,9 @@ class _DockItemWidgetState extends State<DockItemWidget>
     if (!mounted) return;
     setState(() {
       _launching = false;
-      if (!launched) _launchError = '无法启动应用';
+      if (!launched) {
+        _launchError = chinese ? '无法启动应用' : 'Could not launch the application';
+      }
     });
     if (!launched) _openMenu();
   }
@@ -325,54 +337,87 @@ class _DockItemWidgetState extends State<DockItemWidget>
       child: MouseRegion(
         onEnter: (_) => _enter(),
         onExit: (_) => _leave(),
-        child: Listener(
-          // The pan's start position is unreliable in this shell (the button
-          // pointer begins at the scene origin), but the down event carries
-          // the real grab point.
-          onPointerDown: (event) => _downPosition = event.position,
-          onPointerUp: (event) => _downPosition = null,
-          onPointerCancel: (event) => _downPosition = null,
-          child: GestureDetector(
-            behavior: HitTestBehavior.opaque,
-            onTap: _activate,
-            onSecondaryTapDown: (_) => _openMenu(),
-            onPanStart: widget.onDragStart == null
-                ? null
-                : (details) => widget.onDragStart!(
-                    _downPosition ?? details.globalPosition,
-                  ),
-            onPanUpdate: widget.onDragUpdate == null
-                ? null
-                : (details) => widget.onDragUpdate!(details.globalPosition),
-            onPanEnd: widget.onDragEnd == null
-                ? null
-                : (_) => widget.onDragEnd!(),
-            onPanCancel: widget.onDragEnd,
-            child: AnimatedBuilder(
-              animation: _bounce,
-              builder: (context, child) {
-                final bounce = _bounce.isAnimating
-                    ? DockMath.launchBounce(_bounce.value) * size * 0.35
-                    : 0.0;
-                return Transform.translate(
-                  offset: Offset(0, -widget.lift - bounce),
-                  child: child,
-                );
-              },
-              child: SizedBox(
-                width: size,
-                height: size,
-                child: Stack(
-                  clipBehavior: Clip.none,
-                  children: [
-                    Positioned.fill(
-                      child: widget.services.buildApplicationIcon(
-                        context,
-                        widget.appId,
+        child: CallbackShortcuts(
+          bindings: {
+            const SingleActivator(LogicalKeyboardKey.contextMenu): _openMenu,
+            const SingleActivator(LogicalKeyboardKey.f10, shift: true):
+                _openMenu,
+            const SingleActivator(LogicalKeyboardKey.escape): _closeOverlay,
+          },
+          child: Focus(
+            focusNode: _focus,
+            child: Semantics(
+              label: widget.name,
+              value: '${widget.windows.length}',
+              selected: active,
+              button: true,
+              child: Listener(
+                // The pan's start position is unreliable in this shell (the
+                // button pointer begins at the scene origin), but the down
+                // event carries the real grab point.
+                onPointerDown: (event) {
+                  _downPosition = event.position;
+                  _downButtons = event.buttons;
+                },
+                onPointerUp: (event) {
+                  _downPosition = null;
+                  _downButtons = 0;
+                },
+                onPointerCancel: (event) {
+                  _downPosition = null;
+                  _downButtons = 0;
+                },
+                child: GestureDetector(
+                  behavior: HitTestBehavior.opaque,
+                  onTap: _activate,
+                  onSecondaryTapDown: (_) =>
+                      _menuOpen ? _closeOverlay() : _openMenu(),
+                  // Secondary-button drags must not reorder or pin anything; a
+                  // right-drag is a menu gesture.
+                  onPanStart: widget.onDragStart == null
+                      ? null
+                      : (details) {
+                          if (_downButtons != kPrimaryButton) return;
+                          widget.onDragStart!(
+                            _downPosition ?? details.globalPosition,
+                          );
+                        },
+                  onPanUpdate: widget.onDragUpdate == null
+                      ? null
+                      : (details) =>
+                            widget.onDragUpdate!(details.globalPosition),
+                  onPanEnd: widget.onDragEnd == null
+                      ? null
+                      : (_) => widget.onDragEnd!(),
+                  onPanCancel: widget.onDragEnd,
+                  child: AnimatedBuilder(
+                    animation: _bounce,
+                    builder: (context, child) {
+                      final bounce = _bounce.isAnimating
+                          ? DockMath.launchBounce(_bounce.value) * size * 0.35
+                          : 0.0;
+                      return Transform.translate(
+                        offset: Offset(0, -widget.lift - bounce),
+                        child: child,
+                      );
+                    },
+                    child: SizedBox(
+                      width: size,
+                      height: size,
+                      child: Stack(
+                        clipBehavior: Clip.none,
+                        children: [
+                          Positioned.fill(
+                            child: widget.services.buildApplicationIcon(
+                              context,
+                              widget.appId,
+                            ),
+                          ),
+                          if (indicator != null) indicator,
+                        ],
                       ),
                     ),
-                    if (indicator != null) indicator,
-                  ],
+                  ),
                 ),
               ),
             ),
@@ -398,6 +443,7 @@ class _DockItemWidgetState extends State<DockItemWidget>
     final output = geometry.output;
     final theme = context.shellTheme;
     final colors = theme.colors;
+    final chinese = Localizations.localeOf(context).languageCode == 'zh';
     final width = math.min(248.0, math.max(0.0, output.width - 16));
     final maxHeight = math.max(0.0, geometry.anchor.top - output.top - 16);
     if (width <= 0 || maxHeight <= 0) return const SizedBox.shrink();
@@ -409,31 +455,29 @@ class _DockItemWidgetState extends State<DockItemWidget>
     return ShellInputRegion(
       debugLabel: 'Dock application menu',
       pointerPolicy: ShellPointerPolicy.fullScene,
-      child: Stack(
-        children: [
-          Positioned.fill(
-            child: Listener(
-              behavior: HitTestBehavior.opaque,
-              onPointerDown: (_) => _closeOverlay(),
-              child: const ColoredBox(color: Color(0x00000000)),
-            ),
-          ),
-          Positioned(
-            left: left.toDouble(),
-            bottom: layout.overlaySize.height - geometry.anchor.top + 10,
-            width: width,
-            child: ConstrainedBox(
-              constraints: BoxConstraints(maxHeight: maxHeight),
-              child: ShellBackdropBlur(
-                blur: theme.effectivePanelOpacity < 1,
-                separateChild: true,
-                borderRadius: radius,
-                child: DecoratedBox(
-                  decoration: BoxDecoration(
-                    color: theme.panelColor(colors.surfaceContainer),
-                    borderRadius: radius,
-                    border: Border.all(color: colors.hairline),
-                  ),
+      keyboardPolicy: ShellKeyboardPolicy.capture,
+      child: CallbackShortcuts(
+        bindings: {
+          const SingleActivator(LogicalKeyboardKey.escape): _closeOverlay,
+        },
+        child: Focus(
+          autofocus: true,
+          child: Stack(
+            children: [
+              Positioned.fill(
+                child: Listener(
+                  behavior: HitTestBehavior.opaque,
+                  onPointerDown: (_) => _closeOverlay(),
+                  child: const ColoredBox(color: Color(0x00000000)),
+                ),
+              ),
+              Positioned(
+                left: left.toDouble(),
+                bottom: layout.overlaySize.height - geometry.anchor.top + 10,
+                width: width,
+                child: DockMenuPanel(
+                  radius: radius,
+                  maxHeight: maxHeight,
                   child: SingleChildScrollView(
                     child: Padding(
                       padding: const EdgeInsets.symmetric(vertical: 4),
@@ -452,30 +496,42 @@ class _DockItemWidgetState extends State<DockItemWidget>
                               ),
                             ),
                           ),
-                          _MenuRow(
+                          DockMenuRow(
                             icon: Icons.open_in_new,
-                            label: widget.windows.isEmpty ? '打开' : '新窗口',
+                            label: widget.windows.isEmpty
+                                ? (chinese ? '打开' : 'Open')
+                                : (chinese ? '新窗口' : 'New window'),
                             onTap: () {
                               _closeOverlay();
                               _launch();
                             },
                           ),
-                          _MenuRow(
+                          if (widget.windows.length > 1)
+                            DockMenuRow(
+                              icon: Icons.window_outlined,
+                              label: chinese ? '显示所有窗口' : 'Show all windows',
+                              onTap: _showPreviews,
+                            ),
+                          DockMenuRow(
                             icon: widget.pinned
                                 ? Icons.push_pin
                                 : Icons.push_pin_outlined,
-                            label: widget.pinned ? '从 Dock 中移除' : '保留在 Dock',
+                            label: widget.pinned
+                                ? (chinese ? '从 Dock 中移除' : 'Remove from Dock')
+                                : (chinese ? '保留在 Dock' : 'Keep in Dock'),
                             onTap: () {
                               _closeOverlay();
                               widget.onTogglePin();
                             },
                           ),
                           if (widget.windows.isNotEmpty)
-                            _MenuRow(
+                            DockMenuRow(
                               icon: Icons.vertical_align_bottom,
                               label: widget.windows.length > 1
-                                  ? '最小化全部窗口'
-                                  : '最小化',
+                                  ? (chinese
+                                        ? '最小化全部窗口'
+                                        : 'Minimize all windows')
+                                  : (chinese ? '最小化' : 'Minimize'),
                               onTap: _minimizeAll,
                             ),
                           if (_launchError case final error?)
@@ -494,9 +550,9 @@ class _DockItemWidgetState extends State<DockItemWidget>
                   ),
                 ),
               ),
-            ),
+            ],
           ),
-        ],
+        ),
       ),
     );
   }
@@ -573,40 +629,48 @@ class _DockItemWidgetState extends State<DockItemWidget>
                               child: MouseRegion(
                                 onEnter: (_) => _emphasisEnter(window.id),
                                 onExit: (_) => _emphasisLeave(window.id),
-                                child: GestureDetector(
-                                  behavior: HitTestBehavior.opaque,
-                                  onTap: () => _activateWindow(window.id),
-                                  child: Column(
-                                    crossAxisAlignment:
-                                        CrossAxisAlignment.stretch,
-                                    children: [
-                                      Expanded(
-                                        child: ClipRRect(
-                                          borderRadius: theme.borderRadius(10),
-                                          child: ColoredBox(
-                                            color: theme.cardColor(
-                                              theme.colors.surfaceContainerHigh,
+                                child: Semantics(
+                                  label: window.title,
+                                  button: true,
+                                  child: GestureDetector(
+                                    behavior: HitTestBehavior.opaque,
+                                    onTap: () => _activateWindow(window.id),
+                                    child: Column(
+                                      crossAxisAlignment:
+                                          CrossAxisAlignment.stretch,
+                                      children: [
+                                        Expanded(
+                                          child: ClipRRect(
+                                            borderRadius: theme.borderRadius(
+                                              10,
                                             ),
-                                            child: widget.services
-                                                .buildWindowPreview(
-                                                  context,
-                                                  window.id,
-                                                ),
+                                            child: ColoredBox(
+                                              color: theme.cardColor(
+                                                theme
+                                                    .colors
+                                                    .surfaceContainerHigh,
+                                              ),
+                                              child: widget.services
+                                                  .buildWindowPreview(
+                                                    context,
+                                                    window.id,
+                                                  ),
+                                            ),
                                           ),
                                         ),
-                                      ),
-                                      const SizedBox(height: 5),
-                                      Text(
-                                        window.title,
-                                        maxLines: 1,
-                                        overflow: TextOverflow.ellipsis,
-                                        textAlign: TextAlign.center,
-                                        style: theme.text.systemBarCaption
-                                            .copyWith(
-                                              color: theme.colors.textPrimary,
-                                            ),
-                                      ),
-                                    ],
+                                        const SizedBox(height: 5),
+                                        Text(
+                                          window.title,
+                                          maxLines: 1,
+                                          overflow: TextOverflow.ellipsis,
+                                          textAlign: TextAlign.center,
+                                          style: theme.text.systemBarCaption
+                                              .copyWith(
+                                                color: theme.colors.textPrimary,
+                                              ),
+                                        ),
+                                      ],
+                                    ),
                                   ),
                                 ),
                               ),
@@ -630,63 +694,4 @@ Size _previewSize(Size source, double maxWidth, double maxHeight) {
   final ratio = !source.isEmpty && source.isFinite ? source.aspectRatio : 1.5;
   final height = math.min(maxHeight, maxWidth / ratio);
   return Size(height * ratio, height);
-}
-
-class _MenuRow extends StatefulWidget {
-  const _MenuRow({
-    required this.icon,
-    required this.label,
-    required this.onTap,
-  });
-
-  final IconData icon;
-  final String label;
-  final VoidCallback onTap;
-
-  @override
-  State<_MenuRow> createState() => _MenuRowState();
-}
-
-class _MenuRowState extends State<_MenuRow> {
-  bool _hovered = false;
-
-  @override
-  Widget build(BuildContext context) {
-    final theme = context.shellTheme;
-    final colors = theme.colors;
-    final foreground = colors.textPrimary;
-    return MouseRegion(
-      onEnter: (_) => setState(() => _hovered = true),
-      onExit: (_) => setState(() => _hovered = false),
-      child: GestureDetector(
-        behavior: HitTestBehavior.opaque,
-        onTap: widget.onTap,
-        child: Container(
-          height: 34,
-          margin: const EdgeInsets.symmetric(horizontal: 6),
-          padding: const EdgeInsets.symmetric(horizontal: 10),
-          decoration: BoxDecoration(
-            borderRadius: theme.borderRadius(8),
-            color: _hovered ? colors.textPrimary.withValues(alpha: 0.08) : null,
-          ),
-          child: Row(
-            children: [
-              Icon(widget.icon, size: 17, color: foreground),
-              const SizedBox(width: 10),
-              Expanded(
-                child: Text(
-                  widget.label,
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                  style: theme.text.systemBarCaption.copyWith(
-                    color: foreground,
-                  ),
-                ),
-              ),
-            ],
-          ),
-        ),
-      ),
-    );
-  }
 }

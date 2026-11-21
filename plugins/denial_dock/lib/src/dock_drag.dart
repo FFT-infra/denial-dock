@@ -9,6 +9,13 @@ abstract final class DockDrag {
     return copy;
   }
 
+  /// Inserts a running application into the pinned order for the drag preview.
+  static List<T> inserted<T>(List<T> list, T item, int index) {
+    final copy = [...list];
+    copy.insert(index.clamp(0, copy.length), item);
+    return copy;
+  }
+
   /// Index of the centre closest to [pointerX], never outside the list.
   static int insertionIndex({
     required List<double> centers,

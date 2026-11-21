@@ -11,6 +11,13 @@ void main() {
   _expect(DockDrag.moved(list, 9, 0).join() == 'abcd', 'invalid source');
   _expect(list.join() == 'abcd', 'input list untouched');
 
+  // A running application joins the pinned order at the drop slot.
+  _expect(DockDrag.inserted(list, 'x', 0).join() == 'xabcd', 'insert start');
+  _expect(DockDrag.inserted(list, 'x', 2).join() == 'abxcd', 'insert middle');
+  _expect(DockDrag.inserted(list, 'x', 99).join() == 'abcdx', 'insert end');
+  _expect(DockDrag.inserted(list, 'x', -3).join() == 'xabcd', 'insert clamp');
+  _expect(list.join() == 'abcd', 'insert leaves input untouched');
+
   // Insertion follows the nearest painted centre.
   const centers = [100.0, 160.0, 220.0, 280.0];
   _expect(

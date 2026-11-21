@@ -4,6 +4,10 @@ import 'dart:io';
 import 'package:flutter/foundation.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import 'dock_visibility.dart';
+
+export 'dock_visibility.dart' show DockVisibility, DockVisibilityMode;
+
 /// Height of the plugin's surface. It covers the capsule, the magnification
 /// headroom and the name label, and stays clear of the top bar.
 const double dockSurfaceHeight = 180.0;
@@ -11,14 +15,6 @@ const double dockSurfaceHeight = 180.0;
 /// Icons and their identity are matched without the `.desktop` suffix and case.
 String normalizeAppId(String id) =>
     id.trim().toLowerCase().replaceFirst(RegExp(r'\.desktop$'), '');
-
-enum DockVisibilityMode {
-  /// Always in reach, even under a window.
-  always,
-
-  /// Retract while a window covers the dock's strip; return on edge hover.
-  smart,
-}
 
 @immutable
 class DockPin {
@@ -54,34 +50,10 @@ class DockSettings {
   /// Capsule height with no magnification.
   static const double capsuleHeight = iconSize + padding * 2;
 
-  static const List<DockPin> defaultPins = [
-    DockPin(
-      id: 'org.gnome.Nautilus.desktop',
-      appId: 'org.gnome.Nautilus.desktop',
-      name: '文件',
-    ),
-    DockPin(
-      id: 'google-chrome.desktop',
-      appId: 'google-chrome.desktop',
-      name: 'Chrome',
-    ),
-    DockPin(id: 'code.desktop', appId: 'code.desktop', name: 'VS Code'),
-    DockPin(
-      id: 'com.mitchellh.ghostty.desktop',
-      appId: 'com.mitchellh.ghostty.desktop',
-      name: 'Ghostty',
-    ),
-    DockPin(
-      id: 'md.obsidian.Obsidian.desktop',
-      appId: 'md.obsidian.Obsidian.desktop',
-      name: 'Obsidian',
-    ),
-    DockPin(
-      id: 'antigravity.desktop',
-      appId: 'antigravity.desktop',
-      name: 'Antigravity',
-    ),
-  ];
+  /// A fresh install starts with an empty dock; pin applications from their
+  /// context menu. Shipping one machine's app set would render placeholders
+  /// on every other machine.
+  static const List<DockPin> defaultPins = [];
 
   static const DockSettings defaults = DockSettings();
 
@@ -112,9 +84,7 @@ class DockSettings {
     return DockSettings(
       // An explicit empty list means the user removed every pin.
       pinned: stored is List ? List.unmodifiable(pins) : defaultPins,
-      visibility: json['visibility'] == 'always'
-          ? DockVisibilityMode.always
-          : DockVisibilityMode.smart,
+      visibility: DockVisibilityMode.parse(json['visibility']),
     );
   }
 }
@@ -157,9 +127,12 @@ class DockPreferencesStore {
 
   Future<DockSettings> read() async => DockSettings.fromJson(await _readJson());
 
-  Future<void> writePins(List<DockPin> pins) async {
+  Future<void> write(DockSettings settings) async {
     final json = await _readJson();
-    json['pinnedApplications'] = pins.map((pin) => pin.toJson()).toList();
+    json['pinnedApplications'] = settings.pinned
+        .map((pin) => pin.toJson())
+        .toList();
+    json['visibility'] = settings.visibility.key;
     await file.parent.create(recursive: true);
     final temp = File('${file.path}.$pid.${_sequence++}.tmp');
     try {
@@ -190,7 +163,7 @@ class DockSettingsController extends AsyncNotifier<DockSettings> {
   }
 
   Future<void> togglePin(DockPin pin, {required bool pinned}) =>
-      _update((pins) {
+      _updatePins((pins) {
         final key = normalizeAppId(pin.appId);
         final without = pins
             .where((existing) => normalizeAppId(existing.appId) != key)
@@ -200,7 +173,7 @@ class DockSettingsController extends AsyncNotifier<DockSettings> {
 
   /// Moves a pinned entry to [to] using remove-then-insert order, matching the
   /// dock's drag preview.
-  Future<void> movePin(int from, int to) => _update((pins) {
+  Future<void> movePin(int from, int to) => _updatePins((pins) {
     if (from < 0 || from >= pins.length) return pins;
     final copy = [...pins];
     final item = copy.removeAt(from);
@@ -208,16 +181,37 @@ class DockSettingsController extends AsyncNotifier<DockSettings> {
     return copy;
   });
 
-  Future<void> _update(List<DockPin> Function(List<DockPin>) update) {
+  /// Pins a running application at [to], so dropping it among the pins keeps
+  /// the drop position instead of appending it.
+  Future<void> insertPin(DockPin pin, int to) => _updatePins((pins) {
+    final key = normalizeAppId(pin.appId);
+    final copy = pins
+        .where((existing) => normalizeAppId(existing.appId) != key)
+        .toList();
+    copy.insert(to.clamp(0, copy.length), pin);
+    return copy;
+  });
+
+  Future<void> setVisibility(DockVisibilityMode visibility) => _update(
+    (current) => DockSettings(pinned: current.pinned, visibility: visibility),
+  );
+
+  Future<void> _updatePins(List<DockPin> Function(List<DockPin>) update) =>
+      _update(
+        (current) => DockSettings(
+          pinned: List<DockPin>.unmodifiable(update(current.pinned)),
+          visibility: current.visibility,
+        ),
+      );
+
+  Future<void> _update(DockSettings Function(DockSettings) update) {
     final operation = _writes.then((_) async {
       if (!ref.mounted) return;
       final current = state.value ?? DockSettings.defaults;
-      final snapshot = List<DockPin>.unmodifiable(update(current.pinned));
-      await _store.writePins(snapshot);
+      final next = update(current);
+      await _store.write(next);
       if (!ref.mounted) return;
-      state = AsyncData(
-        DockSettings(pinned: snapshot, visibility: current.visibility),
-      );
+      state = AsyncData(next);
     });
     // A failed write is reported to the caller but must not poison later saves.
     _writes = operation.then<void>(

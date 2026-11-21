@@ -15,25 +15,32 @@ turning it on.
 - **Wave magnification.** Icons grow with a smootherstep falloff ported from
   NextKDE's dock; the growth is real layout width, so neighbours are pushed
   aside and the capsule widens with the row instead of overlapping.
-- **Pinned applications.** The default set is written on first run and kept in
-  `~/.config/denial/plugins/denial_dock.json`. Running applications that are not
-  pinned appear after a divider.
+- **Pinned applications.** A fresh install starts with an empty dock; pin a
+  running application from its context menu or by dragging it into the pinned
+  section. The list is kept in `~/.config/denial/plugins/denial_dock.json`.
+  Running applications that are not pinned appear after a divider.
 - **Window previews.** Hover an icon with two or more windows to open its tray.
   Hover one card for 300 ms to fade the other windows on that monitor; click a
   card to focus that window. Clicking a single-window icon activates or
   minimizes it.
-- **Context menu.** Right-click an icon for open / new window, pin or unpin,
-  and minimize. The menu and trays are drawn in the shell overlay, clamped to
-  the monitor.
-- **Drag to reorder.** Drag a pinned icon sideways to move it; drag it more than
-  one icon height above the capsule to remove it from the dock. The icon lifts,
-  grows slightly and turns translucent while held, and neighbours ease into
-  place.
-- **Smart auto-hide.** When a non-minimized window on the same output and
-  workspace reaches the dock's strip, the capsule slides down. Moving the
+- **Context menu.** Right-click an icon for open / new window, show all
+  windows, pin or unpin, and minimize. Escape closes the menu, and
+  right-clicking the same icon again toggles it. The menu and trays are drawn
+  in the shell overlay, clamped to the monitor.
+- **Drag to reorder and pin.** Drag a pinned icon sideways to move it; drag a
+  running icon left across the divider to pin it at the drop position; drag a
+  pinned icon more than one icon height above the capsule to remove it. Only
+  primary-button drags start a move. The icon lifts, grows slightly and turns
+  translucent while held, and neighbours ease into place.
+- **Smart auto-hide.** When a non-minimized floating window on the same output
+  and workspace reaches the dock's strip, the capsule slides down. Moving the
   pointer to the bottom edge brings it back after 90 ms; it retracts 200 ms
   after the pointer leaves while the window still overlaps. A window parked
-  exactly on the boundary does not make it flap.
+  exactly on the boundary does not make it flap. While the window layout tiles,
+  the dock stays resident instead: every tile reaches the bottom edge, so
+  overlap-hiding would keep it hidden forever.
+- **Visibility switch.** Right-click the launcher icon for a small dock menu:
+  *Smart hide* or *Always show*. The choice is saved next to the pins.
 - **Shell-native looks.** The capsule uses Denial's `ShellTheme` panel colour,
   backdrop blur, hairline border and corner radii, so it matches the top bar.
 
@@ -44,7 +51,9 @@ turning it on.
   reserving space on one edge only, so this dock deliberately does not claim the
   bottom edge; fullscreen windows cover it, the same way they cover the Dock on
   macOS. In fullscreen the dock hides and comes back in overview or show
-  desktop.
+  desktop. Tiled windows therefore also run under the capsule. The tiling gap
+  you may see at the bottom comes from `maximizePadding` in Denial's own
+  settings (default 8), not from this plugin.
 
 ## Install
 
@@ -74,7 +83,8 @@ The file is `~/.config/denial/plugins/denial_dock.json`:
 
 - `id` is the launcher identity used to start an application; `appId` is the
   icon identity, normally the desktop file name.
-- `visibility` is `"smart"` (auto-hide, default) or `"always"`.
+- `visibility` is `"smart"` (auto-hide while windows float, default) or
+  `"always"`. The launcher's right-click menu writes the same key.
 - An empty list means you removed every pin.
 
 There is no settings UI. The dock rewrites this file atomically when you pin,
@@ -109,6 +119,7 @@ dart analyze --fatal-infos lib test
 dart run test/dock_math_test.dart
 dart run test/dock_layout_test.dart
 dart run test/dock_drag_test.dart
+dart run test/dock_visibility_test.dart
 ```
 
 The tests are small executable Dart programs. They exit non-zero with a message

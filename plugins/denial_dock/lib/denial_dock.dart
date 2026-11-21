@@ -39,7 +39,9 @@ final class DockPlugin implements ShellSurface {
 
     return ShellSurfacePlacement(
       bounds: bounds,
-      fade: ShellSurfaceFade.automatic,
+      // The capsule is glass, so it fades its backdrop and foreground through
+      // ShellBackdropBlur.opacity instead of the SDK's whole-surface fade.
+      fade: ShellSurfaceFade.custom,
       occupiesDesktop: false,
       visible:
           !environment.locked &&
