@@ -112,6 +112,7 @@ class DockSettings {
     this.visibility = DockVisibilityMode.smart,
     this.clickAction = DockClickAction.minimize,
     this.iconSize = defaultIconSize,
+    this.magnification = true,
     this.launcherSide = DockSide.left,
     this.extrasSide = DockSide.right,
     this.showTrash = true,
@@ -147,6 +148,8 @@ class DockSettings {
   /// Base icon edge before magnification, clamped to the supported range.
   final double iconSize;
 
+  final bool magnification;
+
   final DockSide launcherSide;
   final DockSide extrasSide;
   final bool showTrash;
@@ -162,6 +165,7 @@ class DockSettings {
     DockVisibilityMode? visibility,
     DockClickAction? clickAction,
     double? iconSize,
+    bool? magnification,
     DockSide? launcherSide,
     DockSide? extrasSide,
     bool? showTrash,
@@ -171,6 +175,7 @@ class DockSettings {
     visibility: visibility ?? this.visibility,
     clickAction: clickAction ?? this.clickAction,
     iconSize: clampIconSize(iconSize ?? this.iconSize),
+    magnification: magnification ?? this.magnification,
     launcherSide: launcherSide ?? this.launcherSide,
     extrasSide: extrasSide ?? this.extrasSide,
     showTrash: showTrash ?? this.showTrash,
@@ -250,6 +255,9 @@ class DockSettings {
       iconSize: clampIconSize(
         iconSize is num ? iconSize.toDouble() : defaultIconSize,
       ),
+      magnification: json['magnification'] is bool
+          ? json['magnification'] as bool
+          : true,
       launcherSide: DockSide.parse(
         json['launcherSide'],
         fallback: DockSide.left,
@@ -307,6 +315,7 @@ class DockPreferencesStore {
     json['visibility'] = settings.visibility.key;
     json['clickAction'] = settings.clickAction.key;
     json['iconSize'] = settings.iconSize;
+    json['magnification'] = settings.magnification;
     json['launcherSide'] = settings.launcherSide.key;
     json['extrasSide'] = settings.extrasSide.key;
     json['showTrash'] = settings.showTrash;

@@ -48,8 +48,11 @@ turning it on.
   translucent while held, and neighbours ease into place.
 - **Smart auto-hide.** When a non-minimized floating window on the same output
   and workspace reaches the dock's strip, the capsule slides down. Moving the
-  pointer to the bottom edge brings it back after 90 ms; it retracts 200 ms
-  after the pointer leaves while the window still overlaps. A window parked
+  pointer to the bottom edge brings it back after 90 ms, and tapping that edge
+  does the same for touch and pen, which produce no hover; a tap holds the dock
+  out for four seconds so the finger can reach an icon. It retracts 200 ms
+  after the pointer leaves while a window still reaches the capsule, and comes
+  back as soon as that window clears the capsule itself. A window parked
   exactly on the boundary does not make it flap. While the window layout tiles,
   the dock stays resident instead: every tile reaches the bottom edge, so
   overlap-hiding would keep it hidden forever.
@@ -60,12 +63,14 @@ turning it on.
   first, because `xdg-open` treats the scheme as a web address, shows a count
   badge, and offers *Empty Trash*; emptying needs a second press, because it
   cannot be undone.
-- **Settings sheet.** Right-click the capsule background, the launcher, a folder
-  shortcut or the trash can, then choose *Dock settings…* where the menu offers
-  it. The sheet is a managed shell popup, so it gets the scene barrier, focus,
-  Escape and outside-tap dismissal. It covers visibility, click behaviour, icon
-  size, which end the launcher and the accessories sit on, the trash toggle and
-  the folder list.
+- **Dock menu and settings sheet.** Right-clicking the capsule background or the
+  launcher opens a small dock menu, modelled on the macOS Dock menu: turn hiding
+  on or off, turn magnification on or off, then *Dock settings…*. Folder and
+  trash icons offer the same entry in their own menus. The sheet is a managed
+  shell popup, so it gets the scene barrier, focus, Escape and outside-tap
+  dismissal. It covers visibility, click behaviour, icon size, magnification,
+  which end the launcher and the accessories sit on, the trash toggle and the
+  folder list.
 - **Shell-native looks.** The capsule and the settings sheet use Denial's
   `ShellTheme` panel colour, backdrop blur, hairline border and corner radii,
   so they match the top bar.
@@ -107,6 +112,7 @@ Most settings live in the settings sheet. The same values are stored in
   "visibility": "smart",
   "clickAction": "minimize",
   "iconSize": 48,
+  "magnification": true,
   "launcherSide": "left",
   "extrasSide": "right",
   "showTrash": true,
@@ -121,6 +127,8 @@ Most settings live in the settings sheet. The same values are stored in
 - `clickAction` is `"minimize"` (default) or `"cycle"`.
 - `iconSize` is in logical pixels, clamped to 32–72 in steps of 4; the default
   is 48.
+- `magnification` (default `true`) makes icons grow under the pointer. Off keeps
+  every icon at `iconSize` and the capsule at its resting width.
 - `launcherSide` and `extrasSide` are `"left"`, `"right"` or `"hidden"`.
   Accessories (folders and trash) default to the right; the launcher defaults
   to the left. Trash stays the last item inside the accessory group.

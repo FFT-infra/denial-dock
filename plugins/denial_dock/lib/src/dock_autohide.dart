@@ -34,10 +34,6 @@ abstract final class DockAutoHide {
     );
   }
 
-  /// Wider than [intentionalOverlap]: once hidden, the window has to leave this
-  /// rect before the dock counts the space as free again.
-  static Rect release(Rect rect) => rect.inflate(16);
-
   static Rect windowRect(DenialWindow window, DisplayOutput output) {
     final geometry = window.geometry;
     if (geometry == null) return Rect.zero;

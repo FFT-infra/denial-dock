@@ -41,6 +41,22 @@ class DockMenuPanel extends StatelessWidget {
   }
 }
 
+class DockMenuSeparator extends StatelessWidget {
+  const DockMenuSeparator({super.key});
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = context.shellTheme;
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 5),
+      child: SizedBox(
+        height: 1,
+        child: ColoredBox(color: theme.colors.hairline),
+      ),
+    );
+  }
+}
+
 /// One selectable line in a dock menu. [selected] draws a trailing check, used
 /// by on/off settings.
 class DockMenuRow extends StatefulWidget {

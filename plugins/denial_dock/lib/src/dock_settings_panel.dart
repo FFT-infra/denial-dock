@@ -229,6 +229,13 @@ class _DockSettingsPanelState extends ConsumerState<DockSettingsPanel> {
               settings.iconSize + delta * DockSettings.iconSizeStep,
             ),
           ),
+          const SizedBox(height: 6),
+          _ToggleRow(
+            label: _zh ? '放大' : 'Magnification',
+            value: settings.magnification,
+            onChanged: (value) =>
+                _controller.setMagnification(magnification: value),
+          ),
           const SizedBox(height: 18),
           _SectionLabel(_zh ? '布局' : 'Layout'),
           _RowLabel(_zh ? '启动台' : 'Launcher'),

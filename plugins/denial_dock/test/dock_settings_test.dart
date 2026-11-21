@@ -10,6 +10,7 @@ void main() {
   _expect(defaults.visibility == DockVisibilityMode.smart, 'default hide');
   _expect(defaults.clickAction == DockClickAction.minimize, 'default click');
   _expect(defaults.iconSize == 48, 'default size');
+  _expect(defaults.magnification, 'default magnification');
   _expect(defaults.launcherSide == DockSide.left, 'default launcher side');
   _expect(defaults.extrasSide == DockSide.right, 'default extras side');
   _expect(defaults.showTrash, 'default trash');
@@ -50,6 +51,7 @@ void main() {
     visibility: DockVisibilityMode.always,
     clickAction: DockClickAction.cycle,
     iconSize: 56,
+    magnification: false,
     launcherSide: DockSide.right,
     extrasSide: DockSide.left,
     showTrash: false,
@@ -60,6 +62,7 @@ void main() {
     'visibility': settings.visibility.key,
     'clickAction': settings.clickAction.key,
     'iconSize': settings.iconSize,
+    'magnification': settings.magnification,
     'launcherSide': settings.launcherSide.key,
     'extrasSide': settings.extrasSide.key,
     'showTrash': settings.showTrash,
@@ -72,6 +75,7 @@ void main() {
   _expect(decoded.visibility == DockVisibilityMode.always, 'round trip hide');
   _expect(decoded.clickAction == DockClickAction.cycle, 'round trip click');
   _expect(decoded.iconSize == 56, 'round trip size');
+  _expect(!decoded.magnification, 'round trip magnification');
   _expect(decoded.launcherSide == DockSide.right, 'round trip launcher');
   _expect(decoded.extrasSide == DockSide.left, 'round trip extras');
   _expect(!decoded.showTrash, 'round trip trash');
@@ -100,6 +104,7 @@ void main() {
   _expect(garbage.visibility == DockVisibilityMode.smart, 'garbage hide');
   _expect(garbage.clickAction == DockClickAction.minimize, 'garbage click');
   _expect(garbage.iconSize == 48, 'garbage size');
+  _expect(garbage.magnification, 'garbage magnification');
   _expect(garbage.launcherSide == DockSide.left, 'garbage launcher');
   _expect(garbage.extrasSide == DockSide.right, 'garbage extras');
   _expect(garbage.showTrash, 'garbage trash');
@@ -156,6 +161,7 @@ Future<void> _storeRoundTrip(DockSettings settings) async {
     _expect(written['clickAction'] == 'cycle', 'written click');
     _expect((written['folders'] as List).length == 1, 'written folders');
     _expect(written['iconSize'] == 56, 'written size');
+    _expect(written['magnification'] == false, 'written magnification');
     stdout.writeln('All dock settings tests passed.');
   } finally {
     directory.deleteSync(recursive: true);
