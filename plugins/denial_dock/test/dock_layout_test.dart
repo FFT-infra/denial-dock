@@ -14,11 +14,11 @@ void main() {
   ];
 
   DockLayoutFrame layout(double pointer, double hover) => DockLayout.compute(
-    surfaceWidth: surface,
+    surfaceExtent: surface,
     slots: slots,
     padding: padding,
     gap: gap,
-    pointerX: pointer,
+    pointer: pointer,
     hover: hover,
     maxScale: maxScale,
     radius: radius,
@@ -27,7 +27,7 @@ void main() {
   // Resting layout: no growth, capsule centred.
   final rest = layout(-10000, 0);
   _expect(rest.total == 0, 'rest total ${rest.total}');
-  _expect(rest.width == rest.restWidth, 'rest width ${rest.width}');
+  _expect(rest.extent == rest.restExtent, 'rest extent ${rest.extent}');
   for (final slot in rest.slots) {
     _expect(slot.scale == 1.0, 'rest scale ${slot.scale}');
     _expect((slot.center - slot.restCenter).abs() < 1e-9, 'rest dx');
@@ -49,8 +49,8 @@ void main() {
   );
   _expect(hovered.total > 0, 'total ${hovered.total}');
   _expect(
-    (hovered.width - (rest.restWidth + hovered.total)).abs() < 1e-9,
-    'width ${hovered.width}',
+    (hovered.extent - (rest.restExtent + hovered.total)).abs() < 1e-9,
+    'extent ${hovered.extent}',
   );
   _expect(
     (hovered.slots[2].scale - 1.0).abs() < 1e-9,
@@ -79,11 +79,11 @@ void main() {
   final firstLeft = hovered.slots.first.center - hovered.slots.first.half;
   final lastRight = hovered.slots.last.center + hovered.slots.last.half;
   _expect(
-    (firstLeft - (hovered.capsuleLeft + padding)).abs() < 1e-6,
-    'left hug ${firstLeft - hovered.capsuleLeft}',
+    (firstLeft - (hovered.capsuleStart + padding)).abs() < 1e-6,
+    'start hug ${firstLeft - hovered.capsuleStart}',
   );
   _expect(
-    (hovered.capsuleLeft + hovered.width - padding - lastRight).abs() < 1e-6,
+    (hovered.capsuleStart + hovered.extent - padding - lastRight).abs() < 1e-6,
     'right hug',
   );
 
@@ -107,16 +107,16 @@ void main() {
 
   // Empty dock is just the capsule padding.
   final empty = DockLayout.compute(
-    surfaceWidth: surface,
+    surfaceExtent: surface,
     slots: const [],
     padding: padding,
     gap: gap,
-    pointerX: 0,
+    pointer: 0,
     hover: 1,
     maxScale: maxScale,
     radius: radius,
   );
-  _expect(empty.width == padding * 2, 'empty width ${empty.width}');
+  _expect(empty.extent == padding * 2, 'empty extent ${empty.extent}');
   _expect(empty.slots.isEmpty, 'empty slots');
 }
 

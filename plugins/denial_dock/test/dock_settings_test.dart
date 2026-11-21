@@ -15,7 +15,11 @@ void main() {
   _expect(defaults.extrasSide == DockSide.right, 'default extras side');
   _expect(defaults.showTrash, 'default trash');
   _expect(defaults.folders.isEmpty, 'default folders');
-  _expect(defaults.capsuleHeight == 64, 'capsule ${defaults.capsuleHeight}');
+  _expect(
+    defaults.capsuleHeight ==
+        DockSettings.defaultIconSize + DockSettings.padding * 2,
+    'capsule ${defaults.capsuleHeight}',
+  );
   _expect(defaults.hasExtras, 'trash counts as extras');
 
   // Icon size is clamped on every path that reads a value from outside: the

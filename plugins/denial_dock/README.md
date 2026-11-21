@@ -1,9 +1,9 @@
 # Dock for Denial
 
 A small macOS-style dock for [Denial](https://github.com/denialwm/denial), the
-Flutter-native Wayland compositor. It floats above windows along the bottom
-edge, magnifies under the pointer, shows live window previews, and slides away
-when a window reaches it.
+Flutter-native Wayland compositor. It floats above windows on the bottom, left
+or right edge, magnifies under the pointer, shows live window previews, and
+slides away when a window reaches it.
 
 **This is a casual, vibe-coded toy.** It is not an official Denial plugin and
 comes with no support or stability promise. It works on the machine it was
@@ -32,7 +32,8 @@ turning it on.
 - **Window previews.** Hover an icon with two or more windows to open its tray.
   Hover one card for 300 ms to fade the other windows on that monitor; click a
   card to focus that window. The icon's name label appears after a 250 ms
-  dwell, and the running indicator shows one to three dots.
+  dwell above the magnified icon, on a pill with a tail pointing down at it,
+  and the running indicator shows one to three dots.
 - **Click behaviour.** Clicking an icon with windows either minimizes the
   active window (default) or cycles to the next one; the choice is in the
   settings sheet. Clicking an application with no windows launches it.
@@ -65,12 +66,13 @@ turning it on.
   cannot be undone.
 - **Dock menu and settings sheet.** Right-clicking the capsule background or the
   launcher opens a small dock menu, modelled on the macOS Dock menu: turn hiding
-  on or off, turn magnification on or off, then *Dock settings…*. Folder and
-  trash icons offer the same entry in their own menus. The sheet is a managed
-  shell popup, so it gets the scene barrier, focus, Escape and outside-tap
-  dismissal. It covers visibility, click behaviour, icon size, magnification,
-  which end the launcher and the accessories sit on, the trash toggle and the
-  folder list.
+  on or off, turn magnification on or off, then *Position on Screen* with a
+  checkmark on the current edge, then *Dock settings…*. Folder and trash icons
+  offer the same entry in their own menus. The sheet is a managed shell popup,
+  so it gets the scene barrier, focus, Escape and outside-tap dismissal. It
+  covers visibility, click behaviour, edge, icon size, magnification amount,
+  launch bounce, running indicators, suggested applications, which end the
+  launcher and the accessories sit on, the trash toggle and the folder list.
 - **Shell-native looks.** The capsule and the settings sheet use Denial's
   `ShellTheme` panel colour, backdrop blur, hairline border and corner radii,
   so they match the top bar.
@@ -113,6 +115,11 @@ Most settings live in the settings sheet. The same values are stored in
   "clickAction": "minimize",
   "iconSize": 48,
   "magnification": true,
+  "magnificationAmount": 0.6,
+  "position": "bottom",
+  "bounceOnLaunch": true,
+  "showIndicators": true,
+  "showSuggestions": true,
   "launcherSide": "left",
   "extrasSide": "right",
   "showTrash": true,
@@ -129,6 +136,15 @@ Most settings live in the settings sheet. The same values are stored in
   is 48.
 - `magnification` (default `true`) makes icons grow under the pointer. Off keeps
   every icon at `iconSize` and the capsule at its resting width.
+- `magnificationAmount` is the share of the 1.6x peak reached under the
+  pointer, clamped to 0–1; the default is 0.6.
+- `position` is `"bottom"` (default), `"left"` or `"right"`. The capsule turns
+  with the edge: magnification runs along the row, labels and menus open away
+  from the edge, and indicators sit on the inner side.
+- `bounceOnLaunch` (default `true`) plays the hop while an application starts.
+- `showIndicators` (default `true`) draws the running dots.
+- `showSuggestions` (default `true`) appends recently used applications that
+  are not pinned, after a divider.
 - `launcherSide` and `extrasSide` are `"left"`, `"right"` or `"hidden"`.
   Accessories (folders and trash) default to the right; the launcher defaults
   to the left. Trash stays the last item inside the accessory group.
@@ -144,8 +160,7 @@ Values the dock cannot parse fall back to the defaults rather than throwing.
 
 ## Known limitations
 
-- One horizontal row. A dock wider than the screen has no scrolling or overflow
-  mode.
+- A dock longer than the edge it sits on has no scrolling or overflow mode.
 - Every output gets its own dock, but drag and auto-hide were only exercised on
   a single monitor.
 - Denial starts button pointers at the scene origin. The drag code works from

@@ -21,17 +21,10 @@ class DockSlotLayout {
     required this.scale,
   });
 
-  /// Centre the slot would occupy without magnification.
   final double restCenter;
-
-  /// Centre after magnification and neighbour push.
   final double center;
-
   final double restHalf;
-
-  /// Half width after magnification.
   final double half;
-
   final double scale;
 
   double get dx => center - restCenter;
@@ -40,39 +33,38 @@ class DockSlotLayout {
 class DockLayoutFrame {
   const DockLayoutFrame({
     required this.slots,
-    required this.restWidth,
+    required this.restExtent,
     required this.total,
-    required this.width,
-    required this.capsuleLeft,
+    required this.extent,
+    required this.capsuleStart,
     required this.padding,
   });
 
   final List<DockSlotLayout> slots;
 
-  /// Capsule width with no magnification.
-  final double restWidth;
+  /// Capsule length with no magnification.
+  final double restExtent;
 
-  /// Extra width introduced by magnification.
+  /// Extra length introduced by magnification.
   final double total;
 
-  /// Capsule width with magnification.
-  final double width;
+  /// Capsule length with magnification.
+  final double extent;
 
-  /// Left edge of the capsule in surface coordinates.
-  final double capsuleLeft;
+  /// Leading edge of the capsule in surface coordinates.
+  final double capsuleStart;
 
   final double padding;
 
   DockSlotLayout? operator [](int index) =>
       index >= 0 && index < slots.length ? slots[index] : null;
 
-  /// The slot whose painted centre is closest to [pointerX], plus that distance.
-  (int index, DockSlotLayout slot, double distance)? nearest(double pointerX) {
-    if (slots.isEmpty || !pointerX.isFinite) return null;
+  (int index, DockSlotLayout slot, double distance)? nearest(double pointer) {
+    if (slots.isEmpty || !pointer.isFinite) return null;
     var bestIndex = 0;
     var bestDistance = double.infinity;
     for (var i = 0; i < slots.length; i++) {
-      final distance = (pointerX - slots[i].center).abs();
+      final distance = (pointer - slots[i].center).abs();
       if (distance < bestDistance) {
         bestDistance = distance;
         bestIndex = i;
@@ -82,39 +74,33 @@ class DockLayoutFrame {
   }
 }
 
-/// Horizontal dock layout with real growth. Magnified slots take more room and
-/// push their neighbours out; the capsule widens and stays centred on the
-/// surface. Influence is measured against resting centres so the layout has no
-/// feedback loop while the pointer is still.
+/// Axis-agnostic dock layout with real growth. The row is always laid out
+/// along one axis, so a side dock reuses the same kernel as a bottom dock.
 abstract final class DockLayout {
-  /// The kernel holds its peak across one slot before it starts to decay.
-  /// Without a plateau the scale peaks only at the exact slot centre, so
-  /// sliding the pointer along the row makes every icon breathe as it crosses
-  /// the gaps.
   static double plateauFor({required double pitch, required double radius}) =>
       math.min(pitch / 2, radius * 0.6);
 
   static DockLayoutFrame compute({
-    required double surfaceWidth,
+    required double surfaceExtent,
     required List<DockSlot> slots,
     required double padding,
     required double gap,
-    required double pointerX,
+    required double pointer,
     required double hover,
     required double maxScale,
     required double radius,
     double? plateau,
   }) {
-    final safeSurfaceWidth = surfaceWidth.isFinite
-        ? surfaceWidth
+    final safeExtent = surfaceExtent.isFinite
+        ? surfaceExtent
         : slots.fold<double>(padding * 2, (sum, slot) => sum + slot.half * 2);
     if (slots.isEmpty) {
       return DockLayoutFrame(
         slots: const [],
-        restWidth: padding * 2,
+        restExtent: padding * 2,
         total: 0,
-        width: padding * 2,
-        capsuleLeft: (safeSurfaceWidth - padding * 2) / 2,
+        extent: padding * 2,
+        capsuleStart: (safeExtent - padding * 2) / 2,
         padding: padding,
       );
     }
@@ -127,10 +113,9 @@ abstract final class DockLayout {
       if (slot.growable) pitch = math.max(pitch, slot.half * 2 + gap);
       cursor += slot.half * 2 + gap;
     }
-    // [cursor] still carries the leading padding and one trailing gap.
-    final contentWidth = cursor - gap - padding;
-    final restWidth = contentWidth + padding * 2;
-    final restLeft = safeSurfaceWidth / 2 - restWidth / 2;
+    final contentExtent = cursor - gap - padding;
+    final restExtent = contentExtent + padding * 2;
+    final restStart = safeExtent / 2 - restExtent / 2;
 
     final shoulder = plateau ?? plateauFor(pitch: pitch, radius: radius);
     final growth = (maxScale - 1.0) * hover.clamp(0.0, 1.0);
@@ -141,7 +126,7 @@ abstract final class DockLayout {
       var scale = 1.0;
       if (slot.growable && growth > 0) {
         final influence = DockMath.influenceAt(
-          pointerX - (restLeft + restCenters[i]),
+          pointer - (restStart + restCenters[i]),
           radius,
           plateau: shoulder,
         );
@@ -151,15 +136,15 @@ abstract final class DockLayout {
       total += slot.half * 2 * (scale - 1.0);
     }
 
-    final width = restWidth + total;
-    final left = safeSurfaceWidth / 2 - width / 2;
+    final extent = restExtent + total;
+    final start = safeExtent / 2 - extent / 2;
     final layouts = <DockSlotLayout>[];
-    var x = left + padding;
+    var x = start + padding;
     for (var i = 0; i < slots.length; i++) {
       final half = slots[i].half * scales[i];
       layouts.add(
         DockSlotLayout(
-          restCenter: restLeft + restCenters[i],
+          restCenter: restStart + restCenters[i],
           center: x + half,
           restHalf: slots[i].half,
           half: half,
@@ -171,10 +156,10 @@ abstract final class DockLayout {
 
     return DockLayoutFrame(
       slots: layouts,
-      restWidth: restWidth,
+      restExtent: restExtent,
       total: total,
-      width: width,
-      capsuleLeft: left,
+      extent: extent,
+      capsuleStart: start,
       padding: padding,
     );
   }

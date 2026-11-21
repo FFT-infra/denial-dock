@@ -66,6 +66,21 @@ class DockSettingsController extends AsyncNotifier<DockSettings> {
   Future<void> setMagnification({required bool magnification}) =>
       _update((current) => current.copyWith(magnification: magnification));
 
+  Future<void> setMagnificationAmount(double amount) =>
+      _update((current) => current.copyWith(magnificationAmount: amount));
+
+  Future<void> setPosition(DockPosition position) =>
+      _update((current) => current.copyWith(position: position));
+
+  Future<void> setBounceOnLaunch({required bool bounce}) =>
+      _update((current) => current.copyWith(bounceOnLaunch: bounce));
+
+  Future<void> setShowIndicators({required bool show}) =>
+      _update((current) => current.copyWith(showIndicators: show));
+
+  Future<void> setShowSuggestions({required bool show}) =>
+      _update((current) => current.copyWith(showSuggestions: show));
+
   Future<void> setLauncherSide(DockSide side) =>
       _update((current) => current.copyWith(launcherSide: side));
 

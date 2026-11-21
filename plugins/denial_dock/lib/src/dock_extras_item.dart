@@ -26,6 +26,7 @@ class DockAccessoryItem extends StatefulWidget {
     required this.icon,
     required this.size,
     required this.lift,
+    required this.position,
     required this.onTap,
     required this.menuBuilder,
     required this.onOverlayChanged,
@@ -38,6 +39,7 @@ class DockAccessoryItem extends StatefulWidget {
   final IconData icon;
   final double size;
   final double lift;
+  final DockPosition position;
   final VoidCallback onTap;
   final DockAccessoryMenuBuilder menuBuilder;
   final ValueChanged<bool> onOverlayChanged;
@@ -92,7 +94,11 @@ class _DockAccessoryItemState extends State<DockAccessoryItem> {
       overlayChildBuilder: (context, layout) =>
           _menuOpen ? _buildMenu(context, layout) : const SizedBox.shrink(),
       child: Transform.translate(
-        offset: Offset(0, -widget.lift),
+        offset: switch (widget.position) {
+          DockPosition.bottom => Offset(0, -widget.lift),
+          DockPosition.left => Offset(widget.lift, 0),
+          DockPosition.right => Offset(-widget.lift, 0),
+        },
         child: Semantics(
           label: widget.label,
           button: true,
@@ -196,10 +202,13 @@ class _DockAccessoryItemState extends State<DockAccessoryItem> {
     final width = math.min(236.0, math.max(0.0, bounds.width - 16));
     final maxHeight = math.max(0.0, anchor.top - bounds.top - 16);
     if (width <= 0 || maxHeight <= 0) return const SizedBox.shrink();
-    final left = (anchor.center.dx - width / 2).clamp(
-      bounds.left + 8,
-      math.max(bounds.left + 8, bounds.right - width - 8),
+    final placement = dockMenuAnchor(
+      anchor: anchor,
+      output: bounds,
+      width: width,
+      position: widget.position,
     );
+    if (placement == null) return const SizedBox.shrink();
     return ShellInputRegion(
       debugLabel: 'Dock accessory menu',
       pointerPolicy: ShellPointerPolicy.fullScene,
@@ -219,13 +228,14 @@ class _DockAccessoryItemState extends State<DockAccessoryItem> {
                   child: const ColoredBox(color: Color(0x00000000)),
                 ),
               ),
-              Positioned(
-                left: left.toDouble(),
-                bottom: layout.overlaySize.height - anchor.top + 10,
-                width: width,
+              DockMenuLayer(
+                anchor: placement,
+                overlaySize: layout.overlaySize,
                 child: DockMenuPanel(
                   radius: theme.borderRadius(14),
                   maxHeight: maxHeight,
+                  tail: placement.tail,
+                  tailAlignment: placement.tailAlignment,
                   child: SingleChildScrollView(
                     child: Padding(
                       padding: const EdgeInsets.symmetric(vertical: 4),
@@ -265,6 +275,7 @@ class DockTrashItem extends StatefulWidget {
   const DockTrashItem({
     required this.size,
     required this.lift,
+    required this.position,
     required this.zh,
     required this.onOverlayChanged,
     required this.monitorBounds,
@@ -274,6 +285,7 @@ class DockTrashItem extends StatefulWidget {
 
   final double size;
   final double lift;
+  final DockPosition position;
   final bool zh;
   final ValueChanged<bool> onOverlayChanged;
   final Rect monitorBounds;
@@ -356,6 +368,7 @@ class _DockTrashItemState extends State<DockTrashItem> {
       icon: full ? Icons.delete_rounded : Icons.delete_outline_rounded,
       size: widget.size,
       lift: widget.lift,
+      position: widget.position,
       badge: _count,
       onTap: _open,
       onOverlayChanged: widget.onOverlayChanged,
@@ -396,6 +409,7 @@ class DockFolderItem extends StatelessWidget {
     required this.folder,
     required this.size,
     required this.lift,
+    required this.position,
     required this.zh,
     required this.onRemove,
     required this.onOverlayChanged,
@@ -407,6 +421,7 @@ class DockFolderItem extends StatelessWidget {
   final DockFolder folder;
   final double size;
   final double lift;
+  final DockPosition position;
   final bool zh;
   final VoidCallback onRemove;
   final ValueChanged<bool> onOverlayChanged;
@@ -424,6 +439,7 @@ class DockFolderItem extends StatelessWidget {
       icon: Icons.folder_rounded,
       size: size,
       lift: lift,
+      position: position,
       onTap: _open,
       onOverlayChanged: onOverlayChanged,
       monitorBounds: monitorBounds,

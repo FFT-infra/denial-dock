@@ -6,7 +6,6 @@ import 'package:denial_sdk/composition.dart';
 import 'package:flutter/widgets.dart';
 
 import 'src/dock_container.dart';
-import 'src/dock_preferences.dart';
 
 /// A floating, macOS-style dock for Denial.
 ///
@@ -29,16 +28,8 @@ final class DockPlugin implements ShellSurface {
       return null;
     }
 
-    final outputRect = environment.output.logicalRect;
-    final bounds = Rect.fromLTWH(
-      outputRect.left,
-      outputRect.bottom - dockSurfaceHeight,
-      outputRect.width,
-      dockSurfaceHeight,
-    );
-
     return ShellSurfacePlacement(
-      bounds: bounds,
+      bounds: environment.output.logicalRect,
       // The capsule is glass, so it fades its backdrop and foreground through
       // ShellBackdropBlur.opacity instead of the SDK's whole-surface fade.
       fade: ShellSurfaceFade.custom,

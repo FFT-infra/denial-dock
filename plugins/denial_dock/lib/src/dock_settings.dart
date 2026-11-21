@@ -44,6 +44,27 @@ enum DockClickAction {
   }) => value == 'cycle' ? DockClickAction.cycle : fallback;
 }
 
+enum DockPosition {
+  left,
+  bottom,
+  right;
+
+  String get key => switch (this) {
+    DockPosition.left => 'left',
+    DockPosition.bottom => 'bottom',
+    DockPosition.right => 'right',
+  };
+
+  static DockPosition parse(
+    Object? value, {
+    DockPosition fallback = DockPosition.bottom,
+  }) => switch (value) {
+    'left' => DockPosition.left,
+    'right' => DockPosition.right,
+    _ => fallback,
+  };
+}
+
 /// Icons and their identity are matched without the `.desktop` suffix and case.
 String normalizeAppId(String id) =>
     id.trim().toLowerCase().replaceFirst(RegExp(r'\.desktop$'), '');
@@ -113,6 +134,11 @@ class DockSettings {
     this.clickAction = DockClickAction.minimize,
     this.iconSize = defaultIconSize,
     this.magnification = true,
+    this.magnificationAmount = 0.6,
+    this.position = DockPosition.bottom,
+    this.bounceOnLaunch = true,
+    this.showIndicators = true,
+    this.showSuggestions = true,
     this.launcherSide = DockSide.left,
     this.extrasSide = DockSide.right,
     this.showTrash = true,
@@ -125,7 +151,17 @@ class DockSettings {
   static const double maxIconSize = 72.0;
   static const double iconSizeStep = 4.0;
   static const double gap = 8.0;
-  static const double padding = 8.0;
+
+  /// Cross-axis inset between the capsule edge and the icons. macOS keeps this
+  /// small: the capsule is only a few pixels taller than the icon.
+  static const double padding = 5.0;
+
+  /// Inset at the two ends of the row, which is looser than the cross-axis
+  /// padding in every reference dock.
+  static const double edgePadding = 10.0;
+  static const double minMagnificationAmount = 0.0;
+  static const double maxMagnificationAmount = 1.0;
+  static const double magnificationAmountStep = 0.1;
   static const double maxScale = 1.6;
   static const double magnificationRadius = 140.0;
   static const double liftRatio = 0.25;
@@ -150,6 +186,15 @@ class DockSettings {
 
   final bool magnification;
 
+  /// Extra scale at the pointer, as a fraction of [maxScale]'s headroom:
+  /// 0 keeps icons at their base size, 1 is the full 1.6x peak.
+  final double magnificationAmount;
+
+  final DockPosition position;
+  final bool bounceOnLaunch;
+  final bool showIndicators;
+  final bool showSuggestions;
+
   final DockSide launcherSide;
   final DockSide extrasSide;
   final bool showTrash;
@@ -166,6 +211,11 @@ class DockSettings {
     DockClickAction? clickAction,
     double? iconSize,
     bool? magnification,
+    double? magnificationAmount,
+    DockPosition? position,
+    bool? bounceOnLaunch,
+    bool? showIndicators,
+    bool? showSuggestions,
     DockSide? launcherSide,
     DockSide? extrasSide,
     bool? showTrash,
@@ -176,6 +226,13 @@ class DockSettings {
     clickAction: clickAction ?? this.clickAction,
     iconSize: clampIconSize(iconSize ?? this.iconSize),
     magnification: magnification ?? this.magnification,
+    magnificationAmount: clampMagnification(
+      magnificationAmount ?? this.magnificationAmount,
+    ),
+    position: position ?? this.position,
+    bounceOnLaunch: bounceOnLaunch ?? this.bounceOnLaunch,
+    showIndicators: showIndicators ?? this.showIndicators,
+    showSuggestions: showSuggestions ?? this.showSuggestions,
     launcherSide: launcherSide ?? this.launcherSide,
     extrasSide: extrasSide ?? this.extrasSide,
     showTrash: showTrash ?? this.showTrash,
@@ -186,6 +243,16 @@ class DockSettings {
     if (!value.isFinite) return defaultIconSize;
     return value.clamp(minIconSize, maxIconSize).toDouble();
   }
+
+  static double clampMagnification(double value) {
+    if (!value.isFinite) return 0.6;
+    return value
+        .clamp(minMagnificationAmount, maxMagnificationAmount)
+        .toDouble();
+  }
+
+  double get effectiveMaxScale =>
+      magnification ? 1.0 + (maxScale - 1.0) * magnificationAmount : 1.0;
 
   DockSettings withFolder(DockFolder folder) {
     final path = normalizeFolderPath(folder.path);
@@ -258,6 +325,21 @@ class DockSettings {
       magnification: json['magnification'] is bool
           ? json['magnification'] as bool
           : true,
+      magnificationAmount: clampMagnification(
+        json['magnificationAmount'] is num
+            ? (json['magnificationAmount'] as num).toDouble()
+            : 0.6,
+      ),
+      position: DockPosition.parse(json['position']),
+      bounceOnLaunch: json['bounceOnLaunch'] is bool
+          ? json['bounceOnLaunch'] as bool
+          : true,
+      showIndicators: json['showIndicators'] is bool
+          ? json['showIndicators'] as bool
+          : true,
+      showSuggestions: json['showSuggestions'] is bool
+          ? json['showSuggestions'] as bool
+          : true,
       launcherSide: DockSide.parse(
         json['launcherSide'],
         fallback: DockSide.left,
@@ -316,6 +398,11 @@ class DockPreferencesStore {
     json['clickAction'] = settings.clickAction.key;
     json['iconSize'] = settings.iconSize;
     json['magnification'] = settings.magnification;
+    json['magnificationAmount'] = settings.magnificationAmount;
+    json['position'] = settings.position.key;
+    json['bounceOnLaunch'] = settings.bounceOnLaunch;
+    json['showIndicators'] = settings.showIndicators;
+    json['showSuggestions'] = settings.showSuggestions;
     json['launcherSide'] = settings.launcherSide.key;
     json['extrasSide'] = settings.extrasSide.key;
     json['showTrash'] = settings.showTrash;

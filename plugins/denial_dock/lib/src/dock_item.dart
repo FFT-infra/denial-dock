@@ -29,9 +29,12 @@ class DockItemWidget extends StatefulWidget {
     required this.services,
     required this.monitorId,
     required this.monitorBounds,
+    required this.position,
     required this.size,
     required this.lift,
     required this.clickAction,
+    required this.bounceOnLaunch,
+    required this.showIndicators,
     required this.onTogglePin,
     required this.onCloseWindows,
     required this.onOverlayChanged,
@@ -58,14 +61,20 @@ class DockItemWidget extends StatefulWidget {
   final int monitorId;
   final Rect? monitorBounds;
 
+  /// Which screen edge the dock is attached to.
+  final DockPosition position;
+
   /// Painted edge length for the current magnification.
   final double size;
 
-  /// Extra upward offset for the magnified icon.
+  /// Extra offset away from the screen edge for the magnified icon.
   final double lift;
 
   /// What a click on the front-most application does.
   final DockClickAction clickAction;
+
+  final bool bounceOnLaunch;
+  final bool showIndicators;
 
   final VoidCallback onTogglePin;
 
@@ -77,10 +86,11 @@ class DockItemWidget extends StatefulWidget {
   /// Keeps the dock expanded while a menu or preview tray is open.
   final ValueChanged<bool> onOverlayChanged;
 
-  /// Pinned icons can be dragged horizontally to reorder, or up out of the dock
-  /// to remove them. Null on unpinned running entries. The callbacks carry the
-  /// pointer's scene position: the shell's button pointer can start at the
-  /// scene origin, so the dock tracks absolute positions instead of deltas.
+  /// Pinned icons can be dragged along the dock to reorder, or away from the
+  /// screen edge to remove them. Null on unpinned running entries. The
+  /// callbacks carry the pointer's scene position: the shell's button pointer
+  /// can start at the scene origin, so the dock tracks absolute positions
+  /// instead of deltas.
   final ValueChanged<Offset>? onDragStart;
   final ValueChanged<Offset>? onDragUpdate;
   final VoidCallback? onDragEnd;
@@ -111,6 +121,11 @@ class _DockItemWidgetState extends State<DockItemWidget>
   Timer? _longPressTimer;
   bool _longPressFired = false;
 
+  /// Press feedback: a light wash that appears on press and fades out, as in
+  /// the reference docks.
+  Timer? _pressTimer;
+  bool _pressed = false;
+
   Timer? _showPreviewTimer;
   Timer? _hidePreviewTimer;
   Timer? _emphasisTimer;
@@ -126,6 +141,13 @@ class _DockItemWidgetState extends State<DockItemWidget>
   String? _launchError;
 
   bool get _overlayOpen => _menuOpen || _previewsOpen;
+
+  /// Unit vector pointing away from the screen edge the dock is attached to.
+  Offset get _away => switch (widget.position) {
+    DockPosition.bottom => const Offset(0, -1),
+    DockPosition.left => const Offset(1, 0),
+    DockPosition.right => const Offset(-1, 0),
+  };
 
   @override
   void initState() {
@@ -160,6 +182,7 @@ class _DockItemWidgetState extends State<DockItemWidget>
     _showPreviewTimer?.cancel();
     _hidePreviewTimer?.cancel();
     _longPressTimer?.cancel();
+    _pressTimer?.cancel();
     _clearEmphasis();
     _focus.dispose();
     _launchTicker.dispose();
@@ -232,6 +255,19 @@ class _DockItemWidgetState extends State<DockItemWidget>
     widget.onOverlayChanged(false);
   }
 
+  void _pressDown() {
+    _pressTimer?.cancel();
+    if (!_pressed) setState(() => _pressed = true);
+  }
+
+  void _pressUp() {
+    if (!_pressed) return;
+    _pressTimer?.cancel();
+    _pressTimer = Timer(const Duration(milliseconds: 45), () {
+      if (mounted && _pressed) setState(() => _pressed = false);
+    });
+  }
+
   /// Clicking an application follows macOS: a stopped application starts, a
   /// front-most one minimizes or cycles to its next window, and one in the
   /// background comes forward.
@@ -279,7 +315,7 @@ class _DockItemWidgetState extends State<DockItemWidget>
       _launchFailed = false;
       _launchError = null;
     });
-    _startLaunchFeedback();
+    if (widget.bounceOnLaunch) _startLaunchFeedback();
     var launched = false;
     try {
       launched = await widget.services.launchApplication(
@@ -409,41 +445,93 @@ class _DockItemWidgetState extends State<DockItemWidget>
     final active = widget.windows.any((window) => window.active);
     final size = widget.size;
     // macOS shows one dot per open window up to three; more windows keep the
-    // three-dot row. The dots sit in the same 4 px slot as before, so the
-    // capsule height does not change.
+    // three-dot row.
     final dotCount = math.min(3, math.max(1, widget.windows.length));
     final dotSize = dotCount >= 3 ? 4.0 : 5.0;
     const dotSpacing = 2.0;
-    final indicator = running
-        ? Positioned(
-            left: 0,
-            right: 0,
-            bottom: -5,
-            child: Center(
-              child: SizedBox(
-                height: 4,
-                child: Row(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    for (var i = 0; i < dotCount; i++) ...[
-                      if (i > 0) const SizedBox(width: dotSpacing),
-                      Container(
-                        width: dotSize,
-                        height: dotSize,
-                        decoration: BoxDecoration(
-                          shape: BoxShape.circle,
+    final indicator = running && widget.showIndicators
+        ? switch (widget.position) {
+            DockPosition.bottom => Positioned(
+              left: 0,
+              right: 0,
+              bottom: -5,
+              child: Center(
+                child: SizedBox(
+                  height: 4,
+                  child: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      for (var i = 0; i < dotCount; i++) ...[
+                        if (i > 0) const SizedBox(width: dotSpacing),
+                        _Dot(
+                          size: dotSize,
                           color: active
                               ? theme.accent
                               : colors.textPrimary.withValues(alpha: 0.55),
                         ),
-                      ),
+                      ],
                     ],
-                  ],
+                  ),
                 ),
               ),
             ),
-          )
+            DockPosition.left => Positioned(
+              top: 0,
+              bottom: 0,
+              left: -5,
+              child: Center(
+                child: SizedBox(
+                  width: 4,
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      for (var i = 0; i < dotCount; i++) ...[
+                        if (i > 0) const SizedBox(height: dotSpacing),
+                        _Dot(
+                          size: dotSize,
+                          color: active
+                              ? theme.accent
+                              : colors.textPrimary.withValues(alpha: 0.55),
+                        ),
+                      ],
+                    ],
+                  ),
+                ),
+              ),
+            ),
+            DockPosition.right => Positioned(
+              top: 0,
+              bottom: 0,
+              right: -5,
+              child: Center(
+                child: SizedBox(
+                  width: 4,
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      for (var i = 0; i < dotCount; i++) ...[
+                        if (i > 0) const SizedBox(height: dotSpacing),
+                        _Dot(
+                          size: dotSize,
+                          color: active
+                              ? theme.accent
+                              : colors.textPrimary.withValues(alpha: 0.55),
+                        ),
+                      ],
+                    ],
+                  ),
+                ),
+              ),
+            ),
+          }
         : null;
+
+    final offset =
+        _away *
+        -(DockLaunch.iconOffset(
+          hoverLift: widget.lift,
+          launchLift: _launchLift,
+        ));
 
     return OverlayPortal.overlayChildLayoutBuilder(
       controller: _portal,
@@ -476,6 +564,7 @@ class _DockItemWidgetState extends State<DockItemWidget>
                 onPointerDown: (event) {
                   _downPosition = event.position;
                   _downButtons = event.buttons;
+                  if (event.buttons == kPrimaryButton) _pressDown();
                   // A touch or pen has no secondary button; a long press opens
                   // the same menu. The timer is cancelled as soon as the
                   // pointer moves, so a drag never turns into a menu.
@@ -503,12 +592,14 @@ class _DockItemWidgetState extends State<DockItemWidget>
                   }
                 },
                 onPointerUp: (event) {
+                  _pressUp();
                   _longPressTimer?.cancel();
                   _longPressTimer = null;
                   _downPosition = null;
                   _downButtons = 0;
                 },
                 onPointerCancel: (event) {
+                  _pressUp();
                   _longPressTimer?.cancel();
                   _longPressTimer = null;
                   _downPosition = null;
@@ -544,13 +635,7 @@ class _DockItemWidgetState extends State<DockItemWidget>
                       : (_) => widget.onDragEnd!(),
                   onPanCancel: widget.onDragEnd,
                   child: Transform.translate(
-                    offset: Offset(
-                      0,
-                      DockLaunch.iconOffset(
-                        hoverLift: widget.lift,
-                        launchLift: _launchLift,
-                      ),
-                    ),
+                    offset: offset,
                     child: SizedBox(
                       width: size,
                       height: size,
@@ -564,6 +649,22 @@ class _DockItemWidgetState extends State<DockItemWidget>
                             ),
                           ),
                           if (indicator != null) indicator,
+                          IgnorePointer(
+                            child: AnimatedOpacity(
+                              duration: const Duration(milliseconds: 45),
+                              curve: Curves.easeOut,
+                              opacity: _pressed ? 1 : 0,
+                              child: DecoratedBox(
+                                decoration: BoxDecoration(
+                                  borderRadius: BorderRadius.circular(
+                                    size * 0.24,
+                                  ),
+                                  color: const Color(0xFFFFFFFF)
+                                      .withValues(alpha: 0.12),
+                                ),
+                              ),
+                            ),
+                          ),
                         ],
                       ),
                     ),
@@ -595,12 +696,14 @@ class _DockItemWidgetState extends State<DockItemWidget>
     final colors = theme.colors;
     final chinese = Localizations.localeOf(context).languageCode == 'zh';
     final width = math.min(248.0, math.max(0.0, output.width - 16));
-    final maxHeight = math.max(0.0, geometry.anchor.top - output.top - 16);
-    if (width <= 0 || maxHeight <= 0) return const SizedBox.shrink();
-    final left = (geometry.anchor.center.dx - width / 2).clamp(
-      output.left + 8,
-      math.max(output.left + 8, output.right - width - 8),
+    final placement = dockMenuAnchor(
+      anchor: geometry.anchor,
+      output: output,
+      width: width,
+      position: widget.position,
     );
+    if (placement == null) return const SizedBox.shrink();
+    final maxHeight = math.max(0.0, geometry.anchor.top - output.top - 16);
     final radius = theme.borderRadius(14);
     return ShellInputRegion(
       debugLabel: 'Dock application menu',
@@ -621,13 +724,14 @@ class _DockItemWidgetState extends State<DockItemWidget>
                   child: const ColoredBox(color: Color(0x00000000)),
                 ),
               ),
-              Positioned(
-                left: left.toDouble(),
-                bottom: layout.overlaySize.height - geometry.anchor.top + 10,
-                width: width,
+              DockMenuLayer(
+                anchor: placement,
+                overlaySize: layout.overlaySize,
                 child: DockMenuPanel(
                   radius: radius,
                   maxHeight: maxHeight,
+                  tail: placement.tail,
+                  tailAlignment: placement.tailAlignment,
                   child: SingleChildScrollView(
                     child: Padding(
                       padding: const EdgeInsets.symmetric(vertical: 4),
@@ -848,6 +952,20 @@ class _DockItemWidgetState extends State<DockItemWidget>
       ],
     );
   }
+}
+
+class _Dot extends StatelessWidget {
+  const _Dot({required this.size, required this.color});
+
+  final double size;
+  final Color color;
+
+  @override
+  Widget build(BuildContext context) => Container(
+    width: size,
+    height: size,
+    decoration: BoxDecoration(shape: BoxShape.circle, color: color),
+  );
 }
 
 Size _previewSize(Size source, double maxWidth, double maxHeight) {

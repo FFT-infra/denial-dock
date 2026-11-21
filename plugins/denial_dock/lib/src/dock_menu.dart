@@ -1,6 +1,160 @@
+import 'dart:async';
+import 'dart:math' as math;
+
 import 'package:denial_flutter_sdk/effects.dart';
 import 'package:denial_flutter_sdk/theme.dart';
 import 'package:flutter/material.dart';
+
+import 'dock_settings.dart' show DockPosition;
+
+/// Which side of a menu panel carries the pointer tail, mirroring the dock's
+/// edge. Menus open away from the screen edge, so the tail points back at it.
+enum DockMenuTail { none, down, left, right }
+
+/// A tail drawn in the panel's fill colour, so the seam between the tail and
+/// the panel is invisible.
+class DockTail extends StatelessWidget {
+  const DockTail({
+    required this.tail,
+    required this.color,
+    this.length = 6,
+    super.key,
+  });
+
+  final DockMenuTail tail;
+  final Color color;
+
+  /// Height of a downward tail, or width of a sideways one.
+  final double length;
+
+  @override
+  Widget build(BuildContext context) {
+    if (tail == DockMenuTail.none) return const SizedBox.shrink();
+    final depth = length * 2.1;
+    return CustomPaint(
+      size: tail == DockMenuTail.down
+          ? Size(depth, length)
+          : Size(length, depth),
+      painter: _MenuTailPainter(color, tail),
+    );
+  }
+}
+
+/// Where a menu opens relative to its anchor icon, plus how the tail lines up.
+class DockMenuAnchor {
+  const DockMenuAnchor({
+    required this.left,
+    required this.width,
+    required this.tail,
+    required this.tailAlignment,
+    this.panelBottomY,
+    this.alignBox,
+    this.alignmentY = 0,
+  });
+
+  final double left;
+  final double width;
+  final DockMenuTail tail;
+  final double tailAlignment;
+
+  /// Scene-space y of the panel's bottom edge, for docks on the bottom edge.
+  final double? panelBottomY;
+
+  /// Vertical band a side-dock panel is centred inside.
+  final Rect? alignBox;
+
+  final double alignmentY;
+}
+
+/// A menu opens away from the dock's edge: above a bottom dock, beside a side
+/// dock, with the tail pointing back at the icon.
+DockMenuAnchor? dockMenuAnchor({
+  required Rect anchor,
+  required Rect output,
+  required double width,
+  required DockPosition position,
+  double gap = 10,
+}) {
+  if (width <= 0 || output.isEmpty) return null;
+  const inset = 8.0;
+  switch (position) {
+    case DockPosition.bottom:
+      if (anchor.top - gap - output.top < inset) return null;
+      final left = (anchor.center.dx - width / 2).clamp(
+        output.left + inset,
+        math.max(output.left + inset, output.right - width - inset),
+      );
+      return DockMenuAnchor(
+        left: left.toDouble(),
+        width: width,
+        tail: DockMenuTail.down,
+        tailAlignment: ((anchor.center.dx - left) / width).clamp(0.08, 0.92),
+        panelBottomY: anchor.top - gap,
+      );
+    case DockPosition.left:
+    case DockPosition.right:
+      final left = position == DockPosition.left
+          ? anchor.right + gap
+          : anchor.left - gap - width;
+      if (left < output.left + inset || left + width > output.right - inset) {
+        return null;
+      }
+      final box = Rect.fromLTRB(
+        output.left,
+        output.top + inset,
+        output.right,
+        output.bottom - inset,
+      );
+      final t = box.height <= 0
+          ? 0.5
+          : ((anchor.center.dy - box.top) / box.height).clamp(0.0, 1.0);
+      return DockMenuAnchor(
+        left: left,
+        width: width,
+        tail: position == DockPosition.left
+            ? DockMenuTail.left
+            : DockMenuTail.right,
+        tailAlignment: 0.5,
+        alignBox: box,
+        alignmentY: t * 2 - 1,
+      );
+  }
+}
+
+/// Positions a menu panel for [anchor] inside the scene overlay.
+class DockMenuLayer extends StatelessWidget {
+  const DockMenuLayer({
+    required this.anchor,
+    required this.overlaySize,
+    required this.child,
+    super.key,
+  });
+
+  final DockMenuAnchor anchor;
+  final Size overlaySize;
+  final Widget child;
+
+  @override
+  Widget build(BuildContext context) {
+    final bottomY = anchor.panelBottomY;
+    if (bottomY != null) {
+      return Positioned(
+        left: anchor.left,
+        bottom: overlaySize.height - bottomY,
+        width: anchor.width,
+        child: child,
+      );
+    }
+    final box = anchor.alignBox ?? Offset.zero & overlaySize;
+    return Positioned(
+      left: anchor.left,
+      top: box.top,
+      height: math.max(0.0, box.height),
+      width: anchor.width,
+      child: Align(alignment: Alignment(0, anchor.alignmentY), child: child),
+    );
+  }
+}
 
 /// The blurred, hairline-bordered panel shared by the application menu and the
 /// dock menu.
@@ -9,12 +163,18 @@ class DockMenuPanel extends StatelessWidget {
     required this.radius,
     required this.child,
     this.maxHeight,
+    this.tail = DockMenuTail.none,
+    this.tailAlignment = 0.5,
     super.key,
   });
 
   final BorderRadius radius;
   final Widget child;
   final double? maxHeight;
+  final DockMenuTail tail;
+
+  /// Position of the tail along the panel edge, 0 = start, 1 = end.
+  final double tailAlignment;
 
   @override
   Widget build(BuildContext context) {
@@ -33,12 +193,83 @@ class DockMenuPanel extends StatelessWidget {
       ),
     );
     final height = maxHeight;
-    if (height == null) return panel;
-    return ConstrainedBox(
-      constraints: BoxConstraints(maxHeight: height),
-      child: panel,
+    final sized = height == null
+        ? panel
+        : ConstrainedBox(
+            constraints: BoxConstraints(maxHeight: height),
+            child: panel,
+          );
+    if (tail == DockMenuTail.none) return sized;
+    final fill = theme.panelColor(theme.colors.surfaceContainer);
+    final aligned = Align(
+      alignment: switch (tail) {
+        DockMenuTail.down => Alignment(tailAlignment * 2 - 1, 0),
+        _ => Alignment(0, tailAlignment * 2 - 1),
+      },
+      child: DockTail(tail: tail, color: fill),
     );
+    return switch (tail) {
+      DockMenuTail.down => Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          sized,
+          SizedBox(height: 6, child: aligned),
+        ],
+      ),
+      DockMenuTail.left => Row(
+        crossAxisAlignment: CrossAxisAlignment.center,
+        children: [
+          SizedBox(width: 6, height: 14, child: aligned),
+          Expanded(child: sized),
+        ],
+      ),
+      DockMenuTail.right => Row(
+        crossAxisAlignment: CrossAxisAlignment.center,
+        children: [
+          Expanded(child: sized),
+          SizedBox(width: 6, height: 14, child: aligned),
+        ],
+      ),
+      DockMenuTail.none => sized,
+    };
   }
+}
+
+class _MenuTailPainter extends CustomPainter {
+  const _MenuTailPainter(this.fill, this.tail);
+
+  final Color fill;
+  final DockMenuTail tail;
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final path = Path();
+    switch (tail) {
+      case DockMenuTail.down:
+        path
+          ..moveTo(0, 0)
+          ..lineTo(size.width / 2, size.height)
+          ..lineTo(size.width, 0);
+      case DockMenuTail.left:
+        path
+          ..moveTo(0, size.height / 2)
+          ..lineTo(size.width, 0)
+          ..lineTo(size.width, size.height);
+      case DockMenuTail.right:
+        path
+          ..moveTo(size.width, size.height / 2)
+          ..lineTo(0, 0)
+          ..lineTo(0, size.height);
+      case DockMenuTail.none:
+        return;
+    }
+    canvas.drawPath(path..close(), Paint()..color = fill);
+  }
+
+  @override
+  bool shouldRepaint(covariant _MenuTailPainter oldDelegate) =>
+      oldDelegate.fill != fill || oldDelegate.tail != tail;
 }
 
 class DockMenuSeparator extends StatelessWidget {
@@ -57,8 +288,149 @@ class DockMenuSeparator extends StatelessWidget {
   }
 }
 
+/// A menu line that opens a submenu on hover, drawn to the side of the parent
+/// panel like the macOS Dock's position submenu.
+class DockMenuSubmenuRow extends StatefulWidget {
+  const DockMenuSubmenuRow({
+    required this.icon,
+    required this.label,
+    required this.submenu,
+    super.key,
+  });
+
+  final IconData icon;
+  final String label;
+  final WidgetBuilder submenu;
+
+  @override
+  State<DockMenuSubmenuRow> createState() => _DockMenuSubmenuRowState();
+}
+
+class _DockMenuSubmenuRowState extends State<DockMenuSubmenuRow> {
+  final OverlayPortalController _portal = OverlayPortalController();
+  Timer? _openTimer;
+  Timer? _closeTimer;
+  bool _open = false;
+
+  @override
+  void dispose() {
+    _openTimer?.cancel();
+    _closeTimer?.cancel();
+    super.dispose();
+  }
+
+  void _scheduleOpen() {
+    _closeTimer?.cancel();
+    _closeTimer = null;
+    if (_open || _openTimer != null) return;
+    _openTimer = Timer(const Duration(milliseconds: 140), () {
+      _openTimer = null;
+      if (!mounted) return;
+      setState(() => _open = true);
+      _portal.show();
+    });
+  }
+
+  void _scheduleClose() {
+    _openTimer?.cancel();
+    _openTimer = null;
+    _closeTimer?.cancel();
+    _closeTimer = Timer(const Duration(milliseconds: 220), () {
+      _closeTimer = null;
+      if (!mounted || !_open) return;
+      _portal.hide();
+      setState(() => _open = false);
+    });
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = context.shellTheme;
+    final colors = theme.colors;
+    return OverlayPortal.overlayChildLayoutBuilder(
+      controller: _portal,
+      overlayChildBuilder: (context, layout) =>
+          _open ? _buildSubmenu(context, layout) : const SizedBox.shrink(),
+      child: MouseRegion(
+        onEnter: (_) => _scheduleOpen(),
+        onExit: (_) => _scheduleClose(),
+        child: GestureDetector(
+          behavior: HitTestBehavior.opaque,
+          onTap: _scheduleOpen,
+          child: Container(
+            height: 34,
+            margin: const EdgeInsets.symmetric(horizontal: 6),
+            padding: const EdgeInsets.symmetric(horizontal: 10),
+            decoration: BoxDecoration(
+              borderRadius: theme.borderRadius(8),
+              color: _open ? colors.textPrimary.withValues(alpha: 0.08) : null,
+            ),
+            child: Row(
+              children: [
+                Icon(widget.icon, size: 17, color: colors.textPrimary),
+                const SizedBox(width: 10),
+                Expanded(
+                  child: Text(
+                    widget.label,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: theme.text.systemBarCaption.copyWith(
+                      color: colors.textPrimary,
+                    ),
+                  ),
+                ),
+                Icon(Icons.chevron_right, size: 16, color: colors.textTertiary),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildSubmenu(BuildContext context, OverlayChildLayoutInfo layout) {
+    final theme = context.shellTheme;
+    final anchor = MatrixUtils.transformRect(
+      layout.childPaintTransform,
+      Offset.zero & layout.childSize,
+    );
+    final scene = Offset.zero & layout.overlaySize;
+    final width = math.min(190.0, math.max(0.0, scene.width - 16));
+    final opensRight = anchor.right + 6 + width <= scene.right - 8;
+    final left = opensRight
+        ? anchor.right + 6
+        : math.max(scene.left + 8, anchor.left - 6 - width);
+    return Positioned(
+      left: left,
+      top: math.min(
+        math.max(scene.top + 8, anchor.top - 6),
+        math.max(scene.top + 8, scene.bottom - 8 - 150),
+      ),
+      width: width,
+      child: MouseRegion(
+        onEnter: (_) {
+          _closeTimer?.cancel();
+          _closeTimer = null;
+        },
+        onExit: (_) => _scheduleClose(),
+        child: DockMenuPanel(
+          radius: theme.borderRadius(12),
+          child: Padding(
+            padding: const EdgeInsets.symmetric(vertical: 4),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [widget.submenu(context)],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
 /// One selectable line in a dock menu. [selected] draws a trailing check, used
-/// by on/off settings.
+/// by on/off settings and the active application.
 class DockMenuRow extends StatefulWidget {
   const DockMenuRow({
     required this.icon,
