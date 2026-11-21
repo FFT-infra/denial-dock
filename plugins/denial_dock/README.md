@@ -13,20 +13,34 @@ turning it on.
 ## What it does
 
 - **Wave magnification.** Icons grow with a smootherstep falloff ported from
-  NextKDE's dock; the growth is real layout width, so neighbours are pushed
-  aside and the capsule widens with the row instead of overlapping.
+  NextKDE's dock, holding the peak across the icon's own slot and then decaying
+  to the magnification radius. The growth is real layout width, so neighbours
+  are pushed aside and the capsule widens with the row instead of overlapping.
+- **macOS arrangement.** Applications sit in the middle. A hairline divider
+  separates them from running-but-unpinned applications, and a second divider
+  separates the running group from the accessories: folder shortcuts, then the
+  trash can last. A divider only appears when both of its sides are non-empty.
+  The launcher is not an accessory; it can sit on the left end (default, like
+  Launchpad), the right end, or not at all.
 - **Pinned applications.** A fresh install starts with an empty dock; pin a
   running application from its context menu or by dragging it into the pinned
   section. The list is kept in `~/.config/denial/plugins/denial_dock.json`.
-  Running applications that are not pinned appear after a divider.
+- **Launch feedback.** A launching icon hops 0.65 of its height over 0.48 s and
+  glides back down in 0.13 s. The hop stops as soon as a window appears, and
+  after 500 ms at the earliest; it gives up after 15 s, or immediately if the
+  launch fails.
 - **Window previews.** Hover an icon with two or more windows to open its tray.
   Hover one card for 300 ms to fade the other windows on that monitor; click a
-  card to focus that window. Clicking a single-window icon activates or
-  minimizes it.
+  card to focus that window. The icon's name label appears after a 250 ms
+  dwell, and the running indicator shows one to three dots.
+- **Click behaviour.** Clicking an icon with windows either minimizes the
+  active window (default) or cycles to the next one; the choice is in the
+  settings sheet. Clicking an application with no windows launches it.
 - **Context menu.** Right-click an icon for open / new window, show all
-  windows, pin or unpin, and minimize. Escape closes the menu, and
+  windows, pin or unpin, minimize, and close. Escape closes the menu, and
   right-clicking the same icon again toggles it. The menu and trays are drawn
-  in the shell overlay, clamped to the monitor.
+  in the shell overlay, clamped to the monitor. On a touch or pen pointer, a
+  550 ms press opens the same menu.
 - **Drag to reorder and pin.** Drag a pinned icon sideways to move it; drag a
   running icon left across the divider to pin it at the drop position; drag a
   pinned icon more than one icon height above the capsule to remove it. Only
@@ -39,10 +53,21 @@ turning it on.
   exactly on the boundary does not make it flap. While the window layout tiles,
   the dock stays resident instead: every tile reaches the bottom edge, so
   overlap-hiding would keep it hidden forever.
-- **Visibility switch.** Right-click the launcher icon for a small dock menu:
-  *Smart hide* or *Always show*. The choice is saved next to the pins.
-- **Shell-native looks.** The capsule uses Denial's `ShellTheme` panel colour,
-  backdrop blur, hairline border and corner radii, so it matches the top bar.
+- **Folder shortcuts and Trash.** Add any folder from the settings sheet
+  through a built-in directory browser, with hidden entries behind a toggle.
+  Clicking a shortcut opens the folder with the system handler (`xdg-open`,
+  falling back to `gio open`). The trash can opens `trash:///`, shows a count
+  badge, and offers *Empty Trash*; emptying needs a second press, because it
+  cannot be undone.
+- **Settings sheet.** Right-click the capsule background, the launcher, a folder
+  shortcut or the trash can, then choose *Dock settings…* where the menu offers
+  it. The sheet is a managed shell popup, so it gets the scene barrier, focus,
+  Escape and outside-tap dismissal. It covers visibility, click behaviour, icon
+  size, which end the launcher and the accessories sit on, the trash toggle and
+  the folder list.
+- **Shell-native looks.** The capsule and the settings sheet use Denial's
+  `ShellTheme` panel colour, backdrop blur, hairline border and corner radii,
+  so they match the top bar.
 
 ## Requirements
 
@@ -66,7 +91,8 @@ denial-plugins apply
 
 ## Settings
 
-The file is `~/.config/denial/plugins/denial_dock.json`:
+Most settings live in the settings sheet. The same values are stored in
+`~/.config/denial/plugins/denial_dock.json`:
 
 ```json
 {
@@ -77,20 +103,35 @@ The file is `~/.config/denial/plugins/denial_dock.json`:
       "name": "Files"
     }
   ],
-  "visibility": "smart"
+  "visibility": "smart",
+  "clickAction": "minimize",
+  "iconSize": 48,
+  "launcherSide": "left",
+  "extrasSide": "right",
+  "showTrash": true,
+  "folders": [{ "path": "/home/me/Documents", "label": "Documents" }]
 }
 ```
 
 - `id` is the launcher identity used to start an application; `appId` is the
   icon identity, normally the desktop file name.
 - `visibility` is `"smart"` (auto-hide while windows float, default) or
-  `"always"`. The launcher's right-click menu writes the same key.
-- An empty list means you removed every pin.
+  `"always"`.
+- `clickAction` is `"minimize"` (default) or `"cycle"`.
+- `iconSize` is in logical pixels, clamped to 32–72 in steps of 4; the default
+  is 48.
+- `launcherSide` and `extrasSide` are `"left"`, `"right"` or `"hidden"`.
+  Accessories (folders and trash) default to the right; the launcher defaults
+  to the left. Trash stays the last item inside the accessory group.
+- `showTrash` turns the trash can off without touching the folder list.
+- `folders` holds absolute paths; a missing `label` falls back to the
+  directory's basename. Duplicate paths are collapsed.
+- An empty `pinnedApplications` list means you removed every pin.
 
-There is no settings UI. The dock rewrites this file atomically when you pin,
-unpin or reorder, and leaves unknown keys alone. Hand edits are read when the
-plugin engine starts, so apply the plugin again (or restart the shell) after
-changing the file.
+The dock rewrites this file atomically, merging over the existing keys so
+unknown keys survive. Hand edits are read when the plugin engine starts, so
+apply the plugin again (or restart the shell) after changing the file by hand.
+Values the dock cannot parse fall back to the defaults rather than throwing.
 
 ## Known limitations
 
@@ -105,6 +146,14 @@ changing the file.
   client texture fall back to a plain theme card.
 - The dock stores no per-window state. Everything is derived from the shell's
   application, window and workspace services each frame.
+- The trash count reads the home trash and the per-mount trash directories of
+  every mount in `/proc/self/mounts`. Items in a trash directory the dock cannot
+  read are not counted.
+- Folder shortcuts and the trash open through `xdg-open` with a `gio open`
+  fallback. Without either, clicking them does nothing.
+- The plugin has no settings-page contract in Denial 0.6.8. The sheet is a
+  shell popup owned by the dock, so it is not listed in any system settings
+  application.
 
 ## Development
 
@@ -115,11 +164,8 @@ matching build kit:
 
 ```sh
 dart format --output=none --set-exit-if-changed lib test
-dart analyze --fatal-infos lib test
-dart run test/dock_math_test.dart
-dart run test/dock_layout_test.dart
-dart run test/dock_drag_test.dart
-dart run test/dock_visibility_test.dart
+dart analyze lib test
+for test in test/*_test.dart; do dart run "$test" || exit 1; done
 ```
 
 The tests are small executable Dart programs. They exit non-zero with a message

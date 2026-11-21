@@ -3,24 +3,27 @@ import 'dart:math' as math;
 
 import 'package:denial_flutter_sdk/effects.dart';
 import 'package:denial_flutter_sdk/input.dart';
+import 'package:denial_flutter_sdk/popups.dart';
 import 'package:denial_flutter_sdk/services.dart';
 import 'package:denial_flutter_sdk/settings.dart' show DesktopWindowLayout;
 import 'package:denial_flutter_sdk/shell.dart';
+import 'package:denial_flutter_sdk/state.dart' show shellControllerProvider;
 import 'package:denial_flutter_sdk/surfaces.dart';
 import 'package:denial_flutter_sdk/theme.dart';
 import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/scheduler.dart';
-import 'package:flutter/services.dart' show LogicalKeyboardKey;
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import 'dock_autohide.dart';
 import 'dock_drag.dart';
+import 'dock_extras_item.dart';
 import 'dock_item.dart';
 import 'dock_layout.dart';
 import 'dock_math.dart';
-import 'dock_menu.dart';
 import 'dock_preferences.dart';
+import 'dock_sections.dart';
+import 'dock_settings_panel.dart';
 
 /// The floating dock. Icons are laid out by [DockLayout] rather than a Row so
 /// magnification changes real widths and pushes neighbours aside.
@@ -45,6 +48,8 @@ class DockContainer extends ConsumerStatefulWidget {
 
 class _DockContainerState extends ConsumerState<DockContainer>
     with SingleTickerProviderStateMixin {
+  static const Duration _labelDwell = Duration(milliseconds: 250);
+
   late final Ticker _ticker;
   Duration _lastTick = Duration.zero;
 
@@ -60,13 +65,23 @@ class _DockContainerState extends ConsumerState<DockContainer>
   bool _insideCapsule = false;
   bool _edgeHover = false;
   bool _overlayHold = false;
+  bool _settingsOpen = false;
   bool _tickerScheduled = false;
   bool _conflict = false;
   Timer? _hideTimer;
   Timer? _revealTimer;
 
+  /// One dwell timer gates the first name label; moving between icons keeps the
+  /// visible label continuous instead of restarting the delay.
+  Timer? _labelTimer;
+  String? _labelKey;
+  bool _labelShown = false;
+
+  DockSettings _settings = DockSettings.defaults;
+
   DockLayoutFrame? _frame;
   Map<int, int> _entrySlots = const {};
+  List<_LabelTarget?> _labels = const [];
   double _capsuleLeft = 0;
   double _capsuleBottom = 10;
   double _capsuleTop = 74;
@@ -100,8 +115,16 @@ class _DockContainerState extends ConsumerState<DockContainer>
   Offset _settleFrom = Offset.zero;
   Offset _settleTo = Offset.zero;
 
+  double get _iconSize => _settings.iconSize;
+  double get _capsuleHeight => _settings.capsuleHeight;
+  double get _halfIcon => _iconSize / 2;
+
   bool get _held =>
-      _insideCapsule || _edgeHover || _overlayHold || _dragKey != null;
+      _insideCapsule ||
+      _edgeHover ||
+      _overlayHold ||
+      _settingsOpen ||
+      _dragKey != null;
 
   double get _dragCenterX => _dragOriginX + _dragDx;
   double get _dragCenterY => _dragOriginY + _dragDy;
@@ -116,14 +139,14 @@ class _DockContainerState extends ConsumerState<DockContainer>
   /// Removing a pinned icon means dragging it clear of the dock: the icon
   /// centre has to rise more than one icon height above the capsule, so a
   /// sideways reorder never drops the pin by accident.
-  bool get _dragOutside => _dragCenterY < _capsuleTopY - DockSettings.iconSize;
+  bool get _dragOutside => _dragCenterY < _capsuleTopY - _iconSize;
 
   /// A running entry only joins the pins when it is dragged left past the last
   /// pinned slot (plus three quarters of an icon of slack). Dragging it within
   /// the running section leaves the order alone.
   bool get _dragInPinRegion {
     final lastPin = _pinCenters.isNotEmpty ? _pinCenters.last : _appendCenter;
-    return _dragCenterX <= lastPin + DockSettings.iconSize * 0.75;
+    return _dragCenterX <= lastPin + _iconSize * 0.75;
   }
 
   @override
@@ -136,6 +159,7 @@ class _DockContainerState extends ConsumerState<DockContainer>
   void dispose() {
     _hideTimer?.cancel();
     _revealTimer?.cancel();
+    _labelTimer?.cancel();
     _ticker.dispose();
     super.dispose();
   }
@@ -169,7 +193,9 @@ class _DockContainerState extends ConsumerState<DockContainer>
       _pointer,
       _pointerTarget,
       dt,
-      responseSeconds: 0.035,
+      // NextKDE's magnification response: the wave follows the pointer within
+      // a few frames instead of trailing it.
+      responseSeconds: 0.026,
     );
     final hover = DockMath.advance(
       _hover,
@@ -206,6 +232,7 @@ class _DockContainerState extends ConsumerState<DockContainer>
       _dragDx = dragDx;
       _dragDy = dragDy;
     });
+    _syncLabel();
     if (settleFinished) _finishDrag();
     if (settled) {
       _ticker.stop();
@@ -257,6 +284,7 @@ class _DockContainerState extends ConsumerState<DockContainer>
     _insideCapsule = true;
     _revealTarget = 1;
     _ensureTicker();
+    _syncLabel();
     _evaluateHide();
   }
 
@@ -264,6 +292,7 @@ class _DockContainerState extends ConsumerState<DockContainer>
     _insideCapsule = false;
     _hoverTarget = 0;
     _ensureTicker();
+    _syncLabel();
     _evaluateHide();
   }
 
@@ -285,6 +314,78 @@ class _DockContainerState extends ConsumerState<DockContainer>
     if (_overlayHold == hold) return;
     _overlayHold = hold;
     _evaluateHide();
+  }
+
+  /// The label appears after a 250 ms dwell on the same slot. Once visible it
+  /// follows the pointer between icons without restarting the delay, which is
+  /// what makes sliding along the row readable.
+  void _syncLabel() {
+    final key = _dragKey == null && _hover >= 0.2 ? _currentLabelKey() : null;
+    if (key == _labelKey) {
+      if (key == null && _labelShown) {
+        setState(() => _labelShown = false);
+      }
+      return;
+    }
+    _labelKey = key;
+    _labelTimer?.cancel();
+    _labelTimer = null;
+    if (key == null) {
+      if (_labelShown) setState(() => _labelShown = false);
+      return;
+    }
+    if (_labelShown) return;
+    final expected = key;
+    _labelTimer = Timer(_labelDwell, () {
+      _labelTimer = null;
+      if (!mounted || _labelKey != expected) return;
+      setState(() => _labelShown = true);
+    });
+  }
+
+  String? _currentLabelKey() {
+    final frame = _frame;
+    if (frame == null) return null;
+    final nearest = frame.nearest(_pointer);
+    if (nearest == null) return null;
+    final (index, slot, distance) = nearest;
+    if (distance > slot.half + 20) return null;
+    final label = index < _labels.length ? _labels[index] : null;
+    return label?.key;
+  }
+
+  /// The settings sheet is a managed shell popup, not an OverlayPortal menu, so
+  /// it keeps its own hold: without it the capsule retracts behind the sheet
+  /// when a window is parked on the dock strip.
+  void _openSettings() {
+    if (_settingsOpen) return;
+    _settingsOpen = true;
+    _evaluateHide();
+    ref
+        .read(shellPopupControllerProvider.notifier)
+        .show(
+          keyName: 'denial_dock.settings',
+          debugLabel: 'Dock settings',
+          dismissPolicy: ShellDismissPolicy.outsideTapAndEscape,
+          builder: (context, handle) =>
+              DockSettingsPanel(onClose: handle.close),
+        );
+    // The handle has no completion callback; poll the popup list so the hold is
+    // released once the sheet has finished its closing transition.
+    Timer.periodic(const Duration(milliseconds: 120), (timer) {
+      if (!mounted) {
+        timer.cancel();
+        return;
+      }
+      final open = ref
+          .read(shellPopupControllerProvider)
+          .any((popup) => popup.keyName == 'denial_dock.settings');
+      if (open) return;
+      timer.cancel();
+      if (!mounted) return;
+      _settingsOpen = false;
+      _evaluateHide();
+    });
   }
 
   void _startDrag(
@@ -310,8 +411,7 @@ class _DockContainerState extends ConsumerState<DockContainer>
     _dragDy = 0;
     _dragOriginX = slot?.center ?? _capsuleLeft;
     _dragOriginY =
-        dockSurfaceHeight -
-        (_capsuleBottom + DockSettings.padding + DockSettings.iconSize / 2);
+        dockSurfaceHeight - (_capsuleBottom + DockSettings.padding + _halfIcon);
     // Denial starts the button pointer at the scene origin, so a grab that
     // reports (0,0) is anchored on the icon instead of the screen corner.
     final grabIsPlausible =
@@ -324,6 +424,7 @@ class _DockContainerState extends ConsumerState<DockContainer>
     _pointerTarget = -10000;
     _pointer = -10000;
     _insideCapsule = false;
+    _syncLabel();
     setState(() {});
     _ensureTicker();
     _evaluateHide();
@@ -379,9 +480,7 @@ class _DockContainerState extends ConsumerState<DockContainer>
     }
 
     DockPin? pin;
-    final pins =
-        ref.read(dockSettingsProvider).value?.pinned ??
-        DockSettings.defaults.pinned;
+    final pins = _settings.pinned;
     for (final candidate in pins) {
       if (normalizeAppId(candidate.appId) == key) {
         pin = candidate;
@@ -445,6 +544,18 @@ class _DockContainerState extends ConsumerState<DockContainer>
     setState(() {});
     _ensureTicker();
     _evaluateHide();
+  }
+
+  /// Closes windows through the compositor's close request. The dock lists
+  /// [ApplicationWindow]s, whose `id` is the compositor's `objectId`, so the
+  /// matching [DenialWindow] is what the controller accepts.
+  void _closeWindows(List<int> objectIds) {
+    final wanted = objectIds.toSet();
+    final windows = ref.read(userAppWindowsProvider);
+    final controller = ref.read(shellControllerProvider.notifier);
+    for (final window in windows) {
+      if (wanted.contains(window.objectId)) controller.closeWindow(window);
+    }
   }
 
   void _togglePin(_DockEntry entry) {
@@ -528,41 +639,30 @@ class _DockContainerState extends ConsumerState<DockContainer>
     return entries;
   }
 
-  List<_SlotSpec> _specsFor(List<_DockEntry> entries) {
-    final specs = <_SlotSpec>[];
-    var entryIndex = 0;
-    var pinnedCount = 0;
-    for (final entry in entries) {
-      if (!entry.pinned) continue;
-      specs.add(
-        _SlotSpec(
-          kind: _SlotKind.app,
-          entry: entryIndex++,
-          half: DockSettings.iconSize / 2,
-        ),
-      );
-      pinnedCount++;
-    }
-    final runningCount = entries.length - pinnedCount;
-    if (runningCount > 0) {
-      specs.add(const _SlotSpec(kind: _SlotKind.divider, half: 0.5));
-    }
-    for (var i = 0; i < runningCount; i++) {
-      specs.add(
-        _SlotSpec(
-          kind: _SlotKind.app,
-          entry: entryIndex++,
-          half: DockSettings.iconSize / 2,
-        ),
-      );
-    }
-    specs.add(
-      const _SlotSpec(
-        kind: _SlotKind.launcher,
-        half: DockSettings.iconSize / 2,
-      ),
+  List<_SlotSpec> _specsFor(List<_DockEntry> entries, DockSettings settings) {
+    final sections = DockSections.build(
+      entryCount: entries.length,
+      isPinned: (index) => entries[index].pinned,
+      settings: settings,
     );
-    return specs;
+    return [
+      for (final section in sections)
+        _SlotSpec(
+          kind: switch (section.kind) {
+            DockSlotKind.app => _SlotKind.app,
+            DockSlotKind.launcher => _SlotKind.launcher,
+            DockSlotKind.folder => _SlotKind.folder,
+            DockSlotKind.trash => _SlotKind.trash,
+            DockSlotKind.divider => _SlotKind.divider,
+          },
+          half: section.kind == DockSlotKind.divider
+              ? 0.5
+              : settings.iconSize / 2,
+          entry: section.index,
+          folder: section.folder,
+          dividerKey: section.dividerKey,
+        ),
+    ];
   }
 
   DockLayoutFrame _layout(
@@ -587,6 +687,7 @@ class _DockContainerState extends ConsumerState<DockContainer>
   Widget build(BuildContext context) {
     final settings =
         ref.watch(dockSettingsProvider).value ?? DockSettings.defaults;
+    _settings = settings;
     final catalog = ref.watch(widget.services.applications);
     final windows = ref.watch(widget.services.windows(widget.monitorId));
     final denialWindows = ref.watch(userAppWindowsProvider);
@@ -597,7 +698,7 @@ class _DockContainerState extends ConsumerState<DockContainer>
     final launcherLabel = chinese ? '启动台' : 'Launcher';
 
     final baseEntries = _entries(settings, catalog, windows, null);
-    final baseSpecs = _specsFor(baseEntries);
+    final baseSpecs = _specsFor(baseEntries, settings);
 
     return LayoutBuilder(
       builder: (context, constraints) {
@@ -607,7 +708,7 @@ class _DockContainerState extends ConsumerState<DockContainer>
         if (_dragKey != null && !_settling && _dragTo >= 0) {
           final displayPins = _displayPins(settings.pinned);
           entries = _entries(settings, catalog, windows, displayPins);
-          specs = _specsFor(entries);
+          specs = _specsFor(entries, settings);
         }
 
         final frame = _layout(
@@ -621,17 +722,21 @@ class _DockContainerState extends ConsumerState<DockContainer>
           for (var i = 0; i < specs.length; i++)
             if (specs[i].entry case final entry?) entry: i,
         };
+        _labels = [
+          for (var i = 0; i < specs.length; i++)
+            _labelForSlot(specs, i, entries, launcherLabel, chinese),
+        ];
 
-        final hideOffset = (1 - _reveal) * (DockSettings.capsuleHeight + 24);
+        final hideOffset = (1 - _reveal) * (_capsuleHeight + 24);
         final capsuleBottom = 10.0 - hideOffset;
-        final capsuleTop = capsuleBottom + DockSettings.capsuleHeight;
+        final capsuleTop = capsuleBottom + _capsuleHeight;
         _capsuleBottom = capsuleBottom;
         _capsuleTop = capsuleTop;
 
         final dockRect = DockAutoHide.visibleDockRect(
           output: environment.output.logicalRect,
           width: frame.restWidth,
-          height: DockSettings.capsuleHeight,
+          height: _capsuleHeight,
         );
         final conflict = DockAutoHide.hasConflict(
           windows: denialWindows,
@@ -665,20 +770,19 @@ class _DockContainerState extends ConsumerState<DockContainer>
           ];
           // The last centre is where a new pin at the end would land, so a
           // running entry can be dropped after every existing pin.
+          final firstApp = _firstAppCenter(baseFrame, baseSpecs);
           final appendCenter = pinCenters.isNotEmpty
-              ? pinCenters.last + DockSettings.iconSize + DockSettings.gap
-              : baseFrame.capsuleLeft +
-                    DockSettings.padding +
-                    DockSettings.iconSize / 2;
+              ? pinCenters.last + _iconSize + DockSettings.gap
+              : firstApp ??
+                    baseFrame.capsuleLeft + DockSettings.padding + _halfIcon;
           _pinCenters = pinCenters;
           _appendCenter = appendCenter;
           _refreshDragTarget();
         }
 
-        final label = _dragKey == null
-            ? _labelFor(frame, specs, entries, launcherLabel)
-            : null;
-        final nameLabel = label == null || _hover < 0.2
+        final labelIndex = _labelShown ? _indexForKey(_labelKey) : null;
+        final label = labelIndex == null ? null : _labels[labelIndex];
+        final nameLabel = label == null
             ? null
             : Positioned(
                 left: (label.center - 90).clamp(
@@ -731,7 +835,7 @@ class _DockContainerState extends ConsumerState<DockContainer>
               left: frame.capsuleLeft,
               bottom: capsuleBottom,
               width: frame.width,
-              height: DockSettings.capsuleHeight,
+              height: _capsuleHeight,
               child: ShellInputRegion(
                 debugLabel: 'Dock capsule',
                 active: _reveal > 0.5,
@@ -741,7 +845,17 @@ class _DockContainerState extends ConsumerState<DockContainer>
                   child: Stack(
                     clipBehavior: Clip.none,
                     children: [
-                      Positioned.fill(child: _capsuleSurface(context, theme)),
+                      Positioned.fill(
+                        // Right-clicking the capsule background opens the dock
+                        // settings, the macOS "Dock preferences" gesture. This
+                        // sits under the slots, so a right-click on an icon or
+                        // the launcher reaches that item's own menu instead.
+                        child: GestureDetector(
+                          behavior: HitTestBehavior.opaque,
+                          onSecondaryTapDown: (_) => _openSettings(),
+                          child: _capsuleSurface(context, theme),
+                        ),
+                      ),
                       for (var i = 0; i < specs.length; i++)
                         if (_slotChild(
                               context,
@@ -752,6 +866,7 @@ class _DockContainerState extends ConsumerState<DockContainer>
                               dragging: _dragKey != null,
                               launcherLabel: launcherLabel,
                               settings: settings,
+                              chinese: chinese,
                             )
                             case final Widget child)
                           child,
@@ -762,10 +877,10 @@ class _DockContainerState extends ConsumerState<DockContainer>
             ),
             if (dragEntry != null)
               Positioned(
-                left: _dragCenterX - DockSettings.iconSize * 0.55,
-                top: _dragCenterY - DockSettings.iconSize * 0.55,
-                width: DockSettings.iconSize * 1.1,
-                height: DockSettings.iconSize * 1.1,
+                left: _dragCenterX - _iconSize * 0.55,
+                top: _dragCenterY - _iconSize * 0.55,
+                width: _iconSize * 1.1,
+                height: _iconSize * 1.1,
                 child: IgnorePointer(
                   // The dragged source lifts off the dock: it grows slightly
                   // and turns translucent while held, as in the reference.
@@ -820,6 +935,21 @@ class _DockContainerState extends ConsumerState<DockContainer>
     );
   }
 
+  double? _firstAppCenter(DockLayoutFrame frame, List<_SlotSpec> specs) {
+    for (var i = 0; i < specs.length; i++) {
+      if (specs[i].kind == _SlotKind.app) return frame.slots[i].center;
+    }
+    return null;
+  }
+
+  int? _indexForKey(String? key) {
+    if (key == null) return null;
+    for (var i = 0; i < _labels.length; i++) {
+      if (_labels[i]?.key == key) return i;
+    }
+    return null;
+  }
+
   Widget _capsuleSurface(BuildContext context, ShellThemeData theme) {
     final radius = theme.borderRadius(20);
     return ShellBackdropBlur(
@@ -848,10 +978,10 @@ class _DockContainerState extends ConsumerState<DockContainer>
     required bool dragging,
     required String launcherLabel,
     required DockSettings settings,
+    required bool chinese,
   }) {
     final left = slot.center - capsuleLeft - slot.half;
-    final lift =
-        (slot.scale - 1.0) * DockSettings.iconSize * DockSettings.liftRatio;
+    final lift = (slot.scale - 1.0) * _iconSize * DockSettings.liftRatio;
     // Neighbours ease into their new slot while an icon is being dragged,
     // matching the reorder animation in the reference docks.
     Widget slotAt({
@@ -877,11 +1007,11 @@ class _DockContainerState extends ConsumerState<DockContainer>
     switch (spec.kind) {
       case _SlotKind.divider:
         return slotAt(
-          key: const ValueKey('dock-divider'),
+          key: ValueKey('dock-divider-${spec.dividerKey ?? 'default'}'),
           left: slot.center - capsuleLeft - 0.5,
-          bottom: DockSettings.padding + DockSettings.iconSize * 0.24,
+          bottom: DockSettings.padding + _iconSize * 0.24,
           width: 1,
-          height: DockSettings.iconSize * 0.52,
+          height: _iconSize * 0.52,
           child: ColoredBox(color: context.shellTheme.colors.hairline),
         );
       case _SlotKind.launcher:
@@ -897,13 +1027,46 @@ class _DockContainerState extends ConsumerState<DockContainer>
             size: slot.half * 2,
             lift: lift,
             label: launcherLabel,
-            visibility: settings.visibility,
             onTap: widget.services.toggleLauncher,
-            onVisibilityChanged: (mode) => unawaited(
-              ref.read(dockSettingsProvider.notifier).setVisibility(mode),
+            onOpenSettings: _openSettings,
+          ),
+        );
+      case _SlotKind.folder:
+        final folder = spec.folder;
+        if (folder == null) return null;
+        return slotAt(
+          key: ValueKey('dock-folder-${folder.path}'),
+          left: left,
+          bottom: DockSettings.padding,
+          width: slot.half * 2,
+          height: slot.half * 2,
+          child: DockFolderItem(
+            folder: folder,
+            size: slot.half * 2,
+            lift: lift,
+            zh: chinese,
+            onRemove: () => unawaited(
+              ref.read(dockSettingsProvider.notifier).removeFolder(folder.path),
             ),
             onOverlayChanged: _setOverlayHold,
             monitorBounds: widget.environment.output.logicalRect,
+            onOpenSettings: _openSettings,
+          ),
+        );
+      case _SlotKind.trash:
+        return slotAt(
+          key: const ValueKey('dock-trash'),
+          left: left,
+          bottom: DockSettings.padding,
+          width: slot.half * 2,
+          height: slot.half * 2,
+          child: DockTrashItem(
+            size: slot.half * 2,
+            lift: lift,
+            zh: chinese,
+            onOverlayChanged: _setOverlayHold,
+            monitorBounds: widget.environment.output.logicalRect,
+            onOpenSettings: _openSettings,
           ),
         );
       case _SlotKind.app:
@@ -936,7 +1099,9 @@ class _DockContainerState extends ConsumerState<DockContainer>
               monitorBounds: widget.environment.output.logicalRect,
               size: slot.half * 2,
               lift: lift,
+              clickAction: settings.clickAction,
               onTogglePin: () => _togglePin(entry),
+              onCloseWindows: _closeWindows,
               onOverlayChanged: _setOverlayHold,
               onDragStart: (pointer) =>
                   _startDrag(entry, entryIndex, pinIndex, pointer),
@@ -948,37 +1113,62 @@ class _DockContainerState extends ConsumerState<DockContainer>
     }
   }
 
-  _LabelTarget? _labelFor(
-    DockLayoutFrame frame,
+  _LabelTarget? _labelForSlot(
     List<_SlotSpec> specs,
+    int index,
     List<_DockEntry> entries,
     String launcherLabel,
+    bool chinese,
   ) {
-    final nearest = frame.nearest(_pointer);
-    if (nearest == null) return null;
-    final (index, slot, distance) = nearest;
-    if (distance > slot.half + 20) return null;
     final spec = specs[index];
-    final center = slot.center;
+    final center = _frame?.slots[index].center ?? 0;
     return switch (spec.kind) {
       _SlotKind.app => _LabelTarget(
+        // Keyed by application identity, not slot index: pinning or closing an
+        // app shifts indices, and the label must not jump to a different name.
+        key: 'app-${normalizeAppId(entries[spec.entry!].appId)}',
         name: entries[spec.entry!].name,
         center: center,
       ),
-      _SlotKind.launcher => _LabelTarget(name: launcherLabel, center: center),
+      _SlotKind.launcher => _LabelTarget(
+        key: 'launcher',
+        name: launcherLabel,
+        center: center,
+      ),
+      _SlotKind.folder =>
+        spec.folder == null
+            ? null
+            : _LabelTarget(
+                key: 'folder-${spec.folder!.path}',
+                name: spec.folder!.label,
+                center: center,
+              ),
+      _SlotKind.trash => _LabelTarget(
+        key: 'trash',
+        name: chinese ? '回收站' : 'Trash',
+        center: center,
+      ),
       _SlotKind.divider => null,
     };
   }
 }
 
-enum _SlotKind { app, divider, launcher }
+enum _SlotKind { app, launcher, folder, trash, divider }
 
 class _SlotSpec {
-  const _SlotSpec({required this.kind, required this.half, this.entry});
+  const _SlotSpec({
+    required this.kind,
+    required this.half,
+    this.entry,
+    this.folder,
+    this.dividerKey,
+  });
 
   final _SlotKind kind;
   final double half;
   final int? entry;
+  final DockFolder? folder;
+  final String? dividerKey;
 
   bool get growable => kind != _SlotKind.divider;
 }
@@ -1002,83 +1192,34 @@ class _DockEntry {
 }
 
 class _LabelTarget {
-  const _LabelTarget({required this.name, required this.center});
+  const _LabelTarget({
+    required this.key,
+    required this.name,
+    required this.center,
+  });
 
+  final String key;
   final String name;
   final double center;
 }
 
-class _LauncherItem extends StatefulWidget {
+/// The launcher tile. It no longer owns a settings menu: right-clicking it
+/// opens the full dock settings sheet, the same popup the capsule background
+/// opens.
+class _LauncherItem extends StatelessWidget {
   const _LauncherItem({
     required this.size,
     required this.lift,
     required this.label,
-    required this.visibility,
     required this.onTap,
-    required this.onVisibilityChanged,
-    required this.onOverlayChanged,
-    required this.monitorBounds,
+    required this.onOpenSettings,
   });
 
   final double size;
   final double lift;
   final String label;
-  final DockVisibilityMode visibility;
   final VoidCallback onTap;
-  final ValueChanged<DockVisibilityMode> onVisibilityChanged;
-
-  /// Keeps the dock expanded while the menu is open.
-  final ValueChanged<bool> onOverlayChanged;
-  final Rect monitorBounds;
-
-  @override
-  State<_LauncherItem> createState() => _LauncherItemState();
-}
-
-/// The launcher doubles as the dock's only settings surface: Denial gives a
-/// plugin no settings page, so the visibility switch lives in a right-click
-/// menu here.
-class _LauncherItemState extends State<_LauncherItem> {
-  final OverlayPortalController _portal = OverlayPortalController();
-  final FocusNode _focus = FocusNode(debugLabel: 'Dock launcher menu');
-  bool _menuOpen = false;
-
-  @override
-  void didChangeDependencies() {
-    super.didChangeDependencies();
-    if (!ShellSurfacePresentation.visibleOf(context) && _portal.isShowing) {
-      _closeMenu();
-    }
-  }
-
-  @override
-  void dispose() {
-    // A menu that unmounts still owns the dock's overlay hold; release it so
-    // the capsule does not stay pinned open for the rest of the session.
-    if (_menuOpen) widget.onOverlayChanged(false);
-    _focus.dispose();
-    super.dispose();
-  }
-
-  void _openMenu() {
-    if (_menuOpen) return;
-    setState(() => _menuOpen = true);
-    if (!_portal.isShowing) _portal.show();
-    _focus.requestFocus();
-    widget.onOverlayChanged(true);
-  }
-
-  void _closeMenu() {
-    if (!_menuOpen) return;
-    setState(() => _menuOpen = false);
-    _portal.hide();
-    widget.onOverlayChanged(false);
-  }
-
-  void _select(DockVisibilityMode mode) {
-    _closeMenu();
-    widget.onVisibilityChanged(mode);
-  }
+  final VoidCallback onOpenSettings;
 
   @override
   Widget build(BuildContext context) {
@@ -1087,118 +1228,25 @@ class _LauncherItemState extends State<_LauncherItem> {
       theme.accent.withValues(alpha: 0.18),
       theme.cardColor(theme.colors.surfaceContainerHigh),
     );
-    return OverlayPortal.overlayChildLayoutBuilder(
-      controller: _portal,
-      overlayChildBuilder: (context, layout) =>
-          _menuOpen ? _buildMenu(context, layout) : const SizedBox.shrink(),
-      child: Transform.translate(
-        offset: Offset(0, -widget.lift),
-        child: Semantics(
-          label: widget.label,
-          button: true,
-          child: GestureDetector(
-            behavior: HitTestBehavior.opaque,
-            onTap: widget.onTap,
-            onSecondaryTapDown: (_) => _menuOpen ? _closeMenu() : _openMenu(),
-            child: DecoratedBox(
-              decoration: BoxDecoration(shape: BoxShape.circle, color: backing),
-              child: Center(
-                child: SizedBox.square(
-                  dimension: widget.size * 0.42,
-                  child: CustomPaint(
-                    painter: _LauncherGlyphPainter(theme.accent),
-                  ),
+    return Transform.translate(
+      offset: Offset(0, -lift),
+      child: Semantics(
+        label: label,
+        button: true,
+        child: GestureDetector(
+          behavior: HitTestBehavior.opaque,
+          onTap: onTap,
+          onSecondaryTapDown: (_) => onOpenSettings(),
+          child: DecoratedBox(
+            decoration: BoxDecoration(shape: BoxShape.circle, color: backing),
+            child: Center(
+              child: SizedBox.square(
+                dimension: size * 0.42,
+                child: CustomPaint(
+                  painter: _LauncherGlyphPainter(theme.accent),
                 ),
               ),
             ),
-          ),
-        ),
-      ),
-    );
-  }
-
-  Widget _buildMenu(BuildContext context, OverlayChildLayoutInfo layout) {
-    final theme = context.shellTheme;
-    final anchor = MatrixUtils.transformRect(
-      layout.childPaintTransform,
-      Offset.zero & layout.childSize,
-    );
-    final scene = Offset.zero & layout.overlaySize;
-    final output = widget.monitorBounds.intersect(scene);
-    final bounds = output.isEmpty ? scene : output;
-    final chinese = Localizations.localeOf(context).languageCode == 'zh';
-    final width = math.min(232.0, math.max(0.0, bounds.width - 16));
-    final maxHeight = math.max(0.0, anchor.top - bounds.top - 16);
-    if (width <= 0 || maxHeight <= 0) return const SizedBox.shrink();
-    final left = (anchor.center.dx - width / 2).clamp(
-      bounds.left + 8,
-      math.max(bounds.left + 8, bounds.right - width - 8),
-    );
-    return ShellInputRegion(
-      debugLabel: 'Dock menu',
-      pointerPolicy: ShellPointerPolicy.fullScene,
-      keyboardPolicy: ShellKeyboardPolicy.capture,
-      child: CallbackShortcuts(
-        bindings: {
-          const SingleActivator(LogicalKeyboardKey.escape): _closeMenu,
-        },
-        child: Focus(
-          autofocus: true,
-          child: Stack(
-            children: [
-              Positioned.fill(
-                child: Listener(
-                  behavior: HitTestBehavior.opaque,
-                  onPointerDown: (_) => _closeMenu(),
-                  child: const ColoredBox(color: Color(0x00000000)),
-                ),
-              ),
-              Positioned(
-                left: left.toDouble(),
-                bottom: layout.overlaySize.height - anchor.top + 10,
-                width: width,
-                child: DockMenuPanel(
-                  radius: theme.borderRadius(14),
-                  maxHeight: maxHeight,
-                  child: SingleChildScrollView(
-                    child: Padding(
-                      padding: const EdgeInsets.symmetric(vertical: 4),
-                      child: Column(
-                        mainAxisSize: MainAxisSize.min,
-                        crossAxisAlignment: CrossAxisAlignment.stretch,
-                        children: [
-                          Padding(
-                            padding: const EdgeInsets.fromLTRB(14, 8, 14, 6),
-                            child: Text(
-                              chinese ? 'Dock 设置' : 'Dock settings',
-                              maxLines: 1,
-                              overflow: TextOverflow.ellipsis,
-                              style: theme.text.systemBarCaption.copyWith(
-                                color: theme.colors.textTertiary,
-                              ),
-                            ),
-                          ),
-                          DockMenuRow(
-                            icon: Icons.visibility_off_outlined,
-                            label: chinese ? '智能隐藏' : 'Smart hide',
-                            selected:
-                                widget.visibility == DockVisibilityMode.smart,
-                            onTap: () => _select(DockVisibilityMode.smart),
-                          ),
-                          DockMenuRow(
-                            icon: Icons.visibility_outlined,
-                            label: chinese ? '始终显示' : 'Always show',
-                            selected:
-                                widget.visibility == DockVisibilityMode.always,
-                            onTap: () => _select(DockVisibilityMode.always),
-                          ),
-                        ],
-                      ),
-                    ),
-                  ),
-                ),
-              ),
-            ],
           ),
         ),
       ),

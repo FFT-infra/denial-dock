@@ -6,12 +6,15 @@ import 'package:denial_flutter_sdk/input.dart';
 import 'package:denial_flutter_sdk/services.dart';
 import 'package:denial_flutter_sdk/surfaces.dart';
 import 'package:denial_flutter_sdk/theme.dart';
-import 'package:flutter/gestures.dart' show kPrimaryButton;
+import 'package:flutter/gestures.dart' show PointerDeviceKind, kPrimaryButton;
 import 'package:flutter/material.dart';
+import 'package:flutter/scheduler.dart';
 import 'package:flutter/services.dart';
 
-import 'dock_math.dart';
+import 'dock_click.dart';
+import 'dock_launch.dart';
 import 'dock_menu.dart';
+import 'dock_settings.dart';
 
 /// A single application icon in the dock. Menus and window previews live in the
 /// shell overlay; a shell surface has no Navigator or Scaffold of its own.
@@ -28,7 +31,9 @@ class DockItemWidget extends StatefulWidget {
     required this.monitorBounds,
     required this.size,
     required this.lift,
+    required this.clickAction,
     required this.onTogglePin,
+    required this.onCloseWindows,
     required this.onOverlayChanged,
     this.onDragStart,
     this.onDragUpdate,
@@ -59,7 +64,15 @@ class DockItemWidget extends StatefulWidget {
   /// Extra upward offset for the magnified icon.
   final double lift;
 
+  /// What a click on the front-most application does.
+  final DockClickAction clickAction;
+
   final VoidCallback onTogglePin;
+
+  /// Closes every listed window through the compositor's close request. Denial
+  /// has no app-level quit, so this is what "quit" means here: the application
+  /// exits once its last window closes, unless it keeps running in the tray.
+  final ValueChanged<List<int>> onCloseWindows;
 
   /// Keeps the dock expanded while a menu or preview tray is open.
   final ValueChanged<bool> onOverlayChanged;
@@ -80,7 +93,23 @@ class _DockItemWidgetState extends State<DockItemWidget>
     with SingleTickerProviderStateMixin {
   final OverlayPortalController _portal = OverlayPortalController();
   final FocusNode _focus = FocusNode(debugLabel: 'Dock application');
-  late final AnimationController _bounce;
+
+  /// One ticker drives both the hop and its landing glide. The hop runs until
+  /// a window appears (with a 500 ms floor and a 15 s ceiling); the glide then
+  /// eases the icon back to the row instead of dropping it.
+  late final Ticker _launchTicker;
+  Duration _launchLastTick = Duration.zero;
+  DateTime? _launchStartedAt;
+  bool _launchHopping = false;
+  double _launchPhase = 0;
+  double _launchLift = 0;
+  double _landingProgress = 1;
+  double _landingStartLift = 0;
+  bool _launchFailed = false;
+
+  /// Touch and pen have no right button; a long press opens the same menu.
+  Timer? _longPressTimer;
+  bool _longPressFired = false;
 
   Timer? _showPreviewTimer;
   Timer? _hidePreviewTimer;
@@ -101,10 +130,7 @@ class _DockItemWidgetState extends State<DockItemWidget>
   @override
   void initState() {
     super.initState();
-    _bounce = AnimationController(
-      vsync: this,
-      duration: const Duration(milliseconds: 620),
-    );
+    _launchTicker = createTicker(_onLaunchTick);
   }
 
   @override
@@ -133,9 +159,10 @@ class _DockItemWidgetState extends State<DockItemWidget>
   void dispose() {
     _showPreviewTimer?.cancel();
     _hidePreviewTimer?.cancel();
+    _longPressTimer?.cancel();
     _clearEmphasis();
     _focus.dispose();
-    _bounce.dispose();
+    _launchTicker.dispose();
     super.dispose();
   }
 
@@ -205,6 +232,9 @@ class _DockItemWidgetState extends State<DockItemWidget>
     widget.onOverlayChanged(false);
   }
 
+  /// Clicking an application follows macOS: a stopped application starts, a
+  /// front-most one minimizes or cycles to its next window, and one in the
+  /// background comes forward.
   void _activate() {
     if (_menuOpen) {
       _closeOverlay();
@@ -214,15 +244,21 @@ class _DockItemWidgetState extends State<DockItemWidget>
       _launch();
       return;
     }
-    if (widget.windows.length > 1) {
-      _showPreviews();
-      return;
-    }
-    final window = widget.windows.first;
-    if (window.active) {
-      widget.services.minimizeWindow(window.id);
+    final windows = widget.windows;
+    final activeIndex = DockClick.activeIndex(
+      windows.map((window) => window.active),
+    );
+    final next = DockClick.nextIndex(
+      action: widget.clickAction,
+      count: windows.length,
+      activeIndex: activeIndex,
+    );
+    if (next == null) {
+      if (activeIndex >= 0 && activeIndex < windows.length) {
+        widget.services.minimizeWindow(windows[activeIndex].id);
+      }
     } else {
-      widget.services.activateWindow(window.id);
+      widget.services.activateWindow(windows[next].id);
     }
     _closeOverlay();
   }
@@ -240,9 +276,10 @@ class _DockItemWidgetState extends State<DockItemWidget>
     }
     setState(() {
       _launching = true;
+      _launchFailed = false;
       _launchError = null;
     });
-    _bounce.forward(from: 0);
+    _startLaunchFeedback();
     var launched = false;
     try {
       launched = await widget.services.launchApplication(
@@ -255,6 +292,7 @@ class _DockItemWidgetState extends State<DockItemWidget>
     if (!mounted) return;
     setState(() {
       _launching = false;
+      _launchFailed = !launched;
       if (!launched) {
         _launchError = chinese ? '无法启动应用' : 'Could not launch the application';
       }
@@ -262,11 +300,74 @@ class _DockItemWidgetState extends State<DockItemWidget>
     if (!launched) _openMenu();
   }
 
+  void _startLaunchFeedback() {
+    _launchStartedAt = DateTime.now();
+    _launchHopping = true;
+    _launchPhase = 0;
+    _launchLift = 0;
+    _landingProgress = 1;
+    _landingStartLift = 0;
+    _launchLastTick = Duration.zero;
+    if (!_launchTicker.isActive) _launchTicker.start();
+  }
+
+  /// Each frame asks the release rule whether the hop may end. A window
+  /// appearing ends it after the 500 ms floor; a failed launch ends it at once;
+  /// a launch that never opens a window stops at 15 s.
+  void _onLaunchTick(Duration elapsed) {
+    if (_launchLastTick == Duration.zero) {
+      _launchLastTick = elapsed;
+      return;
+    }
+    final dt = (elapsed - _launchLastTick).inMicroseconds / 1000000.0;
+    _launchLastTick = elapsed;
+
+    if (_launchHopping) {
+      final started = _launchStartedAt;
+      final done =
+          started != null &&
+          DockLaunch.release(
+            elapsed: DateTime.now().difference(started),
+            windowReady: widget.windows.isNotEmpty,
+            failed: _launchFailed,
+          );
+      if (!done) {
+        _launchPhase = DockLaunch.advancePhase(_launchPhase, dt);
+        _launchLift = DockLaunch.hopLift(_launchPhase, widget.size);
+        setState(() {});
+        return;
+      }
+      _launchHopping = false;
+      _landingStartLift = _launchLift;
+      _landingProgress = 0;
+    }
+
+    if (_landingProgress < 1) {
+      _landingProgress = DockLaunch.advanceLanding(_landingProgress, dt);
+      _launchLift = DockLaunch.landingLift(_landingStartLift, _landingProgress);
+      setState(() {});
+      return;
+    }
+
+    _launchLift = 0;
+    _launchStartedAt = null;
+    _launchTicker.stop();
+    _launchLastTick = Duration.zero;
+    setState(() {});
+  }
+
   void _minimizeAll() {
     for (final window in widget.windows) {
       widget.services.minimizeWindow(window.id);
     }
     _closeOverlay();
+  }
+
+  void _closeWindows() {
+    final ids = [for (final window in widget.windows) window.id];
+    _closeOverlay();
+    if (ids.isEmpty) return;
+    widget.onCloseWindows(ids);
   }
 
   void _activateWindow(int id) {
@@ -307,20 +408,37 @@ class _DockItemWidgetState extends State<DockItemWidget>
     final running = widget.windows.isNotEmpty;
     final active = widget.windows.any((window) => window.active);
     final size = widget.size;
+    // macOS shows one dot per open window up to three; more windows keep the
+    // three-dot row. The dots sit in the same 4 px slot as before, so the
+    // capsule height does not change.
+    final dotCount = math.min(3, math.max(1, widget.windows.length));
+    final dotSize = dotCount >= 3 ? 4.0 : 5.0;
+    const dotSpacing = 2.0;
     final indicator = running
         ? Positioned(
             left: 0,
             right: 0,
             bottom: -5,
             child: Center(
-              child: Container(
-                width: widget.windows.length > 1 ? 7 : 4,
+              child: SizedBox(
                 height: 4,
-                decoration: BoxDecoration(
-                  borderRadius: BorderRadius.circular(2),
-                  color: active
-                      ? theme.accent
-                      : colors.textPrimary.withValues(alpha: 0.55),
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    for (var i = 0; i < dotCount; i++) ...[
+                      if (i > 0) const SizedBox(width: dotSpacing),
+                      Container(
+                        width: dotSize,
+                        height: dotSize,
+                        decoration: BoxDecoration(
+                          shape: BoxShape.circle,
+                          color: active
+                              ? theme.accent
+                              : colors.textPrimary.withValues(alpha: 0.55),
+                        ),
+                      ),
+                    ],
+                  ],
                 ),
               ),
             ),
@@ -358,18 +476,53 @@ class _DockItemWidgetState extends State<DockItemWidget>
                 onPointerDown: (event) {
                   _downPosition = event.position;
                   _downButtons = event.buttons;
+                  // A touch or pen has no secondary button; a long press opens
+                  // the same menu. The timer is cancelled as soon as the
+                  // pointer moves, so a drag never turns into a menu.
+                  if (event.kind != PointerDeviceKind.mouse &&
+                      event.buttons == kPrimaryButton) {
+                    _longPressFired = false;
+                    _longPressTimer?.cancel();
+                    _longPressTimer = Timer(
+                      const Duration(milliseconds: 550),
+                      () {
+                        _longPressTimer = null;
+                        if (!mounted) return;
+                        _longPressFired = true;
+                        _openMenu();
+                      },
+                    );
+                  }
+                },
+                onPointerMove: (event) {
+                  if (_longPressTimer != null &&
+                      (_downPosition != null) &&
+                      (event.position - _downPosition!).distance > 6) {
+                    _longPressTimer?.cancel();
+                    _longPressTimer = null;
+                  }
                 },
                 onPointerUp: (event) {
+                  _longPressTimer?.cancel();
+                  _longPressTimer = null;
                   _downPosition = null;
                   _downButtons = 0;
                 },
                 onPointerCancel: (event) {
+                  _longPressTimer?.cancel();
+                  _longPressTimer = null;
                   _downPosition = null;
                   _downButtons = 0;
                 },
                 child: GestureDetector(
                   behavior: HitTestBehavior.opaque,
-                  onTap: _activate,
+                  onTap: () {
+                    if (_longPressFired) {
+                      _longPressFired = false;
+                      return;
+                    }
+                    _activate();
+                  },
                   onSecondaryTapDown: (_) =>
                       _menuOpen ? _closeOverlay() : _openMenu(),
                   // Secondary-button drags must not reorder or pin anything; a
@@ -390,17 +543,8 @@ class _DockItemWidgetState extends State<DockItemWidget>
                       ? null
                       : (_) => widget.onDragEnd!(),
                   onPanCancel: widget.onDragEnd,
-                  child: AnimatedBuilder(
-                    animation: _bounce,
-                    builder: (context, child) {
-                      final bounce = _bounce.isAnimating
-                          ? DockMath.launchBounce(_bounce.value) * size * 0.35
-                          : 0.0;
-                      return Transform.translate(
-                        offset: Offset(0, -widget.lift - bounce),
-                        child: child,
-                      );
-                    },
+                  child: Transform.translate(
+                    offset: Offset(0, -widget.lift - _launchLift),
                     child: SizedBox(
                       width: size,
                       height: size,
@@ -533,6 +677,16 @@ class _DockItemWidgetState extends State<DockItemWidget>
                                         : 'Minimize all windows')
                                   : (chinese ? '最小化' : 'Minimize'),
                               onTap: _minimizeAll,
+                            ),
+                          // Closing sits last, as in macOS, KDE and GNOME: it is
+                          // the only item here that can discard unsaved work.
+                          if (widget.windows.isNotEmpty)
+                            DockMenuRow(
+                              icon: Icons.close,
+                              label: widget.windows.length > 1
+                                  ? (chinese ? '关闭全部窗口' : 'Close all windows')
+                                  : (chinese ? '关闭窗口' : 'Close window'),
+                              onTap: _closeWindows,
                             ),
                           if (_launchError case final error?)
                             Padding(

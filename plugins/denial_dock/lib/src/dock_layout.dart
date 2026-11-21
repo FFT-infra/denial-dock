@@ -1,3 +1,5 @@
+import 'dart:math' as math;
+
 import 'dock_math.dart';
 
 /// One resting slot in the dock row. [half] is measured from the slot centre
@@ -85,6 +87,13 @@ class DockLayoutFrame {
 /// surface. Influence is measured against resting centres so the layout has no
 /// feedback loop while the pointer is still.
 abstract final class DockLayout {
+  /// The kernel holds its peak across one slot before it starts to decay.
+  /// Without a plateau the scale peaks only at the exact slot centre, so
+  /// sliding the pointer along the row makes every icon breathe as it crosses
+  /// the gaps.
+  static double plateauFor({required double pitch, required double radius}) =>
+      math.min(pitch / 2, radius * 0.6);
+
   static DockLayoutFrame compute({
     required double surfaceWidth,
     required List<DockSlot> slots,
@@ -94,6 +103,7 @@ abstract final class DockLayout {
     required double hover,
     required double maxScale,
     required double radius,
+    double? plateau,
   }) {
     final safeSurfaceWidth = surfaceWidth.isFinite
         ? surfaceWidth
@@ -111,8 +121,10 @@ abstract final class DockLayout {
 
     final restCenters = <double>[];
     var cursor = padding;
+    var pitch = gap;
     for (final slot in slots) {
       restCenters.add(cursor + slot.half);
+      if (slot.growable) pitch = math.max(pitch, slot.half * 2 + gap);
       cursor += slot.half * 2 + gap;
     }
     // [cursor] still carries the leading padding and one trailing gap.
@@ -120,6 +132,7 @@ abstract final class DockLayout {
     final restWidth = contentWidth + padding * 2;
     final restLeft = safeSurfaceWidth / 2 - restWidth / 2;
 
+    final shoulder = plateau ?? plateauFor(pitch: pitch, radius: radius);
     final growth = (maxScale - 1.0) * hover.clamp(0.0, 1.0);
     final scales = <double>[];
     var total = 0.0;
@@ -130,6 +143,7 @@ abstract final class DockLayout {
         final influence = DockMath.influenceAt(
           pointerX - (restLeft + restCenters[i]),
           radius,
+          plateau: shoulder,
         );
         scale = 1.0 + growth * influence;
       }

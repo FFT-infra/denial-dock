@@ -91,6 +91,20 @@ void main() {
   final nearest = hovered.nearest(hovered.slots[3].center + 2);
   _expect(nearest != null && nearest.$1 == 3, 'nearest ${nearest?.$1}');
 
+  // Plateau: sliding the pointer from one slot centre to the next keeps the
+  // hovered scale at full for a stretch, so the row does not breathe in the
+  // gaps.
+  final nearA = layout(rest.slots[1].center + 4, 1);
+  final nearB = layout(rest.slots[1].center + 12, 1);
+  _expect(
+    (nearA.slots[1].scale - nearB.slots[1].scale).abs() < 1e-9,
+    'plateau should hold the scale: ${nearA.slots[1].scale} '
+    '${nearB.slots[1].scale}',
+  );
+  // The plateau is derived from the slot pitch: half an icon plus half a gap.
+  final pitchPlateau = DockLayout.plateauFor(pitch: 48 + gap, radius: radius);
+  _expect(pitchPlateau == 28.0, 'plateau $pitchPlateau');
+
   // Empty dock is just the capsule padding.
   final empty = DockLayout.compute(
     surfaceWidth: surface,

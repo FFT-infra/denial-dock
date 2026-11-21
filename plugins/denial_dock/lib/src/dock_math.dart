@@ -35,9 +35,19 @@ abstract final class DockMath {
   ///
   /// Guarantees that first and second derivatives are strictly zero at t=0 and t=1,
   /// avoiding sharp corners or sudden velocity spikes across icon boundaries.
-  static double influenceAt(double distance, double radius) {
+  ///
+  /// [plateau] is the distance around the slot centre that keeps the full
+  /// peak; it is what makes the pointer glide along a row instead of making
+  /// each icon breathe as it crosses the gaps.
+  static double influenceAt(
+    double distance,
+    double radius, {
+    double plateau = 0,
+  }) {
     final support = math.max(1.0, radius);
-    final t = math.min(1.0, distance.abs() / support);
+    final hold = plateau.clamp(0.0, support);
+    final span = math.max(1.0, support - hold);
+    final t = math.min(1.0, math.max(0.0, distance.abs() - hold) / span);
     return 1.0 - t * t * t * (10.0 + t * (-15.0 + 6.0 * t));
   }
 

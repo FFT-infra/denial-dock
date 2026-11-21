@@ -39,6 +39,37 @@ void main() {
     throw StateError('Derivative at t=1 should be near 0, got $dAtEdge');
   }
 
+  // 1b. Plateau: the peak holds across the slot, then decays to zero at the
+  // radius. Without it the scale dips in every gap as the pointer glides.
+  const plateau = 28.0;
+  for (final distance in [0.0, 14.0, 28.0]) {
+    final held = DockMath.influenceAt(distance, radius, plateau: plateau);
+    if ((held - 1.0).abs() > 1e-6) {
+      throw StateError('Plateau should hold 1.0 at $distance, got $held');
+    }
+  }
+  final midShoulder = DockMath.influenceAt(
+    plateau + 1.0,
+    radius,
+    plateau: plateau,
+  );
+  if (midShoulder >= 1.0 || midShoulder <= 0.0) {
+    throw StateError(
+      'Influence should decay past the plateau, got $midShoulder',
+    );
+  }
+  final shoulderEdge = DockMath.influenceAt(radius, radius, plateau: plateau);
+  if (shoulderEdge.abs() > 1e-6) {
+    throw StateError(
+      'Plateau must still reach 0 at the radius, got $shoulderEdge',
+    );
+  }
+  // A plateau wider than the radius collapses to a hard edge, not NaN.
+  final degenerate = DockMath.influenceAt(1.0, radius, plateau: radius * 2);
+  if (!degenerate.isFinite || (degenerate - 1.0).abs() > 1e-6) {
+    throw StateError('Degenerate plateau should clamp, got $degenerate');
+  }
+
   // 2. Integral function checks
   final i0 = DockMath.integralAt(0.0);
   if (i0.abs() > 1e-6) {
