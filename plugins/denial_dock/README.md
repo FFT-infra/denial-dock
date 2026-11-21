@@ -119,6 +119,8 @@ Most settings live in the settings sheet. The same values are stored in
   "bounceOnLaunch": true,
   "showIndicators": true,
   "showSuggestions": true,
+  "iconMode": "color",
+  "revealIndicator": true,
   "launcherSide": "left",
   "extrasSide": "right",
   "showTrash": true,
@@ -144,6 +146,10 @@ Most settings live in the settings sheet. The same values are stored in
 - `showIndicators` (default `true`) draws the running dots.
 - `showSuggestions` (default `true`) appends recently used applications that
   are not pinned, after a divider.
+- `iconMode` is `"color"` (default), `"grayscale"` or `"tinted"`; tinted
+  multiplies the icon through the theme accent.
+- `revealIndicator` (default `true`) draws a short bar on the screen edge while
+  the dock is retracted.
 - `launcherSide` and `extrasSide` are `"left"`, `"right"` or `"hidden"`.
   Accessories (folders and trash) default to the right; the launcher defaults
   to the left. Trash stays the last item inside the accessory group.
@@ -162,6 +168,11 @@ Values the dock cannot parse fall back to the defaults rather than throwing.
 - A dock longer than the edge it sits on has no scrolling or overflow mode.
 - Every output gets its own dock, but drag and auto-hide were only exercised on
   a single monitor.
+- No quit, hide or per-application autostart. `ShellWindowServices` exposes
+  activate, minimize and close only, so a menu entry for them would be dead.
+- No notification badges. `desktopNotificationsProvider` carries a
+  `desktopEntry` per notification that does not reliably match a launcher id.
+- Windows cannot be dropped onto an icon. The shell forwards no external drag.
 - Denial starts button pointers at the scene origin. The drag code works from
   absolute scene positions to compensate; the first few pixels of a drag can
   still feel less precise than a native toolkit drag.

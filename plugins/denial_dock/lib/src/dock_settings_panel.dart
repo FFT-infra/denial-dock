@@ -415,11 +415,39 @@ class _DockSettingsPanelState extends ConsumerState<DockSettingsPanel> {
                     onChanged: (value) =>
                         _controller.setMagnificationAmount(value),
                   ),
+                  _SegmentedField<DockIconMode>(
+                    label: _zh ? '图标' : 'Icons',
+                    value: settings.iconMode,
+                    options: [
+                      (
+                        DockIconMode.color,
+                        _zh ? '彩色' : 'Colour',
+                        Icons.palette_outlined,
+                      ),
+                      (
+                        DockIconMode.grayscale,
+                        _zh ? '灰度' : 'Greyscale',
+                        Icons.tonality_outlined,
+                      ),
+                      (
+                        DockIconMode.tinted,
+                        _zh ? '着色' : 'Tinted',
+                        Icons.colorize_outlined,
+                      ),
+                    ],
+                    onChanged: (value) => _controller.setIconMode(value),
+                  ),
                   _ToggleRow(
                     label: _zh ? '弹跳打开应用程序' : 'Bounce to open applications',
                     value: settings.bounceOnLaunch,
                     onChanged: (value) =>
                         _controller.setBounceOnLaunch(bounce: value),
+                  ),
+                  _ToggleRow(
+                    label: _zh ? '收起时显示提示条' : 'Show a handle while hidden',
+                    value: settings.revealIndicator,
+                    onChanged: (value) =>
+                        _controller.setRevealIndicator(show: value),
                   ),
                   _ToggleRow(
                     label: _zh

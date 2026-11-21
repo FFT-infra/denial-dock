@@ -65,6 +65,28 @@ enum DockPosition {
   };
 }
 
+/// How application icons are painted.
+enum DockIconMode {
+  color,
+  grayscale,
+  tinted;
+
+  String get key => switch (this) {
+    DockIconMode.color => 'color',
+    DockIconMode.grayscale => 'grayscale',
+    DockIconMode.tinted => 'tinted',
+  };
+
+  static DockIconMode parse(
+    Object? value, {
+    DockIconMode fallback = DockIconMode.color,
+  }) => switch (value) {
+    'grayscale' => DockIconMode.grayscale,
+    'tinted' => DockIconMode.tinted,
+    _ => fallback,
+  };
+}
+
 /// Icons and their identity are matched without the `.desktop` suffix and case.
 String normalizeAppId(String id) =>
     id.trim().toLowerCase().replaceFirst(RegExp(r'\.desktop$'), '');
@@ -136,6 +158,8 @@ class DockSettings {
     this.magnification = true,
     this.magnificationAmount = 0.6,
     this.position = DockPosition.bottom,
+    this.iconMode = DockIconMode.color,
+    this.revealIndicator = true,
     this.bounceOnLaunch = true,
     this.showIndicators = true,
     this.showSuggestions = true,
@@ -191,6 +215,12 @@ class DockSettings {
   final double magnificationAmount;
 
   final DockPosition position;
+  final DockIconMode iconMode;
+
+  /// Draws a short bar on the dock's edge while it is retracted, so the hidden
+  /// strip is still discoverable.
+  final bool revealIndicator;
+
   final bool bounceOnLaunch;
   final bool showIndicators;
   final bool showSuggestions;
@@ -213,6 +243,8 @@ class DockSettings {
     bool? magnification,
     double? magnificationAmount,
     DockPosition? position,
+    DockIconMode? iconMode,
+    bool? revealIndicator,
     bool? bounceOnLaunch,
     bool? showIndicators,
     bool? showSuggestions,
@@ -230,6 +262,8 @@ class DockSettings {
       magnificationAmount ?? this.magnificationAmount,
     ),
     position: position ?? this.position,
+    iconMode: iconMode ?? this.iconMode,
+    revealIndicator: revealIndicator ?? this.revealIndicator,
     bounceOnLaunch: bounceOnLaunch ?? this.bounceOnLaunch,
     showIndicators: showIndicators ?? this.showIndicators,
     showSuggestions: showSuggestions ?? this.showSuggestions,
@@ -331,6 +365,10 @@ class DockSettings {
             : 0.6,
       ),
       position: DockPosition.parse(json['position']),
+      iconMode: DockIconMode.parse(json['iconMode']),
+      revealIndicator: json['revealIndicator'] is bool
+          ? json['revealIndicator'] as bool
+          : true,
       bounceOnLaunch: json['bounceOnLaunch'] is bool
           ? json['bounceOnLaunch'] as bool
           : true,
@@ -400,6 +438,8 @@ class DockPreferencesStore {
     json['magnification'] = settings.magnification;
     json['magnificationAmount'] = settings.magnificationAmount;
     json['position'] = settings.position.key;
+    json['iconMode'] = settings.iconMode.key;
+    json['revealIndicator'] = settings.revealIndicator;
     json['bounceOnLaunch'] = settings.bounceOnLaunch;
     json['showIndicators'] = settings.showIndicators;
     json['showSuggestions'] = settings.showSuggestions;

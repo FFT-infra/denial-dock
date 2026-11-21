@@ -72,6 +72,12 @@ class DockSettingsController extends AsyncNotifier<DockSettings> {
   Future<void> setPosition(DockPosition position) =>
       _update((current) => current.copyWith(position: position));
 
+  Future<void> setIconMode(DockIconMode mode) =>
+      _update((current) => current.copyWith(iconMode: mode));
+
+  Future<void> setRevealIndicator({required bool show}) =>
+      _update((current) => current.copyWith(revealIndicator: show));
+
   Future<void> setBounceOnLaunch({required bool bounce}) =>
       _update((current) => current.copyWith(bounceOnLaunch: bounce));
 

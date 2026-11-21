@@ -12,6 +12,7 @@ import 'package:flutter/scheduler.dart';
 import 'package:flutter/services.dart';
 
 import 'dock_click.dart';
+import 'dock_icon.dart';
 import 'dock_launch.dart';
 import 'dock_menu.dart';
 import 'dock_settings.dart';
@@ -35,6 +36,7 @@ class DockItemWidget extends StatefulWidget {
     required this.clickAction,
     required this.bounceOnLaunch,
     required this.showIndicators,
+    required this.iconMode,
     required this.onTogglePin,
     required this.onCloseWindows,
     required this.onOverlayChanged,
@@ -75,6 +77,7 @@ class DockItemWidget extends StatefulWidget {
 
   final bool bounceOnLaunch;
   final bool showIndicators;
+  final DockIconMode iconMode;
 
   final VoidCallback onTogglePin;
 
@@ -643,9 +646,13 @@ class _DockItemWidgetState extends State<DockItemWidget>
                         clipBehavior: Clip.none,
                         children: [
                           Positioned.fill(
-                            child: widget.services.buildApplicationIcon(
-                              context,
-                              widget.appId,
+                            child: DockIcon(
+                              mode: widget.iconMode,
+                              accent: theme.accent,
+                              child: widget.services.buildApplicationIcon(
+                                context,
+                                widget.appId,
+                              ),
                             ),
                           ),
                           if (indicator != null) indicator,

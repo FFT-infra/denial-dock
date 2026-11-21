@@ -19,6 +19,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'dock_autohide.dart';
 import 'dock_drag.dart';
 import 'dock_extras_item.dart';
+import 'dock_icon.dart';
 import 'dock_item.dart';
 import 'dock_layout.dart';
 import 'dock_math.dart';
@@ -1039,9 +1040,13 @@ class _DockContainerState extends ConsumerState<DockContainer>
                             ),
                           ],
                         ),
-                        child: widget.services.buildApplicationIcon(
-                          context,
-                          dragEntry.appId,
+                        child: DockIcon(
+                          mode: settings.iconMode,
+                          accent: theme.accent,
+                          child: widget.services.buildApplicationIcon(
+                            context,
+                            dragEntry.appId,
+                          ),
                         ),
                       ),
                     ),
@@ -1061,7 +1066,12 @@ class _DockContainerState extends ConsumerState<DockContainer>
                     child: Listener(
                       behavior: HitTestBehavior.opaque,
                       onPointerDown: (_) => _tapEdge(),
-                      child: const ColoredBox(color: Color(0x00000000)),
+                      child: ColoredBox(
+                        color: const Color(0x00000000),
+                        child: settings.revealIndicator && _reveal < 0.5
+                            ? _revealHandle(theme)
+                            : const SizedBox.shrink(),
+                      ),
                     ),
                   ),
                 ),
@@ -1072,6 +1082,29 @@ class _DockContainerState extends ConsumerState<DockContainer>
       },
     );
   }
+
+  /// A short bar on the screen edge while the dock is retracted, so a hidden
+  /// dock still shows where it lives.
+  Widget _revealHandle(ShellThemeData theme) => Align(
+    alignment: switch (_position) {
+      DockPosition.bottom => Alignment.bottomCenter,
+      DockPosition.left => Alignment.centerLeft,
+      DockPosition.right => Alignment.centerRight,
+    },
+    child: Padding(
+      padding: const EdgeInsets.all(2),
+      child: SizedBox(
+        width: _vertical ? 4 : _iconSize * 1.6,
+        height: _vertical ? _iconSize * 1.6 : 4,
+        child: DecoratedBox(
+          decoration: BoxDecoration(
+            color: theme.colors.textPrimary.withValues(alpha: 0.35),
+            borderRadius: BorderRadius.circular(2),
+          ),
+        ),
+      ),
+    ),
+  );
 
   /// Places a box on the dock's axis: [main] runs along the row, [cross] is
   /// the distance from the screen edge the dock is attached to.
@@ -1492,6 +1525,7 @@ class _DockContainerState extends ConsumerState<DockContainer>
               clickAction: settings.clickAction,
               bounceOnLaunch: settings.bounceOnLaunch,
               showIndicators: settings.showIndicators,
+              iconMode: settings.iconMode,
               onTogglePin: () => _togglePin(entry),
               onCloseWindows: _closeWindows,
               onOverlayChanged: _setOverlayHold,

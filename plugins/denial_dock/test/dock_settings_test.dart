@@ -14,6 +14,8 @@ void main() {
   _expect(defaults.launcherSide == DockSide.left, 'default launcher side');
   _expect(defaults.extrasSide == DockSide.right, 'default extras side');
   _expect(defaults.showTrash, 'default trash');
+  _expect(defaults.iconMode == DockIconMode.color, 'default icon mode');
+  _expect(defaults.revealIndicator, 'default reveal handle');
   _expect(defaults.folders.isEmpty, 'default folders');
   _expect(
     defaults.capsuleHeight ==
@@ -59,6 +61,8 @@ void main() {
     launcherSide: DockSide.right,
     extrasSide: DockSide.left,
     showTrash: false,
+    iconMode: DockIconMode.grayscale,
+    revealIndicator: false,
     folders: const [DockFolder(path: '/home/me/Documents', label: 'Documents')],
   );
   final json = {
@@ -70,6 +74,8 @@ void main() {
     'launcherSide': settings.launcherSide.key,
     'extrasSide': settings.extrasSide.key,
     'showTrash': settings.showTrash,
+    'iconMode': settings.iconMode.key,
+    'revealIndicator': settings.revealIndicator,
     'folders': settings.folders.map((folder) => folder.toJson()).toList(),
   };
   final decoded = DockSettings.fromJson(
@@ -83,6 +89,8 @@ void main() {
   _expect(decoded.launcherSide == DockSide.right, 'round trip launcher');
   _expect(decoded.extrasSide == DockSide.left, 'round trip extras');
   _expect(!decoded.showTrash, 'round trip trash');
+  _expect(decoded.iconMode == DockIconMode.grayscale, 'round trip icon mode');
+  _expect(!decoded.revealIndicator, 'round trip reveal handle');
   _expect(
     decoded.folders.single.path == '/home/me/Documents' &&
         decoded.folders.single.label == 'Documents',

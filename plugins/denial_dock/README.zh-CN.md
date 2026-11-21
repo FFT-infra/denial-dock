@@ -55,6 +55,8 @@ denial-plugins apply
   "bounceOnLaunch": true,
   "showIndicators": true,
   "showSuggestions": true,
+  "iconMode": "color",
+  "revealIndicator": true,
   "launcherSide": "left",
   "extrasSide": "right",
   "showTrash": true,
@@ -72,6 +74,8 @@ denial-plugins apply
 - `bounceOnLaunch` 默认 `true`，启动应用时图标跳一下。
 - `showIndicators` 默认 `true`，画运行指示点。
 - `showSuggestions` 默认 `true`，在分隔线后面追加最近用过、没固定的应用。
+- `iconMode` 是 `"color"`（默认）、`"grayscale"` 或 `"tinted"`，着色模式用主题强调色乘上图标。
+- `revealIndicator` 默认 `true`，Dock 收起时在屏幕边缘留一条短提示条。
 - `launcherSide` 和 `extrasSide` 是 `"left"`、`"right"` 或 `"hidden"`。配件区（文件夹和回收站）默认在右，启动台默认在左。回收站在配件组里永远排最后。
 - `showTrash` 单独关掉回收站，不动文件夹列表。
 - `folders` 存绝对路径；没写 `label` 就用目录名。重复路径会合并。
@@ -83,6 +87,9 @@ Dock 原子地重写这个文件，按已有内容合并，不认识的键保留
 
 - Dock 比所贴的那条边长时没有滚动或折行。
 - 每个显示器都会有自己的 Dock，但拖拽和自动收起只在一台显示器上实际验证过。
+- 没有退出、隐藏应用，也没有「登录时打开」。`ShellWindowServices` 只提供激活、最小化和关闭，多画一条就是死按钮。
+- 没有未读通知角标。`desktopNotificationsProvider` 每条通知只带 `desktopEntry`，和 launcher id 对不上。
+- 窗口不能拖到图标上打开，shell 不转发外部拖放。
 - Denial 在按下鼠标时会把按钮指针的起点报成场景原点。拖拽靠绝对场景坐标来绕开这个问题，开头几个像素的手感还是不如原生工具包的拖拽。
 - 预览用的是 shell 的窗口纹理服务。没有客户端纹理的应用会显示成一块纯色卡片。
 - Dock 自己不做窗口状态缓存，应用、窗口、工作区都每帧从 shell 的服务里算。
