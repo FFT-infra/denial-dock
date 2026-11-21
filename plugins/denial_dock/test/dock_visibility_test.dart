@@ -1,34 +1,13 @@
 import 'package:denial_dock/src/dock_visibility.dart';
 
 void main() {
-  // Smart mode retracts only while the layout floats.
   _expect(
-    DockVisibility.smartHideActive(
-      mode: DockVisibilityMode.smart,
-      tiling: false,
-    ),
-    'smart hides over floating windows',
+    DockVisibility.smartHideActive(mode: DockVisibilityMode.smart),
+    'smart hides over a covered strip',
   );
   _expect(
-    !DockVisibility.smartHideActive(
-      mode: DockVisibilityMode.smart,
-      tiling: true,
-    ),
-    'smart stays resident while tiling',
-  );
-  _expect(
-    !DockVisibility.smartHideActive(
-      mode: DockVisibilityMode.always,
-      tiling: false,
-    ),
+    !DockVisibility.smartHideActive(mode: DockVisibilityMode.always),
     'always never hides',
-  );
-  _expect(
-    !DockVisibility.smartHideActive(
-      mode: DockVisibilityMode.always,
-      tiling: true,
-    ),
-    'always never hides while tiling',
   );
 
   // Stored keys round-trip, and unknown values fall back to smart.

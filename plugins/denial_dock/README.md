@@ -54,9 +54,8 @@ turning it on.
   out for four seconds so the finger can reach an icon. It retracts 200 ms
   after the pointer leaves while a window still reaches the capsule, and comes
   back as soon as that window clears the capsule itself. A window parked
-  exactly on the boundary does not make it flap. While the window layout tiles,
-  the dock stays resident instead: every tile reaches the bottom edge, so
-  overlap-hiding would keep it hidden forever.
+  exactly on the boundary does not make it flap. Tiles reach the edge like any
+  other window, so a tiling layout retracts too.
 - **Folder shortcuts and Trash.** Add any folder from the settings sheet
   through a built-in directory browser, with hidden entries behind a toggle.
   Clicking a shortcut opens the folder with the system handler (`xdg-open`,
@@ -84,9 +83,9 @@ turning it on.
   reserving space on one edge only, so this dock deliberately does not claim the
   bottom edge; fullscreen windows cover it, the same way they cover the Dock on
   macOS. In fullscreen the dock hides and comes back in overview or show
-  desktop. Tiled windows therefore also run under the capsule. The tiling gap
-  you may see at the bottom comes from `maximizePadding` in Denial's own
-  settings (default 8), not from this plugin.
+  desktop. Tiled windows run under the capsule while it is out. The gap you may
+  see at the bottom comes from `maximizePadding` in Denial's own settings
+  (default 8), not from this plugin.
 
 ## Install
 

@@ -7,7 +7,6 @@ import 'package:denial_flutter_sdk/effects.dart';
 import 'package:denial_flutter_sdk/input.dart';
 import 'package:denial_flutter_sdk/popups.dart';
 import 'package:denial_flutter_sdk/services.dart';
-import 'package:denial_flutter_sdk/settings.dart' show DesktopWindowLayout;
 import 'package:denial_flutter_sdk/shell.dart';
 import 'package:denial_flutter_sdk/state.dart' show shellControllerProvider;
 import 'package:denial_flutter_sdk/surfaces.dart';
@@ -857,16 +856,8 @@ class _DockContainerState extends ConsumerState<DockContainer>
           output: environment.output,
           desktopVisible: environment.desktopVisible,
         );
-        // A tiling layout puts every tile on the screen edges, so overlap-hiding
-        // would retract the dock for good. Smart mode stays resident there.
         _syncConflict(
-          DockVisibility.smartHideActive(
-                mode: settings.visibility,
-                tiling:
-                    environment.settings.layout.windowLayout !=
-                    DesktopWindowLayout.stacking,
-              ) &&
-              conflict,
+          DockVisibility.smartHideActive(mode: settings.visibility) && conflict,
         );
 
         if (_dragKey != null) {

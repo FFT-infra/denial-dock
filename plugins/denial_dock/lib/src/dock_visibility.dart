@@ -4,9 +4,9 @@ enum DockVisibilityMode {
   /// Always in reach, even under a window.
   always,
 
-  /// Retract while a floating window covers the dock's strip; return on edge
-  /// hover. A tiling layout keeps the dock resident instead: every tile reaches
-  /// the bottom edge, so overlap-hiding would hide the dock permanently.
+  /// Retract while a window covers the dock's strip; return on edge hover.
+  /// Tiles reach the edge like any other window, so a tiling layout retracts
+  /// too and comes back from the edge strip.
   smart;
 
   String get key => this == DockVisibilityMode.always ? 'always' : 'smart';
@@ -16,10 +16,7 @@ enum DockVisibilityMode {
 }
 
 abstract final class DockVisibility {
-  /// Whether a covered dock retracts. Only [DockVisibilityMode.smart] hides,
-  /// and only while the window layout floats.
-  static bool smartHideActive({
-    required DockVisibilityMode mode,
-    required bool tiling,
-  }) => mode == DockVisibilityMode.smart && !tiling;
+  /// Whether a covered dock retracts.
+  static bool smartHideActive({required DockVisibilityMode mode}) =>
+      mode == DockVisibilityMode.smart;
 }
