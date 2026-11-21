@@ -215,6 +215,26 @@ abstract final class DockExtras {
     return _run(openFallback(target));
   }
 
+  /// Opens the trash in the file manager.
+  ///
+  /// The order is reversed for the `trash:///` URI: `xdg-open` does not know
+  /// the scheme, treats it as a web address and hands it to a browser, which
+  /// on a desktop without one installed fails after xdg-open has already
+  /// reported success. `gio open` sends `org.freedesktop.Application.Open` to
+  /// the file manager directly.
+  static Future<bool> openTrash() async {
+    for (final command in trashCommands) {
+      if (await _run(command)) return true;
+    }
+    return false;
+  }
+
+  /// Openers for [trashUri], file manager first.
+  static List<List<String>> get trashCommands => [
+    openFallback(trashUri),
+    openCommand(trashUri),
+  ];
+
   static Future<bool> _run(List<String> command) async {
     try {
       final process = await Process.start(

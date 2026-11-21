@@ -327,7 +327,7 @@ class _DockTrashItemState extends State<DockTrashItem> {
   String get _label => widget.zh ? '回收站' : 'Trash';
 
   Future<void> _open() async {
-    final opened = await DockExtras.openPath(DockExtras.trashUri);
+    final opened = await DockExtras.openTrash();
     if (!opened) {
       final roots = _trashRoots();
       if (roots.isNotEmpty) {

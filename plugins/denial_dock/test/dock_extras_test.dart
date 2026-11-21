@@ -177,6 +177,13 @@ Future<void> main() async {
     ]),
     'open fallback',
   );
+  // The trash goes through gio first: xdg-open has no handler for the scheme
+  // and still exits 0 after failing, so the caller cannot fall back on it.
+  final trashCommands = DockExtras.trashCommands;
+  _expect(
+    _same(trashCommands.first, ['gio', 'open', 'trash:///']),
+    'trash command prefers gio',
+  );
 
   stdout.writeln('All dock extras tests passed.');
 }
