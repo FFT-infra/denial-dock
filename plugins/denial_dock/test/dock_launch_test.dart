@@ -1,7 +1,7 @@
 import 'package:denial_dock/src/dock_launch.dart';
 
 void main() {
-  // The hop peaks at half a hop height, matching the reference ratio.
+  // The hop peaks at 0.65 of an icon, matching the reference ratio.
   _expect(DockLaunch.hopLift(0, 48) == 0, 'hop start');
   _expect(
     (DockLaunch.hopLift(0.41, 48) + 48 * 0.65).abs() < 0.01,
@@ -14,6 +14,30 @@ void main() {
   _expect(DockLaunch.landingLift(-20, 0) == -20, 'landing start');
   _expect((DockLaunch.landingLift(-20, 0.5) + 5).abs() < 1e-9, 'landing half');
   _expect(DockLaunch.landingLift(-20, 1) == 0, 'landing end');
+
+  // Screen offsets: up is negative. A hop must move the icon toward the top
+  // of the screen, whether or not the pointer has also lifted it.
+  _expect(DockLaunch.iconOffset(hoverLift: 0, launchLift: 0) == 0, 'still');
+  _expect(
+    DockLaunch.iconOffset(
+          hoverLift: 0,
+          launchLift: DockLaunch.hopLift(0.41, 48),
+        ) <
+        -30,
+    'hop goes up',
+  );
+  _expect(
+    DockLaunch.iconOffset(hoverLift: 12, launchLift: 0) == -12,
+    'hover still goes up',
+  );
+  _expect(
+    DockLaunch.iconOffset(
+          hoverLift: 12,
+          launchLift: DockLaunch.hopLift(0.41, 48),
+        ) <
+        -40,
+    'hover and hop add up',
+  );
 
   // Release rules: floor, readiness, timeout, failure.
   _expect(

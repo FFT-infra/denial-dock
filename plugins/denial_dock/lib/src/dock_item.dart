@@ -544,7 +544,13 @@ class _DockItemWidgetState extends State<DockItemWidget>
                       : (_) => widget.onDragEnd!(),
                   onPanCancel: widget.onDragEnd,
                   child: Transform.translate(
-                    offset: Offset(0, -widget.lift - _launchLift),
+                    offset: Offset(
+                      0,
+                      DockLaunch.iconOffset(
+                        hoverLift: widget.lift,
+                        launchLift: _launchLift,
+                      ),
+                    ),
                     child: SizedBox(
                       width: size,
                       height: size,

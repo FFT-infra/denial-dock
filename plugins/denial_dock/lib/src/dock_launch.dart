@@ -20,6 +20,17 @@ abstract final class DockLaunch {
   static double hopLift(double phase, double iconSize) =>
       -iconSize * heightRatio * DockMath.launchBounce(phase);
 
+  /// Vertical offset to hand to `Transform.translate`.
+  ///
+  /// [hoverLift] is how far the pointer magnification raises the icon, as a
+  /// positive amount. [launchLift] already carries its sign from [hopLift],
+  /// where negative means up. Mixing the two conventions in the caller is how
+  /// the hop ends up pointing at the floor, so the composition lives here.
+  static double iconOffset({
+    required double hoverLift,
+    required double launchLift,
+  }) => -hoverLift + launchLift;
+
   /// The glide starts from the lift at the moment the window appeared and
   /// decays quadratically, so the icon lands instead of dropping.
   static double landingLift(double startLift, double progress) {
