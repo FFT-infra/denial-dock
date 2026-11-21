@@ -56,7 +56,8 @@ turning it on.
 - **Folder shortcuts and Trash.** Add any folder from the settings sheet
   through a built-in directory browser, with hidden entries behind a toggle.
   Clicking a shortcut opens the folder with the system handler (`xdg-open`,
-  falling back to `gio open`). The trash can opens `trash:///`, shows a count
+  falling back to `gio open`). The trash can opens `trash:///` through `gio`
+  first, because `xdg-open` treats the scheme as a web address, shows a count
   badge, and offers *Empty Trash*; emptying needs a second press, because it
   cannot be undone.
 - **Settings sheet.** Right-click the capsule background, the launcher, a folder
@@ -149,8 +150,8 @@ Values the dock cannot parse fall back to the defaults rather than throwing.
 - The trash count reads the home trash and the per-mount trash directories of
   every mount in `/proc/self/mounts`. Items in a trash directory the dock cannot
   read are not counted.
-- Folder shortcuts and the trash open through `xdg-open` with a `gio open`
-  fallback. Without either, clicking them does nothing.
+- Folder shortcuts open through `xdg-open` with a `gio open` fallback; the
+  trash tries `gio` first. Without either, clicking them does nothing.
 - The plugin has no settings-page contract in Denial 0.6.8. The sheet is a
   shell popup owned by the dock, so it is not listed in any system settings
   application.
