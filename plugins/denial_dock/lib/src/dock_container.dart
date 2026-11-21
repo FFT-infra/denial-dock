@@ -187,10 +187,13 @@ class _DockContainerState extends ConsumerState<DockContainer>
     _revealTarget = target;
     if (_ticker.isActive || _tickerScheduled) return;
     _tickerScheduled = true;
+    // Without a frame request the callback waits for the next unrelated frame:
+    // from an idle timer the capsule would stay down for good.
     SchedulerBinding.instance.addPostFrameCallback((_) {
       _tickerScheduled = false;
       if (mounted) _ensureTicker();
     });
+    SchedulerBinding.instance.scheduleFrame();
   }
 
   void _onTick(Duration elapsed) {
@@ -252,6 +255,7 @@ class _DockContainerState extends ConsumerState<DockContainer>
   }
 
   void _tapEdge() {
+    if (_reveal > 0.5) return;
     _revealTimer?.cancel();
     _revealTimer = null;
     _requestReveal(1);
@@ -974,7 +978,9 @@ class _DockContainerState extends ConsumerState<DockContainer>
                 left: 0,
                 right: 0,
                 bottom: 0,
-                height: 4,
+                // Reaches up to the capsule while it is out, so the strip and
+                // the capsule never leave a gap the pointer can fall into.
+                height: math.max(4, _capsuleBottom),
                 child: ShellInputRegion(
                   debugLabel: 'Dock reveal edge',
                   child: MouseRegion(
