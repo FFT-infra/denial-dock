@@ -164,6 +164,50 @@ abstract final class DockExtras {
 
   static const String trashUri = 'trash:///';
 
+  /// The Wayland socket a spawned application should connect to.
+  ///
+  /// The compositor creates its socket but does not put `WAYLAND_DISPLAY` in
+  /// its own environment, so children of the shell inherit no display name and
+  /// GTK/Qt apps fall back to "no session". The socket in `XDG_RUNTIME_DIR`
+  /// is the answer; the highest-numbered one is the current session.
+  static String? discoverWaylandDisplay({
+    Map<String, String>? env,
+    String? runtimeDir,
+  }) {
+    final environment = env ?? Platform.environment;
+    final configured = environment['WAYLAND_DISPLAY'];
+    if (configured != null && configured.isNotEmpty) return configured;
+    final directory = runtimeDir ?? environment['XDG_RUNTIME_DIR'];
+    if (directory == null || !directory.startsWith('/')) return null;
+    var best = 0;
+    var found = false;
+    try {
+      for (final entity in Directory(directory).listSync(followLinks: false)) {
+        final match = RegExp(r'^wayland-(\d+)$')
+            .firstMatch(entity.path.split('/').last);
+        if (match == null) continue;
+        final index = int.parse(match.group(1)!);
+        if (!found || index > best) {
+          best = index;
+          found = true;
+        }
+      }
+    } on FileSystemException {
+      return null;
+    }
+    return found ? 'wayland-$best' : null;
+  }
+
+  /// Environment overrides for a spawned opener: the parent's variables plus
+  /// the display name when the shell did not export one.
+  static Map<String, String> openerEnvironment({Map<String, String>? env}) {
+    final display = discoverWaylandDisplay(env: env);
+    if (display == null) return const {};
+    final environment = env ?? Platform.environment;
+    if (environment['WAYLAND_DISPLAY'] == display) return const {};
+    return {'WAYLAND_DISPLAY': display};
+  }
+
   /// Opens [target] with the session's default handler, falling back to gio.
   /// Returns false when neither helper exists.
   static Future<bool> openPath(String target) async {
@@ -176,6 +220,7 @@ abstract final class DockExtras {
       final process = await Process.start(
         command.first,
         command.sublist(1),
+        environment: openerEnvironment(),
         mode: ProcessStartMode.detached,
       );
       // A detached child reports its pid immediately; a missing binary throws.

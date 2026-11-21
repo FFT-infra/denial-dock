@@ -105,6 +105,62 @@ Future<void> main() async {
     'missing mounts file',
   );
 
+  // The shell exports no WAYLAND_DISPLAY, so the opener needs one: the
+  // highest-numbered socket in the runtime directory.
+  final runtime = Directory.systemTemp.createTempSync('dock_runtime');
+  try {
+    File('${runtime.path}/wayland-1').writeAsStringSync('');
+    File('${runtime.path}/wayland-1.lock').writeAsStringSync('');
+    File('${runtime.path}/wayland-12').writeAsStringSync('');
+    File('${runtime.path}/wayland-12.lock').writeAsStringSync('');
+    File('${runtime.path}/bus').writeAsStringSync('');
+    _expect(
+      DockExtras.discoverWaylandDisplay(
+            env: const {'XDG_RUNTIME_DIR': '/run/user/1000'},
+            runtimeDir: runtime.path,
+          ) ==
+          'wayland-12',
+      'display picked',
+    );
+    _expect(
+      DockExtras.discoverWaylandDisplay(
+            env: const {'WAYLAND_DISPLAY': 'wayland-3'},
+            runtimeDir: runtime.path,
+          ) ==
+          'wayland-3',
+      'display env wins',
+    );
+    _expect(
+      DockExtras.discoverWaylandDisplay(
+            env: const {'XDG_RUNTIME_DIR': 'relative'},
+            runtimeDir: null,
+          ) ==
+          null,
+      'display relative runtime',
+    );
+    final override = DockExtras.openerEnvironment(
+      env: {'XDG_RUNTIME_DIR': runtime.path},
+    );
+    _expect(
+      override.length == 1 && override['WAYLAND_DISPLAY'] == 'wayland-12',
+      'opener env override $override',
+    );
+    _expect(
+      DockExtras.openerEnvironment(
+        env: {'XDG_RUNTIME_DIR': runtime.path, 'WAYLAND_DISPLAY': 'wayland-12'},
+      ).isEmpty,
+      'opener env keeps a good display',
+    );
+    _expect(
+      DockExtras.openerEnvironment(
+        env: const {'XDG_RUNTIME_DIR': '/nonexistent/runtime'},
+      ).isEmpty,
+      'no socket means no override',
+    );
+  } finally {
+    runtime.deleteSync(recursive: true);
+  }
+
   // Opener commands: xdg-open first, gio as the fallback.
   _expect(
     _same(DockExtras.openCommand('/home/me/Docs'), [
