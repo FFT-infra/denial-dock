@@ -11,6 +11,8 @@ import 'package:flutter/services.dart';
 import 'dock_extras.dart';
 import 'dock_menu.dart';
 import 'dock_settings.dart';
+import 'dock_stack_files.dart';
+import 'dock_stack_view.dart';
 
 typedef DockAccessoryMenuBuilder = List<Widget> Function(
   BuildContext context,
@@ -433,9 +435,10 @@ class _DockTrashItemState extends State<DockTrashItem> {
   }
 }
 
-/// A folder shortcut. Clicking opens the folder with the session's file
-/// manager; the menu can remove it from the dock.
-class DockFolderItem extends StatelessWidget {
+/// A folder shortcut. Clicking fans the folder's contents out above the icon,
+/// the way a macOS Stack does; the menu opens the folder in the file manager
+/// or removes it from the dock.
+class DockFolderItem extends StatefulWidget {
   const DockFolderItem({
     required this.folder,
     required this.size,
@@ -459,47 +462,128 @@ class DockFolderItem extends StatelessWidget {
   final Rect monitorBounds;
   final VoidCallback onOpenSettings;
 
-  Future<void> _open() async {
-    await DockExtras.openPath(folder.path);
+  @override
+  State<DockFolderItem> createState() => _DockFolderItemState();
+}
+
+class _DockFolderItemState extends State<DockFolderItem> {
+  final OverlayPortalController _fan = OverlayPortalController();
+  bool _fanOpen = false;
+  List<DockStackEntry> _entries = const [];
+
+  @override
+  void dispose() {
+    if (_fanOpen) widget.onOverlayChanged(false);
+    super.dispose();
+  }
+
+  Future<void> _openFolder() async {
+    _closeFan();
+    await DockExtras.openPath(widget.folder.path);
+  }
+
+  /// Reads the folder and fans it out. The read is a synchronous walk of one
+  /// directory: the reference docks do the same, and a folder that large is
+  /// already truncated at [DockStackFiles.maxEntries].
+  void _toggleFan() {
+    if (_fanOpen) {
+      _closeFan();
+      return;
+    }
+    final entries = DockStackFiles.list(widget.folder.path);
+    if (!mounted) return;
+    setState(() {
+      _entries = entries;
+      _fanOpen = true;
+    });
+    _fan.show();
+    widget.onOverlayChanged(true);
+  }
+
+  void _closeFan() {
+    if (!_fanOpen) return;
+    setState(() => _fanOpen = false);
+    _fan.hide();
+    widget.onOverlayChanged(false);
+  }
+
+  Future<void> _openEntry(DockStackEntry entry) async {
+    _closeFan();
+    await DockExtras.openPath(entry.path);
   }
 
   @override
   Widget build(BuildContext context) {
-    return DockAccessoryItem(
-      label: folder.label,
-      icon: Icons.folder_rounded,
-      size: size,
-      lift: lift,
-      position: position,
-      onTap: _open,
-      onOverlayChanged: onOverlayChanged,
-      monitorBounds: monitorBounds,
-      menuBuilder: (context, close) => [
-        DockMenuRow(
-          icon: Icons.open_in_new,
-          label: zh ? '打开文件夹' : 'Open folder',
-          onTap: () {
-            close();
-            _open();
-          },
-        ),
-        DockMenuRow(
-          icon: Icons.remove_circle_outline,
-          label: zh ? '从 Dock 中移除' : 'Remove from Dock',
-          onTap: () {
-            close();
-            onRemove();
-          },
-        ),
-        DockMenuRow(
-          icon: Icons.tune,
-          label: zh ? 'Dock 设置…' : 'Dock settings…',
-          onTap: () {
-            close();
-            onOpenSettings();
-          },
-        ),
-      ],
+    return OverlayPortal.overlayChildLayoutBuilder(
+      controller: _fan,
+      overlayChildBuilder: (context, layout) {
+        if (!_fanOpen) return const SizedBox.shrink();
+        final anchor = MatrixUtils.transformRect(
+          layout.childPaintTransform,
+          Offset.zero & layout.childSize,
+        );
+        final scene = Offset.zero & layout.overlaySize;
+        final output = widget.monitorBounds.intersect(scene);
+        final bounds = output.isEmpty ? scene : output;
+        return ShellInputRegion(
+          debugLabel: 'Dock folder stack',
+          pointerPolicy: ShellPointerPolicy.fullScene,
+          keyboardPolicy: ShellKeyboardPolicy.capture,
+          child: CallbackShortcuts(
+            bindings: {
+              const SingleActivator(LogicalKeyboardKey.escape): _closeFan,
+            },
+            child: Focus(
+              autofocus: true,
+              child: DockStackView(
+                entries: _entries,
+                anchor: anchor,
+                bounds: bounds,
+                zh: widget.zh,
+                onDismiss: _closeFan,
+                onOpenFolder: _openFolder,
+                onOpenEntry: _openEntry,
+              ),
+            ),
+          ),
+        );
+      },
+      child: DockAccessoryItem(
+        label: widget.folder.label,
+        icon: Icons.folder_rounded,
+        size: widget.size,
+        lift: widget.lift,
+        position: widget.position,
+        onTap: _toggleFan,
+        onOverlayChanged: widget.onOverlayChanged,
+        monitorBounds: widget.monitorBounds,
+        menuBuilder: (context, close) => [
+          DockMenuRow(
+            icon: Icons.open_in_new,
+            label: widget.zh ? '打开文件夹' : 'Open folder',
+            onTap: () {
+              close();
+              _openFolder();
+            },
+          ),
+          DockMenuRow(
+            icon: Icons.remove_circle_outline,
+            label: widget.zh ? '从 Dock 中移除' : 'Remove from Dock',
+            onTap: () {
+              close();
+              widget.onRemove();
+            },
+          ),
+          DockMenuRow(
+            icon: Icons.tune,
+            label: widget.zh ? 'Dock 设置…' : 'Dock settings…',
+            onTap: () {
+              close();
+              widget.onOpenSettings();
+            },
+          ),
+        ],
+      ),
     );
   }
 }

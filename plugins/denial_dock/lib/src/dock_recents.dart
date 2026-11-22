@@ -1,86 +1,92 @@
 /// The non-pinned section of the dock: applications that are running, plus a
 /// few closed ones the launcher still remembers.
 ///
-/// macOS keeps this section's order fixed. An unpinned app joins at the end
-/// when it is launched and keeps that slot after it quits, so opening or
-/// closing one app never moves its neighbours — which is why the divider
-/// section reads as a row rather than as a queue. The section is also what
-/// makes a quit app reopenable from the dock without pinning it.
+/// The order is the section itself, oldest first. An app joins when it starts
+/// running and keeps its slot after it quits, so closing never moves an icon
+/// and never pulls an older one back in; only a launch over the cap pushes the
+/// oldest closed slot out. macOS reads the same way: quitting leaves the icon
+/// in place and only the running dot goes away.
 abstract final class DockRecents {
-  /// How many ids the section remembers, so an app that falls out of view
-  /// keeps its slot when it comes back instead of appending a second time.
-  static const int remembered = 24;
+  /// Evicted ids kept outside the section, so a smaller count or a hidden
+  /// section can be undone instead of throwing the history away.
+  static const int parkedLimit = 24;
 
-  /// [order] extended with ids it does not already hold, in [incoming] order.
-  /// Existing positions never change; [trimmed] keeps the result bounded.
-  static List<String> extended(List<String> order, Iterable<String> incoming) {
-    final next = [...order];
-    final seen = next.toSet();
-    for (final id in incoming) {
-      if (!seen.add(id)) continue;
-      next.add(id);
-    }
-    return next;
-  }
-
-  /// [order] cut back to [limit] slots by dropping the oldest ids the row does
-  /// not paint.
+  /// The section, the ids parked outside it, and the ids to paint.
   ///
-  /// Dropping only unpainted ids is what keeps the cap invisible: the painted
-  /// ones are a prefix (running apps anywhere, then the first [count] closed
-  /// ones), so removing the idle tail never moves a visible slot. Without this
-  /// an install that has launched [limit] applications once would stop
-  /// recording new ones.
-  static List<String> trimmed({
+  /// [order] and [parked] are both oldest first. A count of zero means the
+  /// section is off: the members stay stored and only the running apps are
+  /// painted, so turning it back on restores the row instead of starting it
+  /// from whatever happens to be open.
+  ///
+  /// A running app is never evicted — the dock is the only handle on its
+  /// windows — so the section can sit over [count] while that many apps are
+  /// open. [removed] only keeps a dragged-out app from being refilled; it never
+  /// hides a member, so an app that is there stays there after it quits.
+  static ({List<String> members, List<String> parked, List<String> shown})
+  resolve({
     required List<String> order,
+    required List<String> parked,
     required Set<String> running,
+    required Iterable<String> recent,
     required int count,
-    Set<String> dismissed = const {},
-    int limit = remembered,
+    Set<String> removed = const {},
   }) {
-    if (order.length <= limit) return order;
-    final painted = visible(
-      order: order,
-      running: running,
-      count: count,
-      dismissed: dismissed,
-    ).toSet();
-    var excess = order.length - limit;
+    final members = [...order];
+    final seen = members.toSet();
+    for (final id in running) {
+      if (seen.add(id)) members.add(id);
+    }
+    // Evicted ids are older than every member, so the newest ones come back at
+    // the front.
+    final spare = count - members.length;
+    if (spare > 0) {
+      final restored = <String>[];
+      for (final id in parked.reversed) {
+        if (restored.length == spare) break;
+        if (removed.contains(id) || !seen.add(id)) continue;
+        restored.add(id);
+      }
+      members.insertAll(0, restored.reversed);
+    }
+    // The launcher's own recents are newer than the section, so they join at
+    // the end.
+    final fresh = <String>[];
+    for (final id in recent.toList().reversed) {
+      if (members.length + fresh.length >= count) break;
+      if (removed.contains(id) || !seen.add(id)) continue;
+      fresh.add(id);
+    }
+    members.addAll(fresh.reversed);
+
+    final limit = count > 0 ? count : parkedLimit;
+    var excess = members.length - limit;
     final kept = <String>[];
-    for (final id in order) {
-      if (excess > 0 && !painted.contains(id)) {
+    final evicted = <String>[];
+    for (final id in members) {
+      if (excess > 0 && !running.contains(id)) {
         excess--;
+        evicted.add(id);
         continue;
       }
       kept.add(id);
     }
-    return kept;
-  }
-
-  /// The ids the section paints, in slot order: every running application
-  /// wherever it sits, plus the first [count] closed ones.
-  ///
-  /// A dismissed id is skipped while it is closed; once the app runs again the
-  /// row is the running entry and comes back, because the dock is the only way
-  /// back to its windows.
-  static List<String> visible({
-    required List<String> order,
-    required Set<String> running,
-    required int count,
-    Set<String> dismissed = const {},
-  }) {
-    final shown = <String>[];
-    var closed = 0;
-    for (final id in order) {
-      if (running.contains(id)) {
-        shown.add(id);
-        continue;
-      }
-      if (dismissed.contains(id)) continue;
-      if (closed >= count) continue;
-      closed++;
-      shown.add(id);
+    final inside = kept.toSet();
+    final next = <String>[];
+    final nextSeen = <String>{};
+    for (final id in [...parked, ...evicted].reversed) {
+      if (inside.contains(id) || !nextSeen.add(id)) continue;
+      next.add(id);
+      if (next.length == parkedLimit) break;
     }
-    return shown;
+    return (
+      members: kept,
+      parked: next.reversed.toList(),
+      shown: count > 0
+          ? kept
+          : [
+              for (final id in kept)
+                if (running.contains(id)) id,
+            ],
+    );
   }
 }

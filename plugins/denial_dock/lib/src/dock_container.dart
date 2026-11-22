@@ -13,7 +13,7 @@ import 'package:denial_flutter_sdk/state.dart'
 import 'package:denial_flutter_sdk/surfaces.dart';
 import 'package:denial_flutter_sdk/theme.dart';
 import 'package:flutter/gestures.dart'
-    show GestureBinding, PointerScrollEvent, PointerSignalEvent;
+    show GestureBinding, PointerScrollEvent, PointerSignalEvent, kPrimaryButton;
 import 'package:flutter/material.dart';
 import 'package:flutter/scheduler.dart';
 import 'package:flutter/services.dart';
@@ -134,9 +134,11 @@ class _DockContainerState extends ConsumerState<DockContainer>
   /// when the drag began.
   List<_DockEntry> _builtEntries = const [];
 
-  /// The recents slot order of the last build, saved when it differs from the
-  /// stored one so a slot survives a restart.
+  /// The recents section and the ids parked outside it, from the last build.
+  /// Saved when they differ from the stored ones, so a slot survives a
+  /// restart.
   List<String> _recentsOrder = const [];
+  List<String> _parkedRecents = const [];
   bool _recentsSaveScheduled = false;
   int _dragFrom = -1;
   int _dragTo = -1;
@@ -161,8 +163,12 @@ class _DockContainerState extends ConsumerState<DockContainer>
   Offset _settleFrom = Offset.zero;
   Offset _settleTo = Offset.zero;
 
-  double get _iconSize => _settings.iconSize;
-  double get _capsuleHeight => _settings.capsuleHeight;
+  /// Icon size while a divider drag is in progress, before the write lands.
+  double? _dragIconSize;
+  bool _resizing = false;
+
+  double get _iconSize => _dragIconSize ?? _settings.iconSize;
+  double get _capsuleHeight => _iconSize + DockSettings.padding * 2;
   double get _halfIcon => _iconSize / 2;
 
   DockPosition get _position => _settings.position;
@@ -671,7 +677,7 @@ class _DockContainerState extends ConsumerState<DockContainer>
         case DockRemoval.unpin:
           unawaited(notifier.togglePin(pin!, pinned: false));
         case DockRemoval.dismissRecent:
-          unawaited(notifier.dismissSuggestion(key));
+          unawaited(notifier.removeRecent(key));
         case DockRemoval.none:
           break;
       }
@@ -799,49 +805,29 @@ class _DockContainerState extends ConsumerState<DockContainer>
         ),
       );
     }
-    // The unpinned section keeps a slot order of its own. A running app joins
-    // it at the end and keeps that slot after it quits, so launching or
-    // closing one app never shifts its neighbours — the same fixed-row
-    // behaviour macOS has. Without a stored order (a fresh install) the
-    // running apps seed it in catalog order.
-    final runningKeys = [
-      for (final key in windowsByApp.keys)
-        if (!seen.contains(key)) key,
-    ];
-    final running = <String>{
-      for (final key in windowsByApp.keys)
-        if (byId[key] != null) appIdentity(byId[key]!.id) else key,
-    };
-    final dismissed = settings.dismissedSuggestions.toSet();
-    final count = settings.showSuggestions ? settings.recentCount : 0;
-    var order = DockRecents.extended(settings.recentsOrder, [
-      ...runningKeys,
-      ...recents.map(_recentAppId),
-    ]);
-    if (settings.recentsOrder.isEmpty) {
-      // First run: the section starts with whatever is already open, in a
-      // stable order rather than in hash order.
-      order = [
-        for (final key in runningKeys)
-          if (byId[key] != null) appIdentity(byId[key]!.id) else key,
-        ...order.where((key) => !runningKeys.contains(key)),
-      ];
+    // The unpinned section keeps its own membership, oldest first. A new app
+    // joins at the end and holds that slot after it quits, so the row only
+    // moves when a launch outgrows the limit and the oldest closed slot leaves.
+    final running = <String>{};
+    for (final key in windowsByApp.keys) {
+      if (seen.contains(key)) continue;
+      final app = byId[key];
+      running.add(app == null ? key : appIdentity(app.id));
     }
-    order = DockRecents.trimmed(
-      order: order,
+    final removed = settings.dismissedSuggestions.toSet();
+    final count = settings.showSuggestions ? settings.recentCount : 0;
+    final resolved = DockRecents.resolve(
+      order: settings.recentsOrder,
+      parked: settings.parkedRecents,
       running: running,
+      recent: recents.reversed.map(_recentAppId),
       count: count,
-      dismissed: dismissed,
+      removed: removed,
     );
-    _recentsOrder = order;
+    _recentsOrder = resolved.members;
+    _parkedRecents = resolved.parked;
 
-    final visible = DockRecents.visible(
-      order: order,
-      running: running,
-      count: count,
-      dismissed: dismissed,
-    );
-    for (final key in visible) {
+    for (final key in resolved.shown) {
       if (!seen.add(key)) continue;
       final group = windowsByApp[key];
       final app = byId[key] ?? appByGroup[key];
@@ -881,9 +867,7 @@ class _DockContainerState extends ConsumerState<DockContainer>
             DockSlotKind.trash => _SlotKind.trash,
             DockSlotKind.divider => _SlotKind.divider,
           },
-          half: section.kind == DockSlotKind.divider
-              ? 0.5
-              : settings.iconSize / 2,
+          half: section.kind == DockSlotKind.divider ? 0.5 : _iconSize / 2,
           entry: section.index,
           folder: section.folder,
           dividerKey: section.dividerKey,
@@ -891,14 +875,19 @@ class _DockContainerState extends ConsumerState<DockContainer>
     ];
   }
 
-  /// Persists a recents order that grew this build. The write is skipped when
-  /// the stored order already matches, so an idle dock never touches the file.
+  /// Persists a recents section that changed this build. The write is skipped
+  /// when the stored lists already match, so an idle dock never touches the
+  /// file.
   void _saveRecentsOrder(DockSettings settings, {required bool ready}) {
     final order = _recentsOrder;
+    final parked = _parkedRecents;
     // Before the file is read, `settings` is the default value and its empty
     // order would look like a change worth saving.
-    if (!ready || order.isEmpty) return;
-    if (_sameOrder(settings.recentsOrder, order)) return;
+    if (!ready) return;
+    if (_sameOrder(settings.recentsOrder, order) &&
+        _sameOrder(settings.parkedRecents, parked)) {
+      return;
+    }
     if (_recentsSaveScheduled) return;
     _recentsSaveScheduled = true;
     // Deferred out of build: the notifier's state change would rebuild the
@@ -907,7 +896,9 @@ class _DockContainerState extends ConsumerState<DockContainer>
       _recentsSaveScheduled = false;
       if (!mounted) return;
       unawaited(
-        ref.read(dockSettingsProvider.notifier).setRecentsOrder(_recentsOrder),
+        ref
+            .read(dockSettingsProvider.notifier)
+            .setRecentsOrder(_recentsOrder, _parkedRecents),
       );
     });
   }
@@ -943,6 +934,10 @@ class _DockContainerState extends ConsumerState<DockContainer>
     final storedSettings = ref.watch(dockSettingsProvider);
     final settings = storedSettings.value ?? DockSettings.defaults;
     _settings = settings;
+    if (_dragIconSize != null &&
+        (_dragIconSize! - settings.iconSize).abs() < 0.5) {
+      _dragIconSize = null;
+    }
     final catalog = ref.watch(widget.services.applications);
     final windows = ref.watch(widget.services.windows(widget.monitorId));
     final denialWindows = ref.watch(userAppWindowsProvider);
@@ -1572,6 +1567,63 @@ class _DockContainerState extends ConsumerState<DockContainer>
     );
   }
 
+  /// Half width of a divider's hit area. Slots sit 8 px apart, so the handle
+  /// never reaches into an icon's own region.
+  static const double _dividerReach = 6;
+
+  Widget _dividerHandle(Color color) {
+    final vertical = _position == DockPosition.bottom;
+    return MouseRegion(
+      cursor: vertical
+          ? SystemMouseCursors.resizeUpDown
+          : SystemMouseCursors.resizeLeftRight,
+      // A raw pointer listener, not a pan recogniser: the handle takes the
+      // drag on the first pixel instead of waiting out the pan slop.
+      child: Listener(
+        behavior: HitTestBehavior.opaque,
+        onPointerDown: (event) {
+          if (event.buttons != kPrimaryButton) return;
+          _resizing = true;
+          _dragIconSize = _iconSize;
+        },
+        onPointerMove: (event) {
+          if (_resizing) _resizeFromDivider(event.delta);
+        },
+        onPointerUp: (_) => _commitIconSize(),
+        onPointerCancel: (_) => _commitIconSize(),
+        child: Center(
+          child: SizedBox(
+            width: vertical ? 1 : double.infinity,
+            height: vertical ? double.infinity : 1,
+            child: ColoredBox(color: color),
+          ),
+        ),
+      ),
+    );
+  }
+
+  /// A divider drag away from the screen edge grows the icons, the way the
+  /// Dock's own separator resizes it.
+  void _resizeFromDivider(Offset delta) {
+    final step = switch (_position) {
+      DockPosition.bottom => -delta.dy,
+      DockPosition.left => delta.dx,
+      DockPosition.right => -delta.dx,
+    };
+    // Whole pixels: a sub-pixel drag would otherwise rebuild the dock and
+    // resize every icon texture on every pointer event.
+    final next = DockSettings.clampIconSize((_iconSize + step).roundToDouble());
+    if (next == _iconSize) return;
+    setState(() => _dragIconSize = next);
+  }
+
+  void _commitIconSize() {
+    _resizing = false;
+    final size = _dragIconSize;
+    if (size == null) return;
+    unawaited(ref.read(dockSettingsProvider.notifier).setIconSize(size));
+  }
+
   Widget? _slotChild(
     BuildContext context, {
     required _SlotSpec spec,
@@ -1632,33 +1684,34 @@ class _DockContainerState extends ConsumerState<DockContainer>
       case _SlotKind.divider:
         final line = _iconSize * 0.52;
         final inset = DockSettings.padding + _iconSize * 0.24;
+        final handle = _dividerHandle(context.shellTheme.colors.hairline);
         return switch (_position) {
           DockPosition.bottom => AnimatedPositioned(
             key: ValueKey('dock-divider-${spec.dividerKey ?? 'default'}'),
             duration: Duration.zero,
-            left: main + slot.half - 0.5,
+            left: main + slot.half - _dividerReach,
             bottom: inset,
-            width: 1,
+            width: _dividerReach * 2,
             height: line,
-            child: ColoredBox(color: context.shellTheme.colors.hairline),
+            child: handle,
           ),
           DockPosition.left => AnimatedPositioned(
             key: ValueKey('dock-divider-${spec.dividerKey ?? 'default'}'),
             duration: Duration.zero,
-            top: main + slot.half - 0.5,
+            top: main + slot.half - _dividerReach,
             left: inset,
-            height: 1,
+            height: _dividerReach * 2,
             width: line,
-            child: ColoredBox(color: context.shellTheme.colors.hairline),
+            child: handle,
           ),
           DockPosition.right => AnimatedPositioned(
             key: ValueKey('dock-divider-${spec.dividerKey ?? 'default'}'),
             duration: Duration.zero,
-            top: main + slot.half - 0.5,
+            top: main + slot.half - _dividerReach,
             right: inset,
-            height: 1,
+            height: _dividerReach * 2,
             width: line,
-            child: ColoredBox(color: context.shellTheme.colors.hairline),
+            child: handle,
           ),
         };
       case _SlotKind.launcher:
@@ -1994,14 +2047,23 @@ class _DockLabelBubble extends StatelessWidget {
     final padV = (iconSize * 0.17).clamp(6.0, 10.0);
     final padH = (iconSize * 0.34).clamp(13.0, 20.0);
     final height = fontSize * 1.25 + padV * 2;
-    final body = DecoratedBox(
-      decoration: BoxDecoration(
+    final tailSize = (iconSize * 0.16).clamp(7.0, 11.0);
+    return CustomPaint(
+      painter: _BubblePainter(
         color: background,
-        borderRadius: BorderRadius.circular(height / 2),
-        border: Border.all(color: border),
+        border: border,
+        radius: height / 2,
+        tail: tailSize,
+        horizontal: horizontal,
+        tailLeading: tailLeading,
       ),
       child: Padding(
-        padding: EdgeInsets.symmetric(horizontal: padH, vertical: padV),
+        padding: EdgeInsets.only(
+          left: padH + (horizontal && tailLeading ? tailSize : 0),
+          right: padH + (horizontal && !tailLeading ? tailSize : 0),
+          top: padV,
+          bottom: padV + (horizontal ? 0 : tailSize),
+        ),
         child: Text(
           text,
           maxLines: 1,
@@ -2016,33 +2078,76 @@ class _DockLabelBubble extends StatelessWidget {
         ),
       ),
     );
-    final tailSize = (iconSize * 0.16).clamp(7.0, 11.0);
+  }
+}
+
+/// The bubble and its tail as one shape, so the hairline runs around the tail
+/// instead of across its base.
+class _BubblePainter extends CustomPainter {
+  const _BubblePainter({
+    required this.color,
+    required this.border,
+    required this.radius,
+    required this.tail,
+    required this.horizontal,
+    required this.tailLeading,
+  });
+
+  final Color color;
+  final Color border;
+  final double radius;
+  final double tail;
+  final bool horizontal;
+  final bool tailLeading;
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final depth = tail * 2.1;
+    final Path body;
+    final Path point;
     if (horizontal) {
-      final tail = DockTail(
-        tail: tailLeading ? DockMenuTail.left : DockMenuTail.right,
-        color: background,
-        length: tailSize,
-      );
-      return Row(
-        mainAxisSize: MainAxisSize.min,
-        children: tailLeading ? [tail, body] : [body, tail],
-      );
+      final rect = tailLeading
+          ? Rect.fromLTWH(tail, 0, size.width - tail, size.height)
+          : Rect.fromLTWH(0, 0, size.width - tail, size.height);
+      final edge = tailLeading ? rect.left + 1 : rect.right - 1;
+      final apex = tailLeading ? 0.0 : size.width;
+      body = Path()
+        ..addRRect(RRect.fromRectAndRadius(rect, Radius.circular(radius)));
+      point = Path()
+        ..moveTo(edge, rect.center.dy - depth / 2)
+        ..lineTo(apex, rect.center.dy)
+        ..lineTo(edge, rect.center.dy + depth / 2)
+        ..close();
+    } else {
+      final rect = Rect.fromLTWH(0, 0, size.width, size.height - tail);
+      body = Path()
+        ..addRRect(RRect.fromRectAndRadius(rect, Radius.circular(radius)));
+      point = Path()
+        ..moveTo(rect.center.dx - depth / 2, rect.bottom - 1)
+        ..lineTo(rect.center.dx, size.height)
+        ..lineTo(rect.center.dx + depth / 2, rect.bottom - 1)
+        ..close();
     }
-    return Column(
-      mainAxisSize: MainAxisSize.min,
-      children: [
-        body,
-        Transform.translate(
-          offset: const Offset(0, -1),
-          child: DockTail(
-            tail: DockMenuTail.down,
-            color: background,
-            length: tailSize,
-          ),
-        ),
-      ],
+    final shape = Path.combine(PathOperation.union, body, point);
+    canvas.drawPath(shape, Paint()..color = color);
+    canvas.drawPath(
+      shape,
+      Paint()
+        ..color = border
+        ..style = PaintingStyle.stroke
+        ..strokeWidth = 1
+        ..strokeJoin = StrokeJoin.round,
     );
   }
+
+  @override
+  bool shouldRepaint(covariant _BubblePainter old) =>
+      old.color != color ||
+      old.border != border ||
+      old.radius != radius ||
+      old.tail != tail ||
+      old.horizontal != horizontal ||
+      old.tailLeading != tailLeading;
 }
 
 class _LauncherGlyphPainter extends CustomPainter {

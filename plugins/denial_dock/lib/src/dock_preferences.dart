@@ -117,12 +117,20 @@ class DockSettingsController extends AsyncNotifier<DockSettings> {
   Future<void> setRecentCount(int count) =>
       _update((current) => current.copyWith(recentCount: count));
 
-  /// Saves the unpinned section's slot order. Skipped when nothing moved, so
-  /// the dock can call it from a build without writing on every frame.
-  Future<void> setRecentsOrder(List<String> order) => _update((current) {
-    if (_sameOrder(current.recentsOrder, order)) return current;
-    return current.copyWith(recentsOrder: List.unmodifiable(order));
-  });
+  /// Saves the unpinned section and the ids parked outside it. Skipped when
+  /// nothing moved, so the dock can call it from a build without writing on
+  /// every frame.
+  Future<void> setRecentsOrder(List<String> order, List<String> parked) =>
+      _update((current) {
+        if (_sameOrder(current.recentsOrder, order) &&
+            _sameOrder(current.parkedRecents, parked)) {
+          return current;
+        }
+        return current.copyWith(
+          recentsOrder: List.unmodifiable(order),
+          parkedRecents: List.unmodifiable(parked),
+        );
+      });
 
   static bool _sameOrder(List<String> first, List<String> second) {
     if (first.length != second.length) return false;
@@ -150,20 +158,23 @@ class DockSettingsController extends AsyncNotifier<DockSettings> {
   Future<void> removeFolder(String path) =>
       _update((current) => current.withoutFolder(path));
 
-  /// Hides a suggestion the user dragged out of the dock. The launcher keeps
-  /// recording the launch, so this is a dock-side filter rather than a request
-  /// to forget the application.
-  Future<void> dismissSuggestion(String appId) {
+  /// Drops an app from the unpinned section and keeps the launcher's recents
+  /// from putting it back. It returns on its next launch, and quitting it
+  /// afterwards leaves it in place.
+  Future<void> removeRecent(String appId) {
     final key = appIdentity(appId);
     return _update(
-      (current) => current.dismissedSuggestions.contains(key)
-          ? current
-          : current.copyWith(
-              dismissedSuggestions: List.unmodifiable([
-                ...current.dismissedSuggestions,
-                key,
-              ]),
-            ),
+      (current) => current.copyWith(
+        recentsOrder: List.unmodifiable(
+          current.recentsOrder.where((id) => appIdentity(id) != key),
+        ),
+        parkedRecents: List.unmodifiable(
+          current.parkedRecents.where((id) => appIdentity(id) != key),
+        ),
+        dismissedSuggestions: current.dismissedSuggestions.contains(key)
+            ? current.dismissedSuggestions
+            : List.unmodifiable([...current.dismissedSuggestions, key]),
+      ),
     );
   }
 

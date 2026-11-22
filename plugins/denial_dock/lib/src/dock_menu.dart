@@ -179,6 +179,9 @@ class DockMenuPanel extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final theme = context.shellTheme;
+    // The outline is stroked over the panel and its tail as one shape, so the
+    // hairline never crosses the tail's base the way a bottom border did.
+    final outlined = tail != DockMenuTail.none;
     final panel = ShellBackdropBlur(
       blur: theme.effectivePanelOpacity < 1,
       separateChild: true,
@@ -187,7 +190,7 @@ class DockMenuPanel extends StatelessWidget {
         decoration: BoxDecoration(
           color: theme.panelColor(theme.colors.surfaceContainer),
           borderRadius: radius,
-          border: Border.all(color: theme.colors.hairline),
+          border: outlined ? null : Border.all(color: theme.colors.hairline),
         ),
         child: child,
       ),
@@ -208,7 +211,7 @@ class DockMenuPanel extends StatelessWidget {
       },
       child: DockTail(tail: tail, color: fill),
     );
-    return switch (tail) {
+    final body = switch (tail) {
       DockMenuTail.down => Column(
         mainAxisSize: MainAxisSize.min,
         crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -233,7 +236,98 @@ class DockMenuPanel extends StatelessWidget {
       ),
       DockMenuTail.none => sized,
     };
+    if (!outlined) return body;
+    return CustomPaint(
+      foregroundPainter: _MenuOutlinePainter(
+        color: theme.colors.hairline,
+        radius: radius.topLeft.x,
+        tail: tail,
+        tailAlignment: tailAlignment,
+      ),
+      child: body,
+    );
   }
+}
+
+/// The panel and its tail stroked as one path, so the hairline follows the
+/// tail's slanted sides instead of running flat across its base.
+class _MenuOutlinePainter extends CustomPainter {
+  const _MenuOutlinePainter({
+    required this.color,
+    required this.radius,
+    required this.tail,
+    required this.tailAlignment,
+  });
+
+  final Color color;
+  final double radius;
+  final DockMenuTail tail;
+  final double tailAlignment;
+
+  static const double _length = 6;
+  static const double _depth = _length * 2.1;
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final Path body;
+    final Path point;
+    switch (tail) {
+      case DockMenuTail.down:
+        final rect = Rect.fromLTWH(0, 0, size.width, size.height - _length);
+        final centre =
+            (rect.left + radius + (rect.width - radius * 2) * tailAlignment)
+                .clamp(rect.left + radius, rect.right - radius)
+                .toDouble();
+        body = Path()
+          ..addRRect(RRect.fromRectAndRadius(rect, Radius.circular(radius)));
+        point = Path()
+          ..moveTo(centre - _depth / 2, rect.bottom - 1)
+          ..lineTo(centre, size.height)
+          ..lineTo(centre + _depth / 2, rect.bottom - 1)
+          ..close();
+      case DockMenuTail.left:
+        final rect = Rect.fromLTWH(
+          _length,
+          0,
+          size.width - _length,
+          size.height,
+        );
+        body = Path()
+          ..addRRect(RRect.fromRectAndRadius(rect, Radius.circular(radius)));
+        point = Path()
+          ..moveTo(rect.left + 1, rect.center.dy - _depth / 2)
+          ..lineTo(0, rect.center.dy)
+          ..lineTo(rect.left + 1, rect.center.dy + _depth / 2)
+          ..close();
+      case DockMenuTail.right:
+        final rect = Rect.fromLTWH(0, 0, size.width - _length, size.height);
+        body = Path()
+          ..addRRect(RRect.fromRectAndRadius(rect, Radius.circular(radius)));
+        point = Path()
+          ..moveTo(rect.right - 1, rect.center.dy - _depth / 2)
+          ..lineTo(size.width, rect.center.dy)
+          ..lineTo(rect.right - 1, rect.center.dy + _depth / 2)
+          ..close();
+      case DockMenuTail.none:
+        return;
+    }
+    final shape = Path.combine(PathOperation.union, body, point);
+    canvas.drawPath(
+      shape,
+      Paint()
+        ..color = color
+        ..style = PaintingStyle.stroke
+        ..strokeWidth = 1
+        ..strokeJoin = StrokeJoin.round,
+    );
+  }
+
+  @override
+  bool shouldRepaint(covariant _MenuOutlinePainter old) =>
+      old.color != color ||
+      old.radius != radius ||
+      old.tail != tail ||
+      old.tailAlignment != tailAlignment;
 }
 
 class _MenuTailPainter extends CustomPainter {

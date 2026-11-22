@@ -30,8 +30,8 @@ turning it on.
   still. The hop stops as soon as a window appears, and after 500 ms at the
   earliest; it gives up after 5 s, or immediately if the launch fails.
 - **Window previews.** Two layouts. The card row waits 400 ms, the delay
-  Windows uses for taskbar thumbnails; the stack waits 300 ms and opens for a
-  single window too, with a close button on each row. The stack follows the
+  Windows uses for taskbar thumbnails; the stack waits the same 400 ms and
+  opens for a single window too, with a close button on each row. The stack follows the
   pointer: moving to a neighbouring running icon hands it over without waiting
   out another dwell. Hover one preview for
   300 ms to fade the other windows on that monitor; click it to focus that
@@ -54,6 +54,10 @@ turning it on.
   pinned icon more than one icon height above the capsule to remove it. Only
   primary-button drags start a move. The icon lifts, grows slightly and turns
   translucent while held, and neighbours ease into place.
+- **Resize by the divider.** Hovering a divider shows a resize cursor; drag it
+  and the icons, the capsule and the magnification follow the pointer, then
+  the size is saved. Whole pixels per step, so a drag does not rebuild every
+  icon texture on every event.
 - **Smart auto-hide.** When a non-minimized floating window on the same output
   and workspace reaches the dock's strip, the capsule slides down. Moving the
   pointer to the bottom edge brings it back after 90 ms, and tapping that edge
@@ -129,7 +133,7 @@ Most settings live in the settings sheet. The same values are stored in
   "launchFeedback": "hop",
   "indicatorStyle": "dot",
   "previewStyle": "cards",
-  "hoverFocusPreview": false,
+  "hoverFocusPreview": true,
   "dimInactivePinned": false,
   "showBadges": true,
   "showSuggestions": true,
@@ -174,17 +178,25 @@ Most settings live in the settings sheet. The same values are stored in
 - `previewStyle` is `"cards"` (default, a horizontal row of thumbnails above
   the dock) or `"stack"` (a narrow column anchored to the icon, opening for a
   single window too, with a close button on each row).
-- `hoverFocusPreview` (default `false`) focuses a window as the pointer moves
-  onto its row in the stacked previews. Off by default because it takes focus
-  from wherever you were typing.
+- `hoverFocusPreview` (default `true`) focuses a window as the pointer moves
+  onto its row in the previews. Turn it off to keep the pointer from moving
+  focus while the panel is open.
 - `dimInactivePinned` (default `false`) fades a pinned application that has no
   window to 62%.
 - `showBadges` (default `true`) counts unread notifications on an icon. A
   notification names its application through the `desktop-entry` hint, matched
   against the icon's identities; senders without the hint fall back to the
   application name.
-- `showSuggestions` (default `true`) appends recently used applications that
-  are not pinned, after a divider.
+- `showSuggestions` (default `true`) adds a section of unpinned applications
+  after a divider. It is a membership list, oldest first: an app joins when it
+  starts running, holds its slot after it quits, and only a launch over
+  `recentCount` evicts the oldest closed member. A running app is never
+  evicted, so the section grows past the count while that many are open.
+- `recentCount` is how many members the section holds, 0–8, default 3.
+- `dismissedSuggestions` holds the ids dragged out of the section. They stay
+  out until they run again.
+- `recentsOrder` and `parkedRecents` are the section and the evicted ids the
+  dock keeps, so lowering `recentCount` or hiding the section can be undone.
 - `scrollAction` is `"nothing"` (default), `"cycle-windows"` or
   `"switch-workspace"`. Wheel up walks backwards through the application's
   windows or towards the previous workspace; wheel down walks forwards. One

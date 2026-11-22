@@ -207,6 +207,19 @@ String appIdentity(String id) {
   return normalizeAppId(colon >= 0 ? text.substring(colon + 1) : text);
 }
 
+/// A stored list of app ids, normalised and de-duplicated, in stored order.
+List<String> _identityList(Object? value) {
+  final ids = <String>[];
+  if (value is! List) return ids;
+  for (final entry in value) {
+    if (entry is! String || entry.trim().isEmpty) continue;
+    final key = appIdentity(entry);
+    if (ids.contains(key)) continue;
+    ids.add(key);
+  }
+  return ids;
+}
+
 class DockPin {
   const DockPin({required this.id, required this.appId, required this.name});
 
@@ -295,6 +308,7 @@ class DockSettings {
     this.dismissedSuggestions = const [],
     this.recentCount = defaultRecentCount,
     this.recentsOrder = const [],
+    this.parkedRecents = const [],
   });
 
   /// Base icon edge before magnification.
@@ -399,10 +413,14 @@ class DockSettings {
   /// here is wider because a dock this large can hold more.
   final int recentCount;
 
-  /// Slot order of the unpinned section, newest id appended at the end. An id
-  /// keeps its position after its app quits, which is what stops one launch
-  /// from shifting every neighbour.
+  /// The unpinned section itself, oldest first. An id keeps its position after
+  /// its app quits, which is what stops one launch from shifting every
+  /// neighbour.
   final List<String> recentsOrder;
+
+  /// Ids the section dropped, oldest first, so a smaller count or a hidden
+  /// section does not throw the history away.
+  final List<String> parkedRecents;
 
   static const int defaultRecentCount = 3;
   static const int minRecentCount = 0;
@@ -446,6 +464,7 @@ class DockSettings {
     List<String>? dismissedSuggestions,
     int? recentCount,
     List<String>? recentsOrder,
+    List<String>? parkedRecents,
   }) => DockSettings(
     pinned: pinned ?? this.pinned,
     visibility: visibility ?? this.visibility,
@@ -477,6 +496,7 @@ class DockSettings {
     dismissedSuggestions: dismissedSuggestions ?? this.dismissedSuggestions,
     recentCount: clampRecentCount(recentCount ?? this.recentCount),
     recentsOrder: recentsOrder ?? this.recentsOrder,
+    parkedRecents: parkedRecents ?? this.parkedRecents,
   );
 
   static double clampIconSize(double value) {
@@ -568,16 +588,11 @@ class DockSettings {
         dismissed.add(key);
       }
     }
-    final storedOrder = json['recentsOrder'];
-    final order = <String>[];
-    if (storedOrder is List) {
-      for (final entry in storedOrder) {
-        if (entry is! String || entry.trim().isEmpty) continue;
-        final key = appIdentity(entry);
-        if (order.contains(key)) continue;
-        order.add(key);
-      }
-    }
+    final order = _identityList(json['recentsOrder']);
+    final parked = [
+      for (final id in _identityList(json['parkedRecents']))
+        if (!order.contains(id)) id,
+    ];
     final iconSize = json['iconSize'];
     return DockSettings(
       // An explicit empty list means the user removed every pin.
@@ -652,6 +667,7 @@ class DockSettings {
             : defaultRecentCount,
       ),
       recentsOrder: List.unmodifiable(order),
+      parkedRecents: List.unmodifiable(parked),
     );
   }
 }
@@ -741,6 +757,11 @@ class DockPreferencesStore {
       json.remove('recentsOrder');
     } else {
       json['recentsOrder'] = settings.recentsOrder;
+    }
+    if (settings.parkedRecents.isEmpty) {
+      json.remove('parkedRecents');
+    } else {
+      json['parkedRecents'] = settings.parkedRecents;
     }
     await file.parent.create(recursive: true);
     final temp = File('${file.path}.$pid.${_sequence++}.tmp');
