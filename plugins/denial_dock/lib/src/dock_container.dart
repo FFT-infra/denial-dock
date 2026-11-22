@@ -1598,6 +1598,11 @@ class _DockContainerState extends ConsumerState<DockContainer>
 
   Widget _capsuleSurface(BuildContext context, ShellThemeData theme) {
     final radius = theme.borderRadius(20);
+    // Mixed from the theme's own surface, not the glass backing: that backing
+    // is a flat white or black chosen by the glass appearance setting, so on a
+    // dark wallpaper it turned the dock into a pale bar nothing else on screen
+    // shared. The surface colour already follows the light or dark appearance.
+    final alpha = theme.effectivePanelOpacity.clamp(0.55, 0.86).toDouble();
     return ShellBackdropBlur(
       blur: theme.effectivePanelOpacity < 1,
       separateChild: true,
@@ -1608,8 +1613,10 @@ class _DockContainerState extends ConsumerState<DockContainer>
       child: DecoratedBox(
         decoration: BoxDecoration(
           borderRadius: radius,
-          color: theme.panelColor(theme.colors.surfaceContainer),
-          border: Border.all(color: theme.colors.hairline),
+          color: theme.colors.surfaceContainer.withValues(alpha: alpha),
+          border: Border.all(
+            color: theme.colors.hairline.withValues(alpha: 0.7),
+          ),
         ),
       ),
     );
