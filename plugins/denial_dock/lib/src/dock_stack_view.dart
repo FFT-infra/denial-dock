@@ -7,6 +7,7 @@ import 'package:flutter/gestures.dart'
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
+import 'dock_drag.dart';
 import 'dock_settings.dart' show DockPosition, DockStackMode;
 import 'dock_stack_fan.dart';
 import 'dock_stack_files.dart';
@@ -30,6 +31,9 @@ class DockStackView extends StatefulWidget {
     required this.onDismiss,
     required this.onOpenFolder,
     required this.onOpenEntry,
+    this.onReorder,
+    this.onTrash,
+    this.trashRect,
     super.key,
   });
 
@@ -56,6 +60,17 @@ class DockStackView extends StatefulWidget {
   final VoidCallback onOpenFolder;
   final ValueChanged<DockStackEntry> onOpenEntry;
 
+  /// Called with the file names in their new order after a drag, in either
+  /// view. Null leaves the stack read-only.
+  final ValueChanged<List<String>>? onReorder;
+
+  /// Called when a row is dropped on the trash target.
+  final ValueChanged<DockStackEntry>? onTrash;
+
+  /// The trash icon's rectangle in scene coordinates. Drawn as a drop target
+  /// only while a row is being dragged.
+  final Rect? trashRect;
+
   @override
   State<DockStackView> createState() => _DockStackViewState();
 }
@@ -74,12 +89,32 @@ class _DockStackViewState extends State<DockStackView>
   bool _closing = false;
   bool _awaitingThumbs = false;
 
+  /// The search field's text. Typing narrows the stack to the names that
+  /// contain it; an empty query shows everything.
+  final TextEditingController _query = TextEditingController();
+  final FocusNode _queryFocus = FocusNode(debugLabel: 'Stack search');
+
   /// Keyboard selection; -1 until an arrow key moves it, so Enter does nothing
   /// on a stack the user has only clicked open.
   int _selected = -1;
 
   /// Scroll offset of the grid, in pixels.
   double _scroll = 0;
+
+  /// Drag: the row picked up, the row under the pointer, and where the pointer
+  /// is now.
+  int? _dragFrom;
+  int? _dragTo;
+  Offset? _dragPoint;
+
+  /// True while the pointer is over the trash target.
+  bool _overTrash = false;
+
+  /// The search field's rectangle, remembered so a pan starting in it is left
+  /// to the field.
+  Rect? _searchRect;
+
+  bool get _dragging => _dragFrom != null;
 
   /// The stagger between rows leaving the icon, and how long one row takes.
   static const double _stagger = 0.026;
@@ -88,6 +123,8 @@ class _DockStackViewState extends State<DockStackView>
   @override
   void dispose() {
     _gridControllerInstance?.dispose();
+    _query.dispose();
+    _queryFocus.dispose();
     _open.dispose();
     super.dispose();
   }
@@ -109,7 +146,7 @@ class _DockStackViewState extends State<DockStackView>
     }
     return CallbackShortcuts(
       bindings: {
-        const SingleActivator(LogicalKeyboardKey.escape): _dismiss,
+        const SingleActivator(LogicalKeyboardKey.escape): _escape,
         const SingleActivator(LogicalKeyboardKey.arrowUp): () =>
             _moveSelection(-1),
         const SingleActivator(LogicalKeyboardKey.arrowDown): () =>
@@ -129,27 +166,64 @@ class _DockStackViewState extends State<DockStackView>
           onExit: (_) => _hoverAt(null, layout),
           child: Listener(
             onPointerSignal: (event) => _wheel(event, layout),
-            child: GestureDetector(
-              behavior: HitTestBehavior.opaque,
-              onTapDown: (details) => _press(details.localPosition, layout),
-              child: AnimatedBuilder(
-                animation: _open,
-                builder: (context, _) => Stack(
-                  clipBehavior: Clip.none,
-                  children: [
-                    if (layout.isFan)
-                      for (var i = 0; i < layout.rows.length; i++)
-                        _buildFanRow(context, layout, i)
-                    else
-                      _buildGrid(context, layout),
-                  ],
-                ),
+            child: AnimatedBuilder(
+              animation: _open,
+              builder: (context, _) => Stack(
+                clipBehavior: Clip.none,
+                children: [
+                  // One catcher under everything answers presses and pans in
+                  // scene coordinates. It sits below the rows rather than
+                  // around them, so the search field above it keeps its own
+                  // text selection.
+                  Positioned.fill(
+                    child: GestureDetector(
+                      behavior: HitTestBehavior.opaque,
+                      onTapUp: (details) =>
+                          _press(details.localPosition, layout),
+                      onPanStart: (details) =>
+                          _dragStart(details.localPosition, layout),
+                      onPanUpdate: (details) =>
+                          _dragUpdate(details.localPosition, layout),
+                      onPanEnd: (_) => _dragEnd(layout),
+                      onPanCancel: _dragCancel,
+                      // A grid tall enough to scroll gives the plain drag to
+                      // the scroll view, so holding a cell first is what picks
+                      // it up — the gesture a phone launcher uses.
+                      onLongPressStart: (details) =>
+                          _dragStart(details.localPosition, layout),
+                      onLongPressMoveUpdate: (details) =>
+                          _dragUpdate(details.localPosition, layout),
+                      onLongPressEnd: (_) => _dragEnd(layout),
+                      onLongPressCancel: _dragCancel,
+                    ),
+                  ),
+                  if (layout.isFan)
+                    for (var i = 0; i < layout.rows.length; i++)
+                      _buildFanRow(context, layout, i)
+                  else
+                    _buildGrid(context, layout),
+                  if (_searchable) _buildSearch(context, layout),
+                  if (_dragging && widget.trashRect != null)
+                    _buildTrashTarget(context),
+                  if (_dragging) _buildGhost(context, layout),
+                ],
               ),
             ),
           ),
         ),
       ),
     );
+  }
+
+  /// Escape clears a search before it closes the stack, so one key backs out
+  /// one step at a time.
+  void _escape() {
+    if (_query.text.isEmpty) {
+      _dismiss();
+      return;
+    }
+    _query.clear();
+    setState(() => _layout = null);
   }
 
   // -- input ---------------------------------------------------------------
@@ -170,6 +244,85 @@ class _DockStackViewState extends State<DockStackView>
       return;
     }
     _activate(layout.rows[index]);
+  }
+
+  /// A pan begins on a file row, in either view. The search field and the
+  /// panel's own empty space keep their presses, so text selection is not
+  /// taken over by the drag.
+  ///
+  /// Reordering is off while a query narrows the list: the rows are a subset,
+  /// and saving their order would push every hidden file behind them.
+  void _dragStart(Offset point, _StackLayout layout) {
+    final reorderable = widget.onReorder != null && _query.text.trim().isEmpty;
+    if (_closing || !reorderable && widget.onTrash == null) return;
+    if (_searchRect?.contains(point) ?? false) return;
+    final index = layout.hitTest(point, _scroll);
+    if (index == null) return;
+    final row = layout.rows[index];
+    if (row.entry == null) return;
+    setState(() {
+      _dragFrom = index;
+      _dragTo = index;
+      _dragPoint = point;
+      _overTrash = false;
+    });
+  }
+
+  /// While the pointer moves, the row under it becomes the drop target and the
+  /// trash icon lights up when the pointer is over it. A pointer dragged past
+  /// the last row keeps the last one rather than dropping the file on nothing.
+  void _dragUpdate(Offset point, _StackLayout layout) {
+    if (_dragFrom == null) return;
+    final index = layout.hitTest(point, _scroll) ?? _dragTo;
+    final overTrash = widget.trashRect?.contains(point) ?? false;
+    setState(() {
+      _dragPoint = point;
+      _dragTo = index;
+      _overTrash = overTrash;
+    });
+  }
+
+  /// Releasing over the trash removes the file; releasing on another row
+  /// reorders; releasing anywhere else changes nothing.
+  void _dragEnd(_StackLayout layout) {
+    final from = _dragFrom;
+    if (from == null) return;
+    final to = _dragTo;
+    final entry = from < layout.rows.length ? layout.rows[from].entry : null;
+    final trash = _overTrash;
+    final names = DockStackFiles.names(_visible);
+    setState(() {
+      _dragFrom = null;
+      _dragTo = null;
+      _dragPoint = null;
+      _overTrash = false;
+    });
+    if (entry == null) return;
+    if (trash) {
+      widget.onTrash?.call(entry);
+      return;
+    }
+    if (_query.text.trim().isNotEmpty) return;
+    if (to == null ||
+        to == from ||
+        from >= names.length ||
+        to >= names.length ||
+        layout.rows[to].entry == null) {
+      return;
+    }
+    widget.onReorder?.call(DockDrag.moved(names, from, to));
+  }
+
+  /// A cancelled pan changes nothing, so the file is not trashed or moved by a
+  /// gesture the system took back.
+  void _dragCancel() {
+    if (_dragFrom == null) return;
+    setState(() {
+      _dragFrom = null;
+      _dragTo = null;
+      _dragPoint = null;
+      _overTrash = false;
+    });
   }
 
   void _wheel(PointerSignalEvent event, _StackLayout layout) {
@@ -244,26 +397,50 @@ class _DockStackViewState extends State<DockStackView>
     final style = theme.text.systemBarCaption.copyWith(
       color: theme.colors.textPrimary,
     );
-    if (widget.entries.isEmpty) {
-      return _messageLayout(style, widget.zh ? '文件夹是空的' : 'Empty folder');
+    final entries = _visible;
+    if (entries.isEmpty) {
+      return _messageLayout(
+        style,
+        widget.entries.isEmpty
+            ? (widget.zh ? '文件夹是空的' : 'Empty folder')
+            : (widget.zh ? '没有匹配的项目' : 'No matches'),
+      );
     }
     // The fan is what a folder of a few files opens into. `auto` falls back to
     // a grid when it cannot fit; `fan` truncates instead, because a grid is not
     // what the user asked for.
     if (widget.mode != DockStackMode.grid) {
-      final fan = _fanLayout(style, truncate: widget.mode == DockStackMode.fan);
+      final fan = _fanLayout(
+        style,
+        entries,
+        truncate: widget.mode == DockStackMode.fan,
+      );
       if (fan != null) return fan;
     }
-    return _gridLayout(theme);
+    return _gridLayout(theme, entries);
   }
 
+  /// The entries the query leaves, which is what the stack draws.
+  List<DockStackEntry> get _visible =>
+      DockStackFiles.filter(widget.entries, _query.text);
+
+  /// A search field is worth drawing only when there are enough files that
+  /// finding one by eye is work.
+  bool get _searchable => widget.entries.length > 8;
+
   /// The scene y the rows grow from, and the scene y they must stay under.
-  ({double top, double bottom}) get _room => (
-    top: widget.bounds.top + 8,
-    bottom: widget.position == DockPosition.bottom
-        ? widget.anchor.top - DockStackFan.gap
-        : widget.bounds.bottom - 8,
-  );
+  ///
+  /// A search field takes the top of the room, so the rows start below it
+  /// rather than under it.
+  ({double top, double bottom}) get _room {
+    const searchHeight = 38.0;
+    return (
+      top: widget.bounds.top + 8 + (_searchable ? searchHeight : 0),
+      bottom: widget.position == DockPosition.bottom
+          ? widget.anchor.top - DockStackFan.gap
+          : widget.bounds.bottom - 8,
+    );
+  }
 
   /// The x the rows start from, for a side dock.
   double? get _sideEdge => switch (widget.position) {
@@ -272,10 +449,15 @@ class _DockStackViewState extends State<DockStackView>
     DockPosition.right => widget.anchor.left - DockStackFan.gap,
   };
 
-  _StackLayout? _fanLayout(TextStyle style, {required bool truncate}) {
+  _StackLayout? _fanLayout(
+    TextStyle style,
+    List<DockStackEntry> entries, {
+    required bool truncate,
+  }) {
     final side = _sideEdge;
-    if (side != null) return _sideLayout(style, side, truncate: truncate);
-    final entries = widget.entries;
+    if (side != null) {
+      return _sideLayout(style, entries, side, truncate: truncate);
+    }
     final widths = <double>[
       for (final entry in entries) _rowWidth(entry.name, style),
     ];
@@ -319,10 +501,10 @@ class _DockStackViewState extends State<DockStackView>
   /// the labels never trail back across the dock they came from.
   _StackLayout _sideLayout(
     TextStyle style,
+    List<DockStackEntry> entries,
     double edge, {
     required bool truncate,
   }) {
-    final entries = widget.entries;
     final room = _room.bottom - _room.top;
     final slots = math.max(1, (room / DockStackFan.rowStep).floor());
     final overflows = !truncate && slots < entries.length;
@@ -352,20 +534,32 @@ class _DockStackViewState extends State<DockStackView>
     return _StackLayout.fan(rows, geometry);
   }
 
-  _StackLayout _gridLayout(ShellThemeData theme) {
+  _StackLayout _gridLayout(ShellThemeData theme, List<DockStackEntry> entries) {
     final grid = DockStackGrid.layout(
-      count: widget.entries.length,
+      count: entries.length,
       width: widget.bounds.width - 32,
       maxHeight: _room.bottom - _room.top,
     );
+    // The panel is centred on the icon and clamped onto the screen; the cells
+    // are measured from its corner, so the hit test needs that corner.
+    final left = (widget.anchor.center.dx - grid.width / 2)
+        .clamp(
+          widget.bounds.left + 16,
+          math.max(
+            widget.bounds.left + 16,
+            widget.bounds.right - grid.width - 16,
+          ),
+        )
+        .toDouble();
     return _StackLayout.grid(
-      [for (final entry in widget.entries) _StackRow.entry(entry)],
+      [for (final entry in entries) _StackRow.entry(entry)],
       grid: grid.cells,
       columns: grid.columns,
       width: grid.width,
       height: grid.height,
       contentHeight: grid.contentHeight,
       scrolls: grid.scrolls,
+      origin: Offset(left, _room.bottom - grid.height),
     );
   }
 
@@ -427,12 +621,82 @@ class _DockStackViewState extends State<DockStackView>
 
   // -- painting ------------------------------------------------------------
 
+  /// The filter field, drawn above the stack and pinned to the dock's edge so
+  /// it sits where the eye already is.
+  Widget _buildSearch(BuildContext context, _StackLayout layout) {
+    final theme = context.shellTheme;
+    final width = math.min(240.0, widget.bounds.width - 32);
+    final left = (widget.anchor.center.dx - width / 2)
+        .clamp(
+          widget.bounds.left + 16,
+          math.max(widget.bounds.left + 16, widget.bounds.right - width - 16),
+        )
+        .toDouble();
+    final top = _room.top;
+    _searchRect = Rect.fromLTWH(left, top, width, 30);
+    return Positioned(
+      left: left,
+      top: top,
+      width: width,
+      child: Opacity(
+        opacity: Curves.easeOut.transform(_open.value),
+        child: SizedBox(
+          height: 30,
+          child: DecoratedBox(
+            decoration: BoxDecoration(
+              color: theme.panelColor(theme.colors.surfaceContainerHigh),
+              borderRadius: theme.borderRadius(15),
+              border: Border.all(color: theme.colors.hairline),
+            ),
+            child: Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 10),
+              child: Row(
+                children: [
+                  Icon(
+                    Icons.search,
+                    size: 14,
+                    color: theme.colors.textTertiary,
+                  ),
+                  const SizedBox(width: 6),
+                  Expanded(
+                    child: TextField(
+                      controller: _query,
+                      focusNode: _queryFocus,
+                      onChanged: (_) => setState(() {
+                        _layout = null;
+                        _selected = -1;
+                      }),
+                      cursorColor: theme.accent,
+                      style: theme.text.systemBarCaption.copyWith(
+                        color: theme.colors.textPrimary,
+                      ),
+                      decoration: InputDecoration(
+                        isDense: true,
+                        border: InputBorder.none,
+                        hintText: widget.zh ? '搜索' : 'Search',
+                        hintStyle: theme.text.systemBarCaption.copyWith(
+                          color: theme.colors.textTertiary,
+                        ),
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
   Widget _buildFanRow(BuildContext context, _StackLayout layout, int index) {
     final theme = context.shellTheme;
     final row = layout.rows[index];
     final box = layout.fan[index];
     final eased = _progressOf(index, layout.rows.length);
     final lit = _hovered == index || _selected == index;
+    final lifting = _dragFrom == index;
+    final dropTarget = _dragging && _dragTo == index && !lifting;
     final centre = Offset(box.centerX, box.centerY);
     // The rows fly out of the icon: one that has not started yet sits on it.
     final at = Offset.lerp(
@@ -450,12 +714,19 @@ class _DockStackViewState extends State<DockStackView>
           child: Transform.scale(
             scale: (0.35 + 0.65 * eased) * (lit ? DockStackFan.hoverScale : 1),
             child: Opacity(
-              opacity: eased,
+              // The row being dragged leaves a hole behind; the ghost carries
+              // the picture under the pointer.
+              opacity: lifting ? 0.35 : eased,
               child: IgnorePointer(
                 child: SizedBox(
                   width: box.width,
                   height: box.height,
-                  child: _StackRowTile(row: row, theme: theme, lit: lit),
+                  child: _StackRowTile(
+                    row: row,
+                    theme: theme,
+                    lit: lit,
+                    dropTarget: dropTarget,
+                  ),
                 ),
               ),
             ),
@@ -518,11 +789,89 @@ class _DockStackViewState extends State<DockStackView>
                               lit:
                                   _hovered == cell.index ||
                                   _selected == cell.index,
+                              lifting: _dragFrom == cell.index,
+                              dropTarget:
+                                  _dragging &&
+                                  _dragTo == cell.index &&
+                                  _dragFrom != cell.index,
                             ),
                           ),
                         ),
                     ],
                   ),
+                ),
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
+  /// A halo around the dock's own trash icon while a row is held. The icon is
+  /// already drawn by the dock underneath, so this lights it rather than
+  /// drawing a second one, and it fades in only during a drag.
+  Widget _buildTrashTarget(BuildContext context) {
+    final rect = widget.trashRect!.inflate(6);
+    final accent = context.shellTheme.accent;
+    return Positioned.fromRect(
+      rect: rect,
+      child: IgnorePointer(
+        child: AnimatedContainer(
+          duration: const Duration(milliseconds: 120),
+          decoration: BoxDecoration(
+            color: accent.withValues(alpha: _overTrash ? 0.26 : 0.10),
+            borderRadius: BorderRadius.circular(14),
+            border: Border.all(
+              color: accent.withValues(alpha: _overTrash ? 1 : 0.45),
+              width: _overTrash ? 2 : 1,
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
+  /// The file under the pointer while it is being dragged: a small preview
+  /// that follows the pointer, the way a Finder stack drags one item.
+  Widget _buildGhost(BuildContext context, _StackLayout layout) {
+    final point = _dragPoint;
+    final from = _dragFrom;
+    if (point == null || from == null || from >= layout.rows.length) {
+      return const SizedBox.shrink();
+    }
+    final row = layout.rows[from];
+    const size = 52.0;
+    return Positioned(
+      left: point.dx - size / 2,
+      top: point.dy - size / 2,
+      width: size,
+      height: size,
+      child: IgnorePointer(
+        child: Opacity(
+          opacity: 0.9,
+          child: Transform.scale(
+            scale: _overTrash ? 0.86 : 1,
+            child: DecoratedBox(
+              decoration: BoxDecoration(
+                color: context.shellTheme.panelColor(
+                  context.shellTheme.colors.surfaceContainerHigh,
+                ),
+                borderRadius: BorderRadius.circular(10),
+                boxShadow: const [
+                  BoxShadow(
+                    color: Color(0x33000000),
+                    blurRadius: 12,
+                    offset: Offset(0, 4),
+                  ),
+                ],
+              ),
+              child: Padding(
+                padding: const EdgeInsets.all(6),
+                child: _StackIcon(
+                  entry: row.entry,
+                  thumbnail: row.thumbnail,
+                  size: size - 12,
                 ),
               ),
             ),
@@ -566,7 +915,8 @@ class _StackLayout {
       height = 0,
       contentHeight = 0,
       scrolls = false,
-      isFan = true;
+      isFan = true,
+      origin = Offset.zero;
 
   const _StackLayout.grid(
     this.rows, {
@@ -576,6 +926,7 @@ class _StackLayout {
     required this.height,
     required this.contentHeight,
     required this.scrolls,
+    required this.origin,
   }) : fan = const [],
        isFan = false;
 
@@ -589,9 +940,17 @@ class _StackLayout {
   final bool scrolls;
   final bool isFan;
 
+  /// The grid panel's top-left corner in scene coordinates.
+  final Offset origin;
+
   int? hitTest(Offset point, double scroll) => isFan
       ? DockStackFan.hitTest(fan, point.dx, point.dy)
-      : DockStackGrid.hitTest(grid, point.dx, point.dy, scroll: scroll);
+      : DockStackGrid.hitTest(
+          grid,
+          point.dx - origin.dx,
+          point.dy - origin.dy,
+          scroll: scroll,
+        );
 }
 
 /// One fan row: the file's icon or thumbnail on the right and its name in a
@@ -601,16 +960,23 @@ class _StackRowTile extends StatelessWidget {
     required this.row,
     required this.theme,
     required this.lit,
+    this.dropTarget = false,
   });
 
   final _StackRow row;
   final ShellThemeData theme;
   final bool lit;
+  final bool dropTarget;
 
   @override
   Widget build(BuildContext context) {
     const pad = DockStackFan.padX;
-    final fill = lit
+    final fill = dropTarget
+        ? Color.alphaBlend(
+            theme.accent.withValues(alpha: 0.3),
+            theme.panelColor(theme.colors.surfaceContainerHigh),
+          )
+        : lit
         ? Color.alphaBlend(
             theme.accent.withValues(alpha: 0.18),
             theme.panelColor(theme.colors.surfaceContainerHigh),
@@ -620,7 +986,9 @@ class _StackRowTile extends StatelessWidget {
       decoration: BoxDecoration(
         color: fill,
         borderRadius: theme.borderRadius(DockStackFan.radius),
-        border: Border.all(color: theme.colors.hairline),
+        border: Border.all(
+          color: dropTarget ? theme.accent : theme.colors.hairline,
+        ),
       ),
       child: Padding(
         padding: const EdgeInsets.symmetric(horizontal: pad),
@@ -659,45 +1027,57 @@ class _GridCellTile extends StatelessWidget {
     required this.row,
     required this.theme,
     required this.lit,
+    this.lifting = false,
+    this.dropTarget = false,
   });
 
   final _StackRow row;
   final ShellThemeData theme;
   final bool lit;
+  final bool lifting;
+  final bool dropTarget;
 
   @override
   Widget build(BuildContext context) {
-    return DecoratedBox(
-      decoration: BoxDecoration(
-        color: lit ? theme.accent.withValues(alpha: 0.16) : null,
-        borderRadius: theme.borderRadius(8),
-      ),
-      child: Padding(
-        padding: const EdgeInsets.all(4),
-        child: Column(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            SizedBox(
-              width: 40,
-              height: 40,
-              child: _StackIcon(
-                entry: row.entry,
-                thumbnail: row.thumbnail,
-                size: 40,
+    return Opacity(
+      opacity: lifting ? 0.35 : 1,
+      child: DecoratedBox(
+        decoration: BoxDecoration(
+          color: dropTarget
+              ? theme.accent.withValues(alpha: 0.28)
+              : lit
+              ? theme.accent.withValues(alpha: 0.16)
+              : null,
+          borderRadius: theme.borderRadius(8),
+          border: dropTarget ? Border.all(color: theme.accent) : null,
+        ),
+        child: Padding(
+          padding: const EdgeInsets.all(4),
+          child: Column(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              SizedBox(
+                width: 40,
+                height: 40,
+                child: _StackIcon(
+                  entry: row.entry,
+                  thumbnail: row.thumbnail,
+                  size: 40,
+                ),
               ),
-            ),
-            const SizedBox(height: 4),
-            Text(
-              row.label,
-              maxLines: 2,
-              textAlign: TextAlign.center,
-              overflow: TextOverflow.ellipsis,
-              style: theme.text.systemBarCaption.copyWith(
-                color: theme.colors.textPrimary,
-                fontSize: 10,
+              const SizedBox(height: 4),
+              Text(
+                row.label,
+                maxLines: 2,
+                textAlign: TextAlign.center,
+                overflow: TextOverflow.ellipsis,
+                style: theme.text.systemBarCaption.copyWith(
+                  color: theme.colors.textPrimary,
+                  fontSize: 10,
+                ),
               ),
-            ),
-          ],
+            ],
+          ),
         ),
       ),
     );

@@ -15,6 +15,7 @@ import 'dock_stack_files.dart'
     show DockDownloadProgress, DockStackEntry, DockStackFiles;
 import 'dock_stack_thumbs.dart';
 import 'dock_stack_view.dart';
+import 'dock_stack_watch.dart';
 
 typedef DockAccessoryMenuBuilder = List<Widget> Function(
   BuildContext context,
@@ -580,6 +581,8 @@ class DockFolderItem extends StatefulWidget {
     required this.onOpenSettings,
     required this.onSetView,
     required this.onSetSort,
+    required this.onReorder,
+    this.trashRect,
     super.key,
   });
 
@@ -595,6 +598,14 @@ class DockFolderItem extends StatefulWidget {
   final ValueChanged<DockStackMode> onSetView;
   final ValueChanged<DockStackSortMode> onSetSort;
 
+  /// A dragged order from the open stack, in file names.
+  final ValueChanged<List<String>> onReorder;
+
+  /// The trash icon's rectangle in scene coordinates, so a row dragged out of
+  /// the stack can be dropped on it. Null when the dock hides the trash, and
+  /// then a drag reorders only.
+  final Rect? trashRect;
+
   @override
   State<DockFolderItem> createState() => _DockFolderItemState();
 }
@@ -606,6 +617,7 @@ class _DockFolderItemState extends State<DockFolderItem> {
   String? _preview;
   DockDownloadProgress? _download;
   Timer? _downloadPoll;
+  DockStackWatch? _watch;
 
   @override
   void initState() {
@@ -633,6 +645,7 @@ class _DockFolderItemState extends State<DockFolderItem> {
   @override
   void dispose() {
     _downloadPoll?.cancel();
+    _watch?.stop();
     if (_fanOpen) widget.onOverlayChanged(false);
     super.dispose();
   }
@@ -651,6 +664,7 @@ class _DockFolderItemState extends State<DockFolderItem> {
     final entries = DockStackFiles.list(
       widget.folder.path,
       sort: widget.folder.sort,
+      order: widget.folder.order,
     );
     final preview = entries.isEmpty
         ? null
@@ -687,13 +701,25 @@ class _DockFolderItemState extends State<DockFolderItem> {
     });
   }
 
+  /// Re-reads the listing for an open stack: called on a sort change and by
+  /// the folder watch when a file lands or leaves.
   void _reloadEntries() {
+    if (!mounted) return;
     final entries = DockStackFiles.list(
       widget.folder.path,
       sort: widget.folder.sort,
+      order: widget.folder.order,
     );
-    if (!mounted) return;
-    setState(() => _entries = entries);
+    final preview = entries.isEmpty
+        ? null
+        : DockStackThumbs.preview(entries.first.path);
+    final download = DockStackFiles.progress(entries);
+    setState(() {
+      _entries = entries;
+      _preview = preview;
+      _download = download;
+    });
+    _watchDownloads(download);
   }
 
   Future<void> _openFolder() async {
@@ -712,6 +738,7 @@ class _DockFolderItemState extends State<DockFolderItem> {
     final entries = DockStackFiles.list(
       widget.folder.path,
       sort: widget.folder.sort,
+      order: widget.folder.order,
     );
     if (!mounted) return;
     setState(() {
@@ -723,12 +750,17 @@ class _DockFolderItemState extends State<DockFolderItem> {
       _fanOpen = true;
     });
     _watchDownloads(_download);
+    // The folder is watched only while it is open: a stack nobody is looking
+    // at has nothing to update.
+    (_watch ??= DockStackWatch(widget.folder.path, _reloadEntries)).start();
     _fan.show();
     widget.onOverlayChanged(true);
   }
 
   void _closeFan() {
     if (!_fanOpen) return;
+    _watch?.stop();
+    _watch = null;
     setState(() => _fanOpen = false);
     _fan.hide();
     widget.onOverlayChanged(false);
@@ -737,6 +769,32 @@ class _DockFolderItemState extends State<DockFolderItem> {
   Future<void> _openEntry(DockStackEntry entry) async {
     _closeFan();
     await DockExtras.openPath(entry.path);
+  }
+
+  /// A dragged order keeps the stack open, so the user sees the result and can
+  /// keep dragging. The reorder is applied to the listing in place rather than
+  /// waiting for the settings write to come back around.
+  void _reorder(List<String> order) {
+    widget.onReorder(order);
+    final reordered = DockStackFiles.list(
+      widget.folder.path,
+      sort: DockStackSortMode.manual,
+      order: order,
+    );
+    setState(() {
+      _entries = reordered;
+      _preview = reordered.isEmpty
+          ? null
+          : DockStackThumbs.preview(reordered.first.path);
+    });
+  }
+
+  /// A row dropped on the trash. The stack closes first: the file it was
+  /// showing is gone, so the listing behind it is stale either way.
+  Future<void> _trash(DockStackEntry entry) async {
+    _closeFan();
+    final removed = await DockExtras.trashPath(entry.path);
+    if (removed && mounted) _refresh();
   }
 
   @override
@@ -766,6 +824,9 @@ class _DockFolderItemState extends State<DockFolderItem> {
             onDismiss: _closeFan,
             onOpenFolder: _openFolder,
             onOpenEntry: _openEntry,
+            onReorder: _reorder,
+            trashRect: widget.trashRect,
+            onTrash: widget.trashRect == null ? null : _trash,
           ),
         );
       },
@@ -850,6 +911,7 @@ class _DockFolderItemState extends State<DockFolderItem> {
                         Icons.edit_calendar_outlined,
                       DockStackSortMode.name => Icons.sort_by_alpha,
                       DockStackSortMode.kind => Icons.category_outlined,
+                      DockStackSortMode.manual => Icons.drag_indicator,
                     },
                     label: switch (sort) {
                       DockStackSortMode.added =>
@@ -858,6 +920,8 @@ class _DockFolderItemState extends State<DockFolderItem> {
                         widget.zh ? '修改日期' : 'Date Modified',
                       DockStackSortMode.name => widget.zh ? '名称' : 'Name',
                       DockStackSortMode.kind => widget.zh ? '种类' : 'Kind',
+                      DockStackSortMode.manual =>
+                        widget.zh ? '自定顺序' : 'Custom Order',
                     },
                     selected: widget.folder.sort == sort,
                     onTap: () {

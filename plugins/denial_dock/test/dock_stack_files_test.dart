@@ -121,6 +121,32 @@ void main() {
   } finally {
     scratch.deleteSync(recursive: true);
   }
+
+  // A saved order keeps the names it knows first and lets a file that arrived
+  // since fall in behind them, so a fresh download is never lost.
+  final ordered = [
+    _entry('c.png', DateTime(2026, 1, 1)),
+    _entry('a.png', DateTime(2026, 1, 2)),
+    _entry('new.png', DateTime(2026, 1, 3)),
+  ];
+  DockStackFiles.applyOrder(ordered, ['a.png', 'c.png']);
+  _expect(
+    ordered.map((entry) => entry.name).join('|') == 'a.png|c.png|new.png',
+    'saved order then newcomers: ${ordered.map((entry) => entry.name)}',
+  );
+
+  final filtered = DockStackFiles.filter([
+    _entry('Report.PDF', DateTime(2026, 1, 1)),
+    _entry('notes.txt', DateTime(2026, 1, 1)),
+  ], 'report');
+  _expect(
+    filtered.length == 1 && filtered.first.name == 'Report.PDF',
+    'filter matches case-insensitively',
+  );
+  _expect(
+    DockStackFiles.filter(filtered, '  ').length == 1,
+    'a blank query keeps everything',
+  );
 }
 
 DockStackEntry _entry(String name, DateTime modified) => DockStackEntry(

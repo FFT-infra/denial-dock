@@ -250,7 +250,8 @@ extension DockStackModeKey on DockStackMode {
 }
 
 /// The order a folder stack lists its files in, matching Finder's Stack menu.
-enum DockStackSortMode { added, modified, name, kind }
+/// `manual` is the order the user dragged into place.
+enum DockStackSortMode { added, modified, name, kind, manual }
 
 extension DockStackSortModeKey on DockStackSortMode {
   String get key => switch (this) {
@@ -258,12 +259,14 @@ extension DockStackSortModeKey on DockStackSortMode {
     DockStackSortMode.modified => 'modified',
     DockStackSortMode.name => 'name',
     DockStackSortMode.kind => 'kind',
+    DockStackSortMode.manual => 'manual',
   };
 
   static DockStackSortMode parse(Object? value) => switch (value) {
     'modified' => DockStackSortMode.modified,
     'name' => DockStackSortMode.name,
     'kind' => DockStackSortMode.kind,
+    'manual' => DockStackSortMode.manual,
     _ => DockStackSortMode.added,
   };
 }
@@ -275,6 +278,7 @@ class DockFolder {
     required this.label,
     this.view = DockStackMode.auto,
     this.sort = DockStackSortMode.added,
+    this.order = const [],
   });
 
   final String path;
@@ -282,11 +286,16 @@ class DockFolder {
   final DockStackMode view;
   final DockStackSortMode sort;
 
-  Map<String, String> toJson() => {
+  /// File names in the order the user dragged them, used by [sort] `manual`.
+  /// Names rather than paths so a folder that moves on disk keeps its order.
+  final List<String> order;
+
+  Map<String, Object> toJson() => {
     'path': path,
     'label': label,
     'view': view.key,
     'sort': sort.key,
+    if (order.isNotEmpty) 'order': order,
   };
 
   static DockFolder? fromJson(Object? value) {
@@ -294,6 +303,7 @@ class DockFolder {
     final path = value['path'];
     if (path is! String || !path.startsWith('/')) return null;
     final label = value['label'];
+    final order = value['order'];
     return DockFolder(
       path: normalizeFolderPath(path),
       label: label is String && label.trim().isNotEmpty
@@ -301,6 +311,9 @@ class DockFolder {
           : folderLabel(path),
       view: DockStackModeKey.parse(value['view']),
       sort: DockStackSortModeKey.parse(value['sort']),
+      order: order is List
+          ? List.unmodifiable(order.whereType<String>())
+          : const [],
     );
   }
 }
@@ -585,6 +598,7 @@ class DockSettings {
           label: label.isEmpty ? folderLabel(path) : label,
           view: folder.view,
           sort: folder.sort,
+          order: folder.order,
         ),
       ]),
     );
@@ -595,6 +609,7 @@ class DockSettings {
     String path, {
     DockStackMode? view,
     DockStackSortMode? sort,
+    List<String>? order,
   }) {
     final key = normalizeFolderPath(path);
     return copyWith(
@@ -608,6 +623,7 @@ class DockSettings {
               label: folder.label,
               view: view ?? folder.view,
               sort: sort ?? folder.sort,
+              order: order ?? folder.order,
             ),
       ]),
     );

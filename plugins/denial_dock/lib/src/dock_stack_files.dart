@@ -49,6 +49,7 @@ abstract final class DockStackFiles {
   static List<DockStackEntry> list(
     String path, {
     DockStackSort sort = DockStackSort.added,
+    List<String> order = const [],
     int limit = maxEntries,
   }) {
     final directory = Directory(path);
@@ -81,13 +82,21 @@ abstract final class DockStackFiles {
     } on FileSystemException {
       return const [];
     }
-    sortEntries(entries, sort);
+    sortEntries(entries, sort, order: order);
     return entries.length > limit ? entries.sublist(0, limit) : entries;
   }
 
   /// Orders [entries] in place. Folders come first only where the reference
   /// groups them; by date they mix with files, the way a macOS Stack does.
-  static void sortEntries(List<DockStackEntry> entries, DockStackSort sort) {
+  static void sortEntries(
+    List<DockStackEntry> entries,
+    DockStackSort sort, {
+    List<String> order = const [],
+  }) {
+    if (sort == DockStackSort.manual) {
+      applyOrder(entries, order);
+      return;
+    }
     entries.sort((a, b) {
       if ((sort == DockStackSort.name || sort == DockStackSort.kind) &&
           a.isDirectory != b.isDirectory) {
@@ -97,11 +106,39 @@ abstract final class DockStackFiles {
         DockStackSort.added => b.addedAt.compareTo(a.addedAt),
         DockStackSort.modified => b.modifiedAt.compareTo(a.modifiedAt),
         DockStackSort.kind => a.extension.compareTo(b.extension),
-        DockStackSort.name => 0,
+        DockStackSort.name || DockStackSort.manual => 0,
       };
       return byKey != 0 ? byKey : naturalCompare(a.name, b.name);
     });
   }
+
+  /// Orders [entries] in place to follow [names]: the names it lists come
+  /// first in that order, and anything it does not know about — a file added
+  /// since the order was saved — follows, newest first, so a fresh download
+  /// still lands where the user looks.
+  static void applyOrder(List<DockStackEntry> entries, List<String> names) {
+    if (names.isEmpty) {
+      sortEntries(entries, DockStackSort.added);
+      return;
+    }
+    final rank = <String, int>{
+      for (var i = 0; i < names.length; i++) names[i]: i,
+    };
+    entries.sort((a, b) {
+      final ra = rank[a.name];
+      final rb = rank[b.name];
+      if (ra != null && rb != null) return ra.compareTo(rb);
+      if (ra != null) return -1;
+      if (rb != null) return 1;
+      final byDate = b.addedAt.compareTo(a.addedAt);
+      return byDate != 0 ? byDate : naturalCompare(a.name, b.name);
+    });
+  }
+
+  /// The names in [entries], which is what a manual order is saved as.
+  static List<String> names(List<DockStackEntry> entries) => [
+    for (final entry in entries) entry.name,
+  ];
 
   /// Name order that reads numbers as numbers, so `shot 2` precedes `shot 10`.
   static int naturalCompare(String first, String second) {
@@ -138,6 +175,20 @@ abstract final class DockStackFiles {
   }
 
   static bool _isDigit(int codeUnit) => codeUnit >= 0x30 && codeUnit <= 0x39;
+
+  /// Entries whose name contains [query], case-insensitively. An empty query
+  /// keeps everything, so a stack with no filter shows the whole folder.
+  static List<DockStackEntry> filter(
+    List<DockStackEntry> entries,
+    String query,
+  ) {
+    final needle = query.trim().toLowerCase();
+    if (needle.isEmpty) return entries;
+    return [
+      for (final entry in entries)
+        if (entry.name.toLowerCase().contains(needle)) entry,
+    ];
+  }
 
   /// A browser's download in progress: Firefox writes `name.part`, the
   /// Chromium family `name.crdownload`.

@@ -164,6 +164,16 @@ class DockSettingsController extends AsyncNotifier<DockSettings> {
   Future<void> setFolderSort(String path, DockStackSortMode sort) =>
       _update((current) => current.withFolderStack(path, sort: sort));
 
+  /// Saves a dragged order and switches the folder to it, since a custom order
+  /// only means anything under the `manual` sort.
+  Future<void> setFolderOrder(String path, List<String> order) => _update(
+    (current) => current.withFolderStack(
+      path,
+      order: order,
+      sort: DockStackSortMode.manual,
+    ),
+  );
+
   /// Drops an app from the unpinned section and keeps the launcher's recents
   /// from putting it back. It returns on its next launch, and quitting it
   /// afterwards leaves it in place.

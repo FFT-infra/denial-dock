@@ -295,6 +295,37 @@ abstract final class DockStackThumbs {
     return '$cache/denial_dock/thumbnails';
   }
 
+  /// Deletes generated thumbnails untouched for [maxAge], so a folder the user
+  /// stopped opening does not keep its videos on disk forever.
+  ///
+  /// Runs off the caller's frame: a cache directory is a directory listing,
+  /// and the dock asks for this while it mounts.
+  static void sweepCache({Duration maxAge = const Duration(days: 60)}) {
+    final directory = _ownCacheDir();
+    if (directory == null) return;
+    unawaited(
+      Future(() {
+        final cutoff = DateTime.now().subtract(maxAge);
+        final List<FileSystemEntity> files;
+        try {
+          files = Directory(directory).listSync(followLinks: false);
+        } on FileSystemException {
+          return;
+        }
+        for (final entity in files) {
+          if (entity is! File) continue;
+          try {
+            if (entity.statSync().modified.isBefore(cutoff)) {
+              entity.deleteSync();
+            }
+          } on FileSystemException {
+            // A file another frame is reading stays; the next sweep retries.
+          }
+        }
+      }),
+    );
+  }
+
   /// A stable file name for [path]. A path hash keeps the name short and
   /// collision-free enough for a cache directory.
   static String _stableName(String path) {

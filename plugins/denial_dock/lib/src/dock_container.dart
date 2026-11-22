@@ -115,6 +115,10 @@ class _DockContainerState extends ConsumerState<DockContainer>
   );
 
   DockLayoutFrame? _frame;
+
+  /// The trash icon's rectangle in scene coordinates, or null when the dock
+  /// hides the trash. A folder stack uses it as its drop target.
+  Rect? _trashRect;
   Map<int, int> _entrySlots = const {};
   List<_LabelTarget?> _labels = const [];
   double _capsuleStart = 0;
@@ -211,8 +215,10 @@ class _DockContainerState extends ConsumerState<DockContainer>
     super.initState();
     _ticker = createTicker(_onTick);
     // The thumbnail index is built before a folder is opened, so the fan shows
-    // previews on its first frame instead of a column of type icons.
+    // previews on its first frame instead of a column of type icons, and stale
+    // generated previews are dropped so the cache cannot grow without bound.
     DockStackThumbs.warm();
+    DockStackThumbs.sweepCache();
   }
 
   @override
@@ -1008,10 +1014,10 @@ class _DockContainerState extends ConsumerState<DockContainer>
           for (var i = 0; i < specs.length; i++)
             _labelForSlot(specs, i, entries, launcherLabel, chinese),
         ];
-
         final hideOffset = (1 - _reveal) * (_capsuleHeight + 24);
         _capsuleCross = _edgeInset - hideOffset;
         _capsuleFar = _capsuleCross + _capsuleHeight;
+        _trashRect = _trashSlotRect(specs, frame);
 
         // Collision uses the rectangle the dock would occupy at full reveal,
         // never the animated one, so a retracted dock still reports the space
@@ -1537,6 +1543,39 @@ class _DockContainerState extends ConsumerState<DockContainer>
     );
   }
 
+  /// Where the trash icon sits on screen, for the folder stack's drop target.
+  /// A hidden trash returns null rather than a stale rectangle.
+  Rect? _trashSlotRect(List<_SlotSpec> specs, DockLayoutFrame frame) {
+    for (var i = 0; i < specs.length; i++) {
+      if (specs[i].kind != _SlotKind.trash) continue;
+      final slot = frame.slots[i];
+      final extent = slot.half * 2;
+      // The slot's near edge, measured from the dock's own edge inward.
+      final near = _capsuleCross + DockSettings.padding;
+      return switch (_position) {
+        DockPosition.bottom => Rect.fromLTWH(
+          _output.left + slot.center - slot.half,
+          _output.top + _surfaceHeight - near - extent,
+          extent,
+          extent,
+        ),
+        DockPosition.left => Rect.fromLTWH(
+          _output.left + near,
+          _output.top + slot.center - slot.half,
+          extent,
+          extent,
+        ),
+        DockPosition.right => Rect.fromLTWH(
+          _output.right - near - extent,
+          _output.top + slot.center - slot.half,
+          extent,
+          extent,
+        ),
+      };
+    }
+    return null;
+  }
+
   double? _firstAppCenter(DockLayoutFrame frame, List<_SlotSpec> specs) {
     for (var i = 0; i < specs.length; i++) {
       if (specs[i].kind == _SlotKind.app) return frame.slots[i].center;
@@ -1765,6 +1804,12 @@ class _DockContainerState extends ConsumerState<DockContainer>
                   .read(dockSettingsProvider.notifier)
                   .setFolderSort(folder.path, sort),
             ),
+            onReorder: (order) => unawaited(
+              ref
+                  .read(dockSettingsProvider.notifier)
+                  .setFolderOrder(folder.path, order),
+            ),
+            trashRect: _trashRect,
           ),
         );
       case _SlotKind.trash:
