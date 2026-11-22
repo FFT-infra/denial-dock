@@ -59,6 +59,13 @@ void main() {
       DockStackFiles.list(directory.path, limit: 2).length == 2,
       'the limit truncates',
     );
+    // The limit applies after the sort, so the one entry kept is the newest
+    // rather than whichever the directory happened to hand over first.
+    final newest = DockStackFiles.list(directory.path, limit: 1);
+    _expect(
+      newest.single.name == byAdded.first.name,
+      'the limit keeps the newest: ${newest.single.name}',
+    );
   } finally {
     directory.deleteSync(recursive: true);
   }

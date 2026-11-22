@@ -12,6 +12,7 @@ import 'dock_extras.dart';
 import 'dock_menu.dart';
 import 'dock_settings.dart';
 import 'dock_stack_files.dart';
+import 'dock_stack_thumbs.dart';
 import 'dock_stack_view.dart';
 
 typedef DockAccessoryMenuBuilder = List<Widget> Function(
@@ -34,11 +35,16 @@ class DockAccessoryItem extends StatefulWidget {
     required this.onOverlayChanged,
     required this.monitorBounds,
     this.badge = 0,
+    this.glyph,
     super.key,
   });
 
   final String label;
   final IconData icon;
+
+  /// Drawn instead of [icon] when given, so a folder can show the newest file
+  /// in it the way a macOS Stack does.
+  final Widget? glyph;
   final double size;
   final double lift;
   final DockPosition position;
@@ -166,11 +172,13 @@ class _DockAccessoryItemState extends State<DockAccessoryItem> {
                   clipBehavior: Clip.none,
                   children: [
                     Center(
-                      child: Icon(
-                        widget.icon,
-                        size: widget.size * 0.46,
-                        color: theme.accent,
-                      ),
+                      child:
+                          widget.glyph ??
+                          Icon(
+                            widget.icon,
+                            size: widget.size * 0.46,
+                            color: theme.accent,
+                          ),
                     ),
                     Positioned.fill(
                       child: IgnorePointer(
@@ -470,11 +478,46 @@ class _DockFolderItemState extends State<DockFolderItem> {
   final OverlayPortalController _fan = OverlayPortalController();
   bool _fanOpen = false;
   List<DockStackEntry> _entries = const [];
+  String? _preview;
+
+  @override
+  void initState() {
+    super.initState();
+    _schedulePreview();
+  }
+
+  @override
+  void didUpdateWidget(covariant DockFolderItem oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.folder.path != widget.folder.path) {
+      _closeFan();
+      _preview = null;
+      _schedulePreview();
+    }
+  }
 
   @override
   void dispose() {
     if (_fanOpen) widget.onOverlayChanged(false);
     super.dispose();
+  }
+
+  /// Reads the icon's picture after the dock has painted: the walk is
+  /// synchronous, and a large folder must not delay the first frame.
+  void _schedulePreview() {
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      final path = _readPreview();
+      if (path != _preview) setState(() => _preview = path);
+    });
+  }
+
+  /// The newest entry's picture, which is what the icon shows: a macOS Stack
+  /// wears its top file rather than a folder symbol.
+  String? _readPreview([List<DockStackEntry>? entries]) {
+    final newest = entries ?? DockStackFiles.list(widget.folder.path, limit: 1);
+    if (newest.isEmpty) return null;
+    return DockStackThumbs.preview(newest.first.path);
   }
 
   Future<void> _openFolder() async {
@@ -494,6 +537,7 @@ class _DockFolderItemState extends State<DockFolderItem> {
     if (!mounted) return;
     setState(() {
       _entries = entries;
+      _preview = _readPreview(entries);
       _fanOpen = true;
     });
     _fan.show();
@@ -529,28 +573,38 @@ class _DockFolderItemState extends State<DockFolderItem> {
           debugLabel: 'Dock folder stack',
           pointerPolicy: ShellPointerPolicy.fullScene,
           keyboardPolicy: ShellKeyboardPolicy.capture,
-          child: CallbackShortcuts(
-            bindings: {
-              const SingleActivator(LogicalKeyboardKey.escape): _closeFan,
-            },
-            child: Focus(
-              autofocus: true,
-              child: DockStackView(
-                entries: _entries,
-                anchor: anchor,
-                bounds: bounds,
-                zh: widget.zh,
-                onDismiss: _closeFan,
-                onOpenFolder: _openFolder,
-                onOpenEntry: _openEntry,
-              ),
-            ),
+          child: DockStackView(
+            entries: _entries,
+            anchor: anchor,
+            bounds: bounds,
+            zh: widget.zh,
+            onDismiss: _closeFan,
+            onOpenFolder: _openFolder,
+            onOpenEntry: _openEntry,
           ),
         );
       },
       child: DockAccessoryItem(
         label: widget.folder.label,
         icon: Icons.folder_rounded,
+        glyph: _preview == null
+            ? null
+            : ClipRRect(
+                borderRadius: BorderRadius.circular(widget.size * 0.16),
+                child: Image.file(
+                  File(_preview!),
+                  width: widget.size * 0.62,
+                  height: widget.size * 0.62,
+                  fit: BoxFit.cover,
+                  cacheWidth: (widget.size * 2).round(),
+                  gaplessPlayback: true,
+                  errorBuilder: (_, _, _) => Icon(
+                    Icons.folder_rounded,
+                    size: widget.size * 0.46,
+                    color: context.shellTheme.accent,
+                  ),
+                ),
+              ),
         size: widget.size,
         lift: widget.lift,
         position: widget.position,

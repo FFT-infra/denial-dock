@@ -55,7 +55,7 @@ abstract final class DockStackFiles {
           orElse: () => '',
         );
         if (name.isEmpty || name.startsWith('.')) continue;
-        if (entries.length >= limit) break;
+        if (entries.length >= maxEntries) break;
         final FileStat stat;
         try {
           stat = entity.statSync();
@@ -77,7 +77,7 @@ abstract final class DockStackFiles {
       return const [];
     }
     sortEntries(entries, sort);
-    return entries;
+    return entries.length > limit ? entries.sublist(0, limit) : entries;
   }
 
   /// Orders [entries] in place. Folders come first only where the reference

@@ -2,6 +2,7 @@ import 'dart:io';
 
 import 'package:denial_flutter_sdk/theme.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 
 import 'dock_stack_fan.dart';
 import 'dock_stack_files.dart';
@@ -9,10 +10,10 @@ import 'dock_stack_thumbs.dart';
 
 /// A folder stack opened as a fan above the dock icon.
 ///
-/// The rows are placed by [DockStackFan] and painted turned. One pointer
-/// region covers the whole fan and asks the geometry which row is under the
-/// pointer, so a row that grows under the pointer keeps its hit area and
-/// cannot flicker.
+/// One pointer region covers the whole scene and asks the geometry which row
+/// is under the pointer, so a row that grows on hover keeps its hit area. A
+/// press that lands on no row — the empty desktop, or the folder icon itself —
+/// folds the fan back into the icon, which is how the stack closes.
 class DockStackView extends StatefulWidget {
   const DockStackView({
     required this.entries,
@@ -34,6 +35,8 @@ class DockStackView extends StatefulWidget {
   final Rect bounds;
 
   final bool zh;
+
+  /// Called once the rows have folded back, so the portal can be dropped.
   final VoidCallback onDismiss;
   final VoidCallback onOpenFolder;
   final ValueChanged<DockStackEntry> onOpenEntry;
@@ -49,10 +52,16 @@ class _DockStackViewState extends State<DockStackView>
     duration: const Duration(milliseconds: 300),
   )..forward();
 
-  List<_StackRow> _rows = const [];
-  List<DockFanRow> _geometry = const [];
-  int? _hovered;
+  _FanLayout? _layout;
+  Rect? _layoutAnchor;
+  Rect? _layoutBounds;
+  List<DockStackEntry>? _layoutEntries;
 
+  int? _hovered;
+  bool _closing = false;
+  bool _awaitingThumbs = false;
+
+  /// The stagger between rows leaving the icon, and how long one row takes.
   static const double _stagger = 0.026;
   static const double _rowSeconds = 0.2;
 
@@ -65,67 +74,103 @@ class _DockStackViewState extends State<DockStackView>
   @override
   Widget build(BuildContext context) {
     final theme = context.shellTheme;
-    final layout = _layout(context, theme);
-    _rows = layout.rows;
-    _geometry = layout.geometry;
-    return Stack(
-      children: [
-        Positioned.fill(
-          child: Listener(
+    final layout = _layoutFor(context);
+    // A thumbnail index that was not ready when the fan opened resolves a
+    // moment later; redrawing then is what puts the previews in.
+    if (!_awaitingThumbs && DockStackThumbs.stale) {
+      _awaitingThumbs = true;
+      DockStackThumbs.warm().then((_) {
+        if (!mounted || _closing) return;
+        setState(() {
+          _layout = null;
+          _awaitingThumbs = false;
+        });
+      });
+    }
+    return CallbackShortcuts(
+      bindings: {const SingleActivator(LogicalKeyboardKey.escape): _dismiss},
+      child: Focus(
+        autofocus: true,
+        child: MouseRegion(
+          onHover: (event) {
+            if (_closing) return;
+            final index = DockStackFan.hitTest(
+              layout.geometry,
+              event.localPosition.dx,
+              event.localPosition.dy,
+            );
+            if (index == _hovered) return;
+            setState(() => _hovered = index);
+          },
+          onExit: (_) {
+            if (_hovered == null) return;
+            setState(() => _hovered = null);
+          },
+          child: GestureDetector(
             behavior: HitTestBehavior.opaque,
-            onPointerDown: (_) => widget.onDismiss(),
-            child: const ColoredBox(color: Color(0x00000000)),
-          ),
-        ),
-        Positioned.fill(
-          child: MouseRegion(
-            onHover: (event) {
-              final index = DockStackFan.hitTest(
-                _geometry,
-                event.localPosition.dx,
-                event.localPosition.dy,
-              );
-              if (index == _hovered) return;
-              setState(() => _hovered = index);
-            },
-            onExit: (_) {
-              if (_hovered == null) return;
-              setState(() => _hovered = null);
-            },
-            child: GestureDetector(
-              behavior: HitTestBehavior.opaque,
-              onTapDown: (details) {
-                final index = DockStackFan.hitTest(
-                  _geometry,
-                  details.localPosition.dx,
-                  details.localPosition.dy,
-                );
-                if (index == null) return;
-                final entry = _rows[index].entry;
-                if (entry == null) {
-                  widget.onOpenFolder();
-                } else {
-                  widget.onOpenEntry(entry);
-                }
-              },
-              child: AnimatedBuilder(
-                animation: _open,
-                builder: (context, _) => Stack(
-                  clipBehavior: Clip.none,
-                  children: [
-                    for (var i = 0; i < _rows.length; i++) _buildRow(theme, i),
-                  ],
-                ),
+            onTapDown: (details) => _press(details.localPosition, layout),
+            child: AnimatedBuilder(
+              animation: _open,
+              builder: (context, _) => Stack(
+                clipBehavior: Clip.none,
+                children: [
+                  for (var i = 0; i < layout.rows.length; i++)
+                    _buildRow(theme, layout, i),
+                ],
               ),
             ),
           ),
         ),
-      ],
+      ),
     );
   }
 
-  /// Measures every label, then asks the geometry for the settled rows.
-  _FanLayout _layout(BuildContext context, ShellThemeData theme) {
+  /// A press opens the row under it; anything else closes the fan.
+  void _press(Offset point, _FanLayout layout) {
+    if (_closing) return;
+    final index = DockStackFan.hitTest(layout.geometry, point.dx, point.dy);
+    if (index == null) {
+      _dismiss();
+      return;
+    }
+    final entry = layout.rows[index].entry;
+    if (entry == null) {
+      widget.onOpenFolder();
+    } else {
+      widget.onOpenEntry(entry);
+    }
+  }
+
+  /// Folds the rows back into the icon, then drops the portal.
+  void _dismiss() {
+    if (_closing) return;
+    _closing = true;
+    if (_hovered != null) setState(() => _hovered = null);
+    _open.reverse().whenComplete(() {
+      if (mounted) widget.onDismiss();
+    });
+  }
+
+  /// Memoised: hovering a row rebuilds the view, and re-measuring every label
+  /// and re-resolving every thumbnail on those frames is wasted work.
+  _FanLayout _layoutFor(BuildContext context) {
+    final cached = _layout;
+    if (cached != null &&
+        _layoutAnchor == widget.anchor &&
+        _layoutBounds == widget.bounds &&
+        identical(_layoutEntries, widget.entries)) {
+      return cached;
+    }
+    final layout = _computeLayout(context);
+    _layout = layout;
+    _layoutAnchor = widget.anchor;
+    _layoutBounds = widget.bounds;
+    _layoutEntries = widget.entries;
+    return layout;
+  }
+
+  _FanLayout _computeLayout(BuildContext context) {
+    final theme = context.shellTheme;
     final style = theme.text.systemBarCaption.copyWith(
       color: theme.colors.textPrimary,
     );
@@ -141,7 +186,8 @@ class _DockStackViewState extends State<DockStackView>
       final overflows = entries.length > slots;
       final shown = overflows ? slots - 1 : entries.length;
       for (var i = 0; i < shown; i++) {
-        rows.add(_StackRow.entry(entries[i]));
+        final entry = entries[i];
+        rows.add(_StackRow.entry(entry, DockStackThumbs.preview(entry.path)));
       }
       if (overflows) {
         rows.add(
@@ -160,8 +206,8 @@ class _DockStackViewState extends State<DockStackView>
             DockStackFan.padX +
             _measure(row.label, style),
     ];
-    // A fan taller than the room above the dock shrinks rather than clipping
-    // its top row off the screen.
+    // A fan taller than the room above the dock shrinks rather than losing its
+    // top row off the screen.
     final room = widget.anchor.top - widget.bounds.top - DockStackFan.gap;
     final full = DockStackFan.rowStep * rows.length;
     final scale = full > room ? (room / full).clamp(0.6, 1.0) : 1.0;
@@ -190,7 +236,7 @@ class _DockStackViewState extends State<DockStackView>
           ),
       ];
     }
-    return (rows: rows, geometry: geometry, scale: scale);
+    return (rows: rows, geometry: geometry);
   }
 
   double _measure(String text, TextStyle style) {
@@ -205,10 +251,10 @@ class _DockStackViewState extends State<DockStackView>
     return width;
   }
 
-  Widget _buildRow(ShellThemeData theme, int index) {
-    final row = _rows[index];
-    final box = _geometry[index];
-    final eased = _progressOf(index);
+  Widget _buildRow(ShellThemeData theme, _FanLayout layout, int index) {
+    final row = layout.rows[index];
+    final box = layout.geometry[index];
+    final eased = _progressOf(index, layout.rows.length);
     final hovered = _hovered == index;
     final centre = Offset(box.centerX, box.centerY);
     // The rows fly out of the icon: one that has not started yet sits on it.
@@ -233,7 +279,11 @@ class _DockStackViewState extends State<DockStackView>
                 child: SizedBox(
                   width: box.width,
                   height: box.height,
-                  child: _StackRowTile(row: row, theme: theme),
+                  child: _StackRowTile(
+                    row: row,
+                    theme: theme,
+                    hovered: hovered,
+                  ),
                 ),
               ),
             ),
@@ -243,34 +293,42 @@ class _DockStackViewState extends State<DockStackView>
     );
   }
 
-  /// A row's own progress on the one opening timeline, staggered so the pack
-  /// leaves the icon in order instead of all at once.
-  double _progressOf(int index) {
-    final start = (_open.value - index * _stagger) / _rowSeconds;
+  /// A row's own progress on the one timeline, staggered so the pack leaves
+  /// the icon in order and folds back from the top.
+  double _progressOf(int index, int count) {
+    final slot = _closing ? count - 1 - index : index;
+    final start = (_open.value - slot * _stagger) / _rowSeconds;
     return Curves.easeOutCubic.transform(start.clamp(0.0, 1.0));
   }
 }
 
-typedef _FanLayout = ({
-  List<_StackRow> rows,
-  List<DockFanRow> geometry,
-  double scale,
-});
+typedef _FanLayout = ({List<_StackRow> rows, List<DockFanRow> geometry});
 
 /// One fan row: the file's icon or thumbnail on the right and its name in a
 /// pill, which is the shape the reference docks draw.
 class _StackRowTile extends StatelessWidget {
-  const _StackRowTile({required this.row, required this.theme});
+  const _StackRowTile({
+    required this.row,
+    required this.theme,
+    required this.hovered,
+  });
 
   final _StackRow row;
   final ShellThemeData theme;
+  final bool hovered;
 
   @override
   Widget build(BuildContext context) {
     const pad = DockStackFan.padX;
+    final fill = hovered
+        ? Color.alphaBlend(
+            theme.accent.withValues(alpha: 0.18),
+            theme.panelColor(theme.colors.surfaceContainerHigh),
+          )
+        : theme.panelColor(theme.colors.surfaceContainerHigh);
     return DecoratedBox(
       decoration: BoxDecoration(
-        color: theme.panelColor(theme.colors.surfaceContainerHigh),
+        color: fill,
         borderRadius: theme.borderRadius(DockStackFan.radius),
         border: Border.all(color: theme.colors.hairline),
       ),
@@ -292,7 +350,7 @@ class _StackRowTile extends StatelessWidget {
             SizedBox(
               width: DockStackFan.iconSize,
               height: DockStackFan.iconSize,
-              child: _StackIcon(entry: row.entry),
+              child: _StackIcon(entry: row.entry, thumbnail: row.thumbnail),
             ),
           ],
         ),
@@ -301,11 +359,12 @@ class _StackRowTile extends StatelessWidget {
   }
 }
 
-/// A file's preview: its thumbnail when one exists, otherwise a type icon.
+/// A file's preview: a thumbnail, the image itself, or a type icon.
 class _StackIcon extends StatelessWidget {
-  const _StackIcon({required this.entry});
+  const _StackIcon({required this.entry, required this.thumbnail});
 
   final DockStackEntry? entry;
+  final String? thumbnail;
 
   @override
   Widget build(BuildContext context) {
@@ -315,15 +374,16 @@ class _StackIcon extends StatelessWidget {
     if (entry == null) {
       return Icon(Icons.folder_rounded, size: size * 0.8, color: theme.accent);
     }
-    final thumbnail = DockStackThumbs.lookup(entry.path);
-    if (thumbnail == null) return _glyph(entry, theme);
+    final path = thumbnail;
+    if (path == null) return _glyph(entry, theme);
     return ClipRRect(
       borderRadius: BorderRadius.circular(size * 0.18),
       child: Image.file(
-        File(thumbnail.path),
+        File(path),
         width: size,
         height: size,
         fit: BoxFit.cover,
+        cacheWidth: (size * 3).round(),
         gaplessPlayback: true,
         errorBuilder: (_, _, _) => _glyph(entry, theme),
       ),
@@ -338,8 +398,29 @@ class _StackIcon extends StatelessWidget {
     return Icon(
       stackFileIcon(entry.extension),
       size: size * 0.72,
-      color: theme.colors.textSecondary,
+      color: stackFileColor(entry.extension),
     );
+  }
+}
+
+/// A muted colour per file family, so a fan of mixed files reads at a glance
+/// instead of as a column of identical grey glyphs.
+Color stackFileColor(String extension) {
+  switch (extension) {
+    case 'png' || 'jpg' || 'jpeg' || 'gif' || 'webp' || 'bmp' || 'svg':
+      return const Color(0xFF4E9A6B);
+    case 'mp4' || 'mov' || 'm4v' || 'webm' || 'mkv' || 'avi':
+      return const Color(0xFF7C6BC4);
+    case 'mp3' || 'flac' || 'wav' || 'ogg' || 'm4a' || 'opus':
+      return const Color(0xFFC2668A);
+    case 'pdf':
+      return const Color(0xFFC4553F);
+    case 'zip' || 'tar' || 'gz' || 'xz' || 'zst' || '7z' || 'rar':
+      return const Color(0xFFC08A3E);
+    case 'dart' || 'rs' || 'c' || 'h' || 'cpp' || 'py' || 'js' || 'ts':
+      return const Color(0xFF4A82C0);
+    default:
+      return const Color(0xFF8A8F98);
   }
 }
 
@@ -370,11 +451,12 @@ IconData stackFileIcon(String extension) {
 }
 
 class _StackRow {
-  const _StackRow.entry(this.entry) : moreLabel = '';
+  const _StackRow.entry(this.entry, this.thumbnail) : moreLabel = '';
 
-  const _StackRow.more(this.moreLabel) : entry = null;
+  const _StackRow.more(this.moreLabel) : entry = null, thumbnail = null;
 
   final DockStackEntry? entry;
+  final String? thumbnail;
   final String moreLabel;
 
   String get label => entry?.name ?? moreLabel;

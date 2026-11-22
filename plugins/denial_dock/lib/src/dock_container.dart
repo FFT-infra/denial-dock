@@ -33,6 +33,7 @@ import 'dock_preferences.dart';
 import 'dock_scroll.dart';
 import 'dock_sections.dart';
 import 'dock_settings_panel.dart';
+import 'dock_stack_thumbs.dart';
 
 /// The floating dock. Icons are laid out by [DockLayout] along the dock's main
 /// axis, so the same kernel serves a bottom dock and a side dock.
@@ -209,6 +210,9 @@ class _DockContainerState extends ConsumerState<DockContainer>
   void initState() {
     super.initState();
     _ticker = createTicker(_onTick);
+    // The thumbnail index is built before a folder is opened, so the fan shows
+    // previews on its first frame instead of a column of type icons.
+    DockStackThumbs.warm();
   }
 
   @override

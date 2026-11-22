@@ -38,8 +38,73 @@ abstract final class DockStackThumbs {
     'mpeg',
   };
 
+  /// Extensions the shell can decode itself, so the file is its own preview.
+  static const Set<String> _imageExtensions = {
+    'png',
+    'jpg',
+    'jpeg',
+    'gif',
+    'webp',
+    'bmp',
+  };
+
   static _ThumbIndex? _index;
   static DateTime? _indexedAt;
+  static Future<void>? _warming;
+
+  /// The image to draw for [file]: a cached thumbnail, else the file itself
+  /// when it is an image, else null.
+  ///
+  /// Reads the index only, and starts building it in the background on a miss:
+  /// the first scan opens every PNG in the cache, which is not work to do
+  /// while the fan is opening.
+  static String? preview(String file) {
+    final cached = _peek(file);
+    if (cached != null) return cached;
+    final extension = _extension(file);
+    if (_imageExtensions.contains(extension)) return file;
+    if (_videoExtensions.contains(extension)) warm();
+    return null;
+  }
+
+  /// Whether [warm] would have to scan, so a caller can skip a pointless
+  /// rebuild when the index is already there.
+  static bool get stale {
+    final cached = _index;
+    return cached == null ||
+        _indexedAt == null ||
+        DateTime.now().difference(_indexedAt!).inSeconds.abs() >= 30;
+  }
+
+  /// Builds the thumbnail index now, and resolves once it is there.
+  ///
+  /// The dock calls this when it mounts, so the index is usually ready long
+  /// before a folder is opened; an open fan calls it again to redraw once the
+  /// thumbnails it could not find the first time are known.
+  static Future<void> warm() {
+    if (!stale) return Future.value();
+    return _warming ??= Future(() {
+      _loadIndex();
+      _warming = null;
+    });
+  }
+
+  /// The cached thumbnail for [file], answered from the index alone.
+  static String? _peek(String file) {
+    final index = _index;
+    if (index == null) {
+      warm();
+      return null;
+    }
+    final stat = _stat(file);
+    if (stat == null) return null;
+    final path = index.entries[Uri.file(file).toString()];
+    if (path == null) return null;
+    final version = _stamp(path);
+    // A thumbnail older than the file shows the wrong version of it.
+    if (version != null && version.isBefore(stat.modified)) return null;
+    return path;
+  }
 
   /// The thumbnail for [file], or null when there is none and none can be
   /// made. Never blocks for long: a missing thumbnail is generated in the
