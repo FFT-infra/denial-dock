@@ -1,8 +1,13 @@
 import 'dart:io';
 
+import 'dock_settings.dart' show DockStackSortMode;
+
 /// How a folder stack orders its entries. `added` is the Finder default for a
 /// Stack: the file that arrived last sits closest to the icon.
-enum DockStackSort { added, modified, name, kind }
+///
+/// The setting type and this one name the same four orders; the settings layer
+/// owns the stored spelling, this one the sort itself.
+typedef DockStackSort = DockStackSortMode;
 
 /// One file inside a stack folder.
 class DockStackEntry {
@@ -153,4 +158,90 @@ abstract final class DockStackFiles {
     }
     return count;
   }
+
+  /// How far the downloads in a folder have got, or null when none is running.
+  ///
+  /// Browsers record no total anywhere the dock can read: Chrome's partial file
+  /// simply grows, and its history row appears only once the transfer is done.
+  /// So a folder whose partials are sparse — the file reserves its final size
+  /// up front, which torrent clients, aria2 and `curl -C` do — reports a real
+  /// fraction, and a folder of browser downloads reports no fraction at all
+  /// rather than inventing one.
+  static DockDownloadProgress? progress(
+    List<DockStackEntry> entries, {
+    DateTime? now,
+  }) {
+    final clock = now ?? DateTime.now();
+    final live = <String>[];
+    for (final entry in entries) {
+      if (!isPartialDownload(entry.name)) continue;
+      if (clock.difference(entry.modifiedAt).inSeconds.abs() > 10) continue;
+      live.add(entry.path);
+    }
+    if (live.isEmpty) return null;
+    final sparse = allocatedFraction(live);
+    return DockDownloadProgress(files: live.length, fraction: sparse);
+  }
+
+  /// The written share of each file's reserved size, summed, or null when no
+  /// file is sparse and the total therefore unknown.
+  ///
+  /// `st_blocks` is not exposed by Dart's `FileStat`, so this asks `stat(1)`,
+  /// which is coreutils on every Linux system the shell runs on. Called once
+  /// per poll while a download is live, never per file.
+  static double? allocatedFraction(List<String> paths) {
+    if (paths.isEmpty) return null;
+    final List<String> lines;
+    try {
+      final result = Process.runSync('stat', [
+        '--printf',
+        '%s %b %B\n',
+        ...paths,
+      ], runInShell: false);
+      if (result.exitCode != 0) return null;
+      lines = '${result.stdout}'.split('\n');
+    } on ProcessException {
+      return null;
+    }
+    var written = 0.0;
+    var reserved = 0.0;
+    var anySparse = false;
+    for (final line in lines) {
+      final fields = line.trim().split(' ');
+      if (fields.length != 3) continue;
+      final size = double.tryParse(fields[0]);
+      final blocks = double.tryParse(fields[1]);
+      final unit = double.tryParse(fields[2]);
+      if (size == null || blocks == null || unit == null) continue;
+      if (size <= 0) continue;
+      final allocated = blocks * unit;
+      // A dense file has allocated == size, which says nothing about progress;
+      // only a file that reserved more than it has written carries a fraction.
+      if (allocated < size * 0.999) {
+        anySparse = true;
+        written += allocated;
+        reserved += size;
+      }
+    }
+    if (!anySparse || reserved <= 0) return null;
+    return (written / reserved).clamp(0.0, 1.0);
+  }
+}
+
+/// Downloads in progress inside one stack folder.
+class DockDownloadProgress {
+  const DockDownloadProgress({required this.files, this.fraction});
+
+  /// How many transfers are running.
+  final int files;
+
+  /// Completed share of the reserved bytes, or null when no total exists.
+  final double? fraction;
+
+  /// True when the folder reserves its final size, so [fraction] is real.
+  bool get determinate => fraction != null;
+
+  /// The bar's fill, 0 to 1. An indeterminate transfer draws a short sweep
+  /// rather than a full bar, so this is only read when [determinate].
+  double get value => (fraction ?? 0).clamp(0.0, 1.0);
 }

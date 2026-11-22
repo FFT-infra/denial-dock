@@ -87,6 +87,40 @@ void main() {
     DockStackFiles.liveDownloads(entries, now: now) == 1,
     'a leftover partial is not a live download',
   );
+
+  // The bar only appears while a transfer is live, and counts them.
+  _expect(
+    DockStackFiles.progress(entries, now: now)?.files == 1,
+    'one live transfer is reported',
+  );
+  _expect(
+    DockStackFiles.progress([_entry('done.mp4', now)], now: now) == null,
+    'a folder with no partial has no bar',
+  );
+
+  // A dense file records no total, so the bar sweeps rather than lying about a
+  // fraction. A sparse one reserves its final size, so it has a real one.
+  final scratch = Directory.systemTemp.createTempSync('dock-stack-progress');
+  try {
+    final dense = File('${scratch.path}/dense.part')
+      ..writeAsBytesSync(List<int>.filled(4096, 7));
+    _expect(
+      DockStackFiles.allocatedFraction([dense.path]) == null,
+      'a dense file has no known total',
+    );
+    // A truncated file reserves its length without writing the blocks.
+    final sparse = File('${scratch.path}/sparse.part');
+    final handle = sparse.openSync(mode: FileMode.write);
+    handle.truncateSync(1024 * 1024);
+    handle.closeSync();
+    final fraction = DockStackFiles.allocatedFraction([sparse.path]);
+    _expect(
+      fraction != null && fraction >= 0 && fraction <= 1,
+      'a sparse file reports a fraction: $fraction',
+    );
+  } finally {
+    scratch.deleteSync(recursive: true);
+  }
 }
 
 DockStackEntry _entry(String name, DateTime modified) => DockStackEntry(

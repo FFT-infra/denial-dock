@@ -231,14 +231,63 @@ class DockPin {
   Map<String, String> toJson() => {'id': id, 'appId': appId, 'name': name};
 }
 
+/// How a folder stack opens. `auto` follows Finder: a fan while the folder fits
+/// one column, a grid once it would run off the screen.
+enum DockStackMode { auto, fan, grid }
+
+extension DockStackModeKey on DockStackMode {
+  String get key => switch (this) {
+    DockStackMode.auto => 'auto',
+    DockStackMode.fan => 'fan',
+    DockStackMode.grid => 'grid',
+  };
+
+  static DockStackMode parse(Object? value) => switch (value) {
+    'fan' => DockStackMode.fan,
+    'grid' => DockStackMode.grid,
+    _ => DockStackMode.auto,
+  };
+}
+
+/// The order a folder stack lists its files in, matching Finder's Stack menu.
+enum DockStackSortMode { added, modified, name, kind }
+
+extension DockStackSortModeKey on DockStackSortMode {
+  String get key => switch (this) {
+    DockStackSortMode.added => 'added',
+    DockStackSortMode.modified => 'modified',
+    DockStackSortMode.name => 'name',
+    DockStackSortMode.kind => 'kind',
+  };
+
+  static DockStackSortMode parse(Object? value) => switch (value) {
+    'modified' => DockStackSortMode.modified,
+    'name' => DockStackSortMode.name,
+    'kind' => DockStackSortMode.kind,
+    _ => DockStackSortMode.added,
+  };
+}
+
 /// A folder shortcut pinned to the accessory end of the dock.
 class DockFolder {
-  const DockFolder({required this.path, required this.label});
+  const DockFolder({
+    required this.path,
+    required this.label,
+    this.view = DockStackMode.auto,
+    this.sort = DockStackSortMode.added,
+  });
 
   final String path;
   final String label;
+  final DockStackMode view;
+  final DockStackSortMode sort;
 
-  Map<String, String> toJson() => {'path': path, 'label': label};
+  Map<String, String> toJson() => {
+    'path': path,
+    'label': label,
+    'view': view.key,
+    'sort': sort.key,
+  };
 
   static DockFolder? fromJson(Object? value) {
     if (value is! Map) return null;
@@ -250,6 +299,8 @@ class DockFolder {
       label: label is String && label.trim().isNotEmpty
           ? label.trim()
           : folderLabel(path),
+      view: DockStackModeKey.parse(value['view']),
+      sort: DockStackSortModeKey.parse(value['sort']),
     );
   }
 }
@@ -532,7 +583,32 @@ class DockSettings {
         DockFolder(
           path: path,
           label: label.isEmpty ? folderLabel(path) : label,
+          view: folder.view,
+          sort: folder.sort,
         ),
+      ]),
+    );
+  }
+
+  /// Changes how one folder opens, leaving the others alone.
+  DockSettings withFolderStack(
+    String path, {
+    DockStackMode? view,
+    DockStackSortMode? sort,
+  }) {
+    final key = normalizeFolderPath(path);
+    return copyWith(
+      folders: List.unmodifiable([
+        for (final folder in folders)
+          if (normalizeFolderPath(folder.path) != key)
+            folder
+          else
+            DockFolder(
+              path: folder.path,
+              label: folder.label,
+              view: view ?? folder.view,
+              sort: sort ?? folder.sort,
+            ),
       ]),
     );
   }

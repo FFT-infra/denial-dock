@@ -1755,6 +1755,16 @@ class _DockContainerState extends ConsumerState<DockContainer>
             onOverlayChanged: _setOverlayHold,
             monitorBounds: _output,
             onOpenSettings: _openSettings,
+            onSetView: (view) => unawaited(
+              ref
+                  .read(dockSettingsProvider.notifier)
+                  .setFolderView(folder.path, view),
+            ),
+            onSetSort: (sort) => unawaited(
+              ref
+                  .read(dockSettingsProvider.notifier)
+                  .setFolderSort(folder.path, sort),
+            ),
           ),
         );
       case _SlotKind.trash:

@@ -73,11 +73,41 @@ void main() {
     'the turned corner is inside the row',
   );
 
-  // The reach covers the turned labels, so a fan can be shifted onto the
-  // screen by the shortfall.
+  // A left lean mirrors the arc: the rows drift the other way and tilt the
+  // other way, so a fan near the right edge stays on the screen.
+  final mirrored = DockStackFan.layout(
+    widths: const [200, 200, 200],
+    anchorX: 500,
+    bottom: 1000,
+    lean: DockFanLean.left,
+  );
   _expect(
-    DockStackFan.leftReach(rows) < rows.first.left,
-    'the turned labels reach further left',
+    mirrored[2].left < mirrored[0].left,
+    'a left lean drifts the other way',
+  );
+  _expect(mirrored[2].angle < 0, 'a left lean tilts the other way');
+  _expect(
+    (mirrored[1].left - (500 - DockStackFan.shift - DockStackFan.padX)).abs() <
+        0.01,
+    'the left lean keeps the row edge on the anchor',
+  );
+
+  // The bounds cover the turned rows, which reach past their unrotated boxes.
+  final box = DockStackFan.bounds(rows);
+  _expect(box.left < rows.first.left, 'the turned labels reach further left');
+  _expect(box.right >= rows.last.right, 'the bounds contain the widest row');
+
+  // The lean follows the room: away from the nearer edge, and back when the
+  // outward side has none.
+  _expect(
+    DockStackFan.leanFor(anchorX: 1500, left: 0, right: 1600, reach: 50) ==
+        DockFanLean.right,
+    'a right-of-centre anchor leans right',
+  );
+  _expect(
+    DockStackFan.leanFor(anchorX: 1500, left: 0, right: 1600, reach: 500) ==
+        DockFanLean.left,
+    'no room outward leans back',
   );
 
   // The row count follows the screen instead of a fixed cap.
@@ -92,6 +122,64 @@ void main() {
   _expect(
     DockStackFan.fitRows(bottom: 100, top: 100) == 1,
     'no room still leaves one row',
+  );
+
+  // A turned label lifts its far end, so a tall fan loses rows to the tilt
+  // before it runs out of steps. This is the bug that clipped the top row.
+  final wide = List<double>.filled(20, 260);
+  final withTilt = DockStackFan.fitRows(bottom: 1200, top: 0, widths: wide);
+  final withoutTilt = DockStackFan.fitRows(
+    bottom: 1200,
+    top: 0,
+    widths: wide,
+    tilt: 0,
+  );
+  _expect(
+    withTilt < withoutTilt,
+    'the tilt costs rows: $withTilt vs $withoutTilt',
+  );
+  // And the rows it keeps really do fit once turned.
+  for (var i = 0; i < withTilt; i++) {
+    final angle = DockStackFan.tiltDegrees * i * math.pi / 180;
+    final rise =
+        DockStackFan.rowStep * (i + 1) +
+        260 * math.sin(angle) * DockStackFan.hoverScale;
+    _expect(rise <= 1200 - DockStackFan.gap + 0.01, 'row $i fits: $rise');
+  }
+
+  // A side dock stacks its rows vertically, centred on the icon, upright.
+  final side = DockStackFan.layoutSide(
+    widths: const [180, 180, 180],
+    anchorY: 600,
+    edgeX: 40,
+    toRight: true,
+  );
+  _expect(side.every((row) => row.angle == 0), 'side rows stay upright');
+  for (var i = 1; i < side.length; i++) {
+    _expect(side[i].top > side[i - 1].top, 'side rows run downward');
+    _expect(side[i].left == side[0].left, 'side rows share a column');
+  }
+  _expect(
+    ((side[0].top + side.last.bottom) / 2 - 600).abs() < 0.01,
+    'the side column is centred on the icon',
+  );
+  _expect(
+    side[0].iconX < side[0].right,
+    'a right-opening side stack puts its icon on the near edge',
+  );
+  final mirroredSide = DockStackFan.layoutSide(
+    widths: const [180],
+    anchorY: 600,
+    edgeX: 1000,
+    toRight: false,
+  );
+  _expect(
+    mirroredSide.single.right <= 1000 + 0.01,
+    'a left-opening side stack ends on the edge',
+  );
+  _expect(
+    mirroredSide.single.iconX > mirroredSide.single.left,
+    'a left-opening side stack keeps its icon on the near edge',
   );
 }
 

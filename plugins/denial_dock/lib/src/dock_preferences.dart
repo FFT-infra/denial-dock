@@ -158,6 +158,12 @@ class DockSettingsController extends AsyncNotifier<DockSettings> {
   Future<void> removeFolder(String path) =>
       _update((current) => current.withoutFolder(path));
 
+  Future<void> setFolderView(String path, DockStackMode view) =>
+      _update((current) => current.withFolderStack(path, view: view));
+
+  Future<void> setFolderSort(String path, DockStackSortMode sort) =>
+      _update((current) => current.withFolderStack(path, sort: sort));
+
   /// Drops an app from the unpinned section and keeps the launcher's recents
   /// from putting it back. It returns on its next launch, and quitting it
   /// afterwards leaves it in place.

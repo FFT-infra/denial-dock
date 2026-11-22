@@ -35,9 +35,13 @@ class DockFanRow {
   double get centerY => top + height / 2;
 }
 
+/// Which side of the dock icon a fan leans toward. A fan leans away from the
+/// nearer screen edge so its labels stay on the screen.
+enum DockFanLean { right, left }
+
 /// The geometry of a fan, matching the macOS Stack: rows rise from the dock
-/// icon in a straight column, drift sideways on a power curve and tilt one
-/// step per row, so the icons trace an arc while the labels stay legible.
+/// icon in a column, drift sideways on a power curve and tilt one step per row,
+/// so the icons trace an arc while the labels stay legible.
 abstract final class DockStackFan {
   /// Row height.
   static const double rowHeight = 52;
@@ -75,12 +79,29 @@ abstract final class DockStackFan {
 
   /// Rows that fit on a screen this tall, between [bottom] and [top].
   ///
-  /// The reference implementations cap the fan at 8 to 16 rows; deriving it
-  /// from the screen keeps a short display from pushing the top row off it.
-  static int fitRows({required double bottom, required double top}) {
+  /// With [widths] the fit is exact: a row turned by [tilt] lifts the far end
+  /// of its label by `width x sin(angle)`, and a tall fan loses its top rows to
+  /// that overhang long before it runs out of steps.
+  static int fitRows({
+    required double bottom,
+    required double top,
+    List<double> widths = const [],
+    double tilt = tiltDegrees,
+    double scale = 1,
+  }) {
     final room = bottom - top - gap;
     if (room <= 0) return 1;
-    return math.max(1, (room / rowStep).floor());
+    final plain = math.max(1, (room / (rowStep * scale)).floor());
+    if (widths.isEmpty || tilt <= 0) return plain;
+    var fits = 0;
+    for (var i = 0; i < widths.length && i < plain; i++) {
+      final angle = tilt * i * math.pi / 180;
+      final rise =
+          rowStep * scale * (i + 1) + widths[i] * math.sin(angle) * hoverScale;
+      if (rise > room) break;
+      fits = i + 1;
+    }
+    return math.max(1, fits);
   }
 
   /// The rows for a settled fan, in slot order (0 nearest the dock).
@@ -92,7 +113,10 @@ abstract final class DockStackFan {
     required double anchorX,
     required double bottom,
     double scale = 1,
+    DockFanLean lean = DockFanLean.right,
+    double tilt = tiltDegrees,
   }) {
+    final sign = lean == DockFanLean.right ? 1.0 : -1.0;
     final rows = <DockFanRow>[];
     final step = rowStep * scale;
     final height = rowHeight * scale;
@@ -100,21 +124,22 @@ abstract final class DockStackFan {
     final pad = padX * scale;
     for (var i = 0; i < widths.length; i++) {
       final rowWidth = widths[i];
-      final shiftX = shift * math.pow(i, shiftPower) * scale;
+      final drift = shift * math.pow(i, shiftPower) * scale * sign;
       final centreY = bottom - step * (i + 1) + height / 2;
-      // Right-aligned on the anchor plus the drift, so the icon column traces
-      // the arc and the labels rag out to the left, which is the shape the
-      // reference draws.
-      final right = anchorX + shiftX + pad;
+      // The row's edge nearest the icon column sits on the anchor plus the
+      // drift, so the icon column traces the arc and the labels rag out to the
+      // far side, which is the shape the reference draws.
+      final edge = anchorX + drift + pad * sign;
+      final leading = sign < 0;
       rows.add(
         DockFanRow(
           index: i,
-          left: right - rowWidth,
+          left: leading ? edge : edge - rowWidth,
           top: centreY - height / 2,
           width: rowWidth,
           height: height,
-          angle: tiltDegrees * i * math.pi / 180,
-          iconX: right - icon / 2,
+          angle: tilt * i * sign * math.pi / 180,
+          iconX: leading ? edge + icon / 2 : edge - icon / 2,
           iconY: centreY,
         ),
       );
@@ -122,19 +147,93 @@ abstract final class DockStackFan {
     return rows;
   }
 
-  /// The leftmost x the settled fan reaches once its labels are turned, so a
-  /// fan near the screen edge can be shifted back onto it.
-  static double leftReach(List<DockFanRow> rows, {double scale = 1}) {
-    var left = double.infinity;
-    for (final row in rows) {
-      final reach = (row.width - iconSize * scale / 2) * hoverScale;
-      final turned =
-          row.centerX -
-          reach * math.cos(row.angle) -
-          row.height / 2 * math.sin(row.angle);
-      left = math.min(left, turned);
+  /// A column of rows beside a side dock.
+  ///
+  /// A fan that grew sideways would trail every label across the dock it came
+  /// from, so a side dock stacks its rows vertically and centres them on the
+  /// icon, which is also what macOS does there.
+  static List<DockFanRow> layoutSide({
+    required List<double> widths,
+    required double anchorY,
+    required double edgeX,
+    required bool toRight,
+    double scale = 1,
+  }) {
+    final step = rowStep * scale;
+    final height = rowHeight * scale;
+    final icon = iconSize * scale;
+    final pad = padX * scale;
+    final total = step * widths.length;
+    final first = anchorY - total / 2 + (step - height) / 2;
+    final rows = <DockFanRow>[];
+    for (var i = 0; i < widths.length; i++) {
+      final rowWidth = widths[i];
+      final top = first + step * i;
+      rows.add(
+        DockFanRow(
+          index: i,
+          left: toRight ? edgeX : edgeX - rowWidth,
+          top: top,
+          width: rowWidth,
+          height: height,
+          angle: 0,
+          // The icon sits on the edge nearest the dock, so the labels always
+          // read away from it.
+          iconX: toRight ? edgeX + pad + icon / 2 : edgeX - pad - icon / 2,
+          iconY: top + height / 2,
+        ),
+      );
     }
-    return left.isFinite ? left : 0;
+    return rows;
+  }
+
+  /// The box the settled rows occupy once turned, including the hover growth.
+  static ({double left, double top, double right, double bottom}) bounds(
+    List<DockFanRow> rows,
+  ) {
+    var left = double.infinity;
+    var top = double.infinity;
+    var right = double.negativeInfinity;
+    var bottom = double.negativeInfinity;
+    for (final row in rows) {
+      final cos = math.cos(row.angle);
+      final sin = math.sin(row.angle);
+      // A turned label's far end swings out past the unrotated box, and a
+      // hovered row grows, so the reach is measured on the grown half-size.
+      final hx = row.width / 2 * hoverScale;
+      final hy = row.height / 2 * hoverScale;
+      for (final sx in const [-1.0, 1.0]) {
+        for (final sy in const [-1.0, 1.0]) {
+          final x = row.centerX + sx * hx * cos - sy * hy * sin;
+          final y = row.centerY + sx * hx * sin + sy * hy * cos;
+          left = math.min(left, x);
+          right = math.max(right, x);
+          top = math.min(top, y);
+          bottom = math.max(bottom, y);
+        }
+      }
+    }
+    if (!left.isFinite) return (left: 0, top: 0, right: 0, bottom: 0);
+    return (left: left, top: top, right: right, bottom: bottom);
+  }
+
+  /// The lean that keeps [reach] px of drift on the screen, preferring to lean
+  /// away from the nearer edge and falling back to the other side when the
+  /// outward one has no room.
+  static DockFanLean leanFor({
+    required double anchorX,
+    required double left,
+    required double right,
+    required double reach,
+  }) {
+    final outward = anchorX > (left + right) / 2
+        ? DockFanLean.right
+        : DockFanLean.left;
+    final room = outward == DockFanLean.right
+        ? right - anchorX
+        : anchorX - left;
+    if (room >= reach) return outward;
+    return outward == DockFanLean.right ? DockFanLean.left : DockFanLean.right;
   }
 
   /// The row under [point], or null.
