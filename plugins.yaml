@@ -2,3 +2,6 @@ schema: 1
 plugins:
   - git: https://github.com/FFT-infra/denial-dock.git
     path: plugins/denial_dock
+
+  - git: https://github.com/FFT-infra/denial-dock.git
+    path: plugins/denial_topbar
