@@ -252,11 +252,13 @@ class _DockItemWidgetState extends State<DockItemWidget>
       _clearEmphasis();
     }
     if (_previewsOpen && widget.previewOwner != widget.appId) {
-      // Another icon took the overlay; this one just folds away.
+      // Another icon took the overlay; this one just folds away. It does not
+      // report the overlay closed: the icon that took it already reported it
+      // open, and a false here would drop the dock's hold while the new panel
+      // is still on screen.
       _previewsOpen = false;
       _clearEmphasis();
       _portal.hide();
-      widget.onOverlayChanged(false);
     }
   }
 
@@ -334,14 +336,10 @@ class _DockItemWidgetState extends State<DockItemWidget>
   void _enter() {
     _hidePreviewTimer?.cancel();
     if (widget.dragging || _menuOpen || !_wantsPreviews) return;
-    if (widget.previewStyle == DockPreviewStyle.stack &&
-        widget.previewOwner != null &&
-        widget.previewOwner != widget.appId) {
-      // A stack is already up on a neighbouring icon: it follows the pointer
-      // instead of waiting out another dwell.
-      _showPreviews();
-      return;
-    }
+    // Every icon waits out its own dwell, including the one next to an open
+    // panel. Sliding along the dock is how a pointer passes an icon it did not
+    // mean to open, so a neighbour that opens at once would flash a panel the
+    // user never asked for.
     _showPreviewTimer ??= Timer(Duration(milliseconds: _previewDelayMs), () {
       _showPreviewTimer = null;
       if (mounted && _wantsPreviews) _showPreviews();
