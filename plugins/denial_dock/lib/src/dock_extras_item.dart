@@ -9,6 +9,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
 import 'dock_extras.dart';
+import 'dock_icon.dart';
 import 'dock_menu.dart';
 import 'dock_settings.dart';
 import 'dock_stack_files.dart'
@@ -38,6 +39,7 @@ class DockAccessoryItem extends StatefulWidget {
     required this.monitorBounds,
     this.badge = 0,
     this.glyph,
+    this.fill,
     this.download,
     super.key,
   });
@@ -48,6 +50,10 @@ class DockAccessoryItem extends StatefulWidget {
   /// Drawn instead of [icon] when given, so a folder can show the newest file
   /// in it the way a macOS Stack does.
   final Widget? glyph;
+
+  /// Painted behind [glyph] and clipped to the tile: a folder's newest file
+  /// fills the tile instead of sitting in a circle inside it.
+  final Widget? fill;
 
   /// A transfer running into this folder, drawn as a bar along the tile's
   /// bottom edge.
@@ -110,10 +116,6 @@ class _DockAccessoryItemState extends State<DockAccessoryItem> {
   @override
   Widget build(BuildContext context) {
     final theme = context.shellTheme;
-    final backing = Color.alphaBlend(
-      theme.accent.withValues(alpha: 0.18),
-      theme.cardColor(theme.colors.surfaceContainerHigh),
-    );
     return OverlayPortal.overlayChildLayoutBuilder(
       controller: _portal,
       overlayChildBuilder: (context, layout) =>
@@ -170,75 +172,62 @@ class _DockAccessoryItemState extends State<DockAccessoryItem> {
                 widget.onTap();
               },
               onSecondaryTapDown: (_) => _menuOpen ? _closeMenu() : _openMenu(),
-              child: DecoratedBox(
-                decoration: BoxDecoration(
-                  shape: BoxShape.circle,
-                  color: backing,
-                ),
-                child: Stack(
-                  clipBehavior: Clip.none,
-                  children: [
-                    Center(
-                      child:
-                          widget.glyph ??
-                          Icon(
-                            widget.icon,
-                            size: widget.size * 0.46,
-                            color: theme.accent,
-                          ),
+              child: Stack(
+                clipBehavior: Clip.none,
+                children: [
+                  Positioned.fill(
+                    child: DockTile(
+                      size: widget.size,
+                      accent: theme.accent,
+                      fill: widget.fill,
+                      pressed: _pressed,
+                      // A full-bleed picture is the item's face; drawing the
+                      // type icon over it would be two icons in one tile.
+                      child: widget.fill != null
+                          ? const SizedBox.shrink()
+                          : widget.glyph ??
+                                Icon(
+                                  widget.icon,
+                                  size: widget.size * 0.46,
+                                  color: theme.accent,
+                                ),
                     ),
-                    Positioned.fill(
-                      child: IgnorePointer(
-                        child: AnimatedOpacity(
-                          duration: const Duration(milliseconds: 90),
-                          curve: Curves.easeOut,
-                          opacity: _pressed ? 1 : 0,
-                          child: DecoratedBox(
-                            decoration: BoxDecoration(
-                              shape: BoxShape.circle,
-                              color: const Color(0xFF000000)
-                                  .withValues(alpha: 0.16),
-                            ),
+                  ),
+                  if (widget.download case final download?)
+                    Positioned(
+                      left: widget.size * 0.18,
+                      right: widget.size * 0.18,
+                      bottom: widget.size * 0.14,
+                      child: _DownloadBar(
+                        download: download,
+                        color: theme.colors.background,
+                        track: theme.colors.background.withValues(alpha: 0.3),
+                      ),
+                    ),
+                  if (widget.badge > 0)
+                    Positioned(
+                      top: widget.size * 0.04,
+                      right: widget.size * 0.04,
+                      child: Container(
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 4,
+                          vertical: 1,
+                        ),
+                        decoration: BoxDecoration(
+                          borderRadius: BorderRadius.circular(7),
+                          color: theme.accent,
+                        ),
+                        child: Text(
+                          widget.badge > 99 ? '99+' : '${widget.badge}',
+                          style: theme.text.systemBarCaption.copyWith(
+                            color: theme.colors.background,
+                            fontSize: 9,
+                            fontWeight: FontWeight.w700,
                           ),
                         ),
                       ),
                     ),
-                    if (widget.download case final download?)
-                      Positioned(
-                        left: widget.size * 0.18,
-                        right: widget.size * 0.18,
-                        bottom: widget.size * 0.14,
-                        child: _DownloadBar(
-                          download: download,
-                          color: theme.colors.background,
-                          track: theme.colors.background.withValues(alpha: 0.3),
-                        ),
-                      ),
-                    if (widget.badge > 0)
-                      Positioned(
-                        top: widget.size * 0.04,
-                        right: widget.size * 0.04,
-                        child: Container(
-                          padding: const EdgeInsets.symmetric(
-                            horizontal: 4,
-                            vertical: 1,
-                          ),
-                          decoration: BoxDecoration(
-                            borderRadius: BorderRadius.circular(7),
-                            color: theme.accent,
-                          ),
-                          child: Text(
-                            widget.badge > 99 ? '99+' : '${widget.badge}',
-                            style: theme.text.systemBarCaption.copyWith(
-                              color: theme.colors.background,
-                              fontSize: 9,
-                              fontWeight: FontWeight.w700,
-                            ),
-                          ),
-                        ),
-                      ),
-                  ],
-                ),
+                ],
               ),
             ),
           ),
@@ -833,23 +822,14 @@ class _DockFolderItemState extends State<DockFolderItem> {
       child: DockAccessoryItem(
         label: widget.folder.label,
         icon: Icons.folder_rounded,
-        glyph: _preview == null
+        fill: _preview == null
             ? null
-            : ClipRRect(
-                borderRadius: BorderRadius.circular(widget.size * 0.16),
-                child: Image.file(
-                  File(_preview!),
-                  width: widget.size * 0.62,
-                  height: widget.size * 0.62,
-                  fit: BoxFit.cover,
-                  cacheWidth: (widget.size * 2).round(),
-                  gaplessPlayback: true,
-                  errorBuilder: (_, _, _) => Icon(
-                    Icons.folder_rounded,
-                    size: widget.size * 0.46,
-                    color: context.shellTheme.accent,
-                  ),
-                ),
+            : Image.file(
+                File(_preview!),
+                fit: BoxFit.cover,
+                cacheWidth: (widget.size * 3).round(),
+                gaplessPlayback: true,
+                errorBuilder: (_, _, _) => const SizedBox.shrink(),
               ),
         size: widget.size,
         lift: widget.lift,

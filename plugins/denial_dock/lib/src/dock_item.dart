@@ -719,9 +719,10 @@ class _DockItemWidgetState extends State<DockItemWidget>
     required DockIndicatorStyle style,
   }) {
     if (style == DockIndicatorStyle.line) {
+      final thickness = math.max(2.0, widget.size * 0.055);
       final bar = DecoratedBox(
         decoration: BoxDecoration(
-          borderRadius: BorderRadius.circular(1.5),
+          borderRadius: BorderRadius.circular(thickness / 2),
           color: color,
         ),
       );
@@ -729,42 +730,44 @@ class _DockItemWidgetState extends State<DockItemWidget>
         DockPosition.bottom => Positioned(
           left: widget.size * 0.22,
           right: widget.size * 0.22,
-          bottom: -5,
-          height: 3,
+          bottom: -thickness,
+          height: thickness,
           child: bar,
         ),
         DockPosition.left => Positioned(
           top: widget.size * 0.22,
           bottom: widget.size * 0.22,
-          left: -5,
-          width: 3,
+          left: -thickness,
+          width: thickness,
           child: bar,
         ),
         DockPosition.right => Positioned(
           top: widget.size * 0.22,
           bottom: widget.size * 0.22,
-          right: -5,
-          width: 3,
+          right: -thickness,
+          width: thickness,
           child: bar,
         ),
       };
     }
     final dotCount = math.min(3, math.max(1, count));
-    final dotSize = dotCount >= 3 ? 4.0 : 5.0;
-    const spacing = 2.0;
+    // The marker scales with the icon: a 4 px dot under a magnified 76 px
+    // icon reads as a speck, and macOS keeps the dot in proportion.
+    final dotSize = widget.size * (dotCount >= 3 ? 0.085 : 0.10);
+    final spacing = dotSize * 0.45;
     return switch (widget.position) {
       DockPosition.bottom => Positioned(
         left: 0,
         right: 0,
-        bottom: -5,
+        bottom: -dotSize,
         child: Center(
           child: SizedBox(
-            height: 4,
+            height: dotSize,
             child: Row(
               mainAxisSize: MainAxisSize.min,
               children: [
                 for (var i = 0; i < dotCount; i++) ...[
-                  if (i > 0) const SizedBox(width: spacing),
+                  if (i > 0) SizedBox(width: spacing),
                   _Dot(size: dotSize, color: color),
                 ],
               ],
@@ -775,16 +778,16 @@ class _DockItemWidgetState extends State<DockItemWidget>
       DockPosition.left || DockPosition.right => Positioned(
         top: 0,
         bottom: 0,
-        left: widget.position == DockPosition.left ? -5 : null,
-        right: widget.position == DockPosition.right ? -5 : null,
+        left: widget.position == DockPosition.left ? -dotSize : null,
+        right: widget.position == DockPosition.right ? -dotSize : null,
         child: Center(
           child: SizedBox(
-            width: 4,
+            width: dotSize,
             child: Column(
               mainAxisSize: MainAxisSize.min,
               children: [
                 for (var i = 0; i < dotCount; i++) ...[
-                  if (i > 0) const SizedBox(height: spacing),
+                  if (i > 0) SizedBox(height: spacing),
                   _Dot(size: dotSize, color: color),
                 ],
               ],

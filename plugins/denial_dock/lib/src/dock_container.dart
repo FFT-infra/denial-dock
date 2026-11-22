@@ -1083,7 +1083,12 @@ class _DockContainerState extends ConsumerState<DockContainer>
             : _DockLabelBubble(
                 text: label.name,
                 iconSize: _iconSize * (labelSlot?.scale ?? 1.0),
-                background: theme.panelColor(colors.surfaceContainer),
+                // A caption over a bright wallpaper needs a solid ground; the
+                // panel's own translucency leaves the text fighting whatever
+                // is behind it.
+                background: theme
+                    .panelColor(colors.surfaceContainer)
+                    .withValues(alpha: 0.94),
                 border: colors.hairline,
                 foreground: colors.textPrimary,
                 horizontal: _vertical,
@@ -2015,10 +2020,6 @@ class _LauncherItemState extends State<_LauncherItem> {
   @override
   Widget build(BuildContext context) {
     final theme = context.shellTheme;
-    final backing = Color.alphaBlend(
-      theme.accent.withValues(alpha: 0.18),
-      theme.cardColor(theme.colors.surfaceContainerHigh),
-    );
     return Transform.translate(
       offset: switch (widget.position) {
         DockPosition.bottom => Offset(0, -widget.lift),
@@ -2036,35 +2037,15 @@ class _LauncherItemState extends State<_LauncherItem> {
             behavior: HitTestBehavior.opaque,
             onTap: widget.onTap,
             onSecondaryTapDown: (_) => widget.onOpenMenu(),
-            child: DecoratedBox(
-              decoration: BoxDecoration(shape: BoxShape.circle, color: backing),
-              child: Stack(
-                children: [
-                  Center(
-                    child: SizedBox.square(
-                      dimension: widget.size * 0.42,
-                      child: CustomPaint(
-                        painter: _LauncherGlyphPainter(theme.accent),
-                      ),
-                    ),
-                  ),
-                  Positioned.fill(
-                    child: IgnorePointer(
-                      child: AnimatedOpacity(
-                        duration: const Duration(milliseconds: 90),
-                        curve: Curves.easeOut,
-                        opacity: _pressed ? 1 : 0,
-                        child: DecoratedBox(
-                          decoration: BoxDecoration(
-                            shape: BoxShape.circle,
-                            color: const Color(0xFF000000)
-                                .withValues(alpha: 0.16),
-                          ),
-                        ),
-                      ),
-                    ),
-                  ),
-                ],
+            child: DockTile(
+              size: widget.size,
+              accent: theme.accent,
+              pressed: _pressed,
+              child: SizedBox.square(
+                dimension: widget.size * 0.42,
+                child: CustomPaint(
+                  painter: _LauncherGlyphPainter(theme.accent),
+                ),
               ),
             ),
           ),
@@ -2102,11 +2083,11 @@ class _DockLabelBubble extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final theme = context.shellTheme;
-    final fontSize = (iconSize * 0.30).clamp(12.0, 17.0);
-    final padV = (iconSize * 0.17).clamp(6.0, 10.0);
-    final padH = (iconSize * 0.34).clamp(13.0, 20.0);
+    final fontSize = (iconSize * 0.26).clamp(11.0, 13.0);
+    final padV = (iconSize * 0.10).clamp(4.0, 6.0);
+    final padH = (iconSize * 0.24).clamp(10.0, 14.0);
     final height = fontSize * 1.25 + padV * 2;
-    final tailSize = (iconSize * 0.16).clamp(7.0, 11.0);
+    final tailSize = (iconSize * 0.13).clamp(6.0, 9.0);
     return CustomPaint(
       painter: _BubblePainter(
         color: background,
