@@ -1197,9 +1197,16 @@ class _DockItemWidgetState extends State<DockItemWidget>
   }
 
   /// The rows the panel shows. While it is open this is the list captured at
-  /// open time, so a window coming forward cannot reshuffle the rows.
-  List<ApplicationWindow> get _shownWindows =>
-      _previewsOpen ? _previewWindows : widget.windows;
+  /// open time, so a window coming forward cannot reshuffle the rows; a window
+  /// that closed in the meantime drops out without moving the others.
+  List<ApplicationWindow> get _shownWindows {
+    if (!_previewsOpen) return widget.windows;
+    final live = {for (final window in widget.windows) window.id};
+    return [
+      for (final window in _previewWindows)
+        if (live.contains(window.id)) window,
+    ];
+  }
 
   Widget _buildPreviews(BuildContext context, OverlayChildLayoutInfo layout) {
     final windows = _shownWindows;

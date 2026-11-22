@@ -1,161 +1,94 @@
 import 'package:denial_dock/src/dock_recents.dart';
 
 void main() {
-  // A launched app joins the end and never moves an existing slot.
+  // A launch joins at the end; an id already there keeps its slot.
+  _expect(_members(['a', 'b'], running: {'c'}) == 'a,b,c', 'new app appends');
   _expect(
-    DockRecents.extended(['a', 'b'], ['c']).join(',') == 'a,b,c',
-    'new id appends',
-  );
-  _expect(
-    DockRecents.extended(['a', 'b'], ['b', 'a']).join(',') == 'a,b',
+    _members(['a', 'b', 'c'], running: {'a', 'c'}) == 'a,b,c',
     'known ids keep their slot',
   );
   _expect(
-    DockRecents.extended(['a'], ['b', 'a', 'c']).join(',') == 'a,b,c',
-    'order of the incoming list decides the new slots',
+    _members(const [], running: {'b', 'a'}) == 'b,a',
+    'running apps seed an empty section in window order',
   );
-  _expect(DockRecents.extended(const [], const []).isEmpty, 'nothing in');
+  _expect(_members(const [], running: const {}).isEmpty, 'nothing in');
+
+  // Quitting never changes the row: the app holds its slot as a closed entry,
+  // so no older app is pulled back in.
   _expect(
-    DockRecents.extended(const [], ['a']).join(',') == 'a',
-    'first id starts the order',
+    _members(['a', 'b', 'c'], running: {'a', 'b'}) == 'a,b,c',
+    'a quit app keeps its slot',
   );
-  // Growth is capped by trimmed(), not here: the cap has to know which ids the
-  // row paints, and only the caller has that.
   _expect(
-    DockRecents.extended(List.generate(DockRecents.remembered, (i) => 'a$i'), [
-          'extra',
-        ]).length ==
-        DockRecents.remembered + 1,
-    'extended appends without a cap',
+    _members(['a', 'b', 'c'], running: {'a', 'b'}, recent: ['d']) == 'a,b,c',
+    'a full section ignores a recent while the app is open',
   );
 
-  // The section paints running apps wherever they sit, plus the first N
-  // closed ones. This is what keeps a neighbour still when one app quits.
-  const order = ['a', 'b', 'c', 'd'];
+  // A launch over the cap pushes the oldest closed slot out.
   _expect(
-    DockRecents.visible(
-          order: order,
-          running: {'a', 'b', 'c', 'd'},
-          count: 3,
-        ).join(',') ==
-        'a,b,c,d',
-    'running apps all show',
+    _members(['a', 'b', 'c'], running: {'d'}) == 'b,c,d',
+    'the oldest closed slot leaves',
   );
   _expect(
-    DockRecents.visible(order: order, running: {'a'}, count: 3).join(',') ==
-        'a,b,c,d',
-    'three closed apps fill the rest',
-  );
-  _expect(
-    DockRecents.visible(order: order, running: {'a'}, count: 1).join(',') ==
-        'a,b',
-    'one closed app',
-  );
-  _expect(
-    DockRecents.visible(order: order, running: {'a'}, count: 0).join(',') ==
-        'a',
-    'zero closed apps leaves only the running ones',
-  );
-  _expect(
-    DockRecents.visible(order: order, running: {'b'}, count: 1).join(',') ==
-        'a,b',
-    'the running app keeps its own slot, not the front',
+    _members(['a', 'b', 'c', 'd'], running: const {}, count: 2) == 'c,d',
+    'the cap keeps the newest closed slots',
   );
 
-  // A dismissed id is skipped while closed and returns once it runs.
+  // Running apps are never dropped to meet the cap: the dock is the only
+  // handle on their windows.
   _expect(
-    DockRecents.visible(
-          order: order,
-          running: const {},
-          count: 3,
-          dismissed: {'a'},
-        ).join(',') ==
-        'b,c,d',
-    'dismissed closed id is skipped',
+    _members(['a', 'b', 'c'], running: {'a', 'b', 'c'}, count: 1) == 'a,b,c',
+    'running apps are never dropped',
   );
   _expect(
-    DockRecents.visible(
-          order: order,
-          running: {'a'},
-          count: 3,
-          dismissed: {'a'},
-        ).join(',') ==
-        'a,b,c,d',
-    'a dismissed app that starts running comes back',
+    _members(['a', 'b', 'c'], running: {'b'}, count: 2) == 'b,c',
+    'the oldest closed slot leaves before a running one',
+  );
+  _expect(
+    _members(['a', 'b'], running: {'a'}, count: 0) == 'a',
+    'zero closed slots leaves the running apps',
   );
 
-  // A quit app does not shift the row: the slot it held is where it returns.
-  final before = DockRecents.visible(
-    order: order,
-    running: {'a', 'b', 'c'},
-    count: 3,
-  );
-  final after = DockRecents.visible(
-    order: order,
-    running: {'a', 'c'},
-    count: 3,
+  // The compositor's own recents only fill spare slots; they never evict a
+  // member, which is how the section fills after the count is raised.
+  _expect(
+    _members(['a', 'b'], recent: ['z']) == 'a,b,z',
+    'a spare slot takes a recent',
   );
   _expect(
-    before.join(',') == after.join(','),
-    'quitting one app leaves the row unchanged: $before vs $after',
+    _members(['a', 'b'], recent: ['z'], count: 2) == 'a,b',
+    'a full section ignores a recent',
   );
 
-  // An app that is not in the order at all is simply absent, not appended
-  // here; the caller extends the order first.
+  // A dragged-out app is gone, and the launcher's recents cannot put it back
+  // while it is closed. It returns on its next launch and then stays put.
   _expect(
-    DockRecents.visible(
-          order: const ['a'],
-          running: {'z'},
-          count: 3,
-        ).join(',') ==
-        'a',
-    'unknown running id is not painted',
-  );
-
-  // Trimming drops idle ids from the tail and never a painted one, so the cap
-  // stays invisible: the row looks the same before and after.
-  const long = ['a', 'b', 'c', 'd', 'e', 'f'];
-  final capped = DockRecents.trimmed(
-    order: long,
-    running: const {'a'},
-    count: 2,
-    limit: 4,
+    _members(['a', 'b'], recent: ['c'], removed: {'c'}) == 'a,b',
+    'a removed app is not refilled from the launcher',
   );
   _expect(
-    capped.join(',') == 'a,b,c,f',
-    'trim drops the unpainted tail and keeps the painted prefix: $capped',
+    _members(['a', 'b'], running: {'c'}, removed: {'c'}) == 'a,b,c',
+    'a removed app returns when it runs',
   );
   _expect(
-    DockRecents.trimmed(
-          order: long,
-          running: const {},
-          count: 2,
-          limit: 4,
-        ).join(',') ==
-        'a,b,e,f',
-    'trim keeps a painted id that sits past the limit',
-  );
-  _expect(
-    DockRecents.trimmed(
-          order: long,
-          running: const {},
-          count: 2,
-          limit: 9,
-        ).join(',') ==
-        long.join(','),
-    'trim does nothing under the limit',
-  );
-  _expect(
-    DockRecents.trimmed(
-          order: const ['a', 'b', 'c'],
-          running: const {'a', 'b', 'c'},
-          count: 0,
-          limit: 2,
-        ).join(',') ==
-        'a,b,c',
-    'a painted slot is never dropped to meet the cap',
+    _members(['a', 'b', 'c'], running: {'a', 'b'}, removed: {'c'}) == 'a,b,c',
+    'a relaunched app stays after it quits',
   );
 }
+
+String _members(
+  List<String> order, {
+  Set<String> running = const {},
+  Iterable<String> recent = const [],
+  int count = 3,
+  Set<String> removed = const {},
+}) => DockRecents.members(
+  order: order,
+  running: running,
+  recent: recent,
+  count: count,
+  removed: removed,
+).join(',');
 
 void _expect(bool condition, String message) {
   if (!condition) throw StateError(message);
