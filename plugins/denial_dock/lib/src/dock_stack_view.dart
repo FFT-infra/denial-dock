@@ -197,10 +197,11 @@ class _DockStackViewState extends State<DockStackView>
                       onLongPressCancel: _dragCancel,
                     ),
                   ),
-                  if (layout.isFan)
+                  if (layout.isFan) ...[
                     for (var i = 0; i < layout.rows.length; i++)
-                      _buildFanRow(context, layout, i)
-                  else
+                      _buildFanRow(context, layout, i),
+                    _buildOpenButton(context, layout),
+                  ] else
                     _buildGrid(context, layout),
                   if (_searchable) _buildSearch(context, layout),
                   if (_dragging && widget.trashRect != null)
@@ -434,8 +435,15 @@ class _DockStackViewState extends State<DockStackView>
   /// rather than under it.
   ({double top, double bottom}) get _room {
     const searchHeight = 38.0;
+    // A bottom dock's fan carries the open button above its last row, so the
+    // rows have to stop short of the screen edge by that much.
+    const openRoom = DockStackFan.openSize + DockStackFan.gap;
+    final reserve = switch (widget.mode) {
+      DockStackMode.grid => 0.0,
+      _ => widget.position == DockPosition.bottom ? openRoom : 0.0,
+    };
     return (
-      top: widget.bounds.top + 8 + (_searchable ? searchHeight : 0),
+      top: widget.bounds.top + 8 + (_searchable ? searchHeight : 0) + reserve,
       bottom: widget.position == DockPosition.bottom
           ? widget.anchor.top - DockStackFan.gap
           : widget.bounds.bottom - 8,
@@ -469,7 +477,9 @@ class _DockStackViewState extends State<DockStackView>
     // Too tall for a real fan: a grid carries more files in less room.
     if (!truncate && slots < 2 && entries.length > 1) return null;
     final overflows = slots < entries.length;
-    final shown = overflows ? math.max(0, slots - 1) : slots;
+    final shown = overflows
+        ? math.max(0, slots - 1)
+        : math.min(slots, entries.length);
     final rows = <_StackRow>[
       for (var i = 0; i < shown; i++) _StackRow.entry(entries[i]),
       if (overflows) _StackRow.more(_moreLabel(entries.length - shown)),
@@ -478,13 +488,15 @@ class _DockStackViewState extends State<DockStackView>
     final rowWidths = <double>[
       for (final row in rows) _rowWidth(row.label, style),
     ];
-    final reach =
-        DockStackFan.shift * math.pow(rows.length - 1, DockStackFan.shiftPower);
+    final reach = math.min(
+      DockStackFan.shiftMax,
+      DockStackFan.shift * math.pow(rows.length - 1, DockStackFan.shiftPower),
+    );
     final lean = DockStackFan.leanFor(
       anchorX: widget.anchor.center.dx,
       left: widget.bounds.left + 8,
       right: widget.bounds.right - 8,
-      reach: reach.toDouble(),
+      reach: reach,
     );
     final geometry = _clampFan(
       DockStackFan.layout(
@@ -494,7 +506,11 @@ class _DockStackViewState extends State<DockStackView>
         lean: lean,
       ),
     );
-    return _StackLayout.fan(rows, geometry);
+    return _StackLayout.fan(
+      rows,
+      geometry,
+      iconLeading: lean == DockFanLean.left,
+    );
   }
 
   /// A side dock's stack: rows in a column beside the icon, centred on it, so
@@ -531,7 +547,7 @@ class _DockStackViewState extends State<DockStackView>
       edgeX: anchorEdge,
       toRight: toRight,
     );
-    return _StackLayout.fan(rows, geometry);
+    return _StackLayout.fan(rows, geometry, iconLeading: !toRight);
   }
 
   _StackLayout _gridLayout(ShellThemeData theme, List<DockStackEntry> entries) {
@@ -602,10 +618,7 @@ class _DockStackViewState extends State<DockStackView>
   }
 
   double _rowWidth(String label, TextStyle style) =>
-      DockStackFan.padX * 2 +
-      DockStackFan.iconSize +
-      DockStackFan.padX +
-      _measure(label, style);
+      DockStackFan.rowWidth(_measure(label, style));
 
   double _measure(String text, TextStyle style) {
     final painter = TextPainter(
@@ -709,25 +722,64 @@ class _DockStackViewState extends State<DockStackView>
       top: 0,
       child: Transform.translate(
         offset: at - Offset(box.width / 2, box.height / 2),
-        child: Transform.rotate(
-          angle: box.angle,
-          child: Transform.scale(
-            scale: (0.35 + 0.65 * eased) * (lit ? DockStackFan.hoverScale : 1),
-            child: Opacity(
-              // The row being dragged leaves a hole behind; the ghost carries
-              // the picture under the pointer.
-              opacity: lifting ? 0.35 : eased,
-              child: IgnorePointer(
-                child: SizedBox(
-                  width: box.width,
-                  height: box.height,
-                  child: _StackRowTile(
-                    row: row,
-                    theme: theme,
-                    lit: lit,
-                    dropTarget: dropTarget,
-                  ),
+        child: Transform.scale(
+          scale: (0.35 + 0.65 * eased) * (lit ? DockStackFan.hoverScale : 1),
+          child: Opacity(
+            // The row being dragged leaves a hole behind; the ghost carries
+            // the picture under the pointer.
+            opacity: lifting ? 0.35 : eased,
+            child: IgnorePointer(
+              child: SizedBox(
+                width: box.width,
+                height: box.height,
+                child: _StackRowTile(
+                  row: row,
+                  theme: theme,
+                  lit: lit,
+                  dropTarget: dropTarget,
+                  iconLeading: layout.iconLeading,
                 ),
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
+  /// The round "open in Files" button macOS puts above a stack. It is the one
+  /// way out of the stack that does not need a row, so a folder of files the
+  /// dock cannot show is still reachable.
+  Widget _buildOpenButton(BuildContext context, _StackLayout layout) {
+    if (layout.fan.isEmpty) return const SizedBox.shrink();
+    final theme = context.shellTheme;
+    final top = layout.fan.last;
+    const size = DockStackFan.openSize;
+    final eased = _progressOf(layout.rows.length, layout.rows.length + 1);
+    // The button sits on the icon column, above the top row, so the eye reads
+    // one line from the dock to the button.
+    return Positioned(
+      left: top.iconX - size / 2,
+      top: top.top - DockStackFan.gap - size,
+      width: size,
+      height: size,
+      child: Opacity(
+        opacity: eased,
+        child: Transform.scale(
+          scale: 0.7 + 0.3 * eased,
+          child: GestureDetector(
+            behavior: HitTestBehavior.opaque,
+            onTap: _closing ? null : widget.onOpenFolder,
+            child: DecoratedBox(
+              decoration: BoxDecoration(
+                shape: BoxShape.circle,
+                color: theme.panelColor(theme.colors.surfaceContainerHigh),
+                border: Border.all(color: theme.colors.hairline),
+              ),
+              child: Icon(
+                Icons.arrow_outward_rounded,
+                size: size * 0.44,
+                color: theme.colors.textPrimary,
               ),
             ),
           ),
@@ -908,7 +960,7 @@ class _DockStackViewState extends State<DockStackView>
 }
 
 class _StackLayout {
-  const _StackLayout.fan(this.rows, this.fan)
+  const _StackLayout.fan(this.rows, this.fan, {this.iconLeading = false})
     : grid = const [],
       columns = 1,
       width = 0,
@@ -928,7 +980,8 @@ class _StackLayout {
     required this.scrolls,
     required this.origin,
   }) : fan = const [],
-       isFan = false;
+       isFan = false,
+       iconLeading = false;
 
   final List<_StackRow> rows;
   final List<DockFanRow> fan;
@@ -942,6 +995,10 @@ class _StackLayout {
 
   /// The grid panel's top-left corner in scene coordinates.
   final Offset origin;
+
+  /// True when a fan leans left, so each row draws its preview before its
+  /// label: the picture stays on the outside of the arc.
+  final bool iconLeading;
 
   int? hitTest(Offset point, double scroll) => isFan
       ? DockStackFan.hitTest(fan, point.dx, point.dy)
@@ -961,6 +1018,7 @@ class _StackRowTile extends StatelessWidget {
     required this.theme,
     required this.lit,
     this.dropTarget = false,
+    this.iconLeading = false,
   });
 
   final _StackRow row;
@@ -968,53 +1026,97 @@ class _StackRowTile extends StatelessWidget {
   final bool lit;
   final bool dropTarget;
 
+  /// A left-leaning fan keeps its previews on the left, so the card leads.
+  final bool iconLeading;
+
   @override
   Widget build(BuildContext context) {
-    const pad = DockStackFan.padX;
+    final card = _previewCard();
+    final pill = _labelPill();
+    return Row(
+      children: iconLeading
+          ? [card, const SizedBox(width: DockStackFan.thumbGap), pill]
+          : [pill, const SizedBox(width: DockStackFan.thumbGap), card],
+    );
+  }
+
+  /// The name on its own pill: a macOS stack separates the label from the
+  /// preview, so the two read as a list of names with pictures beside them.
+  Widget _labelPill() {
     final fill = dropTarget
         ? Color.alphaBlend(
-            theme.accent.withValues(alpha: 0.3),
+            theme.accent.withValues(alpha: 0.32),
             theme.panelColor(theme.colors.surfaceContainerHigh),
           )
         : lit
         ? Color.alphaBlend(
-            theme.accent.withValues(alpha: 0.18),
+            theme.accent.withValues(alpha: 0.16),
             theme.panelColor(theme.colors.surfaceContainerHigh),
           )
         : theme.panelColor(theme.colors.surfaceContainerHigh);
-    return DecoratedBox(
-      decoration: BoxDecoration(
-        color: fill,
-        borderRadius: theme.borderRadius(DockStackFan.radius),
-        border: Border.all(
-          color: dropTarget ? theme.accent : theme.colors.hairline,
-        ),
-      ),
-      child: Padding(
-        padding: const EdgeInsets.symmetric(horizontal: pad),
-        child: Row(
-          children: [
-            Expanded(
-              child: Text(
-                row.label,
-                maxLines: 1,
-                overflow: TextOverflow.ellipsis,
-                style: theme.text.systemBarCaption.copyWith(
-                  color: theme.colors.textPrimary,
+    // The pill hugs its text: a macOS name plate is a thin capsule beside the
+    // preview, not a panel as tall as the card. A Row would stretch it to the
+    // card's height, so the height is set and the pill centred.
+    return Flexible(
+      child: Align(
+        alignment: iconLeading ? Alignment.centerRight : Alignment.centerLeft,
+        child: SizedBox(
+          height: DockStackFan.pillHeight,
+          child: DecoratedBox(
+            decoration: BoxDecoration(
+              color: fill,
+              borderRadius: theme.borderRadius(DockStackFan.pillHeight / 2),
+              border: Border.all(
+                color: dropTarget ? theme.accent : theme.colors.hairline,
+              ),
+            ),
+            child: Padding(
+              padding: const EdgeInsets.symmetric(
+                horizontal: DockStackFan.padX,
+              ),
+              child: Align(
+                alignment: iconLeading
+                    ? Alignment.centerRight
+                    : Alignment.centerLeft,
+                child: Text(
+                  row.label,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: theme.text.systemBarCaption.copyWith(
+                    color: theme.colors.textPrimary,
+                  ),
                 ),
               ),
             ),
-            const SizedBox(width: pad),
-            SizedBox(
-              width: DockStackFan.iconSize,
-              height: DockStackFan.iconSize,
-              child: _StackIcon(
-                entry: row.entry,
-                thumbnail: row.thumbnail,
-                size: DockStackFan.iconSize,
-              ),
-            ),
-          ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  /// The preview card: the file's own picture where there is one, otherwise
+  /// its type icon on the same card so a row never changes height.
+  Widget _previewCard() {
+    return SizedBox(
+      width: DockStackFan.thumbSize,
+      height: DockStackFan.thumbSize,
+      child: DecoratedBox(
+        decoration: BoxDecoration(
+          color: theme.panelColor(theme.colors.surfaceContainerHigh),
+          borderRadius: theme.borderRadius(8),
+          border: Border.all(
+            color: lit
+                ? theme.accent.withValues(alpha: 0.55)
+                : theme.colors.hairline,
+          ),
+        ),
+        child: Padding(
+          padding: const EdgeInsets.all(3),
+          child: _StackIcon(
+            entry: row.entry,
+            thumbnail: row.thumbnail,
+            size: DockStackFan.thumbSize - 6,
+          ),
         ),
       ),
     );

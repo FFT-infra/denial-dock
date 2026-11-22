@@ -262,7 +262,13 @@ class _DockItemWidgetState extends State<DockItemWidget>
     if (_emphasisWindow != null && !ids.contains(_emphasisWindow)) {
       _clearEmphasis();
     }
-    if (_previewsOpen && widget.previewOwner != widget.appId) {
+    // Only the stack style hands its overlay to a neighbouring icon; the cards
+    // style keeps the owner null, so comparing against it unconditionally
+    // closed every cards preview on the rebuild its own open had just asked
+    // for.
+    if (widget.previewStyle == DockPreviewStyle.stack &&
+        _previewsOpen &&
+        widget.previewOwner != widget.appId) {
       // Give the counted hold back, or the dock stays held for good.
       _previewsOpen = false;
       _previewWindows = const [];

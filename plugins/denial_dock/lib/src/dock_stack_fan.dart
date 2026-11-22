@@ -43,21 +43,30 @@ enum DockFanLean { right, left }
 /// icon in a column, drift sideways on a power curve and tilt one step per row,
 /// so the icons trace an arc while the labels stay legible.
 abstract final class DockStackFan {
-  /// Row height.
-  static const double rowHeight = 52;
+  /// Row height: the preview card, which is what a row has to hold.
+  static const double rowHeight = 56;
 
-  /// Vertical distance between rows: the row plus a 4 px gap.
-  static const double rowStep = 56;
+  /// Vertical distance between rows: the row plus a 12 px gap, the spacing a
+  /// macOS stack keeps between its items.
+  static const double rowStep = 68;
 
   /// Sideways drift coefficient; `x = shift * i^power`.
-  static const double shift = 2.5;
+  ///
+  /// Calibrated on a real macOS stack of 56 px icons: about 27 px of drift
+  /// across five rows.
+  static const double shift = 1.68;
 
-  /// The drift's exponent. Above 1, so the lower rows crowd the icon and the
-  /// upper ones spread out.
-  static const double shiftPower = 1.8;
+  /// The drift's exponent. Two, so the column leaves the dock icon almost
+  /// straight and bends harder with every row it climbs.
+  static const double shiftPower = 2.0;
 
-  /// Tilt per row, in degrees.
-  static const double tiltDegrees = 2.5;
+  /// Drift ceiling, so a full fan bends no further than a macOS one.
+  static const double shiftMax = 235;
+
+  /// Tilt per row, in degrees. macOS keeps its icons and name plates upright —
+  /// the arc lives in the path the column takes, not in the items — so a row
+  /// does not turn.
+  static const double tiltDegrees = 0;
 
   /// Distance between the dock capsule and the first row.
   static const double gap = 10;
@@ -71,8 +80,29 @@ abstract final class DockStackFan {
   /// Icon edge inside a row.
   static const double iconSize = 40;
 
+  /// The preview card beside a label. A macOS stack draws it as its own
+  /// rounded card, not as an icon inside the label pill.
+  static const double thumbSize = 56;
+
+  /// Height of the name pill: a capsule hugging one line of caption text, so
+  /// it reads as a label beside the preview rather than a panel as tall as it.
+  static const double pillHeight = 30;
+
+  /// Gap between the label pill and the preview card.
+  static const double thumbGap = 8;
+
+  /// The open-in-Files button at the top of a fan.
+  static const double openSize = 44;
+
   /// Label width past which the text ellipsizes.
   static const double labelMaxWidth = 260;
+
+  /// The pill around a label measured [textWidth] wide.
+  static double pillWidth(double textWidth) => padX * 2 + textWidth;
+
+  /// A row's full width: the label pill, the gap and the preview card.
+  static double rowWidth(double textWidth) =>
+      pillWidth(textWidth) + thumbGap + thumbSize;
 
   /// How far a row grows under the pointer.
   static const double hoverScale = 1.06;
@@ -124,7 +154,8 @@ abstract final class DockStackFan {
     final pad = padX * scale;
     for (var i = 0; i < widths.length; i++) {
       final rowWidth = widths[i];
-      final drift = shift * math.pow(i, shiftPower) * scale * sign;
+      final drift =
+          math.min(shiftMax, shift * math.pow(i, shiftPower)) * scale * sign;
       final centreY = bottom - step * (i + 1) + height / 2;
       // The row's edge nearest the icon column sits on the anchor plus the
       // drift, so the icon column traces the arc and the labels rag out to the
