@@ -3,13 +3,16 @@ import 'dart:ui' show Rect;
 import 'package:denial_flutter_sdk/models.dart' show DenialWindow;
 import 'package:denial_flutter_sdk/surfaces.dart' show DisplayOutput;
 
+import 'dock_autohide_math.dart' as math;
 import 'dock_settings.dart' show DockPosition;
 
-/// Smart-hide collision policy, ported from NextKDE's DockAutoHideMath.mjs.
+export 'dock_autohide_math.dart' show Box, WindowSample;
+
+/// Adapts the dock's scene types to [math], which holds the policy.
 ///
-/// A window only hides the dock when it reaches the dock's own rectangle, not
-/// the whole screen edge, and hysteresis keeps a window parked on the boundary
-/// from making the dock flap.
+/// The arithmetic lives in `dock_autohide_math.dart` so it can be unit-tested
+/// without `dart:ui`; this file only converts [Rect], [DenialWindow] and
+/// [DisplayOutput] into plain boxes.
 abstract final class DockAutoHide {
   /// The fully revealed capsule in scene coordinates.
   static Rect visibleDockRect({
@@ -18,26 +21,15 @@ abstract final class DockAutoHide {
     required double extent,
     required double thickness,
     double inset = 10,
-  }) => switch (position) {
-    DockPosition.bottom => Rect.fromLTWH(
-      output.center.dx - extent / 2,
-      output.bottom - inset - thickness,
-      extent,
-      thickness,
+  }) => _toRect(
+    math.dockRect(
+      output: _toBox(output),
+      position: position,
+      extent: extent,
+      thickness: thickness,
+      inset: inset,
     ),
-    DockPosition.left => Rect.fromLTWH(
-      output.left + inset,
-      output.center.dy - extent / 2,
-      thickness,
-      extent,
-    ),
-    DockPosition.right => Rect.fromLTWH(
-      output.right - inset - thickness,
-      output.center.dy - extent / 2,
-      thickness,
-      extent,
-    ),
-  };
+  );
 
   /// A one-pixel touch does not count; the window must reach [depth] into the
   /// dock body before the dock treats it as covered. The depth is measured from
@@ -46,47 +38,20 @@ abstract final class DockAutoHide {
     Rect rect, {
     DockPosition position = DockPosition.bottom,
     double depth = 12,
-  }) => switch (position) {
-    DockPosition.bottom => () {
-      final d = depth.clamp(0.0, rect.height - 1);
-      return Rect.fromLTWH(
-        rect.left,
-        rect.top + d,
-        rect.width,
-        rect.height - d,
-      );
-    }(),
-    DockPosition.left => () {
-      final d = depth.clamp(0.0, rect.width - 1);
-      return Rect.fromLTWH(
-        rect.left + d,
-        rect.top,
-        rect.width - d,
-        rect.height,
-      );
-    }(),
-    DockPosition.right => () {
-      final d = depth.clamp(0.0, rect.width - 1);
-      return Rect.fromLTWH(rect.left, rect.top, rect.width - d, rect.height);
-    }(),
-  };
+  }) => _toRect(
+    math.overlapDepth(_toBox(rect), position: position, depth: depth),
+  );
 
   static Rect windowRect(DenialWindow window, DisplayOutput output) {
     final geometry = window.geometry;
     if (geometry == null) return Rect.zero;
-    final scale = output.scale;
-    if (scale > 1.0 &&
-        scale.isFinite &&
-        output.logicalRect.width > 0 &&
-        geometry.width > output.logicalRect.width * 1.2) {
-      return Rect.fromLTWH(
-        geometry.left / scale,
-        geometry.top / scale,
-        geometry.width / scale,
-        geometry.height / scale,
-      );
-    }
-    return geometry;
+    return _toRect(
+      math.scaledWindowBox(
+        geometry: _toBox(geometry),
+        scale: output.scale,
+        outputWidth: output.logicalRect.width,
+      ),
+    );
   }
 
   static bool hasConflict({
@@ -98,17 +63,36 @@ abstract final class DockAutoHide {
     required int workspaceId,
     required DisplayOutput output,
     required bool desktopVisible,
-  }) {
-    if (desktopVisible) return false;
-    final active = previousConflict ? release : trigger;
-    for (final window in windows) {
-      if (window.monitorId != monitorId) continue;
-      if (window.workspaceId != workspaceId) continue;
-      if (window.minimized || !window.isUserApp) continue;
-      final rect = windowRect(window, output);
-      if (rect.isEmpty) continue;
-      if (rect.overlaps(active)) return true;
-    }
-    return false;
+  }) => math.conflictAt(
+    windows: [for (final window in windows) _sample(window, output)],
+    trigger: _toBox(trigger),
+    release: _toBox(release),
+    previousConflict: previousConflict,
+    monitorId: monitorId,
+    workspaceId: workspaceId,
+    desktopVisible: desktopVisible,
+  );
+
+  static math.WindowSample _sample(DenialWindow window, DisplayOutput output) {
+    final geometry = window.geometry;
+    return (
+      monitorId: window.monitorId,
+      workspaceId: window.workspaceId,
+      minimized: window.minimized,
+      userApp: window.isUserApp,
+      box: geometry == null
+          ? null
+          : math.scaledWindowBox(
+              geometry: _toBox(geometry),
+              scale: output.scale,
+              outputWidth: output.logicalRect.width,
+            ),
+    );
   }
+
+  static math.Box _toBox(Rect rect) =>
+      (left: rect.left, top: rect.top, width: rect.width, height: rect.height);
+
+  static Rect _toRect(math.Box box) =>
+      Rect.fromLTWH(box.left, box.top, box.width, box.height);
 }

@@ -110,6 +110,7 @@ void main() {
     scrollReversed: true,
     scrollWraps: true,
     folders: const [DockFolder(path: '/home/me/Documents', label: 'Documents')],
+    dismissedSuggestions: const ['firefox'],
   );
   final json = {
     'pinnedApplications': settings.pinned.map((pin) => pin.toJson()).toList(),
@@ -133,6 +134,7 @@ void main() {
     'scrollReversed': settings.scrollReversed,
     'scrollWraps': settings.scrollWraps,
     'folders': settings.folders.map((folder) => folder.toJson()).toList(),
+    'dismissedSuggestions': settings.dismissedSuggestions,
   };
   final decoded = DockSettings.fromJson(
     jsonDecode(jsonEncode(json)) as Map<String, dynamic>,
@@ -183,6 +185,42 @@ void main() {
         DockIndicatorStyle.none,
     'legacy indicators off',
   );
+
+  // Dragging a suggestion out of the dock records the app id here, normalized
+  // and deduplicated, so the row stops showing it without the launcher
+  // forgetting the launch.
+  _expect(
+    DockSettings.defaults.dismissedSuggestions.isEmpty,
+    'no dismissed suggestions by default',
+  );
+  final dismissed = DockSettings.fromJson({
+    'dismissedSuggestions': [
+      'org.gnome.Nautilus.desktop',
+      'ORG.GNOME.NAUTILUS',
+      '  ',
+      7,
+      null,
+      'firefox',
+    ],
+  });
+  _expect(
+    dismissed.dismissedSuggestions.join(',') == 'org.gnome.nautilus,firefox',
+    'dismissed normalized: ${dismissed.dismissedSuggestions}',
+  );
+  _expect(
+    DockSettings.fromJson({'dismissedSuggestions': 'nope'})
+        .dismissedSuggestions
+        .isEmpty,
+    'dismissed rejects a non-list',
+  );
+  _expect(
+    DockSettings.defaults
+            .copyWith(dismissedSuggestions: const ['firefox'])
+            .dismissedSuggestions
+            .single ==
+        'firefox',
+    'dismissed copyWith',
+  );
   _expect(
     DockSettings.defaults.indicatorStyle == DockIndicatorStyle.dot &&
         DockSettings.defaults.previewStyle == DockPreviewStyle.cards &&
@@ -197,6 +235,10 @@ void main() {
     decoded.folders.single.path == '/home/me/Documents' &&
         decoded.folders.single.label == 'Documents',
     'round trip folders',
+  );
+  _expect(
+    decoded.dismissedSuggestions.single == 'firefox',
+    'round trip dismissed suggestions',
   );
 
   // Garbage falls back to the defaults instead of throwing.
@@ -282,6 +324,10 @@ Future<void> _storeRoundTrip(DockSettings settings) async {
     _expect(written['showBadges'] == false, 'written badges');
     _expect(written['iconOpacity'] == 0.5, 'written icon opacity');
     _expect(written['tintColor'] == '#a855f7', 'written tint');
+    _expect(
+      (written['dismissedSuggestions'] as List).join(',') == 'firefox',
+      'written dismissed suggestions',
+    );
     stdout.writeln('All dock settings tests passed.');
   } finally {
     directory.deleteSync(recursive: true);

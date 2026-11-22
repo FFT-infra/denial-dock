@@ -132,6 +132,23 @@ class DockSettingsController extends AsyncNotifier<DockSettings> {
   Future<void> removeFolder(String path) =>
       _update((current) => current.withoutFolder(path));
 
+  /// Hides a suggestion the user dragged out of the dock. The launcher keeps
+  /// recording the launch, so this is a dock-side filter rather than a request
+  /// to forget the application.
+  Future<void> dismissSuggestion(String appId) {
+    final key = normalizeAppId(appId);
+    return _update(
+      (current) => current.dismissedSuggestions.contains(key)
+          ? current
+          : current.copyWith(
+              dismissedSuggestions: List.unmodifiable([
+                ...current.dismissedSuggestions,
+                key,
+              ]),
+            ),
+    );
+  }
+
   Future<void> _updatePins(List<DockPin> Function(List<DockPin>) update) =>
       _update(
         (current) =>

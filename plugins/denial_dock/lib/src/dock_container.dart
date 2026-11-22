@@ -124,6 +124,11 @@ class _DockContainerState extends ConsumerState<DockContainer>
   /// neighbours make room, mirroring NextKDE's reorder delegate.
   String? _dragKey;
   DockPin? _dragNewPin;
+
+  /// The entries of the last build. The drop rule reads them so it sees the
+  /// application's state as it is when the pointer is released, not as it was
+  /// when the drag began.
+  List<_DockEntry> _builtEntries = const [];
   int _dragFrom = -1;
   int _dragTo = -1;
   double _dragDx = 0;
@@ -631,10 +636,29 @@ class _DockContainerState extends ConsumerState<DockContainer>
 
     final newPin = _dragNewPin;
     if (outside) {
-      // Dragging a pinned entry out of the dock removes it. Running entries
-      // have no pin to remove and simply return to the running section.
-      if (newPin == null && pin != null) {
-        unawaited(notifier.togglePin(pin, pinned: false));
+      _DockEntry? entry;
+      for (final candidate in _builtEntries) {
+        if (normalizeAppId(candidate.appId) == key) {
+          entry = candidate;
+          break;
+        }
+      }
+      // Dragging out drops a pin, or dismisses a suggestion whose app is not
+      // running. A running app stays: the dock is the only way back to its
+      // windows, so dropping it here must not lose them. The entry is read
+      // here, at release, so a launch that happened mid-drag counts.
+      switch (DockDrag.removalFor(
+        pinned: pin != null,
+        suggestion: entry?.suggestion ?? false,
+        running: entry?.windows.isNotEmpty ?? false,
+        outside: true,
+      )) {
+        case DockRemoval.unpin:
+          unawaited(notifier.togglePin(pin!, pinned: false));
+        case DockRemoval.dismissRecent:
+          unawaited(notifier.dismissSuggestion(key));
+        case DockRemoval.none:
+          break;
       }
       _finishDrag();
       return;
@@ -780,6 +804,7 @@ class _DockContainerState extends ConsumerState<DockContainer>
       );
     }
     if (settings.showSuggestions) {
+      final dismissed = settings.dismissedSuggestions.toSet();
       for (final recent in recents) {
         if (entries.length >= 12) break;
         final id = recent.contains(':')
@@ -788,6 +813,7 @@ class _DockContainerState extends ConsumerState<DockContainer>
         final app = byId[normalizeAppId(id)];
         if (app == null) continue;
         final key = normalizeAppId(app.id);
+        if (dismissed.contains(key)) continue;
         if (!seen.add(key)) continue;
         entries.add(
           _DockEntry(
@@ -796,6 +822,7 @@ class _DockContainerState extends ConsumerState<DockContainer>
             name: app.name,
             windows: const [],
             pin: null,
+            suggestion: true,
           ),
         );
       }
@@ -900,6 +927,7 @@ class _DockContainerState extends ConsumerState<DockContainer>
           entries = _entries(settings, catalog, windows, displayPins, recents);
           specs = _specsFor(entries, settings);
         }
+        _builtEntries = entries;
 
         final frame = _layout(
           surfaceMain,
@@ -1045,7 +1073,14 @@ class _DockContainerState extends ConsumerState<DockContainer>
             break;
           }
         }
-        final willUnpin = _dragNewPin == null && _dragOutside;
+        final willRemove =
+            DockDrag.removalFor(
+              pinned: dragEntry?.pinned ?? false,
+              suggestion: dragEntry?.suggestion ?? false,
+              running: dragEntry?.windows.isNotEmpty ?? false,
+              outside: _dragOutside,
+            ) !=
+            DockRemoval.none;
 
         return OverlayPortal.overlayChildLayoutBuilder(
           controller: _menuPortal,
@@ -1124,7 +1159,7 @@ class _DockContainerState extends ConsumerState<DockContainer>
                       builder: (context, t, child) => Transform.scale(
                         scale: 1 + 0.10 * t,
                         child: Opacity(
-                          opacity: (1 - 0.12 * t) * (willUnpin ? 0.55 : 1),
+                          opacity: (1 - 0.12 * t) * (willRemove ? 0.55 : 1),
                           child: child,
                         ),
                       ),
@@ -1136,6 +1171,40 @@ class _DockContainerState extends ConsumerState<DockContainer>
                           context,
                           dragEntry.appId,
                         ),
+                      ),
+                    ),
+                  ),
+                ),
+              if (dragEntry != null && willRemove)
+                // The icon has left the row and letting go will drop it, so
+                // the dock says so instead of leaving the user to guess.
+                Positioned(
+                  left: (_dragLocalX - 60).clamp(
+                    8.0,
+                    math.max(8.0, _surfaceWidth - 128.0),
+                  ),
+                  top: _vertical
+                      ? (_dragLocalY + _iconSize * 0.75).clamp(
+                          8.0,
+                          math.max(8.0, _surfaceHeight - 48.0),
+                        )
+                      : (_dragLocalY - _iconSize * 1.15).clamp(
+                          8.0,
+                          math.max(8.0, _surfaceHeight - 48.0),
+                        ),
+                  width: 120,
+                  child: IgnorePointer(
+                    child: Center(
+                      child: _DockLabelBubble(
+                        text: chinese ? '移除' : 'Remove',
+                        iconSize: _iconSize,
+                        background: theme.panelColor(
+                          colors.performanceWarning.withValues(alpha: 0.92),
+                        ),
+                        border: colors.hairline,
+                        foreground: colors.textPrimary,
+                        horizontal: _vertical,
+                        tailLeading: _position == DockPosition.left,
                       ),
                     ),
                   ),
@@ -1709,6 +1778,7 @@ class _DockEntry {
     required this.name,
     required this.windows,
     required this.pin,
+    this.suggestion = false,
   });
 
   final String appId;
@@ -1716,6 +1786,10 @@ class _DockEntry {
   final String name;
   final List<ApplicationWindow> windows;
   final DockPin? pin;
+
+  /// True for an entry the dock only shows because the launcher recorded a
+  /// launch, so dragging it out can dismiss it without touching a pin.
+  final bool suggestion;
 
   bool get pinned => pin != null;
 }

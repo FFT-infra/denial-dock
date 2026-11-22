@@ -40,6 +40,78 @@ void main() {
     DockDrag.insertionIndex(centers: centers, pointerX: 999, fallback: 9) == 3,
     'fallback clamped',
   );
+
+  // Dropping outside the dock. A pin is the user's own choice and goes whether
+  // or not the app is running; a suggestion leaves only while its app is
+  // closed; a running app that is neither stays, because the dock is the only
+  // way back to its windows.
+  _expect(
+    DockDrag.removalFor(
+          pinned: true,
+          suggestion: false,
+          running: false,
+          outside: true,
+        ) ==
+        DockRemoval.unpin,
+    'pinned, not running: unpin',
+  );
+  _expect(
+    DockDrag.removalFor(
+          pinned: true,
+          suggestion: false,
+          running: true,
+          outside: true,
+        ) ==
+        DockRemoval.unpin,
+    'pinned and running: still unpin',
+  );
+  _expect(
+    DockDrag.removalFor(
+          pinned: false,
+          suggestion: true,
+          running: false,
+          outside: true,
+        ) ==
+        DockRemoval.dismissRecent,
+    'closed suggestion: dismiss',
+  );
+  _expect(
+    DockDrag.removalFor(
+          pinned: false,
+          suggestion: true,
+          running: true,
+          outside: true,
+        ) ==
+        DockRemoval.none,
+    'a suggestion that started running stays',
+  );
+  _expect(
+    DockDrag.removalFor(
+          pinned: false,
+          suggestion: false,
+          running: true,
+          outside: true,
+        ) ==
+        DockRemoval.none,
+    'running, not pinned: keep',
+  );
+  for (final pinned in [true, false]) {
+    for (final suggestion in [true, false]) {
+      for (final running in [true, false]) {
+        _expect(
+          DockDrag.removalFor(
+                pinned: pinned,
+                suggestion: suggestion,
+                running: running,
+                outside: false,
+              ) ==
+              DockRemoval.none,
+          'inside never removes (pinned=$pinned, suggestion=$suggestion, '
+          'running=$running)',
+        );
+      }
+    }
+  }
 }
 
 void _expect(bool condition, String message) {

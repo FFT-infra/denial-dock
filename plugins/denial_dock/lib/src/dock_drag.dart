@@ -1,3 +1,16 @@
+/// What letting go of a dragged icon outside the dock does.
+enum DockRemoval {
+  /// A running application stays where it is; the dock is the only way back to
+  /// its windows, so dragging it out is a no-op.
+  none,
+
+  /// A pinned application loses its pin.
+  unpin,
+
+  /// A suggestion for an application that is not running leaves the dock.
+  dismissRecent,
+}
+
 /// Pure helpers for pinned-icon drag reorder, mirroring NextKDE's remove-then-
 /// insert model and the nearest-slot rule used by the dock preview.
 abstract final class DockDrag {
@@ -33,5 +46,25 @@ abstract final class DockDrag {
       }
     }
     return best;
+  }
+
+  /// Releasing a dragged icon outside the dock.
+  ///
+  /// A pin is the user's own choice, so dragging it out drops the pin even
+  /// while the application runs. A suggestion is only a shortcut for an
+  /// application the launcher remembers, so it leaves while that application
+  /// is closed; once it is open the row is the running entry, and removing it
+  /// would hide a live window. A running entry that is neither keeps its
+  /// place, because the dock is the only way back to its windows.
+  static DockRemoval removalFor({
+    required bool pinned,
+    required bool suggestion,
+    required bool running,
+    required bool outside,
+  }) {
+    if (!outside) return DockRemoval.none;
+    if (pinned) return DockRemoval.unpin;
+    if (suggestion && !running) return DockRemoval.dismissRecent;
+    return DockRemoval.none;
   }
 }

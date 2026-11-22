@@ -282,6 +282,7 @@ class DockSettings {
     this.extrasSide = DockSide.right,
     this.showTrash = true,
     this.folders = const [],
+    this.dismissedSuggestions = const [],
   });
 
   /// Base icon edge before magnification.
@@ -376,6 +377,11 @@ class DockSettings {
   final bool showTrash;
   final List<DockFolder> folders;
 
+  /// Normalized application ids the user dragged out of the suggestions. The
+  /// launcher still records them as recent, so the dock filters them here
+  /// rather than asking the host to forget the launch.
+  final List<String> dismissedSuggestions;
+
   /// Capsule height with no magnification.
   double get capsuleHeight => iconSize + padding * 2;
 
@@ -408,6 +414,7 @@ class DockSettings {
     DockSide? extrasSide,
     bool? showTrash,
     List<DockFolder>? folders,
+    List<String>? dismissedSuggestions,
   }) => DockSettings(
     pinned: pinned ?? this.pinned,
     visibility: visibility ?? this.visibility,
@@ -436,6 +443,7 @@ class DockSettings {
     extrasSide: extrasSide ?? this.extrasSide,
     showTrash: showTrash ?? this.showTrash,
     folders: folders ?? this.folders,
+    dismissedSuggestions: dismissedSuggestions ?? this.dismissedSuggestions,
   );
 
   static double clampIconSize(double value) {
@@ -517,6 +525,16 @@ class DockSettings {
         folders.add(folder);
       }
     }
+    final storedDismissed = json['dismissedSuggestions'];
+    final dismissed = <String>[];
+    if (storedDismissed is List) {
+      for (final entry in storedDismissed) {
+        if (entry is! String || entry.trim().isEmpty) continue;
+        final key = normalizeAppId(entry);
+        if (dismissed.contains(key)) continue;
+        dismissed.add(key);
+      }
+    }
     final iconSize = json['iconSize'];
     return DockSettings(
       // An explicit empty list means the user removed every pin.
@@ -584,6 +602,7 @@ class DockSettings {
       extrasSide: DockSide.parse(json['extrasSide']),
       showTrash: json['showTrash'] is bool ? json['showTrash'] as bool : true,
       folders: List.unmodifiable(folders),
+      dismissedSuggestions: List.unmodifiable(dismissed),
     );
   }
 }
@@ -663,6 +682,11 @@ class DockPreferencesStore {
     json['folders'] = settings.folders
         .map((folder) => folder.toJson())
         .toList();
+    if (settings.dismissedSuggestions.isEmpty) {
+      json.remove('dismissedSuggestions');
+    } else {
+      json['dismissedSuggestions'] = settings.dismissedSuggestions;
+    }
     await file.parent.create(recursive: true);
     final temp = File('${file.path}.$pid.${_sequence++}.tmp');
     try {
