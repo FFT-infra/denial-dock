@@ -14,6 +14,27 @@ const String barPanelKey = 'denial_topbar.panel';
 String? _openId;
 int? _openPopup;
 
+/// How a panel is hung under its bar item.
+///
+/// shell27 positions each popover differently and the difference is visible:
+/// a dropdown is **left-aligned** to its title (`x: menuDropX - 4`) and sits
+/// at `barH + 3`; every other popover is **centred** on its icon and sits at
+/// `barH + 6`; Control Centre is pinned to the right edge.
+enum BarPanelAnchor {
+  /// Left edge at the item's left edge − 4. Used by the Apple menu, the app
+  /// menu and every title dropdown.
+  dropdown,
+
+  /// Centred on the item. Used by Wi-Fi, Bluetooth, volume, keyboard.
+  centred,
+
+  /// Centred, clamped to the screen. Used by the clock.
+  clock,
+
+  /// Right-aligned to `screen - width - 10`. Used by Control Centre.
+  trailing,
+}
+
 /// Scene rectangle of a bar item, used to hang a panel under its edge.
 Rect? barSceneRect(GlobalKey key) {
   final render = key.currentContext?.findRenderObject();
@@ -35,6 +56,7 @@ void showBarPanel({
   double width = BarTokens.panelMaxWidth,
   String keyName = barPanelKey,
   bool glass = true,
+  BarPanelAnchor placement = BarPanelAnchor.dropdown,
 }) {
   final controller = ref.read(shellPopupControllerProvider.notifier);
   final previous = _openPopup;
@@ -64,6 +86,7 @@ void showBarPanel({
       side: side,
       width: width,
       glass: glass,
+      placement: placement,
       child: builder(context, popup.close),
     ),
   );
@@ -73,8 +96,8 @@ void showBarPanel({
 
 /// The glass card every bar panel is drawn in.
 ///
-/// Ports revo-shell's popup anchor (`barHeight + 6`) and NextKDE's panel
-/// material: one blur region, one plate, a hairline and a soft shadow.
+/// shell27 gives a dropdown `radius 14` at `barH + 3` and a popover `radius 26`
+/// at `barH + 6`; both keep a 6 pt screen margin.
 class BarPanelFrame extends StatelessWidget {
   const BarPanelFrame({
     required this.anchor,
@@ -82,6 +105,7 @@ class BarPanelFrame extends StatelessWidget {
     required this.width,
     required this.child,
     this.glass = true,
+    this.placement = BarPanelAnchor.dropdown,
     super.key,
   });
 
@@ -93,21 +117,46 @@ class BarPanelFrame extends StatelessWidget {
   /// Menus are opaque cards on macOS; panels are glass. The bar's own
   /// dropdowns pass false so their plate does not shimmer over a wallpaper.
   final bool glass;
+  final BarPanelAnchor placement;
 
   @override
   Widget build(BuildContext context) {
     final theme = context.shellTheme;
     final scene = MediaQuery.sizeOf(context);
     final rect = anchor;
-    final centre = rect?.center.dx ?? scene.width / 2;
-    final left = (centre - width / 2)
-        .clamp(8.0, math.max(8.0, scene.width - width - 8))
-        .toDouble();
     final below = side != PanelEdge.bottom;
-    final top = below ? (rect?.bottom ?? 0) + BarTokens.panelGap : null;
-    final bottom = below
-        ? null
-        : scene.height - (rect?.top ?? 0) + BarTokens.panelGap;
+    final gap = placement == BarPanelAnchor.dropdown
+        ? BarTokens.menuDropOffsetY
+        : BarTokens.popoverGap;
+    final radius = placement == BarPanelAnchor.dropdown
+        ? BarTokens.menuRadius
+        : BarTokens.popoverRadius;
+
+    // shell27 clamps every popover into `[6, screen - width - 6]`.
+    const margin = 6.0;
+    final double left = switch (placement) {
+      BarPanelAnchor.dropdown =>
+        ((rect?.left ?? 0) + BarTokens.menuDropOffsetX)
+            .clamp(margin, math.max(margin, scene.width - width - margin))
+            .toDouble(),
+      BarPanelAnchor.centred =>
+        ((rect?.center.dx ?? scene.width / 2) - width / 2)
+            .clamp(margin, math.max(margin, scene.width - width - margin))
+            .toDouble(),
+      BarPanelAnchor.clock =>
+        ((rect?.center.dx ?? scene.width / 2) - width / 2)
+            .clamp(margin, math.max(margin, scene.width - width - margin))
+            .toDouble(),
+      BarPanelAnchor.trailing => math.max(
+        margin,
+        scene.width - width - BarTokens.controlCenterInset,
+      ),
+    };
+
+    // shell27 measures from the bar's own bottom edge (`barH + 3`), not from
+    // the item's box, so the panel never shifts with a taller title.
+    final top = below ? BarTokens.height + gap : null;
+    final bottom = below ? null : scene.height - (rect?.top ?? 0) + gap;
     final available = below
         ? scene.height - (top ?? 0) - 8
         : scene.height - (bottom ?? 0) - 8;
@@ -126,7 +175,7 @@ class BarPanelFrame extends StatelessWidget {
             ),
             child: DecoratedBox(
               decoration: BoxDecoration(
-                borderRadius: theme.borderRadius(BarTokens.panelRadius),
+                borderRadius: BorderRadius.circular(radius),
                 boxShadow: <BoxShadow>[
                   BoxShadow(
                     color: theme.colors.shadow.withValues(alpha: 0.28),
@@ -136,7 +185,7 @@ class BarPanelFrame extends StatelessWidget {
                 ],
               ),
               child: ShellBackdropBlur(
-                borderRadius: theme.borderRadius(BarTokens.panelRadius),
+                borderRadius: BorderRadius.circular(radius),
                 blendMode: BlendMode.srcOver,
                 child: DecoratedBox(
                   decoration: BoxDecoration(
@@ -145,14 +194,14 @@ class BarPanelFrame extends StatelessWidget {
                     color: glass
                         ? theme.panelColor(theme.colors.panelBackground)
                         : theme.colors.panelBackground,
-                    borderRadius: theme.borderRadius(BarTokens.panelRadius),
+                    borderRadius: BorderRadius.circular(radius),
                     border: Border.all(
                       color: theme.colors.hairline,
                       width: 0.8,
                     ),
                   ),
                   child: ClipRRect(
-                    borderRadius: theme.borderRadius(BarTokens.panelRadius - 1),
+                    borderRadius: BorderRadius.circular(radius - 1),
                     child: child,
                   ),
                 ),

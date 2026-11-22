@@ -1,6 +1,5 @@
 import 'package:denial_flutter_sdk/services.dart';
 import 'package:denial_flutter_sdk/state.dart';
-import 'package:denial_flutter_sdk/theme.dart';
 import 'package:denial_sdk/system.dart' show BatteryStatus;
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -15,13 +14,15 @@ import 'signal.dart';
 
 /// One status item.
 ///
-/// shell27 gives every status item a 24-wide box on the 28-high bar and
-/// MacShell does the same; the glyph inside is 15–16. The hover plate is the
-/// bar's own item plate, so a status item reads exactly like a menu title.
+/// shell27 sizes each item by its own content: tray 26, Wi-Fi / bell / volume /
+/// Bluetooth 28, Control Centre 38, the clock `implicitWidth + 16`. The glyph
+/// inside is 15–16 and the plate is the bar's own `width - 2 × height - 6`
+/// wash, so a status item reads exactly like a menu title.
 class BarStatusCell extends StatelessWidget {
   const BarStatusCell({
     required this.child,
     required this.ink,
+    required this.width,
     this.onTap,
     this.tooltip,
     this.open = false,
@@ -32,6 +33,7 @@ class BarStatusCell extends StatelessWidget {
 
   /// The bar's ink; the plate lightens under white and darkens under black.
   final Color ink;
+  final double width;
   final VoidCallback? onTap;
   final String? tooltip;
   final bool open;
@@ -42,7 +44,7 @@ class BarStatusCell extends StatelessWidget {
       onTap: onTap,
       open: open,
       ink: ink,
-      minWidth: BarTokens.statusCellWidth,
+      width: width,
       padding: EdgeInsets.zero,
       tooltip: tooltip,
       child: child,
@@ -67,6 +69,11 @@ class BarStatusCluster extends ConsumerWidget {
     required this.onNotifications,
     required this.onControlCenter,
     required this.onSettings,
+    this.wifiKey,
+    this.batteryKey,
+    this.notificationsKey,
+    this.controlCenterKey,
+    this.settingsKey,
     super.key,
   });
 
@@ -82,6 +89,14 @@ class BarStatusCluster extends ConsumerWidget {
   final VoidCallback onNotifications;
   final VoidCallback onControlCenter;
   final VoidCallback onSettings;
+
+  /// Anchors the popup's scene rectangle. Without one the panel falls back to
+  /// the screen edge instead of hanging under its own cell.
+  final GlobalKey? wifiKey;
+  final GlobalKey? batteryKey;
+  final GlobalKey? notificationsKey;
+  final GlobalKey? controlCenterKey;
+  final GlobalKey? settingsKey;
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
@@ -106,7 +121,9 @@ class BarStatusCluster extends ConsumerWidget {
         ),
       if (settings.showWifi)
         BarStatusCell(
+          key: wifiKey,
           ink: ink,
+          width: BarTokens.statusCellWidth,
           tooltip: wifi?.ssid ?? strings.wifiTitle,
           onTap: onWifi,
           open: openPanel == 'wifi',
@@ -114,7 +131,7 @@ class BarStatusCluster extends ConsumerWidget {
               ? BarGlyph(
                   BarIcons.wifiSlash,
                   size: BarTokens.statusGlyphSize,
-                  color: ink.withValues(alpha: 0.5),
+                  color: ink.withValues(alpha: 0.55),
                 )
               : WifiGlyph(
                   size: BarTokens.statusIconSize,
@@ -124,7 +141,9 @@ class BarStatusCluster extends ConsumerWidget {
         ),
       if (settings.showBattery && battery.capacity != null)
         BarStatusCell(
+          key: batteryKey,
           ink: ink,
+          width: settings.showBatteryPercent ? 63 : 39,
           tooltip: '${strings.batteryTitle} · ${battery.capacity}%',
           onTap: onBattery,
           open: openPanel == 'battery',
@@ -133,23 +152,21 @@ class BarStatusCluster extends ConsumerWidget {
             children: <Widget>[
               if (settings.showBatteryPercent)
                 Padding(
-                  padding: const EdgeInsets.only(right: 3),
+                  padding: const EdgeInsets.only(right: 5),
                   child: Text(
                     '${battery.capacity}%',
-                    style: BarType.caption.copyWith(color: ink),
+                    style: BarType.batteryPercent.copyWith(color: ink),
                   ),
                 ),
-              BarGlyph(
-                batteryIconFor(battery),
-                size: BarTokens.statusGlyphSize,
-                color: ink,
-              ),
+              BarGlyph(batteryIconFor(battery), size: 22, color: ink),
             ],
           ),
         ),
       if (settings.showNotifications)
         BarStatusCell(
+          key: notificationsKey,
           ink: ink,
+          width: BarTokens.statusCellWidth,
           tooltip: 'Notifications',
           onTap: onNotifications,
           open: openPanel == 'notifications',
@@ -163,13 +180,13 @@ class BarStatusCluster extends ConsumerWidget {
               ),
               if (unread > 0)
                 Positioned(
-                  right: -1,
-                  top: -1,
+                  right: -3,
+                  top: -2,
                   child: Container(
-                    width: 4,
-                    height: 4,
-                    decoration: BoxDecoration(
-                      color: context.shellTheme.accent,
+                    width: 7,
+                    height: 7,
+                    decoration: const BoxDecoration(
+                      color: Color(0xffff453a),
                       shape: BoxShape.circle,
                     ),
                   ),
@@ -179,18 +196,28 @@ class BarStatusCluster extends ConsumerWidget {
         ),
       if (settings.showControlCenter)
         BarStatusCell(
+          key: controlCenterKey,
           ink: ink,
+          width: BarTokens.controlCentreWidth,
           tooltip: 'Control Center',
           onTap: onControlCenter,
           open: openPanel == 'controlcenter',
-          child: ControlCentreGlyph(
-            size: BarTokens.statusGlyphSize,
-            color: ink,
+          child: Align(
+            alignment: Alignment.centerLeft,
+            child: Padding(
+              padding: const EdgeInsets.only(left: 10),
+              child: ControlCentreGlyph(
+                size: BarTokens.statusGlyphSize,
+                color: ink,
+              ),
+            ),
           ),
         ),
       if (settings.showSettingsButton)
         BarStatusCell(
+          key: settingsKey,
           ink: ink,
+          width: BarTokens.statusCellWidth,
           tooltip: 'Bar Settings',
           onTap: onSettings,
           open: openPanel == 'settings',

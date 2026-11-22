@@ -15,7 +15,7 @@ import '../bar_type.dart';
 class NotificationHistoryPanel extends ConsumerWidget {
   const NotificationHistoryPanel({
     required this.onClose,
-    this.width = BarTokens.controlCenterMaxWidth,
+    this.width = BarTokens.controlCenterWidth,
     super.key,
   });
 

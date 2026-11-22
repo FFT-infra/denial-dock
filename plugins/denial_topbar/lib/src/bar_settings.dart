@@ -98,7 +98,7 @@ class BarSettings {
     this.showBatteryPercent = false,
     this.showNotifications = true,
     this.showControlCenter = true,
-    this.showSettingsButton = true,
+    this.showSettingsButton = false,
     this.autoHide = false,
     this.autoHideDelayMs = barAutoHideDelayDefault,
   });
@@ -233,7 +233,7 @@ class BarSettings {
       showBatteryPercent: flag('showBatteryPercent', false),
       showNotifications: flag('showNotifications', true),
       showControlCenter: flag('showControlCenter', true),
-      showSettingsButton: flag('showSettingsButton', true),
+      showSettingsButton: flag('showSettingsButton', false),
       autoHide: flag('autoHide', false),
       autoHideDelayMs: clampAutoHideDelay(json['autoHideDelayMs']),
     );

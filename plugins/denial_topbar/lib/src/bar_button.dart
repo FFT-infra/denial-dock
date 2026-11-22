@@ -6,19 +6,21 @@ import 'bar_tokens.dart';
 
 /// One clickable slot in the menu bar.
 ///
-/// shell27 draws the hover plate as `height - 6` with radius 6, filled black
-/// 0.09 under dark type and white 0.14 under light type; MacShell uses the
-/// same radius. The plate stays lit while the item's menu is open, which is
-/// how macOS shows which title owns the open menu.
+/// Transcribes shell27 `MacBar.qml`'s menu-title delegate: the box is 28 high,
+/// the hover plate is `width - 2` × `height - 6` with radius 12, filled
+/// `bpal.hover` (black 0.09 on a light bar, white 0.14 on a dark one). The
+/// plate stays lit while the item's popover is open, which is how macOS shows
+/// which title owns the open menu.
 class BarButton extends StatefulWidget {
   const BarButton({
     required this.child,
     this.onTap,
     this.onSecondaryTap,
     this.open = false,
-    this.minWidth = 0,
+    this.width,
+    this.height = BarTokens.itemHeight,
     this.padding = const EdgeInsets.symmetric(
-      horizontal: BarTokens.menuItemPadding,
+      horizontal: BarTokens.itemPadding,
     ),
     this.radius = BarTokens.itemRadius,
     this.ink,
@@ -30,9 +32,12 @@ class BarButton extends StatefulWidget {
   final VoidCallback? onTap;
   final VoidCallback? onSecondaryTap;
 
-  /// Keeps the plate visible while this button's panel is open.
+  /// Keeps the plate visible while this button's popover is open.
   final bool open;
-  final double minWidth;
+
+  /// Fixed box width, or null to size to the child.
+  final double? width;
+  final double height;
   final EdgeInsets padding;
   final double radius;
 
@@ -53,27 +58,35 @@ class _BarButtonState extends State<BarButton> {
     final ink = widget.ink ?? context.shellTheme.colors.textPrimary;
     final darkInk = BarGroundLayer.isDark(ink);
     final active = _hovered || widget.open;
-    Widget content = AnimatedContainer(
-      duration: Motion.pill,
-      curve: Curves.easeOut,
-      constraints: BoxConstraints(
-        minWidth: widget.minWidth,
-        minHeight: BarTokens.menuItemHeight,
+    // shell27's plate is inset inside the 28-high box: `width - 2`,
+    // `height - 6`, so the wash never touches the strip's edges.
+    Widget content = SizedBox(
+      width: widget.width,
+      height: widget.height,
+      child: Center(
+        child: AnimatedContainer(
+          duration: Motion.pill,
+          curve: Curves.easeOut,
+          width: widget.width == null
+              ? null
+              : widget.width! - BarTokens.itemInsetX * 2,
+          height: widget.height - BarTokens.itemInsetY * 2,
+          padding: widget.width == null ? widget.padding : EdgeInsets.zero,
+          alignment: Alignment.center,
+          decoration: BoxDecoration(
+            color: active
+                ? (darkInk ? const Color(0xffffffff) : const Color(0xff000000))
+                      .withValues(
+                        alpha: darkInk
+                            ? BarTokens.itemHoverAlphaDark
+                            : BarTokens.itemHoverAlphaLight,
+                      )
+                : const Color(0x00000000),
+            borderRadius: BorderRadius.circular(widget.radius),
+          ),
+          child: widget.child,
+        ),
       ),
-      padding: widget.padding,
-      alignment: Alignment.center,
-      decoration: BoxDecoration(
-        color: active
-            ? (darkInk ? const Color(0xffffffff) : const Color(0xff000000))
-                  .withValues(
-                    alpha: darkInk
-                        ? BarTokens.itemHoverAlphaDark
-                        : BarTokens.itemHoverAlphaLight,
-                  )
-            : const Color(0x00000000),
-        borderRadius: BorderRadius.circular(widget.radius),
-      ),
-      child: widget.child,
     );
 
     content = MouseRegion(

@@ -2,11 +2,11 @@ import 'package:flutter/widgets.dart';
 
 /// Type for the menu bar and its panels.
 ///
-/// macOS sets its interface in SF Pro. Inter is the closest open metric match
-/// and is vendored under `assets/`, so the bar keeps SF Pro's proportions
-/// without shipping Apple's font. Sizes follow the HIG: 13 pt body, 11 pt
-/// minimum [S4]; the active app's name is bold [S2]. The SDK's own
-/// `systemBarValue` is JetBrains Mono, which is why the bar cannot use it.
+/// shell27 draws the bar in Inter at 14 pt (menu titles, clock) and the
+/// dropdown at 13 pt with a 12 pt shortcut column. Inter is vendored under
+/// `assets/` so the bar keeps those proportions without shipping SF Pro.
+/// The SDK's own `systemBarValue` is JetBrains Mono, which is why the bar
+/// cannot use it.
 abstract final class BarType {
   static const String _family = 'Inter';
   static const String _package = 'denial_topbar';
@@ -15,41 +15,47 @@ abstract final class BarType {
     'Noto Sans CJK SC',
   ];
 
-  static TextStyle _style(double size, FontWeight weight) => TextStyle(
+  static TextStyle _style(
+    double size,
+    FontWeight weight, {
+    double spacing = 0,
+  }) => TextStyle(
     fontFamily: _family,
     package: _package,
     fontFamilyFallback: _fallback,
     fontSize: size,
     fontWeight: weight,
     height: 1.2,
-    letterSpacing: -0.1,
+    letterSpacing: spacing,
     leadingDistribution: TextLeadingDistribution.even,
     decoration: TextDecoration.none,
   );
 
-  /// A menu bar title: 13 pt regular.
-  static TextStyle get item => _style(13, FontWeight.w400);
+  /// A menu bar title: shell27 `font.pixelSize: 14`.
+  static TextStyle get item => _style(14, FontWeight.w400);
 
-  /// The active app's name: 13 pt bold, per the HIG.
-  static TextStyle get appName => _style(13, FontWeight.w600);
+  /// The active app's name: 14 DemiBold, which is what shell27 sets and what
+  /// the HIG requires of the app menu.
+  static TextStyle get appName => _style(14, FontWeight.w600);
 
-  /// The clock: 13 pt medium with fixed-advance digits so the row never
-  /// jitters as the minute changes.
+  /// The clock: 14 DemiBold with `letterSpacing: 0.1`, and tabular digits so
+  /// the row never jitters as the minute changes.
   static TextStyle get clock => _style(
-    13,
-    FontWeight.w500,
+    14,
+    FontWeight.w600,
+    spacing: 0.1,
   ).copyWith(fontFeatures: const <FontFeature>[FontFeature.tabularFigures()]);
 
-  /// A row inside a menu.
+  /// A dropdown row: shell27 `font.pixelSize: 13`.
   static TextStyle get menuRow => _style(13, FontWeight.w400);
 
-  /// A menu row's shortcut column.
+  /// A dropdown row's shortcut column: shell27 `font.pixelSize: 12`.
   static TextStyle get shortcut => _style(12, FontWeight.w400);
 
-  /// Secondary text: dates, detail lines, 11 pt.
+  /// Secondary text: dates, detail lines.
   static TextStyle get caption => _style(11, FontWeight.w400);
 
-  /// A panel or card title.
+  /// A card or panel title.
   static TextStyle get title => _style(13, FontWeight.w600);
 
   /// A card's main value (a network name, a track title).
@@ -57,6 +63,12 @@ abstract final class BarType {
 
   /// A small label under an icon in Control Centre.
   static TextStyle get cellLabel => _style(10, FontWeight.w400);
+
+  /// The battery percentage in the bar: shell27 `font.pixelSize: 12`.
+  static TextStyle get batteryPercent => _style(12, FontWeight.w400);
+
+  /// A popover section heading: shell27 `12` DemiBold.
+  static TextStyle get section => _style(12, FontWeight.w600);
 
   /// The island's compact label.
   static TextStyle get islandLabel => _style(12, FontWeight.w500);

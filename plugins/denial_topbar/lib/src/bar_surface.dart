@@ -14,6 +14,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import 'app_menu.dart';
+import 'app_menus.dart';
 import 'bar_ground.dart';
 import 'bar_icons.dart';
 import 'bar_menu.dart';
@@ -23,11 +24,11 @@ import 'bar_settings.dart';
 import 'bar_status.dart';
 import 'bar_tokens.dart';
 import 'bar_type.dart';
+import 'clock_label.dart';
 import 'island.dart';
 import 'panels/bar_settings_panel.dart';
 import 'panels/control_center.dart';
 import 'panels/notifications_panel.dart';
-import 'panels/session_menu.dart';
 import 'system_menu.dart';
 import 'workspace_dots.dart';
 import 'workspace_switcher.dart';
@@ -60,7 +61,6 @@ class TopBarSurface extends ConsumerStatefulWidget {
 
 class _TopBarSurfaceState extends ConsumerState<TopBarSurface> {
   final GlobalKey _systemKey = GlobalKey();
-  final GlobalKey _appMenuKey = GlobalKey();
   final GlobalKey _clockKey = GlobalKey();
   final GlobalKey _wifiKey = GlobalKey();
   final GlobalKey _batteryKey = GlobalKey();
@@ -68,6 +68,10 @@ class _TopBarSurfaceState extends ConsumerState<TopBarSurface> {
   final GlobalKey _controlCenterKey = GlobalKey();
   final GlobalKey _settingsKey = GlobalKey();
   final GlobalKey _islandKey = GlobalKey();
+
+  /// One anchor per application-menu title, so each dropdown hangs under its
+  /// own title instead of the bar's left edge.
+  final Map<AppMenuId, GlobalKey> _appMenuKeys = <AppMenuId, GlobalKey>{};
 
   String? _openPanelId;
   String _lastIslandKey = '';
@@ -97,6 +101,7 @@ class _TopBarSurfaceState extends ConsumerState<TopBarSurface> {
     double width = BarTokens.panelMaxWidth,
     PanelEdge? side,
     bool glass = true,
+    BarPanelAnchor placement = BarPanelAnchor.dropdown,
   }) {
     showBarPanel(
       ref: ref,
@@ -105,6 +110,7 @@ class _TopBarSurfaceState extends ConsumerState<TopBarSurface> {
       width: width,
       side: side ?? _side,
       glass: glass,
+      placement: placement,
       builder: builder,
     );
     // showBarPanel toggles; mirror the resulting state so the cell wash and
@@ -125,8 +131,7 @@ class _TopBarSurfaceState extends ConsumerState<TopBarSurface> {
         'controlcenter',
         _islandKey,
         (_, _) => _controlCenterBody(),
-        width:
-            BarTokens.controlCenterMaxWidth + BarTokens.controlCenterMargin * 2,
+        width: BarTokens.controlCenterWidth + BarTokens.controlCenterMargin * 2,
       );
       return;
     }
@@ -142,7 +147,24 @@ class _TopBarSurfaceState extends ConsumerState<TopBarSurface> {
           onDismiss: close,
         ),
       ),
-      width: BarTokens.islandPopupWidth + 12,
+      width: BarTokens.islandPopupWidth,
+      placement: BarPanelAnchor.centred,
+    );
+  }
+
+  /// Opens the bar's settings sheet, from the system menu and View ▸ Menu Bar
+  /// Settings…. It hangs off the system menu's anchor because the sheet has no
+  /// cell of its own.
+  void _openBarSettings() {
+    _openPanel(
+      'settings',
+      _systemKey,
+      (_, dismiss) => BarSettingsPanel(
+        onClose: dismiss,
+        width: BarTokens.panelMaxWidth,
+        maxHeight: MediaQuery.sizeOf(context).height - 120,
+      ),
+      width: BarTokens.panelMaxWidth,
     );
   }
 
@@ -167,7 +189,7 @@ class _TopBarSurfaceState extends ConsumerState<TopBarSurface> {
           'notifications',
           _notificationsKey,
           (_, dismiss) => NotificationHistoryPanel(onClose: dismiss),
-          width: BarTokens.controlCenterMaxWidth,
+          width: BarTokens.controlCenterWidth,
         );
       },
       onOpenIsland: _openIsland,
@@ -278,13 +300,18 @@ class _TopBarSurfaceState extends ConsumerState<TopBarSurface> {
 
     final systemMenu = settings.showSystemMenu
         ? BarSystemMenu(
+            key: _systemKey,
             glyph: _DistroGlyph(ink: ink),
             open: _openPanelId == 'system',
             ink: ink,
             onToggle: () => _openPanel(
               'system',
               _systemKey,
-              (_, close) => SystemMenuBody(services: _services, onClose: close),
+              (_, close) => SystemMenuBody(
+                services: _services,
+                onClose: close,
+                onBarSettings: _openBarSettings,
+              ),
               width: BarTokens.menuWidth,
               glass: false,
             ),
@@ -296,8 +323,14 @@ class _TopBarSurfaceState extends ConsumerState<TopBarSurface> {
         : null;
 
     final clock = BarClock(
+      key: _clockKey,
       time: strings.time(now),
-      date: strings.shortDate(now),
+      date: clockDateLabel(
+        weekday: localizedWeekday(context.l10n, now.weekday),
+        month: localizedMonth(context.l10n, now.month),
+        day: now.day,
+        monthNumber: now.month,
+      ),
       showDate: settings.showClockDate && _horizontal,
       ink: ink,
       onTap: () => _openPanel(
@@ -311,11 +344,12 @@ class _TopBarSurfaceState extends ConsumerState<TopBarSurface> {
               'notifications',
               _notificationsKey,
               (_, dismiss) => NotificationHistoryPanel(onClose: dismiss),
-              width: BarTokens.controlCenterMaxWidth,
+              width: BarTokens.controlCenterWidth,
             );
           },
         ),
         width: 300,
+        placement: BarPanelAnchor.clock,
       ),
     );
 
@@ -324,6 +358,11 @@ class _TopBarSurfaceState extends ConsumerState<TopBarSurface> {
       settings: settings,
       openPanel: _openPanelId,
       ink: ink,
+      wifiKey: _wifiKey,
+      batteryKey: _batteryKey,
+      notificationsKey: _notificationsKey,
+      controlCenterKey: _controlCenterKey,
+      settingsKey: _settingsKey,
       onWifi: () => _openPanel(
         'wifi',
         _wifiKey,
@@ -335,26 +374,29 @@ class _TopBarSurfaceState extends ConsumerState<TopBarSurface> {
             _services.openPowerSettings();
           },
         ),
-        width: 300,
+        width: BarTokens.wifiPopoverWidth,
+        placement: BarPanelAnchor.centred,
       ),
       onBattery: () => _openPanel(
         'battery',
         _batteryKey,
         (_, close) => _BatteryPanel(services: _services, onClose: close),
         width: 300,
+        placement: BarPanelAnchor.centred,
       ),
       onNotifications: () => _openPanel(
         'notifications',
         _notificationsKey,
         (_, close) => NotificationHistoryPanel(onClose: close),
-        width: BarTokens.controlCenterMaxWidth,
+        width: BarTokens.controlCenterWidth,
+        placement: BarPanelAnchor.trailing,
       ),
       onControlCenter: () => _openPanel(
         'controlcenter',
         _controlCenterKey,
         (_, _) => _controlCenterBody(),
-        width:
-            BarTokens.controlCenterMaxWidth + BarTokens.controlCenterMargin * 2,
+        width: BarTokens.controlCenterWidth,
+        placement: BarPanelAnchor.trailing,
       ),
       onSettings: () => _openPanel(
         'settings',
@@ -364,6 +406,8 @@ class _TopBarSurfaceState extends ConsumerState<TopBarSurface> {
           width: BarTokens.panelMaxWidth,
           maxHeight: MediaQuery.sizeOf(context).height - 120,
         ),
+        width: BarTokens.panelMaxWidth,
+        placement: BarPanelAnchor.trailing,
       ),
     );
 
@@ -377,6 +421,7 @@ class _TopBarSurfaceState extends ConsumerState<TopBarSurface> {
 
     final island = islandAvailable
         ? TopBarIsland(
+            key: _islandKey,
             mode: islandMode,
             showClock: settings.islandShowsClock,
             timeText: strings.time(now),
@@ -435,8 +480,12 @@ class _TopBarSurfaceState extends ConsumerState<TopBarSurface> {
     final radius = attached
         ? BorderRadius.zero
         : BorderRadius.circular(BarTokens.floatingRadius);
+    // shell27: `leftRow.x: 8`, `rightRow.rightMargin: 6`.
     final padding = attached
-        ? const EdgeInsets.symmetric(horizontal: BarTokens.insetAttached)
+        ? const EdgeInsets.only(
+            left: BarTokens.insetLeft,
+            right: BarTokens.insetRight,
+          )
         : const EdgeInsets.symmetric(horizontal: BarTokens.insetFloating);
 
     Widget bar = Padding(
@@ -486,7 +535,6 @@ class _TopBarSurfaceState extends ConsumerState<TopBarSurface> {
             ? EdgeInsets.zero
             : const EdgeInsets.all(BarTokens.floatingMargin),
         child: KeyedSubtree(
-          key: _systemKey,
           child: SizedBox(
             width: _horizontal ? double.infinity : bodyHeight,
             height: _horizontal ? bodyHeight : double.infinity,
@@ -506,37 +554,58 @@ class _TopBarSurfaceState extends ConsumerState<TopBarSurface> {
     );
   }
 
+  /// The title row: the focused app's name, then File / Edit / View / Window /
+  /// Help, exactly the list shell27 ships.
+  ///
+  /// Wayland has no global-menu protocol, so each title opens the menu this
+  /// shell can build itself; the app name opens the window list.
   Widget _appMenu(BuildContext context, Color ink, BarSettings settings) {
     final state = ref.watch(shellControllerProvider);
     final window = state.foregroundWindow;
     final appName = window == null
         ? 'Denial'
         : _displayAppName(context, window);
-    return BarAppMenu(
-      appName: appName,
-      title: window == null ? '' : localizedWindowTitle(context, window),
-      showTitle: settings.showWindowTitle,
-      ink: ink,
-      onTap: window == null
-          ? null
-          : () => _openPanel(
-              'window',
-              _appMenuKey,
-              (_, close) => _WindowMenu(
-                services: _services,
-                monitorId: widget.monitorId,
-                onClose: close,
-                onSession: () => _openPanel(
-                  'session',
-                  _appMenuKey,
-                  (_, dismiss) => SessionMenuPanel(onClose: dismiss),
-                  width: 244,
-                  glass: false,
+    final titles = appMenuTitles(appName);
+    return Row(
+      mainAxisSize: MainAxisSize.min,
+      children: <Widget>[
+        for (final title in titles)
+          Builder(
+            builder: (context) {
+              final id = switch (title.id) {
+                AppMenuId.app => 'app',
+                AppMenuId.file => 'file',
+                AppMenuId.edit => 'edit',
+                AppMenuId.view => 'view',
+                AppMenuId.window => 'window',
+                AppMenuId.help => 'help',
+              };
+              final anchor = _appMenuKeys[title.id] ??= GlobalKey();
+              return KeyedSubtree(
+                key: anchor,
+                child: BarTitle(
+                  label: title.label,
+                  ink: ink,
+                  bold: title.bold,
+                  open: _openPanelId == id,
+                  onTap: () => _openPanel(
+                    id,
+                    anchor,
+                    (_, close) => AppMenuBody(
+                      id: title.id,
+                      services: _services,
+                      monitorId: widget.monitorId,
+                      onClose: close,
+                      onBarSettings: _openBarSettings,
+                    ),
+                    width: BarTokens.menuWidth,
+                    glass: false,
+                  ),
                 ),
-              ),
-              width: 260,
-              glass: false,
-            ),
+              );
+            },
+          ),
+      ],
     );
   }
 
@@ -597,13 +666,9 @@ class _BarRow extends StatelessWidget {
       height: bodyHeight,
       child: Row(
         children: <Widget>[
-          for (var index = 0; index < leading.length; index++) ...<Widget>[
-            if (index > 0 &&
-                leading[index - 1] is! SizedBox &&
-                leading[index] is! SizedBox)
-              const SizedBox(width: BarTokens.clusterGap),
-            leading[index],
-          ],
+          // shell27's left row has no explicit spacing; the titles butt up
+          // against each other and each carries its own 20 pt of padding.
+          ...leading,
           const Spacer(),
           ?centre,
           const Spacer(),
@@ -830,87 +895,6 @@ class _ClockPanel extends ConsumerWidget {
                   : 'Notifications',
               onTap: onOpenNotifications,
             ),
-          ],
-        ),
-      ),
-    );
-  }
-}
-
-/// Window actions for the focused app, in the slot macOS gives the app menu.
-class _WindowMenu extends ConsumerWidget {
-  const _WindowMenu({
-    required this.services,
-    required this.monitorId,
-    required this.onClose,
-    required this.onSession,
-  });
-
-  final ShellServices services;
-  final int monitorId;
-  final VoidCallback onClose;
-  final VoidCallback onSession;
-
-  @override
-  Widget build(BuildContext context, WidgetRef ref) {
-    final theme = context.shellTheme;
-    final state = ref.watch(shellControllerProvider);
-    final window = state.foregroundWindow;
-    final windows = ref.watch(services.windows(monitorId));
-
-    return SizedBox(
-      width: 260,
-      child: Padding(
-        padding: const EdgeInsets.symmetric(vertical: 5),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: <Widget>[
-            if (window != null) ...<Widget>[
-              BarMenuRow(
-                label: 'Minimize',
-                onTap: () {
-                  services.minimizeWindow(window.windowId);
-                  onClose();
-                },
-              ),
-              BarMenuRow(
-                label: 'Close Window',
-                onTap: () {
-                  ref
-                      .read(shellControllerProvider.notifier)
-                      .closeWindow(window);
-                  onClose();
-                },
-              ),
-              const BarMenuDivider(),
-            ],
-            for (final entry in windows.take(8))
-              BarMenuRow(
-                label: entry.title.isEmpty ? 'Untitled' : entry.title,
-                checked: entry.active,
-                onTap: () {
-                  services.activateWindow(entry.id);
-                  onClose();
-                },
-              ),
-            if (windows.isNotEmpty) const BarMenuDivider(),
-            BarMenuRow(
-              label: 'Session…',
-              onTap: () {
-                onClose();
-                onSession();
-              },
-            ),
-            if (window == null)
-              Padding(
-                padding: const EdgeInsets.fromLTRB(14, 6, 14, 2),
-                child: Text(
-                  'No window is focused',
-                  style: BarType.caption.copyWith(
-                    color: theme.colors.textTertiary,
-                  ),
-                ),
-              ),
           ],
         ),
       ),
