@@ -2,6 +2,8 @@ import 'package:denial_flutter_sdk/models.dart';
 import 'package:denial_flutter_sdk/services.dart';
 import 'package:denial_flutter_sdk/settings.dart';
 import 'package:denial_flutter_sdk/state.dart';
+import 'package:denial_flutter_sdk/system_services.dart'
+    show systemActionsServiceProvider;
 import 'package:denial_flutter_sdk/theme.dart';
 import 'package:flutter/widgets.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -10,6 +12,7 @@ import 'app_menu.dart';
 import 'bar_icons.dart';
 import 'bar_menu.dart';
 import 'bar_tokens.dart';
+import 'screen_tools.dart';
 
 /// The menu bar's title row.
 ///
@@ -137,20 +140,27 @@ class AppMenuBody extends ConsumerWidget {
       const BarMenuDivider(),
       BarMenuRow(
         label: 'Hide $name',
-        enabled: false,
-        onTap: null,
+        shortcut: '⌘H',
+        onTap: () {
+          onClose();
+          services.minimizeWindow(window.windowId);
+        },
       ),
       const BarMenuDivider(),
       BarMenuRow(
         label: 'Quit $name',
         shortcut: '⌘Q',
-        enabled: false,
-        onTap: null,
+        onTap: () {
+          onClose();
+          ref.read(shellControllerProvider.notifier).closeWindow(window);
+        },
       ),
       BarMenuRow(
         label: 'Force Quit $name',
-        enabled: false,
-        onTap: null,
+        onTap: () {
+          onClose();
+          ref.read(shellControllerProvider.notifier).closeWindow(window);
+        },
       ),
     ];
   }
@@ -196,13 +206,17 @@ class AppMenuBody extends ConsumerWidget {
     rows.addAll(<Widget>[
       BarMenuRow(
         label: 'Screenshot…',
-        enabled: false,
-        onTap: null,
+        onTap: () {
+          onClose();
+          ref.read(systemActionsServiceProvider).takeScreenshot();
+        },
       ),
       BarMenuRow(
         label: 'Pick Color',
-        enabled: false,
-        onTap: null,
+        onTap: () {
+          onClose();
+          ScreenTools.pickColor();
+        },
       ),
     ]);
     return rows;

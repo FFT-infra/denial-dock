@@ -21,6 +21,7 @@ class BarMenuRow extends StatefulWidget {
     this.glyph,
     this.destructive = false,
     this.leadInset = false,
+    this.chevron = false,
     this.onTap,
     super.key,
   });
@@ -38,6 +39,9 @@ class BarMenuRow extends StatefulWidget {
 
   /// Reserves the leading column, which lines every row's text up.
   final bool leadInset;
+
+  /// Draws the submenu chevron at the row's trailing edge.
+  final bool chevron;
   final VoidCallback? onTap;
 
   @override
@@ -134,6 +138,15 @@ class _BarMenuRowState extends State<BarMenuRow> {
                                 ? const Color(0xffffffff).withValues(alpha: 0.8)
                                 : dim,
                           ),
+                        ),
+                      ),
+                    if (widget.chevron)
+                      Padding(
+                        padding: const EdgeInsets.only(left: 8),
+                        child: BarGlyph(
+                          BarIcons.chevronRight,
+                          size: 10,
+                          color: ink.withValues(alpha: 0.7),
                         ),
                       ),
                   ],

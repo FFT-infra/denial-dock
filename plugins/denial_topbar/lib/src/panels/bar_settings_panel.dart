@@ -308,6 +308,12 @@ class _BarSettingsPanelState extends ConsumerState<BarSettingsPanel> {
                                   save((s) => s.copyWith(showWifi: value)),
                             ),
                             _ToggleRow(
+                              label: 'Sound',
+                              value: settings.showVolume,
+                              onChanged: (value) =>
+                                  save((s) => s.copyWith(showVolume: value)),
+                            ),
+                            _ToggleRow(
                               label: 'Battery',
                               value: settings.showBattery,
                               onChanged: (value) =>

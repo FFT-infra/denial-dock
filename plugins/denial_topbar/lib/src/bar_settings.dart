@@ -94,6 +94,7 @@ class BarSettings {
     this.showClockDate = true,
     this.showTray = true,
     this.showWifi = true,
+    this.showVolume = true,
     this.showBattery = true,
     this.showBatteryPercent = false,
     this.showNotifications = true,
@@ -132,6 +133,7 @@ class BarSettings {
   final bool showClockDate;
   final bool showTray;
   final bool showWifi;
+  final bool showVolume;
   final bool showBattery;
   final bool showBatteryPercent;
   final bool showNotifications;
@@ -162,6 +164,7 @@ class BarSettings {
     bool? showClockDate,
     bool? showTray,
     bool? showWifi,
+    bool? showVolume,
     bool? showBattery,
     bool? showBatteryPercent,
     bool? showNotifications,
@@ -188,6 +191,7 @@ class BarSettings {
     showClockDate: showClockDate ?? this.showClockDate,
     showTray: showTray ?? this.showTray,
     showWifi: showWifi ?? this.showWifi,
+    showVolume: showVolume ?? this.showVolume,
     showBattery: showBattery ?? this.showBattery,
     showBatteryPercent: showBatteryPercent ?? this.showBatteryPercent,
     showNotifications: showNotifications ?? this.showNotifications,
@@ -229,6 +233,7 @@ class BarSettings {
       showClockDate: flag('showClockDate', true),
       showTray: flag('showTray', true),
       showWifi: flag('showWifi', true),
+      showVolume: flag('showVolume', true),
       showBattery: flag('showBattery', true),
       showBatteryPercent: flag('showBatteryPercent', false),
       showNotifications: flag('showNotifications', true),
@@ -258,6 +263,7 @@ class BarSettings {
     json['showClockDate'] = showClockDate;
     json['showTray'] = showTray;
     json['showWifi'] = showWifi;
+    json['showVolume'] = showVolume;
     json['showBattery'] = showBattery;
     json['showBatteryPercent'] = showBatteryPercent;
     json['showNotifications'] = showNotifications;

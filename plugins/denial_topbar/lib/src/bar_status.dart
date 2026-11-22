@@ -65,11 +65,13 @@ class BarStatusCluster extends ConsumerWidget {
     required this.openPanel,
     required this.ink,
     required this.onWifi,
+    required this.onVolume,
     required this.onBattery,
     required this.onNotifications,
     required this.onControlCenter,
     required this.onSettings,
     this.wifiKey,
+    this.volumeKey,
     this.batteryKey,
     this.notificationsKey,
     this.controlCenterKey,
@@ -85,6 +87,7 @@ class BarStatusCluster extends ConsumerWidget {
 
   final Color ink;
   final VoidCallback onWifi;
+  final VoidCallback onVolume;
   final VoidCallback onBattery;
   final VoidCallback onNotifications;
   final VoidCallback onControlCenter;
@@ -93,6 +96,7 @@ class BarStatusCluster extends ConsumerWidget {
   /// Anchors the popup's scene rectangle. Without one the panel falls back to
   /// the screen edge instead of hanging under its own cell.
   final GlobalKey? wifiKey;
+  final GlobalKey? volumeKey;
   final GlobalKey? batteryKey;
   final GlobalKey? notificationsKey;
   final GlobalKey? controlCenterKey;
@@ -104,6 +108,7 @@ class BarStatusCluster extends ConsumerWidget {
     final trayVisible = ref.watch(services.trayVisible);
     final trayIds = ref.watch(services.trayItemIds);
     final wifi = ref.watch(services.connectedWifi);
+    final volume = ref.watch(services.volume);
     final battery = ref.watch(services.battery);
     final unread = ref.watch(
       desktopNotificationsProvider.select((state) => state.unreadCount),
@@ -113,10 +118,16 @@ class BarStatusCluster extends ConsumerWidget {
       if (settings.showTray && trayVisible && trayIds.isNotEmpty)
         ConstrainedBox(
           constraints: const BoxConstraints(maxWidth: 240),
-          child: services.buildSystemTray(
-            context,
-            horizontal: true,
-            foregroundColor: ink,
+          // macOS menu-bar extras are template images: one ink, no brand
+          // colour. Tray items publish full-colour icons, so the glyph is
+          // reduced to its luminance and repainted in the bar's own ink.
+          child: ColorFiltered(
+            colorFilter: ColorFilter.matrix(_templateMatrix(ink)),
+            child: services.buildSystemTray(
+              context,
+              horizontal: true,
+              foregroundColor: ink,
+            ),
           ),
         ),
       if (settings.showWifi)
@@ -138,6 +149,22 @@ class BarStatusCluster extends ConsumerWidget {
                   color: ink,
                   strength: wifiSignalArcs(wifi.strength),
                 ),
+        ),
+      if (settings.showVolume)
+        BarStatusCell(
+          key: volumeKey,
+          ink: ink,
+          width: BarTokens.statusCellWidth,
+          tooltip: strings.volumeTitle,
+          onTap: onVolume,
+          open: openPanel == 'volume',
+          child: BarGlyph(
+            volume <= 0.001
+                ? BarIcons.volumeMute
+                : (volume < 0.34 ? BarIcons.volumeDown : BarIcons.volumeUp),
+            size: BarTokens.statusIconSize,
+            color: ink,
+          ),
         ),
       if (settings.showBattery && battery.capacity != null)
         BarStatusCell(
@@ -239,6 +266,21 @@ class BarStatusCluster extends ConsumerWidget {
       ],
     );
   }
+}
+
+/// A colour matrix that paints every pixel in [ink] at the source's own alpha,
+/// the way macOS renders a template image in a menu-bar extra.
+List<double> _templateMatrix(Color ink) {
+  // Luminance keeps antialiased edges smooth before the tint replaces the
+  // colour; the last row leaves the source alpha untouched.
+  const lr = 0.2126, lg = 0.7152, lb = 0.0722;
+  final r = ink.r, g = ink.g, b = ink.b, a = ink.a;
+  return <double>[
+    lr * r, lg * r, lb * r, 0, 0,
+    lr * g, lg * g, lb * g, 0, 0,
+    lr * b, lg * b, lb * b, 0, 0,
+    0, 0, 0, a, 0,
+  ];
 }
 
 /// NextKDE `Battery.qml` picks a level icon and overlays the bolt while

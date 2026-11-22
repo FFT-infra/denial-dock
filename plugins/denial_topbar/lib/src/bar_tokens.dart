@@ -166,13 +166,10 @@ abstract final class BarTokens {
   static const double islandIdleWidth = 58;
   static const double islandEdgeInset = 8.5;
 
-  /// Compact Now Playing is 133 wide (20 pt cover plus the waveform).
-  static const double islandMediaMinWidth = 133;
-  static const double islandMediaMaxWidth = 200;
-  static const double islandMediaTextPad = 58;
+  /// The notice keeps its summary, so the pill widens with the text between
+  /// these bounds; the text sits beside a 14 pt dot and a close chip.
   static const double islandNoticeMinWidth = 140;
   static const double islandNoticeMaxWidth = 240;
-  static const double islandNoticeTextPad = 62;
 
   /// macOS 27 motion: expand `.spring(0.46, bounce 0.24)`, collapse 0.36 s.
   static const Duration islandWidth = Duration(milliseconds: 250);
@@ -180,9 +177,34 @@ abstract final class BarTokens {
   static const Duration islandExpand = Duration(milliseconds: 460);
   static const Duration islandCollapse = Duration(milliseconds: 360);
 
-  static const double islandPopupWidth = 340;
+  /// Compact Now Playing: a 20 pt cover at the 24% radius every island
+  /// element uses, then the waveform, 133 wide overall [S27].
+  static const double islandCompactCover = 20;
+  static const double islandCompactMediaWidth = 133;
+
+  /// Expanded card. macOS 27 measures 32 pt continuous corners, identical on
+  /// all four sides, with 16 pt of content padding [S27]. meniscus
+  /// `IslandMetrics` puts its player cover at 44 [S36]. The media card takes
+  /// darkshadow `DynIsland.qml`'s 470 and the banner takes meniscus's 360
+  /// banner width, so each type keeps the width its own content was measured
+  /// at.
   static const double islandPopupRadius = 32;
   static const double islandPopupPadding = 16;
+  static const double islandPlayerCover = 44;
+  static const double islandMediaWidth = 470;
+  static const double islandBannerWidth = 360;
+
+  /// darkshadow's charge face is 340 wide with the bolt, the number and the
+  /// fill; the expanded card keeps that width.
+  static const double islandChargeWidth = 340;
+
+  /// meniscus's banner: 8 pt inset, 30 pt app tile, 10 pt gap [S36].
+  static const double islandBannerInset = 8;
+  static const double islandBannerTile = 30;
+  static const double islandBannerGap = 10;
+
+  /// Gap between the strip and the card, darkshadow `bh + 8`.
+  static const double islandCardGap = 8;
 
   static const Duration islandAutoCollapse = Duration(milliseconds: 3500);
   static const Duration islandNoticeHold = Duration(milliseconds: 5000);

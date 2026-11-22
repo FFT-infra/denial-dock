@@ -11,6 +11,8 @@ import '../bar_tokens.dart';
 import '../bar_type.dart';
 import '../cc_layout.dart';
 import '../island.dart' show IslandExpandedBody, IslandMode;
+import '../media_art.dart';
+import 'network_panels.dart';
 
 /// Control Centre.
 ///
@@ -21,7 +23,7 @@ import '../island.dart' show IslandExpandedBody, IslandMode;
 /// circle centred in its cell. The panel itself is the frosted slab
 /// (`ccStyle: "macos"`), so each tile only keeps a faint shape on top of it
 /// instead of its own blur.
-class ControlCenterPanel extends ConsumerWidget {
+class ControlCenterPanel extends ConsumerStatefulWidget {
   const ControlCenterPanel({
     required this.services,
     required this.monitorId,
@@ -30,6 +32,7 @@ class ControlCenterPanel extends ConsumerWidget {
     required this.onOpenNotifications,
     required this.onOpenIsland,
     required this.onOpenDisplaySettings,
+    required this.onOpenNowPlaying,
     super.key,
   });
 
@@ -40,6 +43,27 @@ class ControlCenterPanel extends ConsumerWidget {
   final VoidCallback onOpenNotifications;
   final VoidCallback onOpenIsland;
   final VoidCallback onOpenDisplaySettings;
+
+  /// Opens the Now Playing card. shell27's media tile is not clickable; macOS
+  /// opens the full card from it, so the tile's body does that here.
+  final VoidCallback onOpenNowPlaying;
+
+  @override
+  ConsumerState<ControlCenterPanel> createState() => _ControlCenterPanelState();
+}
+
+class _ControlCenterPanelState extends ConsumerState<ControlCenterPanel> {
+  /// shell27's `ui.ccPage`: an empty string is the grid, `wifi` and `bt` are the
+  /// list pages the Wi-Fi and Bluetooth chevrons open inside the panel.
+  String _page = '';
+
+  ShellServices get services => widget.services;
+  DisplayOutput get output => widget.output;
+  VoidCallback get onOpenSettings => widget.onOpenSettings;
+  VoidCallback get onOpenNotifications => widget.onOpenNotifications;
+  VoidCallback get onOpenIsland => widget.onOpenIsland;
+  VoidCallback get onOpenDisplaySettings => widget.onOpenDisplaySettings;
+  VoidCallback get onOpenNowPlaying => widget.onOpenNowPlaying;
 
   /// shell27's `ccCatalog` restricted to what Denial can actually drive.
   ///
@@ -63,7 +87,7 @@ class ControlCenterPanel extends ConsumerWidget {
   static const Set<String> _sliders = <String>{'display', 'sound'};
 
   @override
-  Widget build(BuildContext context, WidgetRef ref) {
+  Widget build(BuildContext context) {
     final network = ref.watch(networkConnectivityProvider);
     final wifi = ref.watch(services.connectedWifi);
     final bluetooth = ref.watch(bluetoothProvider);
@@ -97,6 +121,26 @@ class ControlCenterPanel extends ConsumerWidget {
     final cellWidth =
         (gridWidth - (4 - 1) * BarTokens.ccGap) / 4;
 
+    if (_page.isNotEmpty) {
+      return SizedBox(
+        width: BarTokens.controlCenterWidth,
+        child: Padding(
+          padding: const EdgeInsets.all(BarTokens.controlCenterMargin),
+          child: _page == 'wifi'
+              ? WifiContent(
+                  showBack: true,
+                  onBack: () => setState(() => _page = ''),
+                  onOpenSettings: onOpenSettings,
+                )
+              : BluetoothContent(
+                  showBack: true,
+                  onBack: () => setState(() => _page = ''),
+                  onOpenSettings: onOpenSettings,
+                ),
+        ),
+      );
+    }
+
     return SizedBox(
       width: BarTokens.controlCenterWidth,
       child: Padding(
@@ -113,7 +157,6 @@ class ControlCenterPanel extends ConsumerWidget {
                   height: slot.height,
                   child: _tile(
                     context,
-                    ref,
                     slot,
                     network: network,
                     ssid: wifi?.ssid,
@@ -135,7 +178,6 @@ class ControlCenterPanel extends ConsumerWidget {
 
   Widget _tile(
     BuildContext context,
-    WidgetRef ref,
     CcSlot slot, {
     required NetworkConnectivityState network,
     required String? ssid,
@@ -166,7 +208,7 @@ class ControlCenterPanel extends ConsumerWidget {
           detail: !wifiOn
               ? 'Off'
               : ssid ?? services.strings(context).notConnected,
-          trailing: _CcChevron(onTap: onOpenSettings),
+          trailing: _CcChevron(onTap: () => setState(() => _page = 'wifi')),
         );
       case 'bluetooth':
         return _CcTile(
@@ -179,7 +221,7 @@ class ControlCenterPanel extends ConsumerWidget {
               : btOn
               ? 'On'
               : 'Off',
-          trailing: _CcChevron(onTap: onOpenSettings),
+          trailing: _CcChevron(onTap: () => setState(() => _page = 'bt')),
         );
       case 'focus':
         return _CcTile(
@@ -241,7 +283,7 @@ class ControlCenterPanel extends ConsumerWidget {
           leading: _CcIcon(icon: BarIcons.gear, on: false, small: small),
         );
       case 'nowplaying':
-        return _CcMediaTile(services: services);
+        return _CcMediaTile(services: services, onOpen: onOpenNowPlaying);
       case 'display':
         return _CcSliderTile(
           label: 'Display',
@@ -265,6 +307,16 @@ class ControlCenterPanel extends ConsumerWidget {
           onChangeStart: services.beginVolumeInteraction,
           onChanged: services.setVolume,
           onChangeEnd: services.commitVolume,
+          // shell27 puts a 28 pt speaker button at the tile's right edge that
+          // mutes; the SDK has no mute call, so it drops the level to zero.
+          trailing: _CcMuteButton(
+            muted: volume <= 0.001,
+            onTap: () {
+              services.beginVolumeInteraction();
+              services.setVolume(volume <= 0.001 ? 0.5 : 0);
+              services.commitVolume(volume <= 0.001 ? 0.5 : 0);
+            },
+          ),
         );
       default:
         return const SizedBox.shrink();
@@ -508,9 +560,10 @@ class _CcChevron extends StatelessWidget {
 /// Now Playing: `cNowPlaying`'s 45 pt cover at `x: 15; y: 12`, the title block
 /// at `y: 72`, and a transport row 38 from the bottom.
 class _CcMediaTile extends ConsumerWidget {
-  const _CcMediaTile({required this.services});
+  const _CcMediaTile({required this.services, required this.onOpen});
 
   final ShellServices services;
+  final VoidCallback onOpen;
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
@@ -525,59 +578,76 @@ class _CcMediaTile extends ConsumerWidget {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: <Widget>[
-          Padding(
-            padding: const EdgeInsets.fromLTRB(15, 12, 15, 0),
-            child: Row(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: <Widget>[
-                Container(
-                  width: 45,
-                  height: 45,
-                  decoration: BoxDecoration(
-                    color: theme.colors.textPrimary.withValues(alpha: 0.10),
-                    borderRadius: BorderRadius.circular(10),
-                    border: Border.all(
-                      color: theme.colors.textPrimary.withValues(alpha: 0.10),
-                      width: 1,
-                    ),
-                  ),
-                  child: BarGlyph(
-                    BarIcons.playFill,
-                    size: 22,
-                    color: theme.colors.textSecondary,
-                  ),
-                ),
-                const SizedBox(width: 12),
-                Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: <Widget>[
-                      Text(
-                        playback?.title.isNotEmpty == true
-                            ? playback!.title
-                            : services.strings(context).mediaNowPlaying,
-                        maxLines: 2,
-                        overflow: TextOverflow.ellipsis,
-                        style: BarType.title.copyWith(
-                          color: playback == null
-                              ? theme.colors.textSecondary
-                              : theme.colors.textPrimary,
-                        ),
-                      ),
-                      const SizedBox(height: 2),
-                      if (playback != null && playback.artistLabel.isNotEmpty)
-                        Text(
-                          playback.artistLabel,
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
-                          style: BarType.section.copyWith(
-                            color: theme.colors.textSecondary,
+          GestureDetector(
+            behavior: HitTestBehavior.opaque,
+            onTap: onOpen,
+            child: MouseRegion(
+              cursor: SystemMouseCursors.click,
+              child: Padding(
+                padding: const EdgeInsets.fromLTRB(15, 12, 15, 0),
+                child: Row(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: <Widget>[
+                    MediaArtwork(
+                      url: playback?.artUrl ?? '',
+                      size: 45,
+                      radius: 10,
+                      fallback: Container(
+                        width: 45,
+                        height: 45,
+                        decoration: BoxDecoration(
+                          color: theme.colors.textPrimary.withValues(
+                            alpha: 0.10,
+                          ),
+                          borderRadius: BorderRadius.circular(10),
+                          border: Border.all(
+                            color: theme.colors.textPrimary.withValues(
+                              alpha: 0.10,
+                            ),
+                            width: 1,
                           ),
                         ),
-                    ],
-                  ),
+                        child: BarGlyph(
+                          BarIcons.playFill,
+                          size: 22,
+                          color: theme.colors.textSecondary,
+                        ),
+                      ),
+                    ),
+                    const SizedBox(width: 12),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: <Widget>[
+                          Text(
+                            playback?.title.isNotEmpty == true
+                                ? playback!.title
+                                : services.strings(context).mediaNowPlaying,
+                            maxLines: 2,
+                            overflow: TextOverflow.ellipsis,
+                            style: BarType.title.copyWith(
+                              color: playback == null
+                                  ? theme.colors.textSecondary
+                                  : theme.colors.textPrimary,
+                            ),
+                          ),
+                          const SizedBox(height: 2),
+                          if (playback != null &&
+                              playback.artistLabel.isNotEmpty)
+                            Text(
+                              playback.artistLabel,
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                              style: BarType.section.copyWith(
+                                color: theme.colors.textSecondary,
+                              ),
+                            ),
+                        ],
+                      ),
+                    ),
+                  ],
                 ),
-              ],
+              ),
             ),
           ),
           const Spacer(),
@@ -665,6 +735,7 @@ class _CcSliderTile extends StatelessWidget {
     required this.onChangeStart,
     required this.onChanged,
     required this.onChangeEnd,
+    this.trailing,
   });
 
   final String label;
@@ -674,6 +745,9 @@ class _CcSliderTile extends StatelessWidget {
   final VoidCallback onChangeStart;
   final ValueChanged<double> onChanged;
   final ValueChanged<double> onChangeEnd;
+
+  /// shell27's `cSound` ends the slider 36 pt early for a 28 pt button.
+  final Widget? trailing;
 
   @override
   Widget build(BuildContext context) {
@@ -694,7 +768,7 @@ class _CcSliderTile extends StatelessWidget {
           ),
           Positioned(
             left: 12,
-            right: 12,
+            right: trailing == null ? 12 : 12 + 36,
             top: BarTokens.ccSliderTop,
             height: 28,
             child: _CcSlider(
@@ -706,7 +780,54 @@ class _CcSliderTile extends StatelessWidget {
               onChangeEnd: onChangeEnd,
             ),
           ),
+          if (trailing != null)
+            Positioned(
+              right: 12,
+              top: BarTokens.ccSliderTop,
+              width: 28,
+              height: 28,
+              child: trailing!,
+            ),
         ],
+      ),
+    );
+  }
+}
+
+/// shell27's `cSound` mute button: a 28 pt circle that fills with the accent
+/// while the output is muted.
+class _CcMuteButton extends StatelessWidget {
+  const _CcMuteButton({required this.muted, required this.onTap});
+
+  final bool muted;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = context.shellTheme;
+    return MouseRegion(
+      cursor: SystemMouseCursors.click,
+      child: GestureDetector(
+        behavior: HitTestBehavior.opaque,
+        onTap: onTap,
+        child: AnimatedContainer(
+          duration: const Duration(milliseconds: 120),
+          decoration: BoxDecoration(
+            shape: BoxShape.circle,
+            color: muted
+                ? theme.accent
+                : theme.colors.textPrimary.withValues(alpha: 0.10),
+          ),
+          child: Center(
+            child: BarGlyph(
+              muted ? BarIcons.volumeMute : BarIcons.volumeUp,
+              size: 15,
+              color: muted
+                  ? const Color(0xffffffff)
+                  : theme.colors.textPrimary,
+            ),
+          ),
+        ),
       ),
     );
   }
@@ -908,6 +1029,7 @@ class IslandPanel extends ConsumerWidget {
     required this.services,
     required this.notification,
     required this.onDismiss,
+    this.chargePercent,
     super.key,
   });
 
@@ -915,17 +1037,20 @@ class IslandPanel extends ConsumerWidget {
   final ShellServices services;
   final DesktopNotification? notification;
   final VoidCallback onDismiss;
+  final int? chargePercent;
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
+    final playback = ref.watch(services.media).value;
     return IslandExpandedBody(
       mode: mode,
       notification: notification,
-      playback: ref.watch(services.media).value,
-      artwork: null,
+      playback: playback,
+      artworkUrl: playback?.artUrl ?? '',
       commands: ref.watch(services.mediaCommands),
       onDismissNotice: onDismiss,
       onActivateNotice: onDismiss,
+      chargePercent: chargePercent,
     );
   }
 }

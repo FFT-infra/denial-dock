@@ -17,18 +17,21 @@ import 'app_menu.dart';
 import 'app_menus.dart';
 import 'bar_ground.dart';
 import 'bar_icons.dart';
-import 'bar_menu.dart';
 import 'bar_panel.dart';
 import 'bar_preferences.dart';
 import 'bar_settings.dart';
 import 'bar_status.dart';
 import 'bar_tokens.dart';
-import 'bar_type.dart';
 import 'clock_label.dart';
 import 'island.dart';
+import 'panels/audio_panel.dart';
 import 'panels/bar_settings_panel.dart';
+import 'panels/notification_center_panel.dart';
 import 'panels/control_center.dart';
+import 'panels/media_card.dart';
+import 'panels/network_panels.dart';
 import 'panels/notifications_panel.dart';
+import 'panels/panel_parts.dart';
 import 'system_menu.dart';
 import 'workspace_dots.dart';
 import 'workspace_switcher.dart';
@@ -63,6 +66,7 @@ class _TopBarSurfaceState extends ConsumerState<TopBarSurface> {
   final GlobalKey _systemKey = GlobalKey();
   final GlobalKey _clockKey = GlobalKey();
   final GlobalKey _wifiKey = GlobalKey();
+  final GlobalKey _volumeKey = GlobalKey();
   final GlobalKey _batteryKey = GlobalKey();
   final GlobalKey _notificationsKey = GlobalKey();
   final GlobalKey _controlCenterKey = GlobalKey();
@@ -79,9 +83,16 @@ class _TopBarSurfaceState extends ConsumerState<TopBarSurface> {
   bool _islandHovered = false;
   bool _islandExpanded = false;
 
+  /// The charger's last seen state, so the pill can flash on the change
+  /// rather than on every frame the battery provider rebuilds.
+  bool? _wasCharging;
+  Timer? _chargeFlash;
+  bool _charging = false;
+
   @override
   void dispose() {
     _islandCollapse?.cancel();
+    _chargeFlash?.cancel();
     super.dispose();
   }
 
@@ -102,6 +113,7 @@ class _TopBarSurfaceState extends ConsumerState<TopBarSurface> {
     PanelEdge? side,
     bool glass = true,
     BarPanelAnchor placement = BarPanelAnchor.dropdown,
+    Color? fill,
   }) {
     showBarPanel(
       ref: ref,
@@ -111,6 +123,7 @@ class _TopBarSurfaceState extends ConsumerState<TopBarSurface> {
       side: side ?? _side,
       glass: glass,
       placement: placement,
+      fill: fill,
       builder: builder,
     );
     // showBarPanel toggles; mirror the resulting state so the cell wash and
@@ -138,17 +151,17 @@ class _TopBarSurfaceState extends ConsumerState<TopBarSurface> {
     _openPanel(
       'island',
       _islandKey,
-      (_, close) => Padding(
-        padding: const EdgeInsets.all(6),
-        child: IslandPanel(
-          mode: mode,
-          services: _services,
-          notification: note,
-          onDismiss: close,
-        ),
+      (_, close) => IslandPanel(
+        mode: mode,
+        services: _services,
+        notification: note,
+        onDismiss: close,
+        chargePercent: ref.read(_services.battery).capacity,
       ),
-      width: BarTokens.islandPopupWidth,
-      placement: BarPanelAnchor.centred,
+      width: IslandExpandedBody.widthFor(mode),
+      placement: BarPanelAnchor.island,
+      // The card is the pill grown, so it keeps the pill's black.
+      fill: const Color(BarTokens.islandFill),
     );
   }
 
@@ -165,6 +178,7 @@ class _TopBarSurfaceState extends ConsumerState<TopBarSurface> {
         maxHeight: MediaQuery.sizeOf(context).height - 120,
       ),
       width: BarTokens.panelMaxWidth,
+      placement: BarPanelAnchor.centred,
     );
   }
 
@@ -189,11 +203,22 @@ class _TopBarSurfaceState extends ConsumerState<TopBarSurface> {
           'notifications',
           _notificationsKey,
           (_, dismiss) => NotificationHistoryPanel(onClose: dismiss),
-          width: BarTokens.controlCenterWidth,
+          width: PanelWidth.notifications,
+          placement: BarPanelAnchor.trailing,
         );
       },
       onOpenIsland: _openIsland,
       onOpenDisplaySettings: () => _services.openPowerSettings(),
+      onOpenNowPlaying: () => _openPanel(
+        'nowplaying',
+        _controlCenterKey,
+        (_, close) => Padding(
+          padding: const EdgeInsets.all(BarTokens.panelPadding),
+          child: NowPlayingPanel(services: _services),
+        ),
+        width: BarTokens.panelMaxWidth,
+        placement: BarPanelAnchor.trailing,
+      ),
     );
   }
 
@@ -241,6 +266,27 @@ class _TopBarSurfaceState extends ConsumerState<TopBarSurface> {
     _armIslandCollapse();
   }
 
+  /// Holds the charge face for a moment when the charger goes in or out.
+  ///
+  /// macOS shows the banner on every plug and unplug with no way to turn it
+  /// off [S28], so this follows the edge rather than the level: the first
+  /// frame only records the state, and a later change flashes. A build cannot
+  /// call `setState`, so the flash is armed through a zero-delay timer.
+  void _syncChargeFlash(BarSettings settings, bool charging) {
+    final previous = _wasCharging;
+    _wasCharging = charging;
+    if (previous == null || previous == charging) return;
+    if (!settings.activityCharging) return;
+    _chargeFlash?.cancel();
+    _chargeFlash = Timer(Duration.zero, () {
+      if (!mounted) return;
+      setState(() => _charging = true);
+      _chargeFlash = Timer(const Duration(seconds: 3), () {
+        if (mounted) setState(() => _charging = false);
+      });
+    });
+  }
+
   @override
   Widget build(BuildContext context) {
     final settings =
@@ -256,9 +302,11 @@ class _TopBarSurfaceState extends ConsumerState<TopBarSurface> {
     final now = ref.watch(_services.clock).value ?? DateTime.now();
     final strings = _services.strings(context);
     final playback = ref.watch(_services.media).value;
+    final battery = ref.watch(_services.battery);
     final banner = ref.watch(
       desktopNotificationsProvider.select((state) => state.bannerNotification),
     );
+    _syncChargeFlash(settings, battery.charging);
     final islandMode = _currentIslandMode = resolveIslandMode(
       mediaEnabled: settings.activityMedia,
       mediaPlaying: playback?.playing ?? false,
@@ -268,10 +316,13 @@ class _TopBarSurfaceState extends ConsumerState<TopBarSurface> {
           (state) => state.bannerNotifications.isNotEmpty,
         ),
       ),
+      charging: _charging,
     );
     final islandKey = switch (islandMode) {
       IslandMode.media => 'media:${playback?.serviceName}:${playback?.title}',
       IslandMode.notice => 'notice:${banner?.id}',
+      // The flash expands once per plug event and folds back when it ends.
+      IslandMode.charging => 'charge',
       IslandMode.quiet => '',
     };
     WidgetsBinding.instance.addPostFrameCallback((_) {
@@ -336,19 +387,8 @@ class _TopBarSurfaceState extends ConsumerState<TopBarSurface> {
       onTap: () => _openPanel(
         'clock',
         _clockKey,
-        (_, close) => _ClockPanel(
-          onClose: close,
-          onOpenNotifications: () {
-            close();
-            _openPanel(
-              'notifications',
-              _notificationsKey,
-              (_, dismiss) => NotificationHistoryPanel(onClose: dismiss),
-              width: BarTokens.controlCenterWidth,
-            );
-          },
-        ),
-        width: 300,
+        (_, close) => NotificationCenterPanel(onClose: close),
+        width: PanelWidth.notifications,
         placement: BarPanelAnchor.clock,
       ),
     );
@@ -359,6 +399,7 @@ class _TopBarSurfaceState extends ConsumerState<TopBarSurface> {
       openPanel: _openPanelId,
       ink: ink,
       wifiKey: _wifiKey,
+      volumeKey: _volumeKey,
       batteryKey: _batteryKey,
       notificationsKey: _notificationsKey,
       controlCenterKey: _controlCenterKey,
@@ -366,29 +407,38 @@ class _TopBarSurfaceState extends ConsumerState<TopBarSurface> {
       onWifi: () => _openPanel(
         'wifi',
         _wifiKey,
-        (_, close) => _WifiPanel(
-          services: _services,
-          onClose: close,
-          onOpenSettings: () {
-            close();
-            _services.openPowerSettings();
-          },
+        (_, close) => _PopoverShell(
+          child: WifiContent(
+            onOpenSettings: () {
+              close();
+              _services.openPowerSettings();
+            },
+          ),
         ),
-        width: BarTokens.wifiPopoverWidth,
+        width: PanelWidth.wifi,
+        placement: BarPanelAnchor.centred,
+      ),
+      onVolume: () => _openPanel(
+        'volume',
+        _volumeKey,
+        (_, close) => _PopoverShell(child: SoundPopover(services: _services)),
+        width: PanelWidth.volume,
         placement: BarPanelAnchor.centred,
       ),
       onBattery: () => _openPanel(
         'battery',
         _batteryKey,
-        (_, close) => _BatteryPanel(services: _services, onClose: close),
-        width: 300,
+        (_, close) => _PopoverShell(
+          child: _BatteryContent(services: _services),
+        ),
+        width: PanelWidth.wifi,
         placement: BarPanelAnchor.centred,
       ),
       onNotifications: () => _openPanel(
         'notifications',
         _notificationsKey,
         (_, close) => NotificationHistoryPanel(onClose: close),
-        width: BarTokens.controlCenterWidth,
+        width: PanelWidth.notifications,
         placement: BarPanelAnchor.trailing,
       ),
       onControlCenter: () => _openPanel(
@@ -407,7 +457,7 @@ class _TopBarSurfaceState extends ConsumerState<TopBarSurface> {
           maxHeight: MediaQuery.sizeOf(context).height - 120,
         ),
         width: BarTokens.panelMaxWidth,
-        placement: BarPanelAnchor.trailing,
+        placement: BarPanelAnchor.centred,
       ),
     );
 
@@ -425,12 +475,22 @@ class _TopBarSurfaceState extends ConsumerState<TopBarSurface> {
             mode: islandMode,
             showClock: settings.islandShowsClock,
             timeText: strings.time(now),
+            dateText: settings.showClockDate
+                ? clockDateLabel(
+                    weekday: localizedWeekday(context.l10n, now.weekday),
+                    month: localizedMonth(context.l10n, now.month),
+                    day: now.day,
+                    monthNumber: now.month,
+                  )
+                : '',
             mediaTitle: playback?.title ?? '',
             noticeSummary: banner?.summary ?? '',
             expanded: _islandExpanded,
             height: islandHeight,
             onOpen: _openIsland,
             onHover: _onIslandHover,
+            artworkUrl: playback?.artUrl ?? '',
+            chargePercent: battery.capacity,
             workspace: workspacePlacement == BarWorkspacePlacement.island
                 ? WorkspaceSwitcher(
                     services: _services,
@@ -662,17 +722,43 @@ class _BarRow extends StatelessWidget {
         ],
       );
     }
+    // macOS centres the island on the camera housing, which is the middle of
+    // the strip — not the middle of whatever space the two clusters leave.
+    // Equal flex on both sides puts the centre at the strip's own midpoint,
+    // and each cluster is clipped to its half so a long title list cannot run
+    // under the island.
     return SizedBox(
       height: bodyHeight,
       child: Row(
         children: <Widget>[
-          // shell27's left row has no explicit spacing; the titles butt up
-          // against each other and each carries its own 20 pt of padding.
-          ...leading,
-          const Spacer(),
+          Expanded(
+            child: ClipRect(
+              child: OverflowBox(
+                alignment: Alignment.centerLeft,
+                maxWidth: double.infinity,
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  // shell27's left row has no explicit spacing; the titles
+                  // butt up against each other and each carries its own
+                  // 20 pt of padding.
+                  children: leading,
+                ),
+              ),
+            ),
+          ),
           ?centre,
-          const Spacer(),
-          ...trailing,
+          Expanded(
+            child: ClipRect(
+              child: OverflowBox(
+                alignment: Alignment.centerRight,
+                maxWidth: double.infinity,
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: trailing,
+                ),
+              ),
+            ),
+          ),
         ],
       ),
     );
@@ -707,197 +793,101 @@ class _DistroGlyph extends StatelessWidget {
   }
 }
 
-/// Wi-Fi popover: the connected network and a shortcut into settings, which
-/// is where Denial's own network list lives.
-class _WifiPanel extends ConsumerWidget {
-  const _WifiPanel({
-    required this.services,
-    required this.onClose,
-    required this.onOpenSettings,
-  });
 
-  final ShellServices services;
-  final VoidCallback onClose;
-  final VoidCallback onOpenSettings;
+/// The padding shell27 gives every popover's content: loaded at `x: 11; y: 11`
+/// inside a 320-wide shape, which leaves 11 pt on each side and 11 at the top.
+class _PopoverShell extends StatelessWidget {
+  const _PopoverShell({required this.child});
+
+  final Widget child;
 
   @override
-  Widget build(BuildContext context, WidgetRef ref) {
-    final theme = context.shellTheme;
-    final wifi = ref.watch(services.connectedWifi);
-    final strings = services.strings(context);
-    return SizedBox(
-      width: 300,
-      child: Padding(
-        padding: const EdgeInsets.all(BarTokens.panelPadding),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.stretch,
-          children: <Widget>[
-            Row(
-              children: <Widget>[
-                BarGlyph(
-                  wifi == null ? BarIcons.wifiSlash : BarIcons.wifi,
-                  size: 16,
-                  color: theme.colors.textPrimary,
-                ),
-                const SizedBox(width: 8),
-                Text(
-                  strings.wifiTitle,
-                  style: BarType.title.copyWith(
-                    color: theme.colors.textPrimary,
-                  ),
-                ),
-              ],
-            ),
-            const SizedBox(height: 10),
-            Container(
-              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
-              decoration: BoxDecoration(
-                color: theme.colors.surfaceContainer.withValues(alpha: 0.6),
-                borderRadius: theme.borderRadius(12),
-              ),
-              child: Row(
-                children: <Widget>[
-                  Expanded(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: <Widget>[
-                        Text(
-                          wifi?.ssid ?? strings.notConnected,
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
-                          style: BarType.value.copyWith(
-                            color: theme.colors.textPrimary,
-                          ),
-                        ),
-                        if (wifi != null)
-                          Text(
-                            '${wifi.strength}%',
-                            style: BarType.caption.copyWith(
-                              color: theme.colors.textSecondary,
-                            ),
-                          ),
-                      ],
-                    ),
-                  ),
-                ],
-              ),
-            ),
-            const SizedBox(height: 8),
-            BarMenuAction(
-              label: 'Network Settings…',
-              onTap: () {
-                onClose();
-                onOpenSettings();
-              },
-            ),
-          ],
-        ),
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(
+        panelInset,
+        panelInset,
+        panelInset,
+        panelInset - 2,
       ),
+      child: child,
     );
   }
 }
 
-class _BatteryPanel extends ConsumerWidget {
-  const _BatteryPanel({required this.services, required this.onClose});
+/// The battery popover: the charge, the charging state and the time left.
+///
+/// macOS keeps this card short — a large percentage, a state line, and one
+/// button into the battery settings — so it follows that shape rather than the
+/// Wi-Fi list's.
+class _BatteryContent extends ConsumerWidget {
+  const _BatteryContent({required this.services});
 
   final ShellServices services;
-  final VoidCallback onClose;
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final theme = context.shellTheme;
     final battery = ref.watch(services.battery);
     final strings = services.strings(context);
-    return SizedBox(
-      width: 300,
-      child: Padding(
-        padding: const EdgeInsets.all(BarTokens.panelPadding),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.stretch,
-          children: <Widget>[
-            Row(
-              children: <Widget>[
-                BarGlyph(
-                  batteryIconFor(battery),
-                  size: 18,
-                  color: theme.colors.textPrimary,
-                ),
-                const SizedBox(width: 8),
+    final capacity = battery.capacity;
+    return Column(
+      mainAxisSize: MainAxisSize.min,
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: <Widget>[
+        Padding(
+          padding: const EdgeInsets.fromLTRB(4, 2, 4, 0),
+          child: Row(
+            children: <Widget>[
+              BarGlyph(
+                batteryIconFor(battery),
+                size: 18,
+                color: theme.colors.textPrimary,
+              ),
+              const SizedBox(width: 8),
+              Text(
+                capacity == null ? strings.batteryTitle : '$capacity%',
+                style: PanelText.title(theme),
+              ),
+              const Spacer(),
+              if (battery.charging)
                 Text(
-                  battery.capacity == null
-                      ? strings.batteryTitle
-                      : '${battery.capacity}%',
-                  style: BarType.title.copyWith(
-                    color: theme.colors.textPrimary,
-                  ),
+                  'Charging',
+                  style: PanelText.detail(theme),
                 ),
-                if (battery.charging) ...<Widget>[
-                  const SizedBox(width: 6),
-                  BarGlyph(BarIcons.boltFill, size: 12, color: theme.accent),
-                ],
-              ],
+            ],
+          ),
+        ),
+        const SizedBox(height: 6),
+        Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 4),
+          child: Container(
+            height: 6,
+            decoration: BoxDecoration(
+              color: theme.colors.textPrimary.withValues(alpha: 0.16),
+              borderRadius: BorderRadius.circular(3),
             ),
-            const SizedBox(height: 8),
-            Text(
-              battery.charging
-                  ? '${strings.batteryTitle} · charging'
-                  : strings.batteryTitle,
-              style: BarType.caption.copyWith(
-                color: theme.colors.textSecondary,
+            child: FractionallySizedBox(
+              alignment: Alignment.centerLeft,
+              widthFactor: ((capacity ?? 0) / 100).clamp(0.0, 1.0),
+              child: DecoratedBox(
+                decoration: BoxDecoration(
+                  color: battery.charging
+                      ? theme.accent
+                      : theme.colors.textPrimary,
+                  borderRadius: BorderRadius.circular(3),
+                ),
               ),
             ),
-          ],
+          ),
         ),
-      ),
-    );
-  }
-}
-
-/// The clock's card: the long date, then a shortcut into notifications.
-class _ClockPanel extends ConsumerWidget {
-  const _ClockPanel({required this.onClose, required this.onOpenNotifications});
-
-  final VoidCallback onClose;
-  final VoidCallback onOpenNotifications;
-
-  @override
-  Widget build(BuildContext context, WidgetRef ref) {
-    final theme = context.shellTheme;
-    final now = ref.watch(clockProvider).value ?? DateTime.now();
-    final unread = ref.watch(
-      desktopNotificationsProvider.select((state) => state.unreadCount),
-    );
-    return SizedBox(
-      width: 300,
-      child: Padding(
-        padding: const EdgeInsets.all(BarTokens.panelPadding),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.stretch,
-          children: <Widget>[
-            Text(
-              localizedTime(context, now),
-              style: BarType.display.copyWith(color: theme.colors.textPrimary),
-            ),
-            const SizedBox(height: 2),
-            Text(
-              localizedLongDate(context, now),
-              style: BarType.caption.copyWith(
-                color: theme.colors.textSecondary,
-              ),
-            ),
-            const SizedBox(height: 12),
-            BarMenuAction(
-              label: unread > 0
-                  ? 'Notifications · $unread new'
-                  : 'Notifications',
-              onTap: onOpenNotifications,
-            ),
-          ],
+        const SizedBox(height: 8),
+        PanelDivider(color: theme.colors.hairlineSoft),
+        PanelAction(
+          label: 'Battery Settings…',
+          onTap: () => services.openPowerSettings(),
         ),
-      ),
+      ],
     );
   }
 }

@@ -28,11 +28,17 @@ enum BarPanelAnchor {
   /// Centred on the item. Used by Wi-Fi, Bluetooth, volume, keyboard.
   centred,
 
-  /// Centred, clamped to the screen. Used by the clock.
+  /// Right-aligned to `screen - width - 8`. Used by the clock's calendar,
+  /// which shell27 pins to the right edge because the clock is always the
+  /// rightmost item.
   clock,
 
   /// Right-aligned to `screen - width - 10`. Used by Control Centre.
   trailing,
+
+  /// Centred on the island, at the island's own 32 pt radius and its 8 pt
+  /// gap, so the card reads as the pill growing rather than a popover [S27].
+  island,
 }
 
 /// Scene rectangle of a bar item, used to hang a panel under its edge.
@@ -57,6 +63,7 @@ void showBarPanel({
   String keyName = barPanelKey,
   bool glass = true,
   BarPanelAnchor placement = BarPanelAnchor.dropdown,
+  Color? fill,
 }) {
   final controller = ref.read(shellPopupControllerProvider.notifier);
   final previous = _openPopup;
@@ -87,6 +94,7 @@ void showBarPanel({
       width: width,
       glass: glass,
       placement: placement,
+      fill: fill,
       child: builder(context, popup.close),
     ),
   );
@@ -106,6 +114,7 @@ class BarPanelFrame extends StatelessWidget {
     required this.child,
     this.glass = true,
     this.placement = BarPanelAnchor.dropdown,
+    this.fill,
     super.key,
   });
 
@@ -119,18 +128,26 @@ class BarPanelFrame extends StatelessWidget {
   final bool glass;
   final BarPanelAnchor placement;
 
+  /// Overrides the card's colour. The island's expanded card is the pill
+  /// itself grown, so it keeps the pill's black instead of the panel glass.
+  final Color? fill;
+
   @override
   Widget build(BuildContext context) {
     final theme = context.shellTheme;
     final scene = MediaQuery.sizeOf(context);
     final rect = anchor;
     final below = side != PanelEdge.bottom;
-    final gap = placement == BarPanelAnchor.dropdown
-        ? BarTokens.menuDropOffsetY
-        : BarTokens.popoverGap;
-    final radius = placement == BarPanelAnchor.dropdown
-        ? BarTokens.menuRadius
-        : BarTokens.popoverRadius;
+    final gap = switch (placement) {
+      BarPanelAnchor.dropdown => BarTokens.menuDropOffsetY,
+      BarPanelAnchor.island => BarTokens.islandCardGap,
+      _ => BarTokens.popoverGap,
+    };
+    final radius = switch (placement) {
+      BarPanelAnchor.dropdown => BarTokens.menuRadius,
+      BarPanelAnchor.island => BarTokens.islandPopupRadius,
+      _ => BarTokens.popoverRadius,
+    };
 
     // shell27 clamps every popover into `[6, screen - width - 6]`.
     const margin = 6.0;
@@ -139,14 +156,11 @@ class BarPanelFrame extends StatelessWidget {
         ((rect?.left ?? 0) + BarTokens.menuDropOffsetX)
             .clamp(margin, math.max(margin, scene.width - width - margin))
             .toDouble(),
-      BarPanelAnchor.centred =>
+      BarPanelAnchor.centred || BarPanelAnchor.island =>
         ((rect?.center.dx ?? scene.width / 2) - width / 2)
             .clamp(margin, math.max(margin, scene.width - width - margin))
             .toDouble(),
-      BarPanelAnchor.clock =>
-        ((rect?.center.dx ?? scene.width / 2) - width / 2)
-            .clamp(margin, math.max(margin, scene.width - width - margin))
-            .toDouble(),
+      BarPanelAnchor.clock => math.max(margin, scene.width - width - 8),
       BarPanelAnchor.trailing => math.max(
         margin,
         scene.width - width - BarTokens.controlCenterInset,
@@ -191,9 +205,11 @@ class BarPanelFrame extends StatelessWidget {
                   decoration: BoxDecoration(
                     // A menu is the opaque material macOS draws behind a
                     // dropdown; a panel is the translucent glass card.
-                    color: glass
-                        ? theme.panelColor(theme.colors.panelBackground)
-                        : theme.colors.panelBackground,
+                    color:
+                        fill ??
+                        (glass
+                            ? theme.panelColor(theme.colors.panelBackground)
+                            : theme.colors.panelBackground),
                     borderRadius: BorderRadius.circular(radius),
                     border: Border.all(
                       color: theme.colors.hairline,

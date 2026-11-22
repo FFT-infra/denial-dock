@@ -71,6 +71,45 @@ void main() {
   _expect(IslandMode.quiet.isQuiet, 'quiet reports itself');
   _expect(!IslandMode.media.isQuiet, 'media is not quiet');
   _expect(!IslandMode.notice.isQuiet, 'notice is not quiet');
+  _expect(!IslandMode.charging.isQuiet, 'charging is not quiet');
+
+  // The charge flash is what macOS shows on every plug with no switch to turn
+  // it off [S28], so it takes the pill from playback for its few seconds but
+  // never from a fresh notification.
+  _expect(
+    resolveIslandMode(
+          mediaEnabled: true,
+          mediaPlaying: true,
+          notificationsEnabled: true,
+          hasNotice: false,
+          charging: true,
+        ) ==
+        IslandMode.charging,
+    'charging beats media',
+  );
+  _expect(
+    resolveIslandMode(
+          mediaEnabled: true,
+          mediaPlaying: true,
+          notificationsEnabled: true,
+          hasNotice: true,
+          charging: true,
+        ) ==
+        IslandMode.notice,
+    'notice beats charging',
+  );
+  _expect(
+    resolveIslandMode(
+          mediaEnabled: true,
+          mediaPlaying: false,
+          notificationsEnabled: true,
+          hasNotice: false,
+          charging: false,
+        ) ==
+        IslandMode.quiet,
+    'no charge flash without a change',
+  );
+
   stdout.writeln('All island mode tests passed.');
 }
 

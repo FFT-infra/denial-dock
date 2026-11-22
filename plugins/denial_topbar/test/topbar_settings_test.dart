@@ -16,6 +16,7 @@ Future<void> main() async {
     'default workspace placement',
   );
   _expect(!defaults.showBatteryPercent, 'default battery percent');
+  _expect(defaults.showVolume, 'default volume item');
   _expect(!defaults.autoHide, 'default auto hide');
 
   // Every value that comes from outside is clamped on the way in, so a hand
@@ -68,6 +69,7 @@ Future<void> main() async {
       ground: BarGround.glass,
       workspacePlacement: BarWorkspacePlacement.trailing,
       showBatteryPercent: true,
+      showVolume: false,
     );
     await store.write(settings);
 
@@ -83,10 +85,12 @@ Future<void> main() async {
       written['showBatteryPercent'] == true,
       'round-trip battery percent',
     );
+    _expect(written['showVolume'] == false, 'round-trip volume item');
 
     final reread = await BarPreferencesStore(file).read();
     _expect(reread.ground == BarGround.glass, 'read back ground');
     _expect(reread.islandEnabled, 'read back island');
+    _expect(!reread.showVolume, 'read back volume item');
     _expect(
       reread.workspacePlacement == BarWorkspacePlacement.trailing,
       'read back workspace placement',
