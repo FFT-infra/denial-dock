@@ -1,0 +1,112 @@
+import 'dart:convert';
+import 'dart:io';
+
+import 'package:denial_topbar/src/bar_settings.dart';
+
+Future<void> main() async {
+  const defaults = BarSettings.defaults;
+  _expect(defaults.layout == BarLayout.attached, 'default layout');
+  // macOS 27 draws no bar background by default.
+  _expect(defaults.ground == BarGround.none, 'default ground');
+  _expect(defaults.groundOpacity == 0.55, 'default opacity');
+  _expect(defaults.islandEnabled, 'default island');
+  _expect(defaults.islandShowsClock, 'default island clock');
+  _expect(
+    defaults.workspacePlacement == BarWorkspacePlacement.island,
+    'default workspace placement',
+  );
+  _expect(!defaults.showBatteryPercent, 'default battery percent');
+  _expect(!defaults.autoHide, 'default auto hide');
+
+  // Every value that comes from outside is clamped on the way in, so a hand
+  // edit or an older build cannot put the bar in a state the UI cannot draw.
+  _expect(
+    BarSettings.fromJson(<String, dynamic>{'groundOpacity': 3}).groundOpacity ==
+        0.85,
+    'opacity ceiling',
+  );
+  _expect(
+    BarSettings.fromJson(<String, dynamic>{'groundOpacity': -1})
+            .groundOpacity ==
+        0.05,
+    'opacity floor',
+  );
+  _expect(
+    BarSettings.fromJson(<String, dynamic>{'islandNoticeSeconds': 400})
+            .islandNoticeSeconds ==
+        12,
+    'notice seconds ceiling',
+  );
+  _expect(
+    BarSettings.fromJson(<String, dynamic>{'autoHideDelayMs': -5})
+            .autoHideDelayMs ==
+        barAutoHideDelayMin,
+    'auto hide delay floor',
+  );
+  _expect(
+    BarSettings.fromJson(<String, dynamic>{'layout': 'nonsense'}).layout ==
+        BarLayout.attached,
+    'unknown layout falls back',
+  );
+
+  final root = _scratchRoot();
+  final directory = Directory(
+    '${root.path}/topbar-settings-${DateTime.now().microsecondsSinceEpoch}',
+  )..createSync(recursive: true);
+  try {
+    final file = File('${directory.path}/denial_topbar.json');
+    final store = BarPreferencesStore(file);
+
+    // Unknown keys survive a write so an older build cannot erase a setting
+    // that a newer one added.
+    file.writeAsStringSync(
+      jsonEncode(<String, dynamic>{'futureKey': 42, 'layout': 'floating'}),
+    );
+    final loaded = await store.read();
+    _expect(loaded.layout == BarLayout.floating, 'read floating layout');
+    final settings = loaded.copyWith(
+      ground: BarGround.glass,
+      workspacePlacement: BarWorkspacePlacement.trailing,
+      showBatteryPercent: true,
+    );
+    await store.write(settings);
+
+    final written = jsonDecode(file.readAsStringSync()) as Map<String, dynamic>;
+    _expect(written['futureKey'] == 42, 'unknown key preserved');
+    _expect(written['layout'] == 'floating', 'round-trip layout');
+    _expect(written['ground'] == 'glass', 'round-trip ground');
+    _expect(
+      written['workspacePlacement'] == 'trailing',
+      'round-trip workspace placement',
+    );
+    _expect(
+      written['showBatteryPercent'] == true,
+      'round-trip battery percent',
+    );
+
+    final reread = await BarPreferencesStore(file).read();
+    _expect(reread.ground == BarGround.glass, 'read back ground');
+    _expect(reread.islandEnabled, 'read back island');
+    _expect(
+      reread.workspacePlacement == BarWorkspacePlacement.trailing,
+      'read back workspace placement',
+    );
+    stdout.writeln('All top bar settings tests passed.');
+  } finally {
+    directory.deleteSync(recursive: true);
+  }
+}
+
+/// Scratch space, kept out of `/tmp` so nothing leaks into a shared volume.
+Directory _scratchRoot() {
+  final home = Platform.environment['HOME'];
+  final root = home == null || !home.startsWith('/')
+      ? Directory.current
+      : Directory('$home/Lab/Bridge/tmp');
+  if (root.existsSync()) return root;
+  return Directory.current;
+}
+
+void _expect(bool condition, String message) {
+  if (!condition) throw StateError(message);
+}

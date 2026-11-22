@@ -20,3 +20,27 @@ denial_plugin:
   provides:
     - contract: package:denial_flutter_sdk/surfaces.dart#ShellSurface
     - contract: package:denial_flutter_sdk/surfaces.dart#ShellWorkArea
+
+flutter:
+  # The CupertinoIcons glyphs are vendored so the bar does not depend on the
+  # cupertino_icons package. Flutter prefixes a dependency package's family
+  # with `packages/<package>/`, so the family stays unqualified here and
+  # BarIcons sets fontPackage instead.
+  fonts:
+    - family: CupertinoIcons
+      fonts:
+        - asset: assets/CupertinoIcons.ttf
+    # macOS draws its interface in SF Pro; Inter is the closest open metric
+    # match and is vendored (OFL, see assets/Inter-OFL.txt) so the bar does
+    # not depend on a font being installed on the host.
+    - family: Inter
+      fonts:
+        - asset: assets/Inter-Regular.ttf
+        - asset: assets/Inter-Medium.ttf
+          weight: 500
+        - asset: assets/Inter-SemiBold.ttf
+          weight: 600
+  assets:
+    - assets/distro-fedora.png
+    # The OFL requires the licence to travel with the font.
+    - assets/Inter-OFL.txt

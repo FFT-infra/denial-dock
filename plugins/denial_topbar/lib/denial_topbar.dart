@@ -5,9 +5,9 @@ import 'package:denial_flutter_sdk/surfaces.dart';
 import 'package:denial_sdk/composition.dart';
 import 'package:flutter/widgets.dart';
 
-import 'src/top_bar_surface.dart';
+import 'src/bar_surface.dart';
 
-/// A macOS-style menu bar with an optional Dynamic Island.
+/// A macOS 27 menu bar with an optional Dynamic Island.
 ///
 /// The bar is the sole work-area provider, so the built-in `denial_top_bar`
 /// must be disabled before this plugin is activated.
@@ -33,7 +33,7 @@ final class TopBarPlugin implements ShellSurface {
       bounds: ShellSurfacePlacement.edgeBounds(
         environment.output.logicalRect,
         side,
-        layout.systemBarThickness + topBarShadowExtent,
+        layout.systemBarThickness + barShadowExtent,
       ),
       visible:
           !environment.locked &&
