@@ -21,6 +21,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import 'dock_autohide.dart';
 import 'dock_badges.dart';
+import 'dock_recents.dart';
 import 'dock_drag.dart';
 import 'dock_extras_item.dart';
 import 'dock_icon.dart';
@@ -129,6 +130,11 @@ class _DockContainerState extends ConsumerState<DockContainer>
   /// application's state as it is when the pointer is released, not as it was
   /// when the drag began.
   List<_DockEntry> _builtEntries = const [];
+
+  /// The recents slot order of the last build, saved when it differs from the
+  /// stored one so a slot survives a restart.
+  List<String> _recentsOrder = const [];
+  bool _recentsSaveScheduled = false;
   int _dragFrom = -1;
   int _dragTo = -1;
   double _dragDx = 0;
@@ -413,6 +419,7 @@ class _DockContainerState extends ConsumerState<DockContainer>
   void _setOverlayHold(bool hold) {
     if (_overlayHold == hold) return;
     _overlayHold = hold;
+    _syncLabel();
     _evaluateHide();
   }
 
@@ -429,7 +436,11 @@ class _DockContainerState extends ConsumerState<DockContainer>
   /// follows the pointer between icons without restarting the delay, which is
   /// what makes sliding along the row readable.
   void _syncLabel() {
-    final key = _dragKey == null && _hover >= 0.2 ? _currentLabelKey() : null;
+    // A name bubble under a menu or a window preview only repeats what the
+    // overlay already says, and it sits between the icon and the panel.
+    final key = _dragKey == null && !_overlayHold && _hover >= 0.2
+        ? _currentLabelKey()
+        : null;
     if (key == _labelKey) {
       if (key == null && _labelShown) {
         setState(() => _labelShown = false);
@@ -527,7 +538,7 @@ class _DockContainerState extends ConsumerState<DockContainer>
     if (_dragKey != null) return;
     final slotIndex = _entrySlots[entryIndex];
     final slot = slotIndex == null ? null : _frame?.slots[slotIndex];
-    _dragKey = normalizeAppId(entry.appId);
+    _dragKey = appIdentity(entry.appId);
     _dragNewPin = entry.pin == null
         ? DockPin(
             id: entry.launchId ?? entry.appId,
@@ -627,7 +638,7 @@ class _DockContainerState extends ConsumerState<DockContainer>
     DockPin? pin;
     final pins = _settings.pinned;
     for (final candidate in pins) {
-      if (normalizeAppId(candidate.appId) == key) {
+      if (appIdentity(candidate.appId) == key) {
         pin = candidate;
         break;
       }
@@ -638,7 +649,7 @@ class _DockContainerState extends ConsumerState<DockContainer>
     if (outside) {
       _DockEntry? entry;
       for (final candidate in _builtEntries) {
-        if (normalizeAppId(candidate.appId) == key) {
+        if (appIdentity(candidate.appId) == key) {
           entry = candidate;
           break;
         }
@@ -752,20 +763,18 @@ class _DockContainerState extends ConsumerState<DockContainer>
   ) {
     final byId = <String, LaunchableApplication>{};
     for (final app in catalog) {
-      byId[normalizeAppId(app.id)] = app;
-      byId[normalizeAppId(app.appId)] = app;
+      byId[appIdentity(app.id)] = app;
+      byId[appIdentity(app.appId)] = app;
       for (final windowId in app.windowAppIds) {
-        byId[normalizeAppId(windowId)] = app;
+        byId[appIdentity(windowId)] = app;
       }
     }
 
     final windowsByApp = <String, List<ApplicationWindow>>{};
     final appByGroup = <String, LaunchableApplication?>{};
     for (final window in windows) {
-      final app = byId[normalizeAppId(window.appId)];
-      final key = app == null
-          ? normalizeAppId(window.appId)
-          : normalizeAppId(app.id);
+      final app = byId[appIdentity(window.appId)];
+      final key = app == null ? appIdentity(window.appId) : appIdentity(app.id);
       windowsByApp.putIfAbsent(key, () => []).add(window);
       appByGroup[key] ??= app;
     }
@@ -773,11 +782,8 @@ class _DockContainerState extends ConsumerState<DockContainer>
     final entries = <_DockEntry>[];
     final seen = <String>{};
     for (final pin in pinnedOrder ?? settings.pinned) {
-      final app =
-          byId[normalizeAppId(pin.appId)] ?? byId[normalizeAppId(pin.id)];
-      final key = app == null
-          ? normalizeAppId(pin.appId)
-          : normalizeAppId(app.id);
+      final app = byId[appIdentity(pin.appId)] ?? byId[appIdentity(pin.id)];
+      final key = app == null ? appIdentity(pin.appId) : appIdentity(app.id);
       if (!seen.add(key)) continue;
       entries.add(
         _DockEntry(
@@ -789,46 +795,71 @@ class _DockContainerState extends ConsumerState<DockContainer>
         ),
       );
     }
-    for (final group in windowsByApp.entries) {
-      if (!seen.add(group.key)) continue;
-      final app = appByGroup[group.key];
-      final first = group.value.first;
+    // The unpinned section keeps a slot order of its own. A running app joins
+    // it at the end and keeps that slot after it quits, so launching or
+    // closing one app never shifts its neighbours — the same fixed-row
+    // behaviour macOS has. Without a stored order (a fresh install) the
+    // running apps seed it in catalog order.
+    final runningKeys = [
+      for (final key in windowsByApp.keys)
+        if (!seen.contains(key)) key,
+    ];
+    final running = <String>{
+      for (final key in windowsByApp.keys)
+        if (byId[key] != null) appIdentity(byId[key]!.id) else key,
+    };
+    final dismissed = settings.dismissedSuggestions.toSet();
+    final count = settings.showSuggestions ? settings.recentCount : 0;
+    var order = DockRecents.extended(settings.recentsOrder, [
+      ...runningKeys,
+      ...recents.map(_recentAppId),
+    ]);
+    if (settings.recentsOrder.isEmpty) {
+      // First run: the section starts with whatever is already open, in a
+      // stable order rather than in hash order.
+      order = [
+        for (final key in runningKeys)
+          if (byId[key] != null) appIdentity(byId[key]!.id) else key,
+        ...order.where((key) => !runningKeys.contains(key)),
+      ];
+    }
+    order = DockRecents.trimmed(
+      order: order,
+      running: running,
+      count: count,
+      dismissed: dismissed,
+    );
+    _recentsOrder = order;
+
+    final visible = DockRecents.visible(
+      order: order,
+      running: running,
+      count: count,
+      dismissed: dismissed,
+    );
+    for (final key in visible) {
+      if (!seen.add(key)) continue;
+      final group = windowsByApp[key];
+      final app = byId[key] ?? appByGroup[key];
+      final windowsHere = group ?? const <ApplicationWindow>[];
+      if (windowsHere.isEmpty && app == null) continue;
       entries.add(
         _DockEntry(
-          appId: app?.appId ?? first.appId,
-          launchId: app?.id ?? first.appId,
-          name: app?.name ?? first.title,
-          windows: group.value,
+          appId: app?.appId ?? windowsHere.first.appId,
+          launchId: app?.id ?? windowsHere.firstOrNull?.appId,
+          name: app?.name ?? windowsHere.first.title,
+          windows: windowsHere,
           pin: null,
+          suggestion: windowsHere.isEmpty,
         ),
       );
     }
-    if (settings.showSuggestions) {
-      final dismissed = settings.dismissedSuggestions.toSet();
-      for (final recent in recents) {
-        if (entries.length >= 12) break;
-        final id = recent.contains(':')
-            ? recent.substring(recent.indexOf(':') + 1)
-            : recent;
-        final app = byId[normalizeAppId(id)];
-        if (app == null) continue;
-        final key = normalizeAppId(app.id);
-        if (dismissed.contains(key)) continue;
-        if (!seen.add(key)) continue;
-        entries.add(
-          _DockEntry(
-            appId: app.appId,
-            launchId: app.id,
-            name: app.name,
-            windows: const [],
-            pin: null,
-            suggestion: true,
-          ),
-        );
-      }
-    }
     return entries;
   }
+
+  /// `desktop:foo.desktop` and `local:foo` both reduce to the app id the
+  /// catalog is keyed by.
+  static String _recentAppId(String recent) => appIdentity(recent);
 
   List<_SlotSpec> _specsFor(List<_DockEntry> entries, DockSettings settings) {
     final sections = DockSections.build(
@@ -854,6 +885,35 @@ class _DockContainerState extends ConsumerState<DockContainer>
           dividerKey: section.dividerKey,
         ),
     ];
+  }
+
+  /// Persists a recents order that grew this build. The write is skipped when
+  /// the stored order already matches, so an idle dock never touches the file.
+  void _saveRecentsOrder(DockSettings settings, {required bool ready}) {
+    final order = _recentsOrder;
+    // Before the file is read, `settings` is the default value and its empty
+    // order would look like a change worth saving.
+    if (!ready || order.isEmpty) return;
+    if (_sameOrder(settings.recentsOrder, order)) return;
+    if (_recentsSaveScheduled) return;
+    _recentsSaveScheduled = true;
+    // Deferred out of build: the notifier's state change would rebuild the
+    // dock mid-frame.
+    SchedulerBinding.instance.addPostFrameCallback((_) {
+      _recentsSaveScheduled = false;
+      if (!mounted) return;
+      unawaited(
+        ref.read(dockSettingsProvider.notifier).setRecentsOrder(_recentsOrder),
+      );
+    });
+  }
+
+  static bool _sameOrder(List<String> first, List<String> second) {
+    if (first.length != second.length) return false;
+    for (var i = 0; i < first.length; i++) {
+      if (first[i] != second[i]) return false;
+    }
+    return true;
   }
 
   DockLayoutFrame _layout(
@@ -906,7 +966,7 @@ class _DockContainerState extends ConsumerState<DockContainer>
                 ),
             baseEntries.map(
               (entry) => (
-                key: normalizeAppId(entry.appId),
+                key: appIdentity(entry.appId),
                 appId: entry.appId,
                 launchId: entry.launchId,
                 name: entry.name,
@@ -928,6 +988,7 @@ class _DockContainerState extends ConsumerState<DockContainer>
           specs = _specsFor(entries, settings);
         }
         _builtEntries = entries;
+        _saveRecentsOrder(settings, ready: !storedSettings.isLoading);
 
         final frame = _layout(
           surfaceMain,
@@ -1068,7 +1129,7 @@ class _DockContainerState extends ConsumerState<DockContainer>
 
         _DockEntry? dragEntry;
         for (final entry in entries) {
-          if (normalizeAppId(entry.appId) == _dragKey) {
+          if (appIdentity(entry.appId) == _dragKey) {
             dragEntry = entry;
             break;
           }
@@ -1656,7 +1717,7 @@ class _DockContainerState extends ConsumerState<DockContainer>
         final entry = entries[entryIndex];
         // The dragged source stays mounted but invisible: it owns the pan
         // recognizer, and unmounting it mid-gesture would kill the drag.
-        final isSource = dragging && normalizeAppId(entry.appId) == _dragKey;
+        final isSource = dragging && appIdentity(entry.appId) == _dragKey;
         final pinIndex = entries
             .take(entryIndex)
             .where((candidate) => candidate.pinned)
@@ -1692,7 +1753,7 @@ class _DockContainerState extends ConsumerState<DockContainer>
               previewStyle: settings.previewStyle,
               hoverFocusPreview: settings.hoverFocusPreview,
               dimInactivePinned: settings.dimInactivePinned,
-              badge: badges[normalizeAppId(entry.appId)] ?? 0,
+              badge: badges[appIdentity(entry.appId)] ?? 0,
               iconMode: settings.iconMode,
               iconOpacity: settings.iconOpacity,
               tintColor: tintColor,
@@ -1724,7 +1785,7 @@ class _DockContainerState extends ConsumerState<DockContainer>
       _SlotKind.app => _LabelTarget(
         // Keyed by application identity, not slot index: pinning or closing an
         // app shifts indices, and the label must not jump to a different name.
-        key: 'app-${normalizeAppId(entries[spec.entry!].appId)}',
+        key: 'app-${appIdentity(entries[spec.entry!].appId)}',
         name: entries[spec.entry!].name,
         center: center,
       ),

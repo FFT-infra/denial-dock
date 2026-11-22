@@ -580,11 +580,8 @@ class _DockSettingsPanelState extends ConsumerState<DockSettingsPanel> {
                     onChanged: (value) => _controller.setPreviewStyle(value),
                   ),
                   _ToggleRow(
-                    label: _zh
-                        ? '指针移到预览上时聚焦那个窗口'
-                        : 'Focus a window when the pointer reaches its preview',
+                    label: _zh ? '悬停预览即切换窗口' : 'Switch to a window on hover',
                     value: settings.hoverFocusPreview,
-                    enabled: settings.previewStyle == DockPreviewStyle.stack,
                     onChanged: (value) =>
                         _controller.setHoverFocusPreview(focus: value),
                   ),
@@ -601,6 +598,20 @@ class _DockSettingsPanelState extends ConsumerState<DockSettingsPanel> {
                     value: settings.showSuggestions,
                     onChanged: (value) =>
                         _controller.setShowSuggestions(show: value),
+                  ),
+                  _SliderRow(
+                    label: _zh ? '最近 App 数量' : 'Recent app count',
+                    value: settings.recentCount.toDouble(),
+                    min: DockSettings.minRecentCount.toDouble(),
+                    max: DockSettings.maxRecentCount.toDouble(),
+                    divisions:
+                        DockSettings.maxRecentCount -
+                        DockSettings.minRecentCount,
+                    display: '${settings.recentCount}',
+                    describe: (value) => '${value.round()}',
+                    enabled: settings.showSuggestions,
+                    onChanged: (value) =>
+                        _controller.setRecentCount(value.round()),
                   ),
                 ],
               ),

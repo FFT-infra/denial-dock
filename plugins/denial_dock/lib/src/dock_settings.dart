@@ -197,6 +197,16 @@ String? normalizeTintColor(Object? value) {
 String normalizeAppId(String id) =>
     id.trim().toLowerCase().replaceFirst(RegExp(r'\.desktop$'), '');
 
+/// A launcher recent entry as `desktop:org.example.App.desktop`, and a pin's
+/// launch identity the same way. Both reduce to the icon identity, which is
+/// what the dock keys everything by: leaving the prefix on would make the same
+/// application two slots, one for its window and one for its launch record.
+String appIdentity(String id) {
+  final text = id.trim();
+  final colon = text.indexOf(':');
+  return normalizeAppId(colon >= 0 ? text.substring(colon + 1) : text);
+}
+
 class DockPin {
   const DockPin({required this.id, required this.appId, required this.name});
 
@@ -272,7 +282,7 @@ class DockSettings {
     this.indicatorStyle = DockIndicatorStyle.dot,
     this.previewStyle = DockPreviewStyle.cards,
     this.dimInactivePinned = false,
-    this.hoverFocusPreview = false,
+    this.hoverFocusPreview = true,
     this.showBadges = true,
     this.showSuggestions = true,
     this.scrollAction = DockScrollAction.nothing,
@@ -283,6 +293,8 @@ class DockSettings {
     this.showTrash = true,
     this.folders = const [],
     this.dismissedSuggestions = const [],
+    this.recentCount = defaultRecentCount,
+    this.recentsOrder = const [],
   });
 
   /// Base icon edge before magnification.
@@ -354,9 +366,9 @@ class DockSettings {
   /// first. Omarchy's dock does this; macOS and Dash to Dock do not.
   final bool dimInactivePinned;
 
-  /// Focuses a window as the pointer moves down the stacked previews, as
-  /// Omarchy's dock can. Off by default: it takes focus from wherever the user
-  /// was typing.
+  /// Focuses a window as the pointer reaches its preview, in either preview
+  /// style. On by default, as in Omarchy's dock; turning it off keeps the
+  /// pointer from moving focus while the previews are open.
   final bool hoverFocusPreview;
 
   /// Counts unread notifications on the application's icon.
@@ -381,6 +393,23 @@ class DockSettings {
   /// launcher still records them as recent, so the dock filters them here
   /// rather than asking the host to forget the launch.
   final List<String> dismissedSuggestions;
+
+  /// How many suggestions the dock shows. macOS keeps three closed apps in its
+  /// recent section and exposes the number as `show-recent-count`; the range
+  /// here is wider because a dock this large can hold more.
+  final int recentCount;
+
+  /// Slot order of the unpinned section, newest id appended at the end. An id
+  /// keeps its position after its app quits, which is what stops one launch
+  /// from shifting every neighbour.
+  final List<String> recentsOrder;
+
+  static const int defaultRecentCount = 3;
+  static const int minRecentCount = 0;
+  static const int maxRecentCount = 8;
+
+  static int clampRecentCount(int value) =>
+      value.clamp(minRecentCount, maxRecentCount);
 
   /// Capsule height with no magnification.
   double get capsuleHeight => iconSize + padding * 2;
@@ -415,6 +444,8 @@ class DockSettings {
     bool? showTrash,
     List<DockFolder>? folders,
     List<String>? dismissedSuggestions,
+    int? recentCount,
+    List<String>? recentsOrder,
   }) => DockSettings(
     pinned: pinned ?? this.pinned,
     visibility: visibility ?? this.visibility,
@@ -444,6 +475,8 @@ class DockSettings {
     showTrash: showTrash ?? this.showTrash,
     folders: folders ?? this.folders,
     dismissedSuggestions: dismissedSuggestions ?? this.dismissedSuggestions,
+    recentCount: clampRecentCount(recentCount ?? this.recentCount),
+    recentsOrder: recentsOrder ?? this.recentsOrder,
   );
 
   static double clampIconSize(double value) {
@@ -530,9 +563,19 @@ class DockSettings {
     if (storedDismissed is List) {
       for (final entry in storedDismissed) {
         if (entry is! String || entry.trim().isEmpty) continue;
-        final key = normalizeAppId(entry);
+        final key = appIdentity(entry);
         if (dismissed.contains(key)) continue;
         dismissed.add(key);
+      }
+    }
+    final storedOrder = json['recentsOrder'];
+    final order = <String>[];
+    if (storedOrder is List) {
+      for (final entry in storedOrder) {
+        if (entry is! String || entry.trim().isEmpty) continue;
+        final key = appIdentity(entry);
+        if (order.contains(key)) continue;
+        order.add(key);
       }
     }
     final iconSize = json['iconSize'];
@@ -581,7 +624,7 @@ class DockSettings {
           : false,
       hoverFocusPreview: json['hoverFocusPreview'] is bool
           ? json['hoverFocusPreview'] as bool
-          : false,
+          : true,
       showBadges: json['showBadges'] is bool
           ? json['showBadges'] as bool
           : true,
@@ -603,6 +646,12 @@ class DockSettings {
       showTrash: json['showTrash'] is bool ? json['showTrash'] as bool : true,
       folders: List.unmodifiable(folders),
       dismissedSuggestions: List.unmodifiable(dismissed),
+      recentCount: clampRecentCount(
+        json['recentCount'] is num
+            ? (json['recentCount'] as num).toInt()
+            : defaultRecentCount,
+      ),
+      recentsOrder: List.unmodifiable(order),
     );
   }
 }
@@ -686,6 +735,12 @@ class DockPreferencesStore {
       json.remove('dismissedSuggestions');
     } else {
       json['dismissedSuggestions'] = settings.dismissedSuggestions;
+    }
+    json['recentCount'] = settings.recentCount;
+    if (settings.recentsOrder.isEmpty) {
+      json.remove('recentsOrder');
+    } else {
+      json['recentsOrder'] = settings.recentsOrder;
     }
     await file.parent.create(recursive: true);
     final temp = File('${file.path}.$pid.${_sequence++}.tmp');

@@ -111,6 +111,8 @@ void main() {
     scrollWraps: true,
     folders: const [DockFolder(path: '/home/me/Documents', label: 'Documents')],
     dismissedSuggestions: const ['firefox'],
+    recentCount: 5,
+    recentsOrder: const ['firefox', 'org.gnome.nautilus'],
   );
   final json = {
     'pinnedApplications': settings.pinned.map((pin) => pin.toJson()).toList(),
@@ -135,6 +137,8 @@ void main() {
     'scrollWraps': settings.scrollWraps,
     'folders': settings.folders.map((folder) => folder.toJson()).toList(),
     'dismissedSuggestions': settings.dismissedSuggestions,
+    'recentCount': settings.recentCount,
+    'recentsOrder': settings.recentsOrder,
   };
   final decoded = DockSettings.fromJson(
     jsonDecode(jsonEncode(json)) as Map<String, dynamic>,
@@ -226,10 +230,39 @@ void main() {
         DockSettings.defaults.previewStyle == DockPreviewStyle.cards &&
         DockSettings.defaults.launchFeedback == DockLaunchFeedback.hop &&
         !DockSettings.defaults.dimInactivePinned &&
-        !DockSettings.defaults.hoverFocusPreview &&
+        DockSettings.defaults.hoverFocusPreview &&
         !DockSettings.defaults.scrollReversed &&
         !DockSettings.defaults.scrollWraps,
     'new defaults',
+  );
+  _expect(
+    DockSettings.defaults.recentCount == DockSettings.defaultRecentCount &&
+        DockSettings.defaultRecentCount == 3,
+    'recent count defaults to three, as macOS show-recent-count does',
+  );
+  _expect(
+    DockSettings.fromJson({'recentCount': 99}).recentCount ==
+        DockSettings.maxRecentCount,
+    'recent count ceiling',
+  );
+  _expect(
+    DockSettings.fromJson({'recentCount': -4}).recentCount ==
+        DockSettings.minRecentCount,
+    'recent count floor',
+  );
+  _expect(
+    DockSettings.fromJson({'recentCount': 'many'}).recentCount ==
+        DockSettings.defaultRecentCount,
+    'recent count rejects garbage',
+  );
+  _expect(
+    DockSettings.defaults.copyWith(recentCount: 99).recentCount ==
+        DockSettings.maxRecentCount,
+    'recent count copyWith clamps',
+  );
+  _expect(
+    DockSettings.defaults.recentsOrder.isEmpty,
+    'no stored recents order by default',
   );
   _expect(
     decoded.folders.single.path == '/home/me/Documents' &&
@@ -239,6 +272,11 @@ void main() {
   _expect(
     decoded.dismissedSuggestions.single == 'firefox',
     'round trip dismissed suggestions',
+  );
+  _expect(decoded.recentCount == 5, 'round trip recent count');
+  _expect(
+    decoded.recentsOrder.join(',') == 'firefox,org.gnome.nautilus',
+    'round trip recents order: ${decoded.recentsOrder}',
   );
 
   // Garbage falls back to the defaults instead of throwing.
@@ -299,6 +337,18 @@ void main() {
     'home label',
   );
   _expect(normalizeFolderPath('/a//b/') == '/a/b', 'normalize path');
+
+  // A launcher's `desktop:` prefix and a pin's launch id both reduce to the
+  // icon identity, so one application never takes two slots.
+  _expect(
+    appIdentity('desktop:org.gnome.Nautilus.desktop') == 'org.gnome.nautilus',
+    'recent prefix strips',
+  );
+  _expect(
+    appIdentity('local:firefox') == 'firefox' &&
+        appIdentity('Firefox') == 'firefox',
+    'launch prefix and case strip',
+  );
 
   _storeRoundTrip(settings);
 }

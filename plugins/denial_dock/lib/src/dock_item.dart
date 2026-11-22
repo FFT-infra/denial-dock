@@ -204,6 +204,10 @@ class _DockItemWidgetState extends State<DockItemWidget>
   VoidCallback? _emphasisRelease;
   int? _emphasisWindow;
 
+  /// The window whose preview the pointer is on. It gets the accent ring,
+  /// whether or not the previews switch focus.
+  int? _hoverPreview;
+
   Offset? _downPosition;
   int _downButtons = 0;
 
@@ -344,6 +348,13 @@ class _DockItemWidgetState extends State<DockItemWidget>
     });
   }
 
+  /// How many of the regions that own the previews hold the pointer: the
+  /// icon, the panel and the gap between them. Crossing from one to the next
+  /// sends an exit before the enter, so a counter is what tells a real leave
+  /// from a hand-over.
+  int _previewHoverDepth = 0;
+  bool get _previewsHovered => _previewHoverDepth > 0;
+
   void _leave() {
     _showPreviewTimer?.cancel();
     _showPreviewTimer = null;
@@ -353,11 +364,23 @@ class _DockItemWidgetState extends State<DockItemWidget>
     // the overlay before this timer runs.
     _hidePreviewTimer = Timer(const Duration(milliseconds: 180), () {
       if (!mounted || !_previewsOpen) return;
+      if (_previewsHovered) return;
       if (widget.previewOwner != null && widget.previewOwner != widget.appId) {
         return;
       }
       _closeOverlay();
     });
+  }
+
+  void _setPreviewsHovered(bool inside) {
+    final was = _previewsHovered;
+    _previewHoverDepth = math.max(0, _previewHoverDepth + (inside ? 1 : -1));
+    if (_previewsHovered) {
+      _hidePreviewTimer?.cancel();
+      _hidePreviewTimer = null;
+    } else if (was) {
+      _leave();
+    }
   }
 
   void _showPreviews() {
@@ -391,6 +414,7 @@ class _DockItemWidgetState extends State<DockItemWidget>
 
   void _closeOverlay() {
     _hidePreviewTimer?.cancel();
+    _previewHoverDepth = 0;
     _clearEmphasis();
     if (!_overlayOpen) return;
     final gaveUpPreviews = _previewsOpen;
@@ -408,6 +432,7 @@ class _DockItemWidgetState extends State<DockItemWidget>
   void _hideImmediately() {
     _showPreviewTimer?.cancel();
     _hidePreviewTimer?.cancel();
+    _previewHoverDepth = 0;
     _clearEmphasis();
     if (!_overlayOpen) return;
     final gaveUpPreviews = _previewsOpen;
@@ -595,6 +620,31 @@ class _DockItemWidgetState extends State<DockItemWidget>
     _closeOverlay();
   }
 
+  /// The pointer reaching a window's preview, in either preview style.
+  ///
+  /// The accent ring marks the preview under the pointer and always shows: it
+  /// says where the pointer is, which is useful whether or not the window
+  /// takes focus.
+  ///
+  /// [DockSettings.hoverFocusPreview] decides whether the window takes focus;
+  /// the dimming of the other windows is part of the same gesture, so it
+  /// follows the same switch. A disabled toggle that still faded the
+  /// neighbours would read as focus by another name.
+  void _previewHover(int id, {required bool inside}) {
+    if (inside) {
+      if (_hoverPreview != id) setState(() => _hoverPreview = id);
+    } else if (_hoverPreview == id) {
+      setState(() => _hoverPreview = null);
+    }
+    if (!inside) {
+      _emphasisLeave(id);
+      return;
+    }
+    if (!widget.hoverFocusPreview) return;
+    _emphasisEnter(id);
+    widget.services.activateWindow(id);
+  }
+
   void _emphasisEnter(int id) {
     if (_emphasisWindow == id) return;
     _clearEmphasis();
@@ -616,6 +666,7 @@ class _DockItemWidgetState extends State<DockItemWidget>
     _emphasisTimer?.cancel();
     _emphasisTimer = null;
     _emphasisWindow = null;
+    _hoverPreview = null;
     final release = _emphasisRelease;
     _emphasisRelease = null;
     release?.call();
@@ -739,8 +790,11 @@ class _DockItemWidgetState extends State<DockItemWidget>
           ? _buildPreviews(context, layout)
           : const SizedBox.shrink(),
       child: MouseRegion(
-        onEnter: (_) => _enter(),
-        onExit: (_) => _leave(),
+        onEnter: (_) {
+          _setPreviewsHovered(true);
+          _enter();
+        },
+        onExit: (_) => _setPreviewsHovered(false),
         child: CallbackShortcuts(
           bindings: {
             const SingleActivator(LogicalKeyboardKey.contextMenu): _openMenu,
@@ -907,6 +961,56 @@ class _DockItemWidgetState extends State<DockItemWidget>
               ),
             ),
           ),
+        ),
+      ),
+    );
+  }
+
+  /// The empty scene between the panel and the dock.
+  ///
+  /// The pointer crosses it on the way to a preview, and with no input region
+  /// there the surface reports a leave: the previews close, the overlay hold
+  /// drops and a retracted dock slides away from under the pointer. The strip
+  /// covers only that gap — it starts where the panel ends and stops at the
+  /// dock's edge, so it never takes the icon's own hover.
+  Rect _bridgeRect(Rect panel, Rect anchor, Rect output) {
+    const reach = 12.0;
+    final strip = switch (widget.position) {
+      DockPosition.bottom => Rect.fromLTWH(
+        panel.left,
+        panel.bottom,
+        panel.width,
+        (anchor.top - panel.bottom).clamp(0.0, reach),
+      ),
+      DockPosition.left => Rect.fromLTWH(
+        panel.right,
+        panel.top,
+        (anchor.left - panel.right).clamp(0.0, reach),
+        panel.height,
+      ),
+      DockPosition.right => Rect.fromLTWH(
+        anchor.right,
+        panel.top,
+        (panel.left - anchor.right).clamp(0.0, reach),
+        panel.height,
+      ),
+    };
+    if (strip.width <= 0 || strip.height <= 0) return Rect.zero;
+    final clipped = strip.intersect(output);
+    return clipped.isEmpty ? Rect.zero : clipped;
+  }
+
+  /// A transparent input region over [rect] that keeps the previews hovered.
+  Widget _bridgeStrip(Rect rect) {
+    if (rect.isEmpty) return const SizedBox.shrink();
+    return Positioned.fromRect(
+      rect: rect,
+      child: ShellInputRegion(
+        debugLabel: 'Dock preview bridge',
+        child: MouseRegion(
+          onEnter: (_) => _setPreviewsHovered(true),
+          onExit: (_) => _setPreviewsHovered(false),
+          child: const ColoredBox(color: Color(0x00000000)),
         ),
       ),
     );
@@ -1119,13 +1223,12 @@ class _DockItemWidgetState extends State<DockItemWidget>
               math.max(output.top + 8, output.bottom - height - 8),
             );
     final radius = theme.borderRadius(16);
+    final panel = Rect.fromLTWH(left.toDouble(), top.toDouble(), width, height);
     return Stack(
       children: [
-        Positioned(
-          left: left.toDouble(),
-          top: top.toDouble(),
-          width: width,
-          height: height,
+        _bridgeStrip(_bridgeRect(panel, geometry.anchor, output)),
+        Positioned.fromRect(
+          rect: panel,
           child: TweenAnimationBuilder<double>(
             tween: Tween<double>(begin: 0, end: 1),
             duration: const Duration(milliseconds: 300),
@@ -1145,8 +1248,8 @@ class _DockItemWidgetState extends State<DockItemWidget>
             child: ShellInputRegion(
               debugLabel: 'Dock window previews',
               child: MouseRegion(
-                onEnter: (_) => _enter(),
-                onExit: (_) => _leave(),
+                onEnter: (_) => _setPreviewsHovered(true),
+                onExit: (_) => _setPreviewsHovered(false),
                 child: ShellBackdropBlur(
                   blur: theme.effectivePanelOpacity < 1,
                   strength: 0.65,
@@ -1172,8 +1275,10 @@ class _DockItemWidgetState extends State<DockItemWidget>
                                 width: sizes[index].width,
                                 height: cardHeight,
                                 child: MouseRegion(
-                                  onEnter: (_) => _emphasisEnter(window.id),
-                                  onExit: (_) => _emphasisLeave(window.id),
+                                  onEnter: (_) =>
+                                      _previewHover(window.id, inside: true),
+                                  onExit: (_) =>
+                                      _previewHover(window.id, inside: false),
                                   child: Semantics(
                                     label: window.title,
                                     button: true,
@@ -1185,10 +1290,11 @@ class _DockItemWidgetState extends State<DockItemWidget>
                                             CrossAxisAlignment.stretch,
                                         children: [
                                           Expanded(
-                                            child: ClipRRect(
-                                              borderRadius: theme.borderRadius(
-                                                10,
-                                              ),
+                                            child: _PreviewFrame(
+                                              radius: theme.borderRadius(10),
+                                              hovered:
+                                                  _hoverPreview == window.id,
+                                              accent: theme.accent,
                                               child: ColoredBox(
                                                 color: theme.cardColor(
                                                   theme
@@ -1302,13 +1408,12 @@ class _DockItemWidgetState extends State<DockItemWidget>
               math.max(output.top + 8, output.bottom - height - 8),
             );
     final radius = theme.borderRadius(16);
+    final panel = Rect.fromLTWH(left.toDouble(), top.toDouble(), width, height);
     return Stack(
       children: [
-        Positioned(
-          left: left.toDouble(),
-          top: top.toDouble(),
-          width: width,
-          height: height,
+        _bridgeStrip(_bridgeRect(panel, geometry.anchor, output)),
+        Positioned.fromRect(
+          rect: panel,
           child: TweenAnimationBuilder<double>(
             tween: Tween<double>(begin: 0, end: 1),
             duration: const Duration(milliseconds: 140),
@@ -1328,8 +1433,8 @@ class _DockItemWidgetState extends State<DockItemWidget>
             child: ShellInputRegion(
               debugLabel: 'Dock window previews',
               child: MouseRegion(
-                onEnter: (_) => _enter(),
-                onExit: (_) => _leave(),
+                onEnter: (_) => _setPreviewsHovered(true),
+                onExit: (_) => _setPreviewsHovered(false),
                 child: ShellBackdropBlur(
                   blur: theme.effectivePanelOpacity < 1,
                   strength: 0.65,
@@ -1364,16 +1469,9 @@ class _DockItemWidgetState extends State<DockItemWidget>
                                 onActivate: () => _activateWindow(window.id),
                                 onClose: () =>
                                     widget.onCloseWindows([window.id]),
-                                onHover: (inside) {
-                                  if (inside) {
-                                    _emphasisEnter(window.id);
-                                    if (widget.hoverFocusPreview) {
-                                      widget.services.activateWindow(window.id);
-                                    }
-                                  } else {
-                                    _emphasisLeave(window.id);
-                                  }
-                                },
+                                hovered: _hoverPreview == window.id,
+                                onHover: (inside) =>
+                                    _previewHover(window.id, inside: inside),
                               ),
                             ),
                           ],
@@ -1393,10 +1491,11 @@ class _DockItemWidgetState extends State<DockItemWidget>
 
 /// One row of the vertical preview style. The close badge only appears while
 /// the row is hovered, so the column stays quiet.
-class _PreviewRow extends StatefulWidget {
+class _PreviewRow extends StatelessWidget {
   const _PreviewRow({
     required this.window,
     required this.radius,
+    required this.hovered,
     required this.titleStyle,
     required this.preview,
     required this.onActivate,
@@ -1406,6 +1505,7 @@ class _PreviewRow extends StatefulWidget {
 
   final ApplicationWindow window;
   final BorderRadius radius;
+  final bool hovered;
   final Widget preview;
   final TextStyle titleStyle;
   final VoidCallback onActivate;
@@ -1413,30 +1513,17 @@ class _PreviewRow extends StatefulWidget {
   final ValueChanged<bool> onHover;
 
   @override
-  State<_PreviewRow> createState() => _PreviewRowState();
-}
-
-class _PreviewRowState extends State<_PreviewRow> {
-  bool _hovered = false;
-
-  void _setHovered(bool value) {
-    if (_hovered == value) return;
-    setState(() => _hovered = value);
-    widget.onHover(value);
-  }
-
-  @override
   Widget build(BuildContext context) {
     final theme = context.shellTheme;
     return MouseRegion(
-      onEnter: (_) => _setHovered(true),
-      onExit: (_) => _setHovered(false),
+      onEnter: (_) => onHover(true),
+      onExit: (_) => onHover(false),
       child: Semantics(
-        label: widget.window.title,
+        label: window.title,
         button: true,
         child: GestureDetector(
           behavior: HitTestBehavior.opaque,
-          onTap: widget.onActivate,
+          onTap: onActivate,
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
@@ -1445,21 +1532,23 @@ class _PreviewRowState extends State<_PreviewRow> {
                   clipBehavior: Clip.none,
                   children: [
                     Positioned.fill(
-                      child: ClipRRect(
-                        borderRadius: widget.radius,
+                      child: _PreviewFrame(
+                        radius: radius,
+                        hovered: hovered,
+                        accent: theme.accent,
                         child: ColoredBox(
                           color: theme.cardColor(
                             theme.colors.surfaceContainerHigh,
                           ),
-                          child: widget.preview,
+                          child: preview,
                         ),
                       ),
                     ),
-                    if (_hovered)
+                    if (hovered)
                       Positioned(
                         top: 4,
                         right: 4,
-                        child: _PreviewCloseButton(onTap: widget.onClose),
+                        child: _PreviewCloseButton(onTap: onClose),
                       ),
                   ],
                 ),
@@ -1468,16 +1557,65 @@ class _PreviewRowState extends State<_PreviewRow> {
               SizedBox(
                 height: 11,
                 child: Text(
-                  widget.window.title,
+                  window.title,
                   maxLines: 1,
                   overflow: TextOverflow.ellipsis,
-                  style: widget.titleStyle.copyWith(fontSize: 11),
+                  style: titleStyle.copyWith(fontSize: 11),
                 ),
               ),
             ],
           ),
         ),
       ),
+    );
+  }
+}
+
+/// One window's thumbnail. The pointer resting on it lifts it a little and
+/// draws an accent ring: Windows 11 marks the thumbnail under the pointer with
+/// a highlight, and Omarchy grows the icon under it to 1.15 over 120 ms.
+/// The lift here is smaller because a thumbnail is larger than an icon.
+class _PreviewFrame extends StatelessWidget {
+  const _PreviewFrame({
+    required this.radius,
+    required this.hovered,
+    required this.accent,
+    required this.child,
+  });
+
+  final BorderRadius radius;
+  final bool hovered;
+  final Color accent;
+  final Widget child;
+
+  @override
+  Widget build(BuildContext context) {
+    return TweenAnimationBuilder<double>(
+      tween: Tween<double>(begin: 0, end: hovered ? 1 : 0),
+      duration: const Duration(milliseconds: 120),
+      curve: Curves.easeOutCubic,
+      builder: (context, t, child) => Transform.scale(
+        scale: 1 + 0.02 * t,
+        child: Stack(
+          fit: StackFit.expand,
+          children: [
+            ClipRRect(borderRadius: radius, child: child),
+            if (t > 0)
+              IgnorePointer(
+                child: DecoratedBox(
+                  decoration: BoxDecoration(
+                    borderRadius: radius,
+                    border: Border.all(
+                      color: accent.withValues(alpha: 0.9 * t),
+                      width: 1.5,
+                    ),
+                  ),
+                ),
+              ),
+          ],
+        ),
+      ),
+      child: child,
     );
   }
 }

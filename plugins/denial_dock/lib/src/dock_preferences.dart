@@ -114,6 +114,24 @@ class DockSettingsController extends AsyncNotifier<DockSettings> {
   Future<void> setShowSuggestions({required bool show}) =>
       _update((current) => current.copyWith(showSuggestions: show));
 
+  Future<void> setRecentCount(int count) =>
+      _update((current) => current.copyWith(recentCount: count));
+
+  /// Saves the unpinned section's slot order. Skipped when nothing moved, so
+  /// the dock can call it from a build without writing on every frame.
+  Future<void> setRecentsOrder(List<String> order) => _update((current) {
+    if (_sameOrder(current.recentsOrder, order)) return current;
+    return current.copyWith(recentsOrder: List.unmodifiable(order));
+  });
+
+  static bool _sameOrder(List<String> first, List<String> second) {
+    if (first.length != second.length) return false;
+    for (var i = 0; i < first.length; i++) {
+      if (first[i] != second[i]) return false;
+    }
+    return true;
+  }
+
   Future<void> setScrollAction(DockScrollAction action) =>
       _update((current) => current.copyWith(scrollAction: action));
 
@@ -136,7 +154,7 @@ class DockSettingsController extends AsyncNotifier<DockSettings> {
   /// recording the launch, so this is a dock-side filter rather than a request
   /// to forget the application.
   Future<void> dismissSuggestion(String appId) {
-    final key = normalizeAppId(appId);
+    final key = appIdentity(appId);
     return _update(
       (current) => current.dismissedSuggestions.contains(key)
           ? current
@@ -158,7 +176,10 @@ class DockSettingsController extends AsyncNotifier<DockSettings> {
   Future<void> _update(DockSettings Function(DockSettings) update) {
     final operation = _writes.then((_) async {
       if (!ref.mounted) return;
-      final current = state.value ?? DockSettings.defaults;
+      // Until the file has been read there is nothing to update. Writing
+      // defaults here would erase the stored settings.
+      final current = state.value;
+      if (current == null) return;
       final next = update(current);
       await _store.write(next);
       if (!ref.mounted) return;
