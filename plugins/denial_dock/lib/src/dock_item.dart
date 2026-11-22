@@ -24,13 +24,14 @@ import 'dock_menu.dart';
 import 'dock_scroll.dart';
 import 'dock_settings.dart';
 
-/// Windows waits this long before showing a taskbar thumbnail
-/// (`MouseHoverTime`, 400 ms by default). The dock matches it so a pointer
-/// passing over an icon on its way somewhere else never opens a tray.
+/// Windows `MouseHoverTime`, 400 ms.
 const int previewHoverDelayMs = 400;
 
-/// Omarchy's dock waits this long before its vertical stack of previews.
-const int stackPreviewHoverDelayMs = 300;
+/// The stack keeps the same wait as Windows' flyout.
+const int stackPreviewHoverDelayMs = 400;
+
+/// Windows `MouseHoverSize`, 4 px.
+const double _hoverRestExtent = 4;
 
 /// Opacity of a pinned application that has no window, when dimming is on.
 const double _inactivePinOpacity = 0.62;
@@ -200,7 +201,9 @@ class _DockItemWidgetState extends State<DockItemWidget>
 
   Timer? _showPreviewTimer;
   Timer? _hidePreviewTimer;
+  Offset? _hoverRestPoint;
   Timer? _emphasisTimer;
+  Timer? _hoverSwitchTimer;
   VoidCallback? _emphasisRelease;
   int? _emphasisWindow;
 
@@ -213,6 +216,14 @@ class _DockItemWidgetState extends State<DockItemWidget>
 
   bool _menuOpen = false;
   bool _previewsOpen = false;
+
+  /// The windows the panel was built from, in the order it showed them.
+  ///
+  /// The host reports windows by stacking order, so activating one reorders
+  /// the list and swaps the rows under the pointer; the row that slid into
+  /// place then activates too, and the panel oscillates. The order is taken
+  /// once when the panel opens and kept until it closes.
+  List<ApplicationWindow> _previewWindows = const [];
   bool _launching = false;
   String? _launchError;
 
@@ -252,13 +263,13 @@ class _DockItemWidgetState extends State<DockItemWidget>
       _clearEmphasis();
     }
     if (_previewsOpen && widget.previewOwner != widget.appId) {
-      // Another icon took the overlay; this one just folds away. It does not
-      // report the overlay closed: the icon that took it already reported it
-      // open, and a false here would drop the dock's hold while the new panel
-      // is still on screen.
+      // Give the counted hold back, or the dock stays held for good.
       _previewsOpen = false;
+      _previewWindows = const [];
+      _previewHoverDepth = 0;
       _clearEmphasis();
       _portal.hide();
+      widget.onOverlayChanged(false);
     }
   }
 
@@ -268,7 +279,10 @@ class _DockItemWidgetState extends State<DockItemWidget>
     _hidePreviewTimer?.cancel();
     _longPressTimer?.cancel();
     _pressTimer?.cancel();
+    _hoverSwitchTimer?.cancel();
     _clearEmphasis();
+    // Give the counted hold back, or the dock never retracts again.
+    if (_overlayOpen) widget.onOverlayChanged(false);
     _focus.dispose();
     _launchTicker.dispose();
     super.dispose();
@@ -335,21 +349,35 @@ class _DockItemWidgetState extends State<DockItemWidget>
 
   void _enter() {
     _hidePreviewTimer?.cancel();
+    _hidePreviewTimer = null;
+    _hoverRestPoint = null;
     if (widget.dragging || _menuOpen || !_wantsPreviews) return;
-    // Every icon waits out its own dwell, including the one next to an open
-    // panel. Sliding along the dock is how a pointer passes an icon it did not
-    // mean to open, so a neighbour that opens at once would flash a panel the
-    // user never asked for.
-    _showPreviewTimer ??= Timer(Duration(milliseconds: _previewDelayMs), () {
+    // Every icon waits out its own dwell; a neighbour that opened at once
+    // flashed a panel for each icon the pointer crossed.
+    if (_showPreviewTimer == null) _armPreviewTimer();
+  }
+
+  void _armPreviewTimer() {
+    _showPreviewTimer?.cancel();
+    _showPreviewTimer = Timer(Duration(milliseconds: _previewDelayMs), () {
       _showPreviewTimer = null;
       if (mounted && _wantsPreviews) _showPreviews();
     });
   }
 
-  /// How many of the regions that own the previews hold the pointer: the
-  /// icon, the panel and the gap between them. Crossing from one to the next
-  /// sends an exit before the enter, so a counter is what tells a real leave
-  /// from a hand-over.
+  /// Restarts the dwell while the pointer is still travelling, so the clock
+  /// measures rest instead of approach.
+  void _restartPreviewOnMove(PointerHoverEvent event) {
+    if (_showPreviewTimer == null || _previewsOpen) return;
+    final last = _hoverRestPoint;
+    _hoverRestPoint = event.position;
+    if (last == null) return;
+    if ((event.position - last).distance < _hoverRestExtent) return;
+    _armPreviewTimer();
+  }
+
+  /// Regions holding the pointer: icon, gap, panel. A counter because a
+  /// hand-over sends the exit before the enter.
   int _previewHoverDepth = 0;
   bool get _previewsHovered => _previewHoverDepth > 0;
 
@@ -357,15 +385,18 @@ class _DockItemWidgetState extends State<DockItemWidget>
     _showPreviewTimer?.cancel();
     _showPreviewTimer = null;
     if (!_previewsOpen) return;
+    _scheduleHide();
+  }
+
+  /// Closes the panel shortly after the pointer leaves it, so the next icon's
+  /// panel has to wait out its own dwell. Handing the open panel over instead
+  /// left it on screen through that dwell and the swap read as no delay.
+  void _scheduleHide() {
     _hidePreviewTimer?.cancel();
-    // Moving along the dock to another icon is not leaving: that icon claims
-    // the overlay before this timer runs.
-    _hidePreviewTimer = Timer(const Duration(milliseconds: 180), () {
+    _hidePreviewTimer = Timer(const Duration(milliseconds: 120), () {
+      _hidePreviewTimer = null;
       if (!mounted || !_previewsOpen) return;
       if (_previewsHovered) return;
-      if (widget.previewOwner != null && widget.previewOwner != widget.appId) {
-        return;
-      }
       _closeOverlay();
     });
   }
@@ -386,10 +417,9 @@ class _DockItemWidgetState extends State<DockItemWidget>
     setState(() {
       _previewsOpen = true;
       _menuOpen = false;
+      _previewWindows = widget.windows;
     });
     if (!_portal.isShowing) _portal.show();
-    // The stack follows the pointer along the dock, so the container hands the
-    // overlay to whichever icon the pointer is on.
     if (widget.previewStyle == DockPreviewStyle.stack) {
       widget.onPreviewOwnerChanged(widget.appId);
     }
@@ -413,6 +443,7 @@ class _DockItemWidgetState extends State<DockItemWidget>
   void _closeOverlay() {
     _hidePreviewTimer?.cancel();
     _previewHoverDepth = 0;
+    _previewWindows = const [];
     _clearEmphasis();
     if (!_overlayOpen) return;
     final gaveUpPreviews = _previewsOpen;
@@ -431,6 +462,7 @@ class _DockItemWidgetState extends State<DockItemWidget>
     _showPreviewTimer?.cancel();
     _hidePreviewTimer?.cancel();
     _previewHoverDepth = 0;
+    _previewWindows = const [];
     _clearEmphasis();
     if (!_overlayOpen) return;
     final gaveUpPreviews = _previewsOpen;
@@ -629,18 +661,25 @@ class _DockItemWidgetState extends State<DockItemWidget>
   /// follows the same switch. A disabled toggle that still faded the
   /// neighbours would read as focus by another name.
   void _previewHover(int id, {required bool inside}) {
+    _hoverSwitchTimer?.cancel();
+    _hoverSwitchTimer = null;
     if (inside) {
       if (_hoverPreview != id) setState(() => _hoverPreview = id);
-    } else if (_hoverPreview == id) {
-      setState(() => _hoverPreview = null);
-    }
-    if (!inside) {
-      _emphasisLeave(id);
+      if (!widget.hoverFocusPreview) return;
+      // Windows and macOS never raise a window just because the pointer
+      // crossed its thumbnail; a pointer sweeping the panel would otherwise
+      // raise every window it passed. The ring follows at once, the switch
+      // waits for the pointer to settle.
+      _hoverSwitchTimer = Timer(const Duration(milliseconds: 250), () {
+        _hoverSwitchTimer = null;
+        if (!mounted || !_previewsOpen || _hoverPreview != id) return;
+        _emphasisEnter(id);
+        widget.services.activateWindow(id);
+      });
       return;
     }
-    if (!widget.hoverFocusPreview) return;
-    _emphasisEnter(id);
-    widget.services.activateWindow(id);
+    if (_hoverPreview == id) setState(() => _hoverPreview = null);
+    _emphasisLeave(id);
   }
 
   void _emphasisEnter(int id) {
@@ -661,6 +700,8 @@ class _DockItemWidgetState extends State<DockItemWidget>
   }
 
   void _clearEmphasis() {
+    _hoverSwitchTimer?.cancel();
+    _hoverSwitchTimer = null;
     _emphasisTimer?.cancel();
     _emphasisTimer = null;
     _emphasisWindow = null;
@@ -809,6 +850,7 @@ class _DockItemWidgetState extends State<DockItemWidget>
               button: true,
               child: Listener(
                 onPointerSignal: _onPointerSignal,
+                onPointerHover: _restartPreviewOnMove,
                 // The pan's start position is unreliable in this shell (the
                 // button pointer begins at the scene origin), but the down
                 // event carries the real grab point.
@@ -964,13 +1006,9 @@ class _DockItemWidgetState extends State<DockItemWidget>
     );
   }
 
-  /// The empty scene between the panel and the dock.
-  ///
-  /// The pointer crosses it on the way to a preview, and with no input region
-  /// there the surface reports a leave: the previews close, the overlay hold
-  /// drops and a retracted dock slides away from under the pointer. The strip
-  /// covers only that gap — it starts where the panel ends and stops at the
-  /// dock's edge, so it never takes the icon's own hover.
+  /// The gap between panel and dock, as an input region. Without it the
+  /// pointer crossing to a preview reports a leave and a retracted dock slides
+  /// away; it stops at the dock edge so it never takes the icon's hover.
   Rect _bridgeRect(Rect panel, Rect anchor, Rect output) {
     const reach = 12.0;
     final strip = switch (widget.position) {
@@ -998,7 +1036,6 @@ class _DockItemWidgetState extends State<DockItemWidget>
     return clipped.isEmpty ? Rect.zero : clipped;
   }
 
-  /// A transparent input region over [rect] that keeps the previews hovered.
   Widget _bridgeStrip(Rect rect) {
     if (rect.isEmpty) return const SizedBox.shrink();
     return Positioned.fromRect(
@@ -1159,19 +1196,26 @@ class _DockItemWidgetState extends State<DockItemWidget>
     );
   }
 
+  /// The rows the panel shows. While it is open this is the list captured at
+  /// open time, so a window coming forward cannot reshuffle the rows.
+  List<ApplicationWindow> get _shownWindows =>
+      _previewsOpen ? _previewWindows : widget.windows;
+
   Widget _buildPreviews(BuildContext context, OverlayChildLayoutInfo layout) {
-    if (widget.windows.isEmpty) {
+    final windows = _shownWindows;
+    if (windows.isEmpty) {
       _clearEmphasis();
       return const SizedBox.shrink();
     }
     return widget.previewStyle == DockPreviewStyle.stack
-        ? _buildPreviewStack(context, layout)
-        : _buildPreviewCards(context, layout);
+        ? _buildPreviewStack(context, layout, windows)
+        : _buildPreviewCards(context, layout, windows);
   }
 
   Widget _buildPreviewCards(
     BuildContext context,
     OverlayChildLayoutInfo layout,
+    List<ApplicationWindow> windows,
   ) {
     final geometry = _geometry(layout);
     final output = geometry.output;
@@ -1189,7 +1233,7 @@ class _DockItemWidgetState extends State<DockItemWidget>
       return const SizedBox.shrink();
     }
     final sizes = [
-      for (final window in widget.windows)
+      for (final window in windows)
         _previewSize(window.previewSize, math.min(240.0, available), maxHeight),
     ];
     final cardHeight = sizes.map((size) => size.height + 22).reduce(math.max);
@@ -1266,8 +1310,7 @@ class _DockItemWidgetState extends State<DockItemWidget>
                         child: Row(
                           crossAxisAlignment: CrossAxisAlignment.end,
                           children: [
-                            for (final (index, window)
-                                in widget.windows.indexed) ...[
+                            for (final (index, window) in windows.indexed) ...[
                               if (index > 0) const SizedBox(width: 8),
                               SizedBox(
                                 width: sizes[index].width,
@@ -1347,6 +1390,7 @@ class _DockItemWidgetState extends State<DockItemWidget>
   Widget _buildPreviewStack(
     BuildContext context,
     OverlayChildLayoutInfo layout,
+    List<ApplicationWindow> windows,
   ) {
     final geometry = _geometry(layout);
     final output = geometry.output;
@@ -1359,11 +1403,11 @@ class _DockItemWidgetState extends State<DockItemWidget>
     final maxThumbHeight = side
         ? math.max(
             0.0,
-            (output.height - 48) / widget.windows.length - titleHeight - gap,
+            (output.height - 48) / windows.length - titleHeight - gap,
           )
         : math.max(
             0.0,
-            (geometry.anchor.top - output.top - 24) / widget.windows.length -
+            (geometry.anchor.top - output.top - 24) / windows.length -
                 titleHeight -
                 gap,
           );
@@ -1372,7 +1416,7 @@ class _DockItemWidgetState extends State<DockItemWidget>
       return const SizedBox.shrink();
     }
     final sizes = [
-      for (final window in widget.windows)
+      for (final window in windows)
         _previewSize(window.previewSize, thumbWidth, maxThumbHeight),
     ];
     final width = sizes.map((size) => size.width).reduce(math.max) + pad * 2;
@@ -1450,8 +1494,7 @@ class _DockItemWidgetState extends State<DockItemWidget>
                         mainAxisSize: MainAxisSize.min,
                         crossAxisAlignment: CrossAxisAlignment.stretch,
                         children: [
-                          for (final (index, window)
-                              in widget.windows.indexed) ...[
+                          for (final (index, window) in windows.indexed) ...[
                             if (index > 0) const SizedBox(height: gap),
                             SizedBox(
                               height: sizes[index].height + titleHeight,
@@ -1569,10 +1612,7 @@ class _PreviewRow extends StatelessWidget {
   }
 }
 
-/// One window's thumbnail. The pointer resting on it lifts it a little and
-/// draws an accent ring: Windows 11 marks the thumbnail under the pointer with
-/// a highlight, and Omarchy grows the icon under it to 1.15 over 120 ms.
-/// The lift here is smaller because a thumbnail is larger than an icon.
+/// One thumbnail; the pointer resting on it lifts it and draws an accent ring.
 class _PreviewFrame extends StatelessWidget {
   const _PreviewFrame({
     required this.radius,

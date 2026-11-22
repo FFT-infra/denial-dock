@@ -79,7 +79,10 @@ class _DockContainerState extends ConsumerState<DockContainer>
 
   bool _insideCapsule = false;
   bool _edgeHover = false;
-  bool _overlayHold = false;
+
+  /// Counted, because two icons hold an overlay during a hand-over.
+  int _overlayHolds = 0;
+  bool get _overlayHold => _overlayHolds > 0;
   bool _settingsOpen = false;
   bool _menuOpen = false;
   bool _tickerScheduled = false;
@@ -417,8 +420,9 @@ class _DockContainerState extends ConsumerState<DockContainer>
   }
 
   void _setOverlayHold(bool hold) {
-    if (_overlayHold == hold) return;
-    _overlayHold = hold;
+    final was = _overlayHold;
+    _overlayHolds = math.max(0, _overlayHolds + (hold ? 1 : -1));
+    if (was == _overlayHold) return;
     _syncLabel();
     _evaluateHide();
   }
