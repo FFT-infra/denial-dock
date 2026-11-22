@@ -1,13 +1,25 @@
 import 'package:denial_dock/src/dock_visibility.dart';
 
 void main() {
+  bool hides(DockVisibilityMode mode, {required bool conflict}) =>
+      DockVisibility.wantsHidden(mode: mode, conflict: conflict);
+
   _expect(
-    DockVisibility.smartHideActive(mode: DockVisibilityMode.smart),
+    hides(DockVisibilityMode.smart, conflict: true),
     'smart hides over a covered strip',
   );
   _expect(
-    !DockVisibility.smartHideActive(mode: DockVisibilityMode.always),
+    !hides(DockVisibilityMode.smart, conflict: false),
+    'smart stays out when nothing covers it',
+  );
+  _expect(
+    !hides(DockVisibilityMode.always, conflict: true),
     'always never hides',
+  );
+  _expect(
+    hides(DockVisibilityMode.persistent, conflict: false) &&
+        hides(DockVisibilityMode.persistent, conflict: true),
+    'persistent hides with and without a window',
   );
 
   // Stored keys round-trip, and unknown values fall back to smart.

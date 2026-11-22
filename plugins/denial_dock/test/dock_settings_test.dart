@@ -14,6 +14,9 @@ void main() {
   _expect(defaults.launcherSide == DockSide.left, 'default launcher side');
   _expect(defaults.extrasSide == DockSide.right, 'default extras side');
   _expect(defaults.showTrash, 'default trash');
+  _expect(defaults.showBadges, 'default badges');
+  _expect(defaults.iconOpacity == 1.0, 'default icon opacity');
+  _expect(defaults.tintColor == null, 'default tint follows the accent');
   _expect(defaults.iconMode == DockIconMode.color, 'default icon mode');
   _expect(defaults.revealIndicator, 'default reveal handle');
   _expect(defaults.folders.isEmpty, 'default folders');
@@ -44,6 +47,39 @@ void main() {
         DockSettings.maxIconSize,
     'parse size ceiling',
   );
+  _expect(
+    DockSettings.fromJson({'iconOpacity': 0.01}).iconOpacity ==
+        DockSettings.minIconOpacity,
+    'opacity floor',
+  );
+  _expect(
+    DockSettings.fromJson({'iconOpacity': 9}).iconOpacity == 1.0,
+    'opacity ceiling',
+  );
+
+  // A tint is a lowercase #rrggbb; anything else falls back to the accent.
+  _expect(
+    DockSettings.fromJson({'tintColor': '#A855F7'}).tintColor == '#a855f7',
+    'tint normalised',
+  );
+  for (final bad in ['a855f7', '#a85', '#gggggg', 7, null]) {
+    _expect(
+      DockSettings.fromJson({'tintColor': bad}).tintColor == null,
+      'tint rejected: $bad',
+    );
+  }
+  _expect(
+    DockSettings.defaults.copyWith(tintColor: '#3b82f6').tintColor == '#3b82f6',
+    'tint copyWith',
+  );
+  _expect(
+    DockSettings.defaults
+            .copyWith(tintColor: '#3b82f6')
+            .copyWith(clearTint: true)
+            .tintColor ==
+        null,
+    'tint cleared',
+  );
 
   // A full round trip through JSON keeps every field.
   final settings = DockSettings(
@@ -61,8 +97,18 @@ void main() {
     launcherSide: DockSide.right,
     extrasSide: DockSide.left,
     showTrash: false,
+    showBadges: false,
     iconMode: DockIconMode.grayscale,
+    iconOpacity: 0.5,
+    tintColor: '#a855f7',
     revealIndicator: false,
+    launchFeedback: DockLaunchFeedback.pulse,
+    indicatorStyle: DockIndicatorStyle.line,
+    previewStyle: DockPreviewStyle.stack,
+    dimInactivePinned: true,
+    hoverFocusPreview: true,
+    scrollReversed: true,
+    scrollWraps: true,
     folders: const [DockFolder(path: '/home/me/Documents', label: 'Documents')],
   );
   final json = {
@@ -74,8 +120,18 @@ void main() {
     'launcherSide': settings.launcherSide.key,
     'extrasSide': settings.extrasSide.key,
     'showTrash': settings.showTrash,
+    'showBadges': settings.showBadges,
+    'iconOpacity': settings.iconOpacity,
+    'tintColor': settings.tintColor,
     'iconMode': settings.iconMode.key,
     'revealIndicator': settings.revealIndicator,
+    'launchFeedback': settings.launchFeedback.key,
+    'indicatorStyle': settings.indicatorStyle.key,
+    'previewStyle': settings.previewStyle.key,
+    'dimInactivePinned': settings.dimInactivePinned,
+    'hoverFocusPreview': settings.hoverFocusPreview,
+    'scrollReversed': settings.scrollReversed,
+    'scrollWraps': settings.scrollWraps,
     'folders': settings.folders.map((folder) => folder.toJson()).toList(),
   };
   final decoded = DockSettings.fromJson(
@@ -89,8 +145,54 @@ void main() {
   _expect(decoded.launcherSide == DockSide.right, 'round trip launcher');
   _expect(decoded.extrasSide == DockSide.left, 'round trip extras');
   _expect(!decoded.showTrash, 'round trip trash');
+  _expect(!decoded.showBadges, 'round trip badges');
+  _expect(decoded.iconOpacity == 0.5, 'round trip icon opacity');
+  _expect(decoded.tintColor == '#a855f7', 'round trip tint');
   _expect(decoded.iconMode == DockIconMode.grayscale, 'round trip icon mode');
   _expect(!decoded.revealIndicator, 'round trip reveal handle');
+  _expect(
+    decoded.launchFeedback == DockLaunchFeedback.pulse,
+    'round trip launch feedback',
+  );
+  _expect(
+    decoded.indicatorStyle == DockIndicatorStyle.line,
+    'round trip indicator style',
+  );
+  _expect(
+    decoded.previewStyle == DockPreviewStyle.stack,
+    'round trip preview style',
+  );
+  _expect(decoded.dimInactivePinned, 'round trip inactive dim');
+  _expect(decoded.hoverFocusPreview, 'round trip hover focus');
+  _expect(decoded.scrollReversed, 'round trip scroll reversed');
+  _expect(decoded.scrollWraps, 'round trip scroll wraps');
+
+  // The older boolean keys still read, so an existing file keeps its look.
+  _expect(
+    DockSettings.fromJson({'bounceOnLaunch': false}).launchFeedback ==
+        DockLaunchFeedback.none,
+    'legacy bounce off',
+  );
+  _expect(
+    DockSettings.fromJson({'bounceOnLaunch': true}).launchFeedback ==
+        DockLaunchFeedback.hop,
+    'legacy bounce on',
+  );
+  _expect(
+    DockSettings.fromJson({'showIndicators': false}).indicatorStyle ==
+        DockIndicatorStyle.none,
+    'legacy indicators off',
+  );
+  _expect(
+    DockSettings.defaults.indicatorStyle == DockIndicatorStyle.dot &&
+        DockSettings.defaults.previewStyle == DockPreviewStyle.cards &&
+        DockSettings.defaults.launchFeedback == DockLaunchFeedback.hop &&
+        !DockSettings.defaults.dimInactivePinned &&
+        !DockSettings.defaults.hoverFocusPreview &&
+        !DockSettings.defaults.scrollReversed &&
+        !DockSettings.defaults.scrollWraps,
+    'new defaults',
+  );
   _expect(
     decoded.folders.single.path == '/home/me/Documents' &&
         decoded.folders.single.label == 'Documents',
@@ -120,6 +222,9 @@ void main() {
   _expect(garbage.launcherSide == DockSide.left, 'garbage launcher');
   _expect(garbage.extrasSide == DockSide.right, 'garbage extras');
   _expect(garbage.showTrash, 'garbage trash');
+  _expect(garbage.showBadges, 'garbage badges');
+  _expect(garbage.iconOpacity == 1.0, 'garbage icon opacity');
+  _expect(garbage.tintColor == null, 'garbage tint');
   _expect(garbage.folders.isEmpty, 'garbage folders');
 
   // Folders deduplicate by normalized path and derive a label when missing.
@@ -174,6 +279,9 @@ Future<void> _storeRoundTrip(DockSettings settings) async {
     _expect((written['folders'] as List).length == 1, 'written folders');
     _expect(written['iconSize'] == 56, 'written size');
     _expect(written['magnification'] == false, 'written magnification');
+    _expect(written['showBadges'] == false, 'written badges');
+    _expect(written['iconOpacity'] == 0.5, 'written icon opacity');
+    _expect(written['tintColor'] == '#a855f7', 'written tint');
     stdout.writeln('All dock settings tests passed.');
   } finally {
     directory.deleteSync(recursive: true);

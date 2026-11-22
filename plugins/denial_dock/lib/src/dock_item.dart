@@ -6,7 +6,13 @@ import 'package:denial_flutter_sdk/input.dart';
 import 'package:denial_flutter_sdk/services.dart';
 import 'package:denial_flutter_sdk/surfaces.dart';
 import 'package:denial_flutter_sdk/theme.dart';
-import 'package:flutter/gestures.dart' show PointerDeviceKind, kPrimaryButton;
+import 'package:flutter/gestures.dart'
+    show
+        GestureBinding,
+        PointerDeviceKind,
+        PointerScrollEvent,
+        PointerSignalEvent,
+        kPrimaryButton;
 import 'package:flutter/material.dart';
 import 'package:flutter/scheduler.dart';
 import 'package:flutter/services.dart';
@@ -15,7 +21,19 @@ import 'dock_click.dart';
 import 'dock_icon.dart';
 import 'dock_launch.dart';
 import 'dock_menu.dart';
+import 'dock_scroll.dart';
 import 'dock_settings.dart';
+
+/// Windows waits this long before showing a taskbar thumbnail
+/// (`MouseHoverTime`, 400 ms by default). The dock matches it so a pointer
+/// passing over an icon on its way somewhere else never opens a tray.
+const int previewHoverDelayMs = 400;
+
+/// Omarchy's dock waits this long before its vertical stack of previews.
+const int stackPreviewHoverDelayMs = 300;
+
+/// Opacity of a pinned application that has no window, when dimming is on.
+const double _inactivePinOpacity = 0.62;
 
 /// A single application icon in the dock. Menus and window previews live in the
 /// shell overlay; a shell surface has no Navigator or Scaffold of its own.
@@ -34,12 +52,25 @@ class DockItemWidget extends StatefulWidget {
     required this.size,
     required this.lift,
     required this.clickAction,
-    required this.bounceOnLaunch,
-    required this.showIndicators,
+    required this.scrollAction,
+    required this.workspaceStatus,
+    required this.scrollGate,
+    required this.scrollReversed,
+    required this.scrollWraps,
+    required this.launchFeedback,
+    required this.indicatorStyle,
+    required this.previewStyle,
+    required this.hoverFocusPreview,
+    required this.dimInactivePinned,
+    required this.badge,
     required this.iconMode,
+    required this.iconOpacity,
+    required this.tintColor,
     required this.onTogglePin,
     required this.onCloseWindows,
     required this.onOverlayChanged,
+    required this.previewOwner,
+    required this.onPreviewOwnerChanged,
     this.onDragStart,
     this.onDragUpdate,
     this.onDragEnd,
@@ -75,9 +106,39 @@ class DockItemWidget extends StatefulWidget {
   /// What a click on the front-most application does.
   final DockClickAction clickAction;
 
-  final bool bounceOnLaunch;
-  final bool showIndicators;
+  /// What a wheel turn over this icon does.
+  final DockScrollAction scrollAction;
+
+  /// Workspace count and active workspace, resolved by the container so the
+  /// wheel handler does not need to listen to a provider itself.
+  final WorkspaceStatus workspaceStatus;
+
+  /// The dock's single wheel gate. Shared by every icon and the capsule, so
+  /// crossing icons mid-swipe cannot step twice.
+  final DockScrollGate scrollGate;
+
+  /// Inverts the wheel direction, and lets the last workspace wrap.
+  final bool scrollReversed;
+  final bool scrollWraps;
+
+  final DockLaunchFeedback launchFeedback;
+  final DockIndicatorStyle indicatorStyle;
+  final DockPreviewStyle previewStyle;
+
+  /// Focuses a previewed window when the pointer moves onto its row.
+  final bool hoverFocusPreview;
+
+  /// Fades a pinned icon that has no window.
+  final bool dimInactivePinned;
+
+  /// Unread notifications for this application; zero hides the badge.
+  final int badge;
+
   final DockIconMode iconMode;
+  final double iconOpacity;
+
+  /// Resolved tinted-mode colour.
+  final Color tintColor;
 
   final VoidCallback onTogglePin;
 
@@ -85,6 +146,13 @@ class DockItemWidget extends StatefulWidget {
   /// has no app-level quit, so this is what "quit" means here: the application
   /// exits once its last window closes, unless it keeps running in the tray.
   final ValueChanged<List<int>> onCloseWindows;
+
+  /// Which icon owns the preview overlay. The container keeps one owner at a
+  /// time so a stack open on one icon closes as the pointer moves to another.
+  final String? previewOwner;
+
+  /// Asks the container to hand the overlay to [appId], or to no icon.
+  final ValueChanged<String?> onPreviewOwnerChanged;
 
   /// Keeps the dock expanded while a menu or preview tray is open.
   final ValueChanged<bool> onOverlayChanged;
@@ -116,6 +184,7 @@ class _DockItemWidgetState extends State<DockItemWidget>
   bool _launchHopping = false;
   double _launchPhase = 0;
   double _launchLift = 0;
+  double _launchPulse = 1;
   double _landingProgress = 1;
   double _landingStartLift = 0;
   bool _launchFailed = false;
@@ -178,6 +247,13 @@ class _DockItemWidgetState extends State<DockItemWidget>
     if (_emphasisWindow != null && !ids.contains(_emphasisWindow)) {
       _clearEmphasis();
     }
+    if (_previewsOpen && widget.previewOwner != widget.appId) {
+      // Another icon took the overlay; this one just folds away.
+      _previewsOpen = false;
+      _clearEmphasis();
+      _portal.hide();
+      widget.onOverlayChanged(false);
+    }
   }
 
   @override
@@ -192,12 +268,79 @@ class _DockItemWidgetState extends State<DockItemWidget>
     super.dispose();
   }
 
+  void _onPointerSignal(PointerSignalEvent event) {
+    if (event is! PointerScrollEvent) return;
+    final action = widget.scrollAction;
+    if (action == DockScrollAction.nothing) return;
+    if (action == DockScrollAction.cycleWindows && widget.windows.isEmpty) {
+      return;
+    }
+    if (action == DockScrollAction.switchWorkspace &&
+        widget.workspaceStatus.count <= 1) {
+      return;
+    }
+    final step = widget.scrollGate.feed(
+      event.scrollDelta.dy,
+      event.timeStamp.inMilliseconds,
+    );
+    if (step == null) return;
+    final direction = widget.scrollReversed ? -step : step;
+    GestureBinding.instance.pointerSignalResolver.register(event, (_) {
+      switch (action) {
+        case DockScrollAction.nothing:
+          return;
+        case DockScrollAction.cycleWindows:
+          final windows = widget.windows;
+          final next = DockClick.scrollIndex(
+            count: windows.length,
+            activeIndex: DockClick.activeIndex(
+              windows.map((window) => window.active),
+            ),
+            down: direction > 0,
+          );
+          if (next != null) widget.services.activateWindow(windows[next].id);
+        case DockScrollAction.switchWorkspace:
+          final status = widget.workspaceStatus;
+          final target = nextWorkspace(
+            count: status.count,
+            active: status.active,
+            step: direction,
+            wrap: widget.scrollWraps,
+          );
+          if (target == null) return;
+          widget.services.switchWorkspace(
+            monitorId: widget.monitorId,
+            workspaceId: target,
+          );
+      }
+    });
+  }
+
+  /// Windows waits 400 ms before a thumbnail flyout, Omarchy's dock 300 ms
+  /// before its stack. The card row needs two windows to be worth opening; the
+  /// stack opens for a single window too, as Omarchy's does.
+  int get _previewDelayMs => widget.previewStyle == DockPreviewStyle.stack
+      ? stackPreviewHoverDelayMs
+      : previewHoverDelayMs;
+
+  bool get _wantsPreviews => widget.previewStyle == DockPreviewStyle.stack
+      ? widget.windows.isNotEmpty
+      : widget.windows.length > 1;
+
   void _enter() {
     _hidePreviewTimer?.cancel();
-    if (widget.dragging || _menuOpen || widget.windows.length < 2) return;
-    _showPreviewTimer ??= Timer(const Duration(milliseconds: 200), () {
+    if (widget.dragging || _menuOpen || !_wantsPreviews) return;
+    if (widget.previewStyle == DockPreviewStyle.stack &&
+        widget.previewOwner != null &&
+        widget.previewOwner != widget.appId) {
+      // A stack is already up on a neighbouring icon: it follows the pointer
+      // instead of waiting out another dwell.
+      _showPreviews();
+      return;
+    }
+    _showPreviewTimer ??= Timer(Duration(milliseconds: _previewDelayMs), () {
       _showPreviewTimer = null;
-      if (mounted && widget.windows.length > 1) _showPreviews();
+      if (mounted && _wantsPreviews) _showPreviews();
     });
   }
 
@@ -206,8 +349,14 @@ class _DockItemWidgetState extends State<DockItemWidget>
     _showPreviewTimer = null;
     if (!_previewsOpen) return;
     _hidePreviewTimer?.cancel();
+    // Moving along the dock to another icon is not leaving: that icon claims
+    // the overlay before this timer runs.
     _hidePreviewTimer = Timer(const Duration(milliseconds: 180), () {
-      if (mounted && _previewsOpen) _closeOverlay();
+      if (!mounted || !_previewsOpen) return;
+      if (widget.previewOwner != null && widget.previewOwner != widget.appId) {
+        return;
+      }
+      _closeOverlay();
     });
   }
 
@@ -218,6 +367,11 @@ class _DockItemWidgetState extends State<DockItemWidget>
       _menuOpen = false;
     });
     if (!_portal.isShowing) _portal.show();
+    // The stack follows the pointer along the dock, so the container hands the
+    // overlay to whichever icon the pointer is on.
+    if (widget.previewStyle == DockPreviewStyle.stack) {
+      widget.onPreviewOwnerChanged(widget.appId);
+    }
     widget.onOverlayChanged(true);
   }
 
@@ -239,12 +393,16 @@ class _DockItemWidgetState extends State<DockItemWidget>
     _hidePreviewTimer?.cancel();
     _clearEmphasis();
     if (!_overlayOpen) return;
+    final gaveUpPreviews = _previewsOpen;
     setState(() {
       _menuOpen = false;
       _previewsOpen = false;
     });
     _portal.hide();
     widget.onOverlayChanged(false);
+    if (gaveUpPreviews && widget.previewOwner == widget.appId) {
+      widget.onPreviewOwnerChanged(null);
+    }
   }
 
   void _hideImmediately() {
@@ -252,10 +410,14 @@ class _DockItemWidgetState extends State<DockItemWidget>
     _hidePreviewTimer?.cancel();
     _clearEmphasis();
     if (!_overlayOpen) return;
+    final gaveUpPreviews = _previewsOpen;
     _menuOpen = false;
     _previewsOpen = false;
     _portal.hide();
     widget.onOverlayChanged(false);
+    if (gaveUpPreviews && widget.previewOwner == widget.appId) {
+      widget.onPreviewOwnerChanged(null);
+    }
   }
 
   void _pressDown() {
@@ -291,6 +453,7 @@ class _DockItemWidgetState extends State<DockItemWidget>
       action: widget.clickAction,
       count: windows.length,
       activeIndex: activeIndex,
+      minimized: windows.map((window) => window.minimized),
     );
     if (next == null) {
       if (activeIndex >= 0 && activeIndex < windows.length) {
@@ -318,7 +481,9 @@ class _DockItemWidgetState extends State<DockItemWidget>
       _launchFailed = false;
       _launchError = null;
     });
-    if (widget.bounceOnLaunch) _startLaunchFeedback();
+    if (widget.launchFeedback != DockLaunchFeedback.none) {
+      _startLaunchFeedback();
+    }
     var launched = false;
     try {
       launched = await widget.services.launchApplication(
@@ -344,15 +509,16 @@ class _DockItemWidgetState extends State<DockItemWidget>
     _launchHopping = true;
     _launchPhase = 0;
     _launchLift = 0;
+    _launchPulse = 1;
     _landingProgress = 1;
     _landingStartLift = 0;
     _launchLastTick = Duration.zero;
     if (!_launchTicker.isActive) _launchTicker.start();
   }
 
-  /// Each frame asks the release rule whether the hop may end. A window
+  /// Each frame asks the release rule whether the feedback may end. A window
   /// appearing ends it after the 500 ms floor; a failed launch ends it at once;
-  /// a launch that never opens a window stops at 15 s.
+  /// a launch that never opens a window stops at the timeout.
   void _onLaunchTick(Duration elapsed) {
     if (_launchLastTick == Duration.zero) {
       _launchLastTick = elapsed;
@@ -362,21 +528,35 @@ class _DockItemWidgetState extends State<DockItemWidget>
     _launchLastTick = elapsed;
 
     if (_launchHopping) {
-      final started = _launchStartedAt;
-      final done =
-          started != null &&
-          DockLaunch.release(
-            elapsed: DateTime.now().difference(started),
-            windowReady: widget.windows.isNotEmpty,
-            failed: _launchFailed,
-          );
+      final started = _launchStartedAt ?? DateTime.now();
+      final sinceStart = DateTime.now().difference(started);
+      final done = DockLaunch.release(
+        elapsed: sinceStart,
+        windowReady: widget.windows.isNotEmpty,
+        failed: _launchFailed,
+      );
       if (!done) {
+        if (widget.launchFeedback == DockLaunchFeedback.pulse) {
+          _launchPulse = DockLaunch.pulseOpacity(
+            sinceStart.inMilliseconds / 1000.0,
+          );
+          setState(() {});
+          return;
+        }
         _launchPhase = DockLaunch.advancePhase(_launchPhase, dt);
         _launchLift = DockLaunch.hopLift(_launchPhase, widget.size);
         setState(() {});
         return;
       }
       _launchHopping = false;
+      _launchPulse = 1;
+      if (widget.launchFeedback == DockLaunchFeedback.pulse) {
+        _launchStartedAt = null;
+        _launchTicker.stop();
+        _launchLastTick = Duration.zero;
+        setState(() {});
+        return;
+      }
       _landingStartLift = _launchLift;
       _landingProgress = 0;
     }
@@ -389,6 +569,7 @@ class _DockItemWidgetState extends State<DockItemWidget>
     }
 
     _launchLift = 0;
+    _launchPulse = 1;
     _launchStartedAt = null;
     _launchTicker.stop();
     _launchLastTick = Duration.zero;
@@ -440,93 +621,107 @@ class _DockItemWidgetState extends State<DockItemWidget>
     release?.call();
   }
 
+  /// The running marker. Dots count windows, up to three, as macOS does; a line
+  /// is one bar the width of the icon, as GNOME and Plasma draw it.
+  Widget _buildIndicator({
+    required Color color,
+    required int count,
+    required DockIndicatorStyle style,
+  }) {
+    if (style == DockIndicatorStyle.line) {
+      final bar = DecoratedBox(
+        decoration: BoxDecoration(
+          borderRadius: BorderRadius.circular(1.5),
+          color: color,
+        ),
+      );
+      return switch (widget.position) {
+        DockPosition.bottom => Positioned(
+          left: widget.size * 0.22,
+          right: widget.size * 0.22,
+          bottom: -5,
+          height: 3,
+          child: bar,
+        ),
+        DockPosition.left => Positioned(
+          top: widget.size * 0.22,
+          bottom: widget.size * 0.22,
+          left: -5,
+          width: 3,
+          child: bar,
+        ),
+        DockPosition.right => Positioned(
+          top: widget.size * 0.22,
+          bottom: widget.size * 0.22,
+          right: -5,
+          width: 3,
+          child: bar,
+        ),
+      };
+    }
+    final dotCount = math.min(3, math.max(1, count));
+    final dotSize = dotCount >= 3 ? 4.0 : 5.0;
+    const spacing = 2.0;
+    return switch (widget.position) {
+      DockPosition.bottom => Positioned(
+        left: 0,
+        right: 0,
+        bottom: -5,
+        child: Center(
+          child: SizedBox(
+            height: 4,
+            child: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                for (var i = 0; i < dotCount; i++) ...[
+                  if (i > 0) const SizedBox(width: spacing),
+                  _Dot(size: dotSize, color: color),
+                ],
+              ],
+            ),
+          ),
+        ),
+      ),
+      DockPosition.left || DockPosition.right => Positioned(
+        top: 0,
+        bottom: 0,
+        left: widget.position == DockPosition.left ? -5 : null,
+        right: widget.position == DockPosition.right ? -5 : null,
+        child: Center(
+          child: SizedBox(
+            width: 4,
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                for (var i = 0; i < dotCount; i++) ...[
+                  if (i > 0) const SizedBox(height: spacing),
+                  _Dot(size: dotSize, color: color),
+                ],
+              ],
+            ),
+          ),
+        ),
+      ),
+    };
+  }
+
   @override
   Widget build(BuildContext context) {
     final theme = context.shellTheme;
     final colors = theme.colors;
     final running = widget.windows.isNotEmpty;
+    final inactivePin = widget.dimInactivePinned && widget.pinned && !running;
     final active = widget.windows.any((window) => window.active);
     final size = widget.size;
-    // macOS shows one dot per open window up to three; more windows keep the
-    // three-dot row.
-    final dotCount = math.min(3, math.max(1, widget.windows.length));
-    final dotSize = dotCount >= 3 ? 4.0 : 5.0;
-    const dotSpacing = 2.0;
-    final indicator = running && widget.showIndicators
-        ? switch (widget.position) {
-            DockPosition.bottom => Positioned(
-              left: 0,
-              right: 0,
-              bottom: -5,
-              child: Center(
-                child: SizedBox(
-                  height: 4,
-                  child: Row(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      for (var i = 0; i < dotCount; i++) ...[
-                        if (i > 0) const SizedBox(width: dotSpacing),
-                        _Dot(
-                          size: dotSize,
-                          color: active
-                              ? theme.accent
-                              : colors.textPrimary.withValues(alpha: 0.55),
-                        ),
-                      ],
-                    ],
-                  ),
-                ),
-              ),
-            ),
-            DockPosition.left => Positioned(
-              top: 0,
-              bottom: 0,
-              left: -5,
-              child: Center(
-                child: SizedBox(
-                  width: 4,
-                  child: Column(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      for (var i = 0; i < dotCount; i++) ...[
-                        if (i > 0) const SizedBox(height: dotSpacing),
-                        _Dot(
-                          size: dotSize,
-                          color: active
-                              ? theme.accent
-                              : colors.textPrimary.withValues(alpha: 0.55),
-                        ),
-                      ],
-                    ],
-                  ),
-                ),
-              ),
-            ),
-            DockPosition.right => Positioned(
-              top: 0,
-              bottom: 0,
-              right: -5,
-              child: Center(
-                child: SizedBox(
-                  width: 4,
-                  child: Column(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      for (var i = 0; i < dotCount; i++) ...[
-                        if (i > 0) const SizedBox(height: dotSpacing),
-                        _Dot(
-                          size: dotSize,
-                          color: active
-                              ? theme.accent
-                              : colors.textPrimary.withValues(alpha: 0.55),
-                        ),
-                      ],
-                    ],
-                  ),
-                ),
-              ),
-            ),
-          }
+    final indicator =
+        running && widget.indicatorStyle != DockIndicatorStyle.none
+        ? _buildIndicator(
+            color: active
+                ? theme.accent
+                : colors.textPrimary.withValues(alpha: 0.55),
+            count: widget.windows.length,
+            style: widget.indicatorStyle,
+          )
         : null;
 
     final offset =
@@ -561,6 +756,7 @@ class _DockItemWidgetState extends State<DockItemWidget>
               selected: active,
               button: true,
               child: Listener(
+                onPointerSignal: _onPointerSignal,
                 // The pan's start position is unreliable in this shell (the
                 // button pointer begins at the scene origin), but the down
                 // event carries the real grab point.
@@ -619,6 +815,17 @@ class _DockItemWidgetState extends State<DockItemWidget>
                   },
                   onSecondaryTapDown: (_) =>
                       _menuOpen ? _closeOverlay() : _openMenu(),
+                  // The middle button asks for another window of an application
+                  // that is already running, as Omarchy and Plasma do. Without
+                  // a launch entry there is nothing to start, so it falls
+                  // through to the normal click.
+                  onTertiaryTapDown: (_) {
+                    if (widget.windows.isEmpty) {
+                      _activate();
+                    } else {
+                      _launch();
+                    }
+                  },
                   // Secondary-button drags must not reorder or pin anything; a
                   // right-drag is a menu gesture.
                   onPanStart: widget.onDragStart == null
@@ -646,28 +853,48 @@ class _DockItemWidgetState extends State<DockItemWidget>
                         clipBehavior: Clip.none,
                         children: [
                           Positioned.fill(
-                            child: DockIcon(
-                              mode: widget.iconMode,
-                              accent: theme.accent,
-                              child: widget.services.buildApplicationIcon(
-                                context,
-                                widget.appId,
+                            child: AnimatedOpacity(
+                              duration: const Duration(milliseconds: 180),
+                              curve: Curves.easeOut,
+                              opacity:
+                                  (inactivePin ? _inactivePinOpacity : 1.0) *
+                                  _launchPulse,
+                              child: DockIcon(
+                                mode: widget.iconMode,
+                                opacity: widget.iconOpacity,
+                                accent: widget.tintColor,
+                                child: widget.services.buildApplicationIcon(
+                                  context,
+                                  widget.appId,
+                                ),
                               ),
                             ),
                           ),
+                          if (widget.badge > 0 && !widget.dragging)
+                            Positioned(
+                              top: -size * 0.06,
+                              right: -size * 0.06,
+                              child: _Badge(
+                                count: widget.badge,
+                                size: math.max(16, size * 0.36),
+                                style: theme.text.systemBarCaption,
+                              ),
+                            ),
                           if (indicator != null) indicator,
-                          IgnorePointer(
-                            child: AnimatedOpacity(
-                              duration: const Duration(milliseconds: 45),
-                              curve: Curves.easeOut,
-                              opacity: _pressed ? 1 : 0,
-                              child: DecoratedBox(
-                                decoration: BoxDecoration(
-                                  borderRadius: BorderRadius.circular(
-                                    size * 0.24,
+                          Positioned.fill(
+                            child: IgnorePointer(
+                              child: AnimatedOpacity(
+                                duration: const Duration(milliseconds: 90),
+                                curve: Curves.easeOut,
+                                opacity: _pressed ? 1 : 0,
+                                child: DecoratedBox(
+                                  decoration: BoxDecoration(
+                                    borderRadius: BorderRadius.circular(
+                                      size * 0.24,
+                                    ),
+                                    color: const Color(0xFF000000)
+                                        .withValues(alpha: 0.16),
                                   ),
-                                  color: const Color(0xFFFFFFFF)
-                                      .withValues(alpha: 0.12),
                                 ),
                               ),
                             ),
@@ -835,6 +1062,15 @@ class _DockItemWidgetState extends State<DockItemWidget>
       _clearEmphasis();
       return const SizedBox.shrink();
     }
+    return widget.previewStyle == DockPreviewStyle.stack
+        ? _buildPreviewStack(context, layout)
+        : _buildPreviewCards(context, layout);
+  }
+
+  Widget _buildPreviewCards(
+    BuildContext context,
+    OverlayChildLayoutInfo layout,
+  ) {
     final geometry = _geometry(layout);
     final output = geometry.output;
     final theme = context.shellTheme;
@@ -852,7 +1088,7 @@ class _DockItemWidgetState extends State<DockItemWidget>
     }
     final sizes = [
       for (final window in widget.windows)
-        _previewSize(window.previewSize, math.min(300.0, available), maxHeight),
+        _previewSize(window.previewSize, math.min(240.0, available), maxHeight),
     ];
     final cardHeight = sizes.map((size) => size.height + 22).reduce(math.max);
     final contentWidth =
@@ -890,82 +1126,254 @@ class _DockItemWidgetState extends State<DockItemWidget>
           top: top.toDouble(),
           width: width,
           height: height,
-          child: ShellInputRegion(
-            debugLabel: 'Dock window previews',
-            child: MouseRegion(
-              onEnter: (_) => _enter(),
-              onExit: (_) => _leave(),
-              child: ShellBackdropBlur(
-                blur: theme.effectivePanelOpacity < 1,
-                strength: 0.65,
-                separateChild: true,
-                borderRadius: radius,
-                child: DecoratedBox(
-                  decoration: BoxDecoration(
-                    color: theme.panelColor(theme.colors.surfaceContainer),
-                    borderRadius: radius,
-                    border: Border.all(color: theme.colors.hairline),
-                  ),
-                  child: Padding(
-                    padding: const EdgeInsets.all(8),
-                    child: SingleChildScrollView(
-                      scrollDirection: Axis.horizontal,
-                      child: Row(
-                        crossAxisAlignment: CrossAxisAlignment.end,
-                        children: [
-                          for (final (index, window)
-                              in widget.windows.indexed) ...[
-                            if (index > 0) const SizedBox(width: 8),
-                            SizedBox(
-                              width: sizes[index].width,
-                              height: cardHeight,
-                              child: MouseRegion(
-                                onEnter: (_) => _emphasisEnter(window.id),
-                                onExit: (_) => _emphasisLeave(window.id),
-                                child: Semantics(
-                                  label: window.title,
-                                  button: true,
-                                  child: GestureDetector(
-                                    behavior: HitTestBehavior.opaque,
-                                    onTap: () => _activateWindow(window.id),
-                                    child: Column(
-                                      crossAxisAlignment:
-                                          CrossAxisAlignment.stretch,
-                                      children: [
-                                        Expanded(
-                                          child: ClipRRect(
-                                            borderRadius: theme.borderRadius(
-                                              10,
-                                            ),
-                                            child: ColoredBox(
-                                              color: theme.cardColor(
-                                                theme
-                                                    .colors
-                                                    .surfaceContainerHigh,
+          child: TweenAnimationBuilder<double>(
+            tween: Tween<double>(begin: 0, end: 1),
+            duration: const Duration(milliseconds: 300),
+            curve: Curves.easeOutCubic,
+            builder: (context, t, child) => Opacity(
+              opacity: t,
+              child: Transform.scale(
+                scale: 0.97 + 0.03 * t,
+                alignment: switch (widget.position) {
+                  DockPosition.bottom => Alignment.bottomCenter,
+                  DockPosition.left => Alignment.centerLeft,
+                  DockPosition.right => Alignment.centerRight,
+                },
+                child: child,
+              ),
+            ),
+            child: ShellInputRegion(
+              debugLabel: 'Dock window previews',
+              child: MouseRegion(
+                onEnter: (_) => _enter(),
+                onExit: (_) => _leave(),
+                child: ShellBackdropBlur(
+                  blur: theme.effectivePanelOpacity < 1,
+                  strength: 0.65,
+                  separateChild: true,
+                  borderRadius: radius,
+                  child: DecoratedBox(
+                    decoration: BoxDecoration(
+                      color: theme.panelColor(theme.colors.surfaceContainer),
+                      borderRadius: radius,
+                      border: Border.all(color: theme.colors.hairline),
+                    ),
+                    child: Padding(
+                      padding: const EdgeInsets.all(8),
+                      child: SingleChildScrollView(
+                        scrollDirection: Axis.horizontal,
+                        child: Row(
+                          crossAxisAlignment: CrossAxisAlignment.end,
+                          children: [
+                            for (final (index, window)
+                                in widget.windows.indexed) ...[
+                              if (index > 0) const SizedBox(width: 8),
+                              SizedBox(
+                                width: sizes[index].width,
+                                height: cardHeight,
+                                child: MouseRegion(
+                                  onEnter: (_) => _emphasisEnter(window.id),
+                                  onExit: (_) => _emphasisLeave(window.id),
+                                  child: Semantics(
+                                    label: window.title,
+                                    button: true,
+                                    child: GestureDetector(
+                                      behavior: HitTestBehavior.opaque,
+                                      onTap: () => _activateWindow(window.id),
+                                      child: Column(
+                                        crossAxisAlignment:
+                                            CrossAxisAlignment.stretch,
+                                        children: [
+                                          Expanded(
+                                            child: ClipRRect(
+                                              borderRadius: theme.borderRadius(
+                                                10,
                                               ),
-                                              child: widget.services
-                                                  .buildWindowPreview(
-                                                    context,
-                                                    window.id,
-                                                  ),
+                                              child: ColoredBox(
+                                                color: theme.cardColor(
+                                                  theme
+                                                      .colors
+                                                      .surfaceContainerHigh,
+                                                ),
+                                                child: widget.services
+                                                    .buildWindowPreview(
+                                                      context,
+                                                      window.id,
+                                                    ),
+                                              ),
                                             ),
                                           ),
-                                        ),
-                                        const SizedBox(height: 5),
-                                        Text(
-                                          window.title,
-                                          maxLines: 1,
-                                          overflow: TextOverflow.ellipsis,
-                                          textAlign: TextAlign.center,
-                                          style: theme.text.systemBarCaption
-                                              .copyWith(
-                                                color: theme.colors.textPrimary,
-                                              ),
-                                        ),
-                                      ],
+                                          const SizedBox(height: 5),
+                                          Text(
+                                            window.title,
+                                            maxLines: 1,
+                                            overflow: TextOverflow.ellipsis,
+                                            textAlign: TextAlign.center,
+                                            style: theme.text.systemBarCaption
+                                                .copyWith(
+                                                  color:
+                                                      theme.colors.textPrimary,
+                                                ),
+                                          ),
+                                        ],
+                                      ),
                                     ),
                                   ),
                                 ),
+                              ),
+                            ],
+                          ],
+                        ),
+                      ),
+                    ),
+                  ),
+                ),
+              ),
+            ),
+          ),
+        ),
+      ],
+    );
+  }
+
+  /// The vertical style: a narrow column of rows anchored to the icon, each
+  /// row a thumbnail with its title underneath and a close badge on hover.
+  /// Omarchy's dock opens it after 300 ms, grows it out of the dock edge over
+  /// 140 ms, and keeps it open for a single window too.
+  Widget _buildPreviewStack(
+    BuildContext context,
+    OverlayChildLayoutInfo layout,
+  ) {
+    final geometry = _geometry(layout);
+    final output = geometry.output;
+    final theme = context.shellTheme;
+    final side = widget.position != DockPosition.bottom;
+    const pad = 6.0;
+    const gap = 6.0;
+    const titleHeight = 15.0;
+    final thumbWidth = math.min(230.0, math.max(120.0, output.width * 0.28));
+    final maxThumbHeight = side
+        ? math.max(
+            0.0,
+            (output.height - 48) / widget.windows.length - titleHeight - gap,
+          )
+        : math.max(
+            0.0,
+            (geometry.anchor.top - output.top - 24) / widget.windows.length -
+                titleHeight -
+                gap,
+          );
+    if (maxThumbHeight <= 0) {
+      _clearEmphasis();
+      return const SizedBox.shrink();
+    }
+    final sizes = [
+      for (final window in widget.windows)
+        _previewSize(window.previewSize, thumbWidth, maxThumbHeight),
+    ];
+    final width = sizes.map((size) => size.width).reduce(math.max) + pad * 2;
+    final height =
+        sizes.fold<double>(
+          0.0,
+          (sum, size) => sum + size.height + titleHeight,
+        ) +
+        gap * (sizes.length - 1) +
+        pad * 2;
+    final left = switch (widget.position) {
+      DockPosition.bottom => (geometry.anchor.center.dx - width / 2).clamp(
+        output.left + 8,
+        math.max(output.left + 8, output.right - width - 8),
+      ),
+      DockPosition.left => math.max(
+        output.left + 8,
+        geometry.anchor.right + 12,
+      ),
+      DockPosition.right => math.max(
+        output.left + 8,
+        geometry.anchor.left - width - 12,
+      ),
+    };
+    final top =
+        (side
+                ? geometry.anchor.center.dy - height / 2
+                : geometry.anchor.top - height - 12)
+            .clamp(
+              output.top + 8,
+              math.max(output.top + 8, output.bottom - height - 8),
+            );
+    final radius = theme.borderRadius(16);
+    return Stack(
+      children: [
+        Positioned(
+          left: left.toDouble(),
+          top: top.toDouble(),
+          width: width,
+          height: height,
+          child: TweenAnimationBuilder<double>(
+            tween: Tween<double>(begin: 0, end: 1),
+            duration: const Duration(milliseconds: 140),
+            curve: Curves.easeOutCubic,
+            builder: (context, t, child) => Opacity(
+              opacity: t,
+              child: Transform.scale(
+                scale: 0.96 + 0.04 * t,
+                alignment: switch (widget.position) {
+                  DockPosition.bottom => Alignment.bottomCenter,
+                  DockPosition.left => Alignment.centerLeft,
+                  DockPosition.right => Alignment.centerRight,
+                },
+                child: child,
+              ),
+            ),
+            child: ShellInputRegion(
+              debugLabel: 'Dock window previews',
+              child: MouseRegion(
+                onEnter: (_) => _enter(),
+                onExit: (_) => _leave(),
+                child: ShellBackdropBlur(
+                  blur: theme.effectivePanelOpacity < 1,
+                  strength: 0.65,
+                  separateChild: true,
+                  borderRadius: radius,
+                  child: DecoratedBox(
+                    decoration: BoxDecoration(
+                      color: theme.panelColor(theme.colors.surfaceContainer),
+                      borderRadius: radius,
+                      border: Border.all(color: theme.colors.hairline),
+                    ),
+                    child: Padding(
+                      padding: const EdgeInsets.all(pad),
+                      child: Column(
+                        mainAxisSize: MainAxisSize.min,
+                        crossAxisAlignment: CrossAxisAlignment.stretch,
+                        children: [
+                          for (final (index, window)
+                              in widget.windows.indexed) ...[
+                            if (index > 0) const SizedBox(height: gap),
+                            SizedBox(
+                              height: sizes[index].height + titleHeight,
+                              child: _PreviewRow(
+                                window: window,
+                                radius: theme.borderRadius(10),
+                                titleStyle: theme.text.systemBarCaption
+                                    .copyWith(color: theme.colors.textPrimary),
+                                preview: widget.services.buildWindowPreview(
+                                  context,
+                                  window.id,
+                                ),
+                                onActivate: () => _activateWindow(window.id),
+                                onClose: () =>
+                                    widget.onCloseWindows([window.id]),
+                                onHover: (inside) {
+                                  if (inside) {
+                                    _emphasisEnter(window.id);
+                                    if (widget.hoverFocusPreview) {
+                                      widget.services.activateWindow(window.id);
+                                    }
+                                  } else {
+                                    _emphasisLeave(window.id);
+                                  }
+                                },
                               ),
                             ),
                           ],
@@ -983,6 +1391,131 @@ class _DockItemWidgetState extends State<DockItemWidget>
   }
 }
 
+/// One row of the vertical preview style. The close badge only appears while
+/// the row is hovered, so the column stays quiet.
+class _PreviewRow extends StatefulWidget {
+  const _PreviewRow({
+    required this.window,
+    required this.radius,
+    required this.titleStyle,
+    required this.preview,
+    required this.onActivate,
+    required this.onClose,
+    required this.onHover,
+  });
+
+  final ApplicationWindow window;
+  final BorderRadius radius;
+  final Widget preview;
+  final TextStyle titleStyle;
+  final VoidCallback onActivate;
+  final VoidCallback onClose;
+  final ValueChanged<bool> onHover;
+
+  @override
+  State<_PreviewRow> createState() => _PreviewRowState();
+}
+
+class _PreviewRowState extends State<_PreviewRow> {
+  bool _hovered = false;
+
+  void _setHovered(bool value) {
+    if (_hovered == value) return;
+    setState(() => _hovered = value);
+    widget.onHover(value);
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = context.shellTheme;
+    return MouseRegion(
+      onEnter: (_) => _setHovered(true),
+      onExit: (_) => _setHovered(false),
+      child: Semantics(
+        label: widget.window.title,
+        button: true,
+        child: GestureDetector(
+          behavior: HitTestBehavior.opaque,
+          onTap: widget.onActivate,
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              Expanded(
+                child: Stack(
+                  clipBehavior: Clip.none,
+                  children: [
+                    Positioned.fill(
+                      child: ClipRRect(
+                        borderRadius: widget.radius,
+                        child: ColoredBox(
+                          color: theme.cardColor(
+                            theme.colors.surfaceContainerHigh,
+                          ),
+                          child: widget.preview,
+                        ),
+                      ),
+                    ),
+                    if (_hovered)
+                      Positioned(
+                        top: 4,
+                        right: 4,
+                        child: _PreviewCloseButton(onTap: widget.onClose),
+                      ),
+                  ],
+                ),
+              ),
+              const SizedBox(height: 4),
+              SizedBox(
+                height: 11,
+                child: Text(
+                  widget.window.title,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: widget.titleStyle.copyWith(fontSize: 11),
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _PreviewCloseButton extends StatelessWidget {
+  const _PreviewCloseButton({required this.onTap});
+
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = context.shellTheme;
+    final chinese = Localizations.localeOf(context).languageCode == 'zh';
+    return GestureDetector(
+      behavior: HitTestBehavior.opaque,
+      onTap: onTap,
+      child: Semantics(
+        label: chinese ? '关闭窗口' : 'Close window',
+        button: true,
+        child: Container(
+          width: 18,
+          height: 18,
+          decoration: BoxDecoration(
+            shape: BoxShape.circle,
+            color: theme.colors.background.withValues(alpha: 0.72),
+            border: Border.all(color: theme.colors.hairline),
+          ),
+          child: Icon(
+            Icons.close_rounded,
+            size: 11,
+            color: theme.colors.textPrimary,
+          ),
+        ),
+      ),
+    );
+  }
+}
+
 class _Dot extends StatelessWidget {
   const _Dot({required this.size, required this.color});
 
@@ -994,6 +1527,39 @@ class _Dot extends StatelessWidget {
     width: size,
     height: size,
     decoration: BoxDecoration(shape: BoxShape.circle, color: color),
+  );
+}
+
+/// The unread count macOS paints on an icon's corner: a red pill that stays
+/// round until the number needs room.
+class _Badge extends StatelessWidget {
+  const _Badge({required this.count, required this.size, required this.style});
+
+  final int count;
+  final double size;
+  final TextStyle style;
+
+  static const Color _red = Color(0xFFFF3B30);
+
+  @override
+  Widget build(BuildContext context) => Container(
+    constraints: BoxConstraints(minWidth: size, minHeight: size),
+    padding: EdgeInsets.symmetric(horizontal: size * 0.28),
+    alignment: Alignment.center,
+    decoration: BoxDecoration(
+      color: _red,
+      borderRadius: BorderRadius.circular(size / 2),
+    ),
+    child: Text(
+      count > 99 ? '99+' : '$count',
+      maxLines: 1,
+      style: style.copyWith(
+        color: const Color(0xFFFFFFFF),
+        fontSize: size * 0.52,
+        fontWeight: FontWeight.w700,
+        height: 1,
+      ),
+    ),
   );
 }
 

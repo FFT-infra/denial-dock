@@ -44,6 +44,104 @@ enum DockClickAction {
   }) => value == 'cycle' ? DockClickAction.cycle : fallback;
 }
 
+/// What a wheel turn over the dock does, as in Dash to Dock's scroll action.
+enum DockScrollAction {
+  nothing,
+
+  /// Bring the next window of the application under the pointer forward.
+  cycleWindows,
+
+  /// Move to the neighbouring workspace.
+  switchWorkspace;
+
+  String get key => switch (this) {
+    DockScrollAction.nothing => 'nothing',
+    DockScrollAction.cycleWindows => 'cycle-windows',
+    DockScrollAction.switchWorkspace => 'switch-workspace',
+  };
+
+  static DockScrollAction parse(
+    Object? value, {
+    DockScrollAction fallback = DockScrollAction.nothing,
+  }) => switch (value) {
+    'cycle-windows' => DockScrollAction.cycleWindows,
+    'switch-workspace' => DockScrollAction.switchWorkspace,
+    'nothing' => DockScrollAction.nothing,
+    _ => fallback,
+  };
+}
+
+/// How the running marker under an icon is drawn.
+enum DockIndicatorStyle {
+  /// One dot per window, up to three, as macOS does.
+  dot,
+
+  /// A single bar the width of the icon.
+  line,
+
+  none;
+
+  String get key => switch (this) {
+    DockIndicatorStyle.dot => 'dot',
+    DockIndicatorStyle.line => 'line',
+    DockIndicatorStyle.none => 'none',
+  };
+
+  static DockIndicatorStyle parse(
+    Object? value, {
+    DockIndicatorStyle fallback = DockIndicatorStyle.dot,
+  }) => switch (value) {
+    'dot' => DockIndicatorStyle.dot,
+    'line' => DockIndicatorStyle.line,
+    'none' => DockIndicatorStyle.none,
+    _ => fallback,
+  };
+}
+
+/// How an application icon answers a launch.
+enum DockLaunchFeedback {
+  /// The macOS hop.
+  hop,
+
+  /// A slow opacity pulse, as Omarchy's dock does while an app starts.
+  pulse,
+
+  none;
+
+  String get key => switch (this) {
+    DockLaunchFeedback.hop => 'hop',
+    DockLaunchFeedback.pulse => 'pulse',
+    DockLaunchFeedback.none => 'none',
+  };
+
+  static DockLaunchFeedback parse(
+    Object? value, {
+    DockLaunchFeedback fallback = DockLaunchFeedback.hop,
+  }) => switch (value) {
+    'hop' => DockLaunchFeedback.hop,
+    'pulse' => DockLaunchFeedback.pulse,
+    'none' => DockLaunchFeedback.none,
+    _ => fallback,
+  };
+}
+
+/// Geometry of the window-preview popup. Named for the layout rather than the
+/// desktop that popularised it.
+enum DockPreviewStyle {
+  /// A horizontal tray of cards above the dock.
+  cards,
+
+  /// A vertical stack of rows that follows the pointer along the dock.
+  stack;
+
+  String get key => this == DockPreviewStyle.stack ? 'stack' : 'cards';
+
+  static DockPreviewStyle parse(
+    Object? value, {
+    DockPreviewStyle fallback = DockPreviewStyle.cards,
+  }) => value == 'stack' ? DockPreviewStyle.stack : fallback;
+}
+
 enum DockPosition {
   left,
   bottom,
@@ -85,6 +183,14 @@ enum DockIconMode {
     'tinted' => DockIconMode.tinted,
     _ => fallback,
   };
+}
+
+/// Tinted-mode colours are stored as lowercase `#rrggbb`; anything else means
+/// the shell accent.
+String? normalizeTintColor(Object? value) {
+  if (value is! String) return null;
+  final text = value.trim().toLowerCase();
+  return RegExp(r'^#[0-9a-f]{6}$').hasMatch(text) ? text : null;
 }
 
 /// Icons and their identity are matched without the `.desktop` suffix and case.
@@ -159,10 +265,19 @@ class DockSettings {
     this.magnificationAmount = 0.6,
     this.position = DockPosition.bottom,
     this.iconMode = DockIconMode.color,
+    this.iconOpacity = 1.0,
+    this.tintColor,
     this.revealIndicator = true,
-    this.bounceOnLaunch = true,
-    this.showIndicators = true,
+    this.launchFeedback = DockLaunchFeedback.hop,
+    this.indicatorStyle = DockIndicatorStyle.dot,
+    this.previewStyle = DockPreviewStyle.cards,
+    this.dimInactivePinned = false,
+    this.hoverFocusPreview = false,
+    this.showBadges = true,
     this.showSuggestions = true,
+    this.scrollAction = DockScrollAction.nothing,
+    this.scrollReversed = false,
+    this.scrollWraps = false,
     this.launcherSide = DockSide.left,
     this.extrasSide = DockSide.right,
     this.showTrash = true,
@@ -189,6 +304,8 @@ class DockSettings {
   static const double maxScale = 1.6;
   static const double magnificationRadius = 140.0;
   static const double liftRatio = 0.25;
+  static const double minIconOpacity = 0.1;
+  static const double iconOpacityStep = 0.1;
 
   /// Release glide for a dragged icon; same 180ms ease as the reference dock's
   /// neighbour reorder.
@@ -217,13 +334,42 @@ class DockSettings {
   final DockPosition position;
   final DockIconMode iconMode;
 
+  /// Opacity of the filtered icon modes; colour icons always draw at full
+  /// strength.
+  final double iconOpacity;
+
+  /// Tinted-mode colour as `#rrggbb`; null follows the shell accent.
+  final String? tintColor;
+
   /// Draws a short bar on the dock's edge while it is retracted, so the hidden
   /// strip is still discoverable.
   final bool revealIndicator;
 
-  final bool bounceOnLaunch;
-  final bool showIndicators;
+  final DockLaunchFeedback launchFeedback;
+  final DockIndicatorStyle indicatorStyle;
+  final DockPreviewStyle previewStyle;
+
+  /// Fades a pinned application that has no window, so the running ones read
+  /// first. Omarchy's dock does this; macOS and Dash to Dock do not.
+  final bool dimInactivePinned;
+
+  /// Focuses a window as the pointer moves down the stacked previews, as
+  /// Omarchy's dock can. Off by default: it takes focus from wherever the user
+  /// was typing.
+  final bool hoverFocusPreview;
+
+  /// Counts unread notifications on the application's icon.
+  final bool showBadges;
+
   final bool showSuggestions;
+
+  final DockScrollAction scrollAction;
+
+  /// Inverts the wheel's direction, for a natural-scroll mouse.
+  final bool scrollReversed;
+
+  /// Steps from the last workspace round to the first and back.
+  final bool scrollWraps;
 
   final DockSide launcherSide;
   final DockSide extrasSide;
@@ -244,10 +390,20 @@ class DockSettings {
     double? magnificationAmount,
     DockPosition? position,
     DockIconMode? iconMode,
+    double? iconOpacity,
+    String? tintColor,
+    bool clearTint = false,
     bool? revealIndicator,
-    bool? bounceOnLaunch,
-    bool? showIndicators,
+    DockLaunchFeedback? launchFeedback,
+    DockIndicatorStyle? indicatorStyle,
+    DockPreviewStyle? previewStyle,
+    bool? dimInactivePinned,
+    bool? hoverFocusPreview,
+    bool? showBadges,
     bool? showSuggestions,
+    DockScrollAction? scrollAction,
+    bool? scrollReversed,
+    bool? scrollWraps,
     DockSide? launcherSide,
     DockSide? extrasSide,
     bool? showTrash,
@@ -263,10 +419,19 @@ class DockSettings {
     ),
     position: position ?? this.position,
     iconMode: iconMode ?? this.iconMode,
+    iconOpacity: clampIconOpacity(iconOpacity ?? this.iconOpacity),
+    tintColor: clearTint ? null : (tintColor ?? this.tintColor),
     revealIndicator: revealIndicator ?? this.revealIndicator,
-    bounceOnLaunch: bounceOnLaunch ?? this.bounceOnLaunch,
-    showIndicators: showIndicators ?? this.showIndicators,
+    launchFeedback: launchFeedback ?? this.launchFeedback,
+    indicatorStyle: indicatorStyle ?? this.indicatorStyle,
+    previewStyle: previewStyle ?? this.previewStyle,
+    dimInactivePinned: dimInactivePinned ?? this.dimInactivePinned,
+    hoverFocusPreview: hoverFocusPreview ?? this.hoverFocusPreview,
+    showBadges: showBadges ?? this.showBadges,
     showSuggestions: showSuggestions ?? this.showSuggestions,
+    scrollAction: scrollAction ?? this.scrollAction,
+    scrollReversed: scrollReversed ?? this.scrollReversed,
+    scrollWraps: scrollWraps ?? this.scrollWraps,
     launcherSide: launcherSide ?? this.launcherSide,
     extrasSide: extrasSide ?? this.extrasSide,
     showTrash: showTrash ?? this.showTrash,
@@ -276,6 +441,11 @@ class DockSettings {
   static double clampIconSize(double value) {
     if (!value.isFinite) return defaultIconSize;
     return value.clamp(minIconSize, maxIconSize).toDouble();
+  }
+
+  static double clampIconOpacity(double value) {
+    if (!value.isFinite) return 1.0;
+    return value.clamp(minIconOpacity, 1.0).toDouble();
   }
 
   static double clampMagnification(double value) {
@@ -366,18 +536,47 @@ class DockSettings {
       ),
       position: DockPosition.parse(json['position']),
       iconMode: DockIconMode.parse(json['iconMode']),
+      iconOpacity: clampIconOpacity(
+        json['iconOpacity'] is num
+            ? (json['iconOpacity'] as num).toDouble()
+            : 1.0,
+      ),
+      tintColor: normalizeTintColor(json['tintColor']),
       revealIndicator: json['revealIndicator'] is bool
           ? json['revealIndicator'] as bool
           : true,
-      bounceOnLaunch: json['bounceOnLaunch'] is bool
-          ? json['bounceOnLaunch'] as bool
-          : true,
-      showIndicators: json['showIndicators'] is bool
-          ? json['showIndicators'] as bool
+      launchFeedback: DockLaunchFeedback.parse(
+        json['launchFeedback'] ??
+            (json['bounceOnLaunch'] is bool
+                ? (json['bounceOnLaunch'] as bool ? 'hop' : 'none')
+                : null),
+      ),
+      indicatorStyle: DockIndicatorStyle.parse(
+        json['indicatorStyle'] ??
+            (json['showIndicators'] is bool
+                ? (json['showIndicators'] as bool ? 'dot' : 'none')
+                : null),
+      ),
+      previewStyle: DockPreviewStyle.parse(json['previewStyle']),
+      dimInactivePinned: json['dimInactivePinned'] is bool
+          ? json['dimInactivePinned'] as bool
+          : false,
+      hoverFocusPreview: json['hoverFocusPreview'] is bool
+          ? json['hoverFocusPreview'] as bool
+          : false,
+      showBadges: json['showBadges'] is bool
+          ? json['showBadges'] as bool
           : true,
       showSuggestions: json['showSuggestions'] is bool
           ? json['showSuggestions'] as bool
           : true,
+      scrollAction: DockScrollAction.parse(json['scrollAction']),
+      scrollReversed: json['scrollReversed'] is bool
+          ? json['scrollReversed'] as bool
+          : false,
+      scrollWraps: json['scrollWraps'] is bool
+          ? json['scrollWraps'] as bool
+          : false,
       launcherSide: DockSide.parse(
         json['launcherSide'],
         fallback: DockSide.left,
@@ -439,10 +638,25 @@ class DockPreferencesStore {
     json['magnificationAmount'] = settings.magnificationAmount;
     json['position'] = settings.position.key;
     json['iconMode'] = settings.iconMode.key;
+    json['iconOpacity'] = settings.iconOpacity;
+    if (settings.tintColor case final tint?) {
+      json['tintColor'] = tint;
+    } else {
+      json.remove('tintColor');
+    }
     json['revealIndicator'] = settings.revealIndicator;
-    json['bounceOnLaunch'] = settings.bounceOnLaunch;
-    json['showIndicators'] = settings.showIndicators;
+    json['launchFeedback'] = settings.launchFeedback.key;
+    json['indicatorStyle'] = settings.indicatorStyle.key;
+    json['previewStyle'] = settings.previewStyle.key;
+    json['dimInactivePinned'] = settings.dimInactivePinned;
+    json['hoverFocusPreview'] = settings.hoverFocusPreview;
+    json.remove('bounceOnLaunch');
+    json.remove('showIndicators');
+    json['showBadges'] = settings.showBadges;
     json['showSuggestions'] = settings.showSuggestions;
+    json['scrollAction'] = settings.scrollAction.key;
+    json['scrollReversed'] = settings.scrollReversed;
+    json['scrollWraps'] = settings.scrollWraps;
     json['launcherSide'] = settings.launcherSide.key;
     json['extrasSide'] = settings.extrasSide.key;
     json['showTrash'] = settings.showTrash;

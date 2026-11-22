@@ -56,6 +56,7 @@ class _DockAccessoryItemState extends State<DockAccessoryItem> {
   final OverlayPortalController _portal = OverlayPortalController();
   final FocusNode _focus = FocusNode(debugLabel: 'Dock accessory menu');
   bool _menuOpen = false;
+  bool _pressed = false;
   Timer? _longPressTimer;
   Offset? _downPosition;
 
@@ -65,6 +66,15 @@ class _DockAccessoryItemState extends State<DockAccessoryItem> {
     if (_menuOpen) widget.onOverlayChanged(false);
     _focus.dispose();
     super.dispose();
+  }
+
+  void _pressDown() {
+    if (!_pressed) setState(() => _pressed = true);
+  }
+
+  void _pressUp() {
+    if (!_pressed) return;
+    setState(() => _pressed = false);
   }
 
   void _openMenu() {
@@ -105,6 +115,7 @@ class _DockAccessoryItemState extends State<DockAccessoryItem> {
           child: Listener(
             onPointerDown: (event) {
               _downPosition = event.position;
+              if (event.buttons == kPrimaryButton) _pressDown();
               if (event.kind != PointerDeviceKind.mouse &&
                   event.buttons == kPrimaryButton) {
                 _longPressTimer?.cancel();
@@ -123,11 +134,13 @@ class _DockAccessoryItemState extends State<DockAccessoryItem> {
               }
             },
             onPointerUp: (_) {
+              _pressUp();
               _longPressTimer?.cancel();
               _longPressTimer = null;
               _downPosition = null;
             },
             onPointerCancel: (_) {
+              _pressUp();
               _longPressTimer?.cancel();
               _longPressTimer = null;
               _downPosition = null;
@@ -155,6 +168,22 @@ class _DockAccessoryItemState extends State<DockAccessoryItem> {
                         widget.icon,
                         size: widget.size * 0.46,
                         color: theme.accent,
+                      ),
+                    ),
+                    Positioned.fill(
+                      child: IgnorePointer(
+                        child: AnimatedOpacity(
+                          duration: const Duration(milliseconds: 90),
+                          curve: Curves.easeOut,
+                          opacity: _pressed ? 1 : 0,
+                          child: DecoratedBox(
+                            decoration: BoxDecoration(
+                              shape: BoxShape.circle,
+                              color: const Color(0xFF000000)
+                                  .withValues(alpha: 0.16),
+                            ),
+                          ),
+                        ),
                       ),
                     ),
                     if (widget.badge > 0)

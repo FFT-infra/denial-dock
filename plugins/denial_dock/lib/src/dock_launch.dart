@@ -14,7 +14,11 @@ abstract final class DockLaunch {
   static const double landingSeconds = 0.13;
   static const double heightRatio = 0.65;
   static const int minimumFeedbackMs = 500;
-  static const int timeoutMs = 15000;
+
+  /// A launch that never opens a window stops hopping after roughly three
+  /// cycles; an application that takes longer has no visible feedback to
+  /// give and should not animate forever.
+  static const int timeoutMs = 5000;
 
   /// Upward offset for [phase] in 0..1 of the hop, in logical pixels.
   static double hopLift(double phase, double iconSize) =>
@@ -54,6 +58,18 @@ abstract final class DockLaunch {
   static double advancePhase(double phase, double deltaSeconds) {
     if (!deltaSeconds.isFinite || deltaSeconds <= 0) return phase;
     return (phase + deltaSeconds / bounceSeconds) % 1.0;
+  }
+
+  /// Opacity of the pulse style: a 1 s sine from full to [pulseFloor] and back,
+  /// the timing Omarchy's dock uses while an application starts.
+  static const double pulseSeconds = 1.0;
+  static const double pulseFloor = 0.7;
+
+  static double pulseOpacity(double elapsedSeconds) {
+    if (!elapsedSeconds.isFinite || elapsedSeconds <= 0) return 1.0;
+    final phase = (elapsedSeconds / pulseSeconds) % 1.0;
+    final wave = 0.5 - 0.5 * math.cos(phase * 2 * math.pi);
+    return 1.0 - (1.0 - pulseFloor) * wave;
   }
 
   static double advanceLanding(double progress, double deltaSeconds) {

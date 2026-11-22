@@ -323,6 +323,11 @@ class _DockSettingsPanelState extends ConsumerState<DockSettingsPanel> {
                         _zh ? '始终显示' : 'Always show',
                         Icons.visibility_outlined,
                       ),
+                      (
+                        DockVisibilityMode.persistent,
+                        _zh ? '自动隐藏' : 'Auto-hide',
+                        Icons.vertical_align_bottom,
+                      ),
                     ],
                     onChanged: (value) => _controller.setVisibility(value),
                   ),
@@ -342,6 +347,46 @@ class _DockSettingsPanelState extends ConsumerState<DockSettingsPanel> {
                       ),
                     ],
                     onChanged: (value) => _controller.setClickAction(value),
+                  ),
+                  _SegmentedField<DockScrollAction>(
+                    label: _zh ? '在 Dock 上滚动滚轮' : 'Scrolling over the dock',
+                    value: settings.scrollAction,
+                    options: [
+                      (
+                        DockScrollAction.nothing,
+                        _zh ? '不操作' : 'Do nothing',
+                        Icons.block,
+                      ),
+                      (
+                        DockScrollAction.cycleWindows,
+                        _zh ? '切换窗口' : 'Cycle windows',
+                        Icons.swap_vert,
+                      ),
+                      (
+                        DockScrollAction.switchWorkspace,
+                        _zh ? '切换工作区' : 'Switch workspace',
+                        Icons.space_dashboard_outlined,
+                      ),
+                    ],
+                    onChanged: (value) => _controller.setScrollAction(value),
+                  ),
+                  _ToggleRow(
+                    label: _zh ? '反向滚动' : 'Reverse scroll direction',
+                    value: settings.scrollReversed,
+                    enabled: settings.scrollAction != DockScrollAction.nothing,
+                    onChanged: (value) =>
+                        _controller.setScrollReversed(reversed: value),
+                  ),
+                  _ToggleRow(
+                    label: _zh
+                        ? '滚到尽头时循环到另一端'
+                        : 'Wrap around at the last workspace',
+                    value: settings.scrollWraps,
+                    enabled:
+                        settings.scrollAction ==
+                        DockScrollAction.switchWorkspace,
+                    onChanged: (value) =>
+                        _controller.setScrollWraps(wraps: value),
                   ),
                 ],
               ),
@@ -437,11 +482,49 @@ class _DockSettingsPanelState extends ConsumerState<DockSettingsPanel> {
                     ],
                     onChanged: (value) => _controller.setIconMode(value),
                   ),
-                  _ToggleRow(
-                    label: _zh ? '弹跳打开应用程序' : 'Bounce to open applications',
-                    value: settings.bounceOnLaunch,
-                    onChanged: (value) =>
-                        _controller.setBounceOnLaunch(bounce: value),
+                  _SliderRow(
+                    label: _zh ? '图标强度' : 'Icon strength',
+                    value: settings.iconOpacity,
+                    min: DockSettings.minIconOpacity,
+                    max: 1,
+                    divisions:
+                        ((1 - DockSettings.minIconOpacity) /
+                                DockSettings.iconOpacityStep)
+                            .round(),
+                    display: '${(settings.iconOpacity * 100).round()}%',
+                    describe: (value) => '${(value * 100).round()}%',
+                    enabled: settings.iconMode != DockIconMode.color,
+                    onChanged: (value) => _controller.setIconOpacity(value),
+                  ),
+                  _TintRow(
+                    label: _zh ? '着色颜色' : 'Tint colour',
+                    accentLabel: _zh ? '强调色' : 'Accent',
+                    value: settings.tintColor,
+                    accent: context.shellTheme.accent,
+                    enabled: settings.iconMode == DockIconMode.tinted,
+                    onChanged: (value) => _controller.setTintColor(value),
+                  ),
+                  _SegmentedField<DockLaunchFeedback>(
+                    label: _zh ? '启动时' : 'While an app starts',
+                    value: settings.launchFeedback,
+                    options: [
+                      (
+                        DockLaunchFeedback.hop,
+                        _zh ? '跳动' : 'Hop',
+                        Icons.vertical_align_top,
+                      ),
+                      (
+                        DockLaunchFeedback.pulse,
+                        _zh ? '呼吸' : 'Pulse',
+                        Icons.blur_on,
+                      ),
+                      (
+                        DockLaunchFeedback.none,
+                        _zh ? '无' : 'None',
+                        Icons.block,
+                      ),
+                    ],
+                    onChanged: (value) => _controller.setLaunchFeedback(value),
                   ),
                   _ToggleRow(
                     label: _zh ? '收起时显示提示条' : 'Show a handle while hidden',
@@ -449,13 +532,67 @@ class _DockSettingsPanelState extends ConsumerState<DockSettingsPanel> {
                     onChanged: (value) =>
                         _controller.setRevealIndicator(show: value),
                   ),
+                  _SegmentedField<DockIndicatorStyle>(
+                    label: _zh ? '运行标记' : 'Running marker',
+                    value: settings.indicatorStyle,
+                    options: [
+                      (
+                        DockIndicatorStyle.dot,
+                        _zh ? '圆点' : 'Dots',
+                        Icons.more_horiz,
+                      ),
+                      (
+                        DockIndicatorStyle.line,
+                        _zh ? '横条' : 'Line',
+                        Icons.horizontal_rule,
+                      ),
+                      (
+                        DockIndicatorStyle.none,
+                        _zh ? '无' : 'None',
+                        Icons.block,
+                      ),
+                    ],
+                    onChanged: (value) => _controller.setIndicatorStyle(value),
+                  ),
                   _ToggleRow(
                     label: _zh
-                        ? '为打开的程序显示指示灯'
-                        : 'Show indicators for open apps',
-                    value: settings.showIndicators,
+                        ? '没打开时淡出固定的 App'
+                        : 'Fade pinned apps that are not running',
+                    value: settings.dimInactivePinned,
                     onChanged: (value) =>
-                        _controller.setShowIndicators(show: value),
+                        _controller.setDimInactivePinned(dim: value),
+                  ),
+                  _SegmentedField<DockPreviewStyle>(
+                    label: _zh ? '窗口预览' : 'Window previews',
+                    value: settings.previewStyle,
+                    options: [
+                      (
+                        DockPreviewStyle.cards,
+                        _zh ? '横排卡片' : 'Card row',
+                        Icons.view_carousel_outlined,
+                      ),
+                      (
+                        DockPreviewStyle.stack,
+                        _zh ? '竖排列表' : 'Stacked list',
+                        Icons.view_agenda_outlined,
+                      ),
+                    ],
+                    onChanged: (value) => _controller.setPreviewStyle(value),
+                  ),
+                  _ToggleRow(
+                    label: _zh
+                        ? '指针移到预览上时聚焦那个窗口'
+                        : 'Focus a window when the pointer reaches its preview',
+                    value: settings.hoverFocusPreview,
+                    enabled: settings.previewStyle == DockPreviewStyle.stack,
+                    onChanged: (value) =>
+                        _controller.setHoverFocusPreview(focus: value),
+                  ),
+                  _ToggleRow(
+                    label: _zh ? '显示通知角标' : 'Show notification badges',
+                    value: settings.showBadges,
+                    onChanged: (value) =>
+                        _controller.setShowBadges(show: value),
                   ),
                   _ToggleRow(
                     label: _zh
@@ -764,30 +901,51 @@ class _ScrollEdgeFadeState extends State<_ScrollEdgeFade> {
     });
   }
 
+  /// The shell delivers wheel events as pointer signals, but the scroll view
+  /// does not always claim them. Driving the controller here keeps the sheet
+  /// scrolling with the wheel; an inner scrollable still wins the resolver.
+  void _handlePointerSignal(PointerSignalEvent event) {
+    if (event is! PointerScrollEvent || event.scrollDelta.dy == 0) return;
+    final controller = widget.controller;
+    if (!controller.hasClients) return;
+    GestureBinding.instance.pointerSignalResolver.register(event, (_) {
+      final position = controller.position;
+      final target = (position.pixels + event.scrollDelta.dy).clamp(
+        position.minScrollExtent,
+        position.maxScrollExtent,
+      );
+      if (target == position.pixels) return;
+      controller.jumpTo(target);
+    });
+  }
+
   @override
   Widget build(BuildContext context) {
-    return NotificationListener<ScrollMetricsNotification>(
-      onNotification: (_) {
-        _sync();
-        return false;
-      },
-      child: ShaderMask(
-        blendMode: BlendMode.dstIn,
-        shaderCallback: (rect) {
-          final start = (_extent / math.max(1, rect.height)).clamp(0.0, 0.5);
-          return LinearGradient(
-            begin: Alignment.topCenter,
-            end: Alignment.bottomCenter,
-            colors: [
-              Colors.white.withValues(alpha: 1 - _top),
-              Colors.white,
-              Colors.white,
-              Colors.white.withValues(alpha: 1 - _bottom),
-            ],
-            stops: [0, start, 1 - start, 1],
-          ).createShader(rect);
+    return Listener(
+      onPointerSignal: _handlePointerSignal,
+      child: NotificationListener<ScrollMetricsNotification>(
+        onNotification: (_) {
+          _sync();
+          return false;
         },
-        child: widget.child,
+        child: ShaderMask(
+          blendMode: BlendMode.dstIn,
+          shaderCallback: (rect) {
+            final start = (_extent / math.max(1, rect.height)).clamp(0.0, 0.5);
+            return LinearGradient(
+              begin: Alignment.topCenter,
+              end: Alignment.bottomCenter,
+              colors: [
+                Colors.white.withValues(alpha: 1 - _top),
+                Colors.white,
+                Colors.white,
+                Colors.white.withValues(alpha: 1 - _bottom),
+              ],
+              stops: [0, start, 1 - start, 1],
+            ).createShader(rect);
+          },
+          child: widget.child,
+        ),
       ),
     );
   }
@@ -1231,6 +1389,7 @@ class _ToggleRow extends StatelessWidget {
     required this.label,
     required this.value,
     required this.onChanged,
+    this.enabled = true,
     this.margin = EdgeInsets.zero,
     this.radius = 0,
   });
@@ -1238,37 +1397,49 @@ class _ToggleRow extends StatelessWidget {
   final String label;
   final bool value;
   final ValueChanged<bool> onChanged;
+
+  /// A row whose setting only matters under another choice stays visible but
+  /// inert, so the panel does not reflow as options change.
+  final bool enabled;
   final EdgeInsetsGeometry margin;
   final double radius;
 
   @override
   Widget build(BuildContext context) {
     final theme = context.shellTheme;
+    void toggle() {
+      if (enabled) onChanged(!value);
+    }
+
     return Semantics(
       container: true,
       button: true,
       toggled: value,
+      enabled: enabled,
       label: label,
-      onTap: () => onChanged(!value),
+      onTap: toggle,
       child: ExcludeSemantics(
-        child: _HoverSurface(
-          height: _rowHeight,
-          margin: margin,
-          radius: radius,
-          onTap: () => onChanged(!value),
-          child: Row(
-            children: [
-              Expanded(
-                child: Text(
-                  label,
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                  style: _labelStyle(theme),
+        child: Opacity(
+          opacity: enabled ? 1 : 0.45,
+          child: _HoverSurface(
+            height: _rowHeight,
+            margin: margin,
+            radius: radius,
+            onTap: toggle,
+            child: Row(
+              children: [
+                Expanded(
+                  child: Text(
+                    label,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: _labelStyle(theme),
+                  ),
                 ),
-              ),
-              const SizedBox(width: 12),
-              _DockSwitch(value: value),
-            ],
+                const SizedBox(width: 12),
+                _DockSwitch(value: value),
+              ],
+            ),
           ),
         ),
       ),
@@ -1414,6 +1585,132 @@ class _DockSwitchState extends State<_DockSwitch>
               ),
             );
           },
+        ),
+      ),
+    );
+  }
+}
+
+/// Picks the tinted-mode colour from a short swatch row. The first swatch is
+/// the shell accent, so a fresh install follows the theme without storing a
+/// colour.
+class _TintRow extends StatelessWidget {
+  const _TintRow({
+    required this.label,
+    required this.accentLabel,
+    required this.value,
+    required this.accent,
+    required this.enabled,
+    required this.onChanged,
+  });
+
+  final String label;
+  final String accentLabel;
+  final String? value;
+  final Color accent;
+  final bool enabled;
+  final ValueChanged<String?> onChanged;
+
+  static const List<String> _swatches = [
+    '#a855f7',
+    '#3b82f6',
+    '#10b981',
+    '#f59e0b',
+    '#ef4444',
+    '#ec4899',
+  ];
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = context.shellTheme;
+    final colors = theme.colors;
+    final selected = value?.toLowerCase();
+    return AnimatedOpacity(
+      duration: _motion(context, _quick),
+      opacity: enabled ? 1 : 0.5,
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 12),
+        child: SizedBox(
+          height: 52,
+          child: Row(
+            children: [
+              Expanded(
+                child: Text(
+                  label,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: _labelStyle(theme).copyWith(
+                    color: enabled ? colors.textPrimary : colors.textSecondary,
+                  ),
+                ),
+              ),
+              for (final (index, swatch) in _swatches.indexed) ...[
+                if (index > 0) const SizedBox(width: 8),
+                _Swatch(
+                  color: Color(
+                    0xFF000000 | int.parse(swatch.substring(1), radix: 16),
+                  ),
+                  selected: selected == swatch,
+                  enabled: enabled,
+                  onTap: () => onChanged(swatch),
+                ),
+              ],
+              const SizedBox(width: 8),
+              _Swatch(
+                color: accent,
+                selected: selected == null,
+                enabled: enabled,
+                onTap: () => onChanged(null),
+                semanticLabel: accentLabel,
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _Swatch extends StatelessWidget {
+  const _Swatch({
+    required this.color,
+    required this.selected,
+    required this.enabled,
+    required this.onTap,
+    this.semanticLabel,
+  });
+
+  final Color color;
+  final bool selected;
+  final bool enabled;
+  final VoidCallback onTap;
+  final String? semanticLabel;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = context.shellTheme;
+    return Semantics(
+      button: true,
+      selected: selected,
+      label: semanticLabel,
+      child: GestureDetector(
+        behavior: HitTestBehavior.opaque,
+        onTap: enabled ? onTap : null,
+        child: SizedBox(
+          width: 22,
+          height: 22,
+          child: DecoratedBox(
+            decoration: BoxDecoration(
+              color: color,
+              shape: BoxShape.circle,
+              border: Border.all(
+                color: selected
+                    ? theme.colors.textPrimary
+                    : theme.colors.hairline,
+                width: selected ? 2 : 1,
+              ),
+            ),
+          ),
         ),
       ),
     );

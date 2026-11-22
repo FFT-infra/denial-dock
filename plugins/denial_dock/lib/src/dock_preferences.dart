@@ -75,17 +75,47 @@ class DockSettingsController extends AsyncNotifier<DockSettings> {
   Future<void> setIconMode(DockIconMode mode) =>
       _update((current) => current.copyWith(iconMode: mode));
 
+  Future<void> setIconOpacity(double opacity) =>
+      _update((current) => current.copyWith(iconOpacity: opacity));
+
+  Future<void> setTintColor(String? color) => _update(
+    (current) => color == null
+        ? current.copyWith(clearTint: true)
+        : current.copyWith(tintColor: normalizeTintColor(color)),
+  );
+
   Future<void> setRevealIndicator({required bool show}) =>
       _update((current) => current.copyWith(revealIndicator: show));
 
-  Future<void> setBounceOnLaunch({required bool bounce}) =>
-      _update((current) => current.copyWith(bounceOnLaunch: bounce));
+  Future<void> setLaunchFeedback(DockLaunchFeedback feedback) =>
+      _update((current) => current.copyWith(launchFeedback: feedback));
 
-  Future<void> setShowIndicators({required bool show}) =>
-      _update((current) => current.copyWith(showIndicators: show));
+  Future<void> setIndicatorStyle(DockIndicatorStyle style) =>
+      _update((current) => current.copyWith(indicatorStyle: style));
+
+  Future<void> setPreviewStyle(DockPreviewStyle style) =>
+      _update((current) => current.copyWith(previewStyle: style));
+
+  Future<void> setDimInactivePinned({required bool dim}) =>
+      _update((current) => current.copyWith(dimInactivePinned: dim));
+
+  Future<void> setHoverFocusPreview({required bool focus}) =>
+      _update((current) => current.copyWith(hoverFocusPreview: focus));
+
+  Future<void> setScrollReversed({required bool reversed}) =>
+      _update((current) => current.copyWith(scrollReversed: reversed));
+
+  Future<void> setScrollWraps({required bool wraps}) =>
+      _update((current) => current.copyWith(scrollWraps: wraps));
+
+  Future<void> setShowBadges({required bool show}) =>
+      _update((current) => current.copyWith(showBadges: show));
 
   Future<void> setShowSuggestions({required bool show}) =>
       _update((current) => current.copyWith(showSuggestions: show));
+
+  Future<void> setScrollAction(DockScrollAction action) =>
+      _update((current) => current.copyWith(scrollAction: action));
 
   Future<void> setLauncherSide(DockSide side) =>
       _update((current) => current.copyWith(launcherSide: side));

@@ -92,6 +92,16 @@ void main() {
     'landing half',
   );
   _expect(DockLaunch.advanceLanding(0.9, 1) == 1, 'landing clamps');
+
+  // The pulse style starts and ends at full opacity and dips to its floor at
+  // the half cycle.
+  _expect(DockLaunch.pulseOpacity(0) == 1, 'pulse start');
+  _expect(
+    (DockLaunch.pulseOpacity(0.5) - DockLaunch.pulseFloor).abs() < 1e-9,
+    'pulse floor',
+  );
+  _expect((DockLaunch.pulseOpacity(1) - 1).abs() < 1e-9, 'pulse wraps');
+  _expect(DockLaunch.pulseOpacity(-1) == 1, 'pulse ignores negative');
 }
 
 void _expect(bool condition, String message) {

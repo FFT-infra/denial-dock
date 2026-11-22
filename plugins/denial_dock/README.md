@@ -26,14 +26,21 @@ turning it on.
   running application from its context menu or by dragging it into the pinned
   section. The list is kept in `~/.config/denial/plugins/denial_dock.json`.
 - **Launch feedback.** A launching icon hops 0.65 of its height over 0.48 s and
-  glides back down in 0.13 s. The hop stops as soon as a window appears, and
-  after 500 ms at the earliest; it gives up after 15 s, or immediately if the
-  launch fails.
-- **Window previews.** Hover an icon with two or more windows to open its tray.
-  Hover one card for 300 ms to fade the other windows on that monitor; click a
-  card to focus that window. The icon's name label appears after a 250 ms
-  dwell above the magnified icon, on a pill with a tail pointing down at it,
-  and the running indicator shows one to three dots.
+  glides back down in 0.13 s, or pulses between full and 70% opacity, or stays
+  still. The hop stops as soon as a window appears, and after 500 ms at the
+  earliest; it gives up after 5 s, or immediately if the launch fails.
+- **Window previews.** Two layouts. The card row waits 400 ms, the delay
+  Windows uses for taskbar thumbnails; the stack waits 300 ms and opens for a
+  single window too, with a close button on each row. The stack follows the
+  pointer: moving to a neighbouring running icon hands it over without waiting
+  out another dwell. Hover one preview for
+  300 ms to fade the other windows on that monitor; click it to focus that
+  window. The icon's name label appears after a 250 ms dwell above the
+  magnified icon, on a pill with a tail pointing down at it. The running marker
+  is one dot per window up to three, a single line, or nothing.
+- **Notification badges.** An icon with unread notifications carries a red
+  count on its top corner, capped at `99+`, and loses it once the notification
+  centre marks them read.
 - **Click behaviour.** Clicking an icon with windows either minimizes the
   active window (default) or cycles to the next one; the choice is in the
   settings sheet. Clicking an application with no windows launches it.
@@ -55,7 +62,9 @@ turning it on.
   after the pointer leaves while a window still reaches the capsule, and comes
   back as soon as that window clears the capsule itself. A window parked
   exactly on the boundary does not make it flap. Tiles reach the edge like any
-  other window, so a tiling layout retracts too.
+  other window, so a tiling layout retracts too. The other two modes are
+  *always show* and *auto-hide*, which retracts as soon as the pointer leaves
+  and comes back from the same edge strip.
 - **Folder shortcuts and Trash.** Add any folder from the settings sheet
   through a built-in directory browser, with hidden entries behind a toggle.
   Clicking a shortcut opens the folder with the system handler (`xdg-open`,
@@ -70,8 +79,9 @@ turning it on.
   offer the same entry in their own menus. The sheet is a managed shell popup,
   so it gets the scene barrier, focus, Escape and outside-tap dismissal. It
   covers visibility, click behaviour, edge, icon size, magnification amount,
-  launch bounce, running indicators, suggested applications, which end the
-  launcher and the accessories sit on, the trash toggle and the folder list.
+  icon mode, strength and tint, launch bounce, running indicators, notification
+  badges, suggested applications, which end the launcher and the accessories
+  sit on, the trash toggle and the folder list.
 - **Shell-native looks.** The capsule and the settings sheet use Denial's
   `ShellTheme` panel colour, backdrop blur, hairline border and corner radii,
   so they match the top bar.
@@ -116,10 +126,19 @@ Most settings live in the settings sheet. The same values are stored in
   "magnification": true,
   "magnificationAmount": 0.6,
   "position": "bottom",
-  "bounceOnLaunch": true,
-  "showIndicators": true,
+  "launchFeedback": "hop",
+  "indicatorStyle": "dot",
+  "previewStyle": "cards",
+  "hoverFocusPreview": false,
+  "dimInactivePinned": false,
+  "showBadges": true,
   "showSuggestions": true,
+  "scrollAction": "nothing",
+  "scrollReversed": false,
+  "scrollWraps": false,
   "iconMode": "color",
+  "iconOpacity": 1,
+  "tintColor": "#a855f7",
   "revealIndicator": true,
   "launcherSide": "left",
   "extrasSide": "right",
@@ -130,9 +149,13 @@ Most settings live in the settings sheet. The same values are stored in
 
 - `id` is the launcher identity used to start an application; `appId` is the
   icon identity, normally the desktop file name.
-- `visibility` is `"smart"` (auto-hide while windows float, default) or
-  `"always"`.
-- `clickAction` is `"minimize"` (default) or `"cycle"`.
+- `visibility` is `"smart"` (auto-hide while windows float, default),
+  `"always"` (never retract) or `"persistent"` (retract whenever the pointer
+  leaves, whatever is on screen).
+- `clickAction` is `"minimize"` (default) or `"cycle"`. Cycling visits
+  restored windows first and minimized ones last. A middle click on a running
+  application opens another window, and falls back to the normal click when the
+  entry has nothing to launch.
 - `iconSize` is in logical pixels, clamped to 32–72 in steps of 4; the default
   is 48.
 - `magnification` (default `true`) makes icons grow under the pointer. Off keeps
@@ -142,12 +165,41 @@ Most settings live in the settings sheet. The same values are stored in
 - `position` is `"bottom"` (default), `"left"` or `"right"`. The capsule turns
   with the edge: magnification runs along the row, labels and menus open away
   from the edge, and indicators sit on the inner side.
-- `bounceOnLaunch` (default `true`) plays the hop while an application starts.
-- `showIndicators` (default `true`) draws the running dots.
+- `launchFeedback` is `"hop"` (default), `"pulse"` or `"none"`: what an icon
+  does while its application starts. The older `bounceOnLaunch` boolean still
+  reads, mapping to `"hop"` and `"none"`.
+- `indicatorStyle` is `"dot"` (default, one dot per window up to three),
+  `"line"` (a single bar) or `"none"`. The older `showIndicators` boolean still
+  reads.
+- `previewStyle` is `"cards"` (default, a horizontal row of thumbnails above
+  the dock) or `"stack"` (a narrow column anchored to the icon, opening for a
+  single window too, with a close button on each row).
+- `hoverFocusPreview` (default `false`) focuses a window as the pointer moves
+  onto its row in the stacked previews. Off by default because it takes focus
+  from wherever you were typing.
+- `dimInactivePinned` (default `false`) fades a pinned application that has no
+  window to 62%.
+- `showBadges` (default `true`) counts unread notifications on an icon. A
+  notification names its application through the `desktop-entry` hint, matched
+  against the icon's identities; senders without the hint fall back to the
+  application name.
 - `showSuggestions` (default `true`) appends recently used applications that
   are not pinned, after a divider.
+- `scrollAction` is `"nothing"` (default), `"cycle-windows"` or
+  `"switch-workspace"`. Wheel up walks backwards through the application's
+  windows or towards the previous workspace; wheel down walks forwards. One
+  wheel notch is one step and two steps are at least 200 ms apart; a touchpad
+  has to travel further to count as one. The first and last workspace stop the
+  wheel instead of wrapping.
+- `scrollReversed` (default `false`) inverts the wheel direction.
+- `scrollWraps` (default `false`) steps from the last workspace round to the
+  first and back.
 - `iconMode` is `"color"` (default), `"grayscale"` or `"tinted"`; tinted
   multiplies the icon through the theme accent.
+- `iconOpacity` is the strength of the filtered modes, 0.1–1, default 1. Colour
+  icons always draw opaque.
+- `tintColor` is a `#rrggbb` colour for the tinted mode; absent means the shell
+  accent.
 - `revealIndicator` (default `true`) draws a short bar on the screen edge while
   the dock is retracted.
 - `launcherSide` and `extrasSide` are `"left"`, `"right"` or `"hidden"`.
@@ -170,8 +222,10 @@ Values the dock cannot parse fall back to the defaults rather than throwing.
   a single monitor.
 - No quit, hide or per-application autostart. `ShellWindowServices` exposes
   activate, minimize and close only, so a menu entry for them would be dead.
-- No notification badges. `desktopNotificationsProvider` carries a
-  `desktopEntry` per notification that does not reliably match a launcher id.
+- Notification badges only see what `desktopNotificationsProvider` still holds.
+  Notifications cleared from history, or sent by applications that report
+  neither a `desktop-entry` hint nor a matching application name, leave no
+  count.
 - Windows cannot be dropped onto an icon. The shell forwards no external drag.
 - Denial starts button pointers at the scene origin. The drag code works from
   absolute scene positions to compensate; the first few pixels of a drag can
