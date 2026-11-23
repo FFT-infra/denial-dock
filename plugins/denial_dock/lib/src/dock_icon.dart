@@ -1,3 +1,4 @@
+import 'package:denial_flutter_sdk/theme.dart';
 import 'package:flutter/material.dart';
 
 import 'dock_settings.dart' show DockIconMode;
@@ -99,6 +100,67 @@ class DockIcon extends StatelessWidget {
           child: child,
         ),
       },
+    );
+  }
+}
+
+/// The tile the dock's own items sit on: the launcher, a folder stack and the
+/// trash. An application icon fills its slot with artwork, so a system item
+/// draws the same rounded square rather than a washed-out circle, which read
+/// as an empty slot next to the apps.
+class DockTile extends StatelessWidget {
+  const DockTile({
+    required this.size,
+    required this.accent,
+    required this.child,
+    this.fill,
+    this.pressed = false,
+    super.key,
+  });
+
+  final double size;
+
+  /// The accent the tile's fill and hairline are mixed from.
+  final Color accent;
+  final Widget child;
+
+  /// Painted behind [child] and clipped to the tile, so a folder stack can
+  /// show its newest file the way a macOS stack does without a frame around
+  /// a shrunken picture.
+  final Widget? fill;
+
+  /// Darkens the tile while the pointer holds it, so the press lands.
+  final bool pressed;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = context.shellTheme;
+    final radius = theme.borderRadius(size * 0.24);
+    final picture = fill;
+    return AnimatedContainer(
+      duration: const Duration(milliseconds: 90),
+      curve: Curves.easeOut,
+      decoration: BoxDecoration(
+        borderRadius: radius,
+        color: picture == null
+            ? Color.alphaBlend(
+                accent.withValues(alpha: pressed ? 0.30 : 0.22),
+                theme.cardColor(theme.colors.surfaceContainerHigh),
+              )
+            : null,
+        border: Border.all(color: accent.withValues(alpha: 0.28)),
+      ),
+      child: ClipRRect(
+        borderRadius: radius,
+        child: Stack(
+          fit: StackFit.expand,
+          children: [
+            if (picture != null) picture,
+            Center(child: child),
+            if (pressed) const ColoredBox(color: Color(0x29000000)),
+          ],
+        ),
+      ),
     );
   }
 }

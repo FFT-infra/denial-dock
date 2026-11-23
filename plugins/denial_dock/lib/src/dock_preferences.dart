@@ -75,6 +75,9 @@ class DockSettingsController extends AsyncNotifier<DockSettings> {
   Future<void> setIconMode(DockIconMode mode) =>
       _update((current) => current.copyWith(iconMode: mode));
 
+  Future<void> setAppearance(DockAppearance appearance) =>
+      _update((current) => current.copyWith(appearance: appearance));
+
   Future<void> setIconOpacity(double opacity) =>
       _update((current) => current.copyWith(iconOpacity: opacity));
 
@@ -117,12 +120,20 @@ class DockSettingsController extends AsyncNotifier<DockSettings> {
   Future<void> setRecentCount(int count) =>
       _update((current) => current.copyWith(recentCount: count));
 
-  /// Saves the unpinned section's slot order. Skipped when nothing moved, so
-  /// the dock can call it from a build without writing on every frame.
-  Future<void> setRecentsOrder(List<String> order) => _update((current) {
-    if (_sameOrder(current.recentsOrder, order)) return current;
-    return current.copyWith(recentsOrder: List.unmodifiable(order));
-  });
+  /// Saves the unpinned section and the ids parked outside it. Skipped when
+  /// nothing moved, so the dock can call it from a build without writing on
+  /// every frame.
+  Future<void> setRecentsOrder(List<String> order, List<String> parked) =>
+      _update((current) {
+        if (_sameOrder(current.recentsOrder, order) &&
+            _sameOrder(current.parkedRecents, parked)) {
+          return current;
+        }
+        return current.copyWith(
+          recentsOrder: List.unmodifiable(order),
+          parkedRecents: List.unmodifiable(parked),
+        );
+      });
 
   static bool _sameOrder(List<String> first, List<String> second) {
     if (first.length != second.length) return false;
@@ -150,6 +161,31 @@ class DockSettingsController extends AsyncNotifier<DockSettings> {
   Future<void> removeFolder(String path) =>
       _update((current) => current.withoutFolder(path));
 
+  Future<void> addFile(DockFile file) =>
+      _update((current) => current.withFile(file));
+
+  Future<void> removeFile(String path) =>
+      _update((current) => current.withoutFile(path));
+
+  Future<void> setFolderView(String path, DockStackMode view) =>
+      _update((current) => current.withFolderStack(path, view: view));
+
+  Future<void> setFolderStacked(String path, bool stacked) =>
+      _update((current) => current.withFolderStack(path, stacked: stacked));
+
+  Future<void> setFolderSort(String path, DockStackSortMode sort) =>
+      _update((current) => current.withFolderStack(path, sort: sort));
+
+  /// Saves a dragged order and switches the folder to it, since a custom order
+  /// only means anything under the `manual` sort.
+  Future<void> setFolderOrder(String path, List<String> order) => _update(
+    (current) => current.withFolderStack(
+      path,
+      order: order,
+      sort: DockStackSortMode.manual,
+    ),
+  );
+
   /// Drops an app from the unpinned section and keeps the launcher's recents
   /// from putting it back. It returns on its next launch, and quitting it
   /// afterwards leaves it in place.
@@ -159,6 +195,9 @@ class DockSettingsController extends AsyncNotifier<DockSettings> {
       (current) => current.copyWith(
         recentsOrder: List.unmodifiable(
           current.recentsOrder.where((id) => appIdentity(id) != key),
+        ),
+        parkedRecents: List.unmodifiable(
+          current.parkedRecents.where((id) => appIdentity(id) != key),
         ),
         dismissedSuggestions: current.dismissedSuggestions.contains(key)
             ? current.dismissedSuggestions

@@ -9,8 +9,16 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
 import 'dock_extras.dart';
+import 'dock_icon.dart';
+import 'dock_mac_icons.dart';
+import 'dock_pile.dart';
 import 'dock_menu.dart';
 import 'dock_settings.dart';
+import 'dock_stack_files.dart'
+    show DockDownloadProgress, DockStackEntry, DockStackFiles;
+import 'dock_stack_thumbs.dart';
+import 'dock_stack_view.dart';
+import 'dock_stack_watch.dart';
 
 typedef DockAccessoryMenuBuilder = List<Widget> Function(
   BuildContext context,
@@ -32,11 +40,32 @@ class DockAccessoryItem extends StatefulWidget {
     required this.onOverlayChanged,
     required this.monitorBounds,
     this.badge = 0,
+    this.glyph,
+    this.fill,
+    this.download,
+    this.face,
     super.key,
   });
 
   final String label;
   final IconData icon;
+
+  /// Drawn instead of [icon] when given, so a folder can show the newest file
+  /// in it the way a macOS Stack does.
+  final Widget? glyph;
+
+  /// Painted behind [glyph] and clipped to the tile: a folder's newest file
+  /// fills the tile instead of sitting in a circle inside it.
+  final Widget? fill;
+
+  /// Replaces the tinted tile with the caller's own artwork — the macOS-style
+  /// stack, trash can or Launchpad grid. The press, menu and badge wiring
+  /// around it stays the same.
+  final Widget Function(bool pressed)? face;
+
+  /// A transfer running into this folder, drawn as a bar along the tile's
+  /// bottom edge.
+  final DockDownloadProgress? download;
   final double size;
   final double lift;
   final DockPosition position;
@@ -95,10 +124,6 @@ class _DockAccessoryItemState extends State<DockAccessoryItem> {
   @override
   Widget build(BuildContext context) {
     final theme = context.shellTheme;
-    final backing = Color.alphaBlend(
-      theme.accent.withValues(alpha: 0.18),
-      theme.cardColor(theme.colors.surfaceContainerHigh),
-    );
     return OverlayPortal.overlayChildLayoutBuilder(
       controller: _portal,
       overlayChildBuilder: (context, layout) =>
@@ -155,62 +180,65 @@ class _DockAccessoryItemState extends State<DockAccessoryItem> {
                 widget.onTap();
               },
               onSecondaryTapDown: (_) => _menuOpen ? _closeMenu() : _openMenu(),
-              child: DecoratedBox(
-                decoration: BoxDecoration(
-                  shape: BoxShape.circle,
-                  color: backing,
-                ),
-                child: Stack(
-                  clipBehavior: Clip.none,
-                  children: [
-                    Center(
-                      child: Icon(
-                        widget.icon,
-                        size: widget.size * 0.46,
-                        color: theme.accent,
+              child: Stack(
+                clipBehavior: Clip.none,
+                children: [
+                  Positioned.fill(
+                    child:
+                        widget.face?.call(_pressed) ??
+                        DockTile(
+                          size: widget.size,
+                          accent: theme.accent,
+                          fill: widget.fill,
+                          pressed: _pressed,
+                          // A full-bleed picture is the item's face; drawing
+                          // the type icon over it would be two icons in one
+                          // tile.
+                          child: widget.fill != null
+                              ? const SizedBox.shrink()
+                              : widget.glyph ??
+                                    Icon(
+                                      widget.icon,
+                                      size: widget.size * 0.46,
+                                      color: theme.accent,
+                                    ),
+                        ),
+                  ),
+                  if (widget.download case final download?)
+                    Positioned(
+                      left: widget.size * 0.18,
+                      right: widget.size * 0.18,
+                      bottom: widget.size * 0.14,
+                      child: _DownloadBar(
+                        download: download,
+                        color: theme.colors.background,
+                        track: theme.colors.background.withValues(alpha: 0.3),
                       ),
                     ),
-                    Positioned.fill(
-                      child: IgnorePointer(
-                        child: AnimatedOpacity(
-                          duration: const Duration(milliseconds: 90),
-                          curve: Curves.easeOut,
-                          opacity: _pressed ? 1 : 0,
-                          child: DecoratedBox(
-                            decoration: BoxDecoration(
-                              shape: BoxShape.circle,
-                              color: const Color(0xFF000000)
-                                  .withValues(alpha: 0.16),
-                            ),
+                  if (widget.badge > 0)
+                    Positioned(
+                      top: widget.size * 0.04,
+                      right: widget.size * 0.04,
+                      child: Container(
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 4,
+                          vertical: 1,
+                        ),
+                        decoration: BoxDecoration(
+                          borderRadius: BorderRadius.circular(7),
+                          color: theme.accent,
+                        ),
+                        child: Text(
+                          widget.badge > 99 ? '99+' : '${widget.badge}',
+                          style: theme.text.systemBarCaption.copyWith(
+                            color: theme.colors.background,
+                            fontSize: 9,
+                            fontWeight: FontWeight.w700,
                           ),
                         ),
                       ),
                     ),
-                    if (widget.badge > 0)
-                      Positioned(
-                        top: widget.size * 0.04,
-                        right: widget.size * 0.04,
-                        child: Container(
-                          padding: const EdgeInsets.symmetric(
-                            horizontal: 4,
-                            vertical: 1,
-                          ),
-                          decoration: BoxDecoration(
-                            borderRadius: BorderRadius.circular(7),
-                            color: theme.accent,
-                          ),
-                          child: Text(
-                            widget.badge > 99 ? '99+' : '${widget.badge}',
-                            style: theme.text.systemBarCaption.copyWith(
-                              color: theme.colors.background,
-                              fontSize: 9,
-                              fontWeight: FontWeight.w700,
-                            ),
-                          ),
-                        ),
-                      ),
-                  ],
-                ),
+                ],
               ),
             ),
           ),
@@ -300,6 +328,110 @@ class _DockAccessoryItemState extends State<DockAccessoryItem> {
   }
 }
 
+/// A transfer's progress along the bottom of a stack icon.
+///
+/// A folder that reserves its final size shows a real fraction; a browser
+/// download, which records no total anywhere, shows a short sweep instead of
+/// a bar that would claim to know how far along it is.
+class _DownloadBar extends StatefulWidget {
+  const _DownloadBar({
+    required this.download,
+    required this.color,
+    required this.track,
+  });
+
+  final DockDownloadProgress download;
+  final Color color;
+  final Color track;
+
+  @override
+  State<_DownloadBar> createState() => _DownloadBarState();
+}
+
+class _DownloadBarState extends State<_DownloadBar>
+    with SingleTickerProviderStateMixin {
+  late final AnimationController _sweep = AnimationController(
+    vsync: this,
+    duration: const Duration(milliseconds: 1200),
+  );
+
+  @override
+  void initState() {
+    super.initState();
+    _syncSweep();
+  }
+
+  @override
+  void didUpdateWidget(covariant _DownloadBar oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    _syncSweep();
+  }
+
+  void _syncSweep() {
+    if (widget.download.determinate) {
+      if (_sweep.isAnimating) _sweep.stop();
+    } else if (!_sweep.isAnimating) {
+      _sweep.repeat();
+    }
+  }
+
+  @override
+  void dispose() {
+    _sweep.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return SizedBox(
+      height: 3,
+      child: ClipRRect(
+        borderRadius: BorderRadius.circular(2),
+        child: ColoredBox(
+          color: widget.track,
+          child: widget.download.determinate
+              ? FractionallySizedBox(
+                  alignment: Alignment.centerLeft,
+                  widthFactor: widget.download.value,
+                  child: ColoredBox(color: widget.color),
+                )
+              : AnimatedBuilder(
+                  animation: _sweep,
+                  builder: (context, _) => CustomPaint(
+                    painter: _SweepPainter(
+                      progress: _sweep.value,
+                      color: widget.color,
+                    ),
+                  ),
+                ),
+        ),
+      ),
+    );
+  }
+}
+
+/// A short bar travelling left to right, for a transfer with no known total.
+class _SweepPainter extends CustomPainter {
+  const _SweepPainter({required this.progress, required this.color});
+
+  final double progress;
+  final Color color;
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final width = size.width * 0.35;
+    final left = (size.width + width) * progress - width;
+    canvas.drawRect(
+      Rect.fromLTWH(left, 0, width, size.height),
+      Paint()..color = color,
+    );
+  }
+
+  @override
+  bool shouldRepaint(covariant _SweepPainter old) =>
+      old.progress != progress || old.color != color;
+}
+
 /// The trash can. It counts its items when mounted, after emptying, and on a
 /// slow poll, because the shell offers no trash-change event.
 class DockTrashItem extends StatefulWidget {
@@ -311,6 +443,7 @@ class DockTrashItem extends StatefulWidget {
     required this.onOverlayChanged,
     required this.monitorBounds,
     required this.onOpenSettings,
+    this.appearance = DockAppearance.macos,
     super.key,
   });
 
@@ -321,6 +454,7 @@ class DockTrashItem extends StatefulWidget {
   final ValueChanged<bool> onOverlayChanged;
   final Rect monitorBounds;
   final VoidCallback onOpenSettings;
+  final DockAppearance appearance;
 
   @override
   State<DockTrashItem> createState() => _DockTrashItemState();
@@ -394,16 +528,23 @@ class _DockTrashItemState extends State<DockTrashItem> {
   @override
   Widget build(BuildContext context) {
     final full = _count > 0;
+    final mac = widget.appearance == DockAppearance.macos;
     return DockAccessoryItem(
       label: full ? '$_label ($_count)' : _label,
       icon: full ? Icons.delete_rounded : Icons.delete_outline_rounded,
       size: widget.size,
       lift: widget.lift,
       position: widget.position,
-      badge: _count,
+      // The macOS can shows its state in the artwork, so a count pill on top
+      // of it would be a second, redundant badge.
+      badge: mac ? 0 : _count,
       onTap: _open,
       onOverlayChanged: widget.onOverlayChanged,
       monitorBounds: widget.monitorBounds,
+      face: mac
+          ? (pressed) =>
+                DockTrashIcon(size: widget.size, pressed: pressed, full: full)
+          : null,
       menuBuilder: (context, close) => [
         DockMenuRow(
           icon: Icons.open_in_new,
@@ -433,9 +574,166 @@ class _DockTrashItemState extends State<DockTrashItem> {
   }
 }
 
-/// A folder shortcut. Clicking opens the folder with the session's file
-/// manager; the menu can remove it from the dock.
-class DockFolderItem extends StatelessWidget {
+/// A single file pinned to the dock: its own picture or type icon, opening in
+/// whatever the system uses for that kind. macOS keeps a dragged-out file
+/// beside the stacks, so the dock does the same.
+class DockFileItem extends StatelessWidget {
+  const DockFileItem({
+    required this.file,
+    required this.size,
+    required this.lift,
+    required this.position,
+    required this.zh,
+    required this.onOpen,
+    required this.onReveal,
+    required this.onRemove,
+    required this.onOpenSettings,
+    required this.onOverlayChanged,
+    required this.monitorBounds,
+    this.appearance = DockAppearance.macos,
+    super.key,
+  });
+
+  final DockFile file;
+  final double size;
+  final double lift;
+  final DockPosition position;
+  final bool zh;
+  final VoidCallback onOpen;
+  final VoidCallback onReveal;
+  final VoidCallback onRemove;
+  final VoidCallback onOpenSettings;
+  final ValueChanged<bool> onOverlayChanged;
+  final Rect monitorBounds;
+  final DockAppearance appearance;
+
+  @override
+  Widget build(BuildContext context) {
+    final extension = DockStackFiles.extensionOf(file.path);
+    final preview = DockStackThumbs.preview(file.path);
+    final art = _FileArt(
+      path: file.path,
+      preview: preview,
+      icon: stackFileIcon(extension),
+      color: stackFileColor(extension),
+      size: size,
+    );
+    return DockAccessoryItem(
+      label: file.label,
+      icon: stackFileIcon(extension),
+      size: size,
+      lift: lift,
+      position: position,
+      onTap: onOpen,
+      onOverlayChanged: onOverlayChanged,
+      monitorBounds: monitorBounds,
+      // The macOS dock shows a pinned file as its own artwork; the Denial
+      // look keeps the accent tile with the type glyph inside it.
+      face: appearance == DockAppearance.macos ? (pressed) => art : null,
+      glyph: appearance == DockAppearance.macos ? null : art,
+      menuBuilder: (context, close) => [
+        DockMenuRow(
+          icon: Icons.open_in_new,
+          label: zh ? '打开' : 'Open',
+          onTap: () {
+            close();
+            onOpen();
+          },
+        ),
+        DockMenuRow(
+          icon: Icons.folder_open_outlined,
+          label: zh ? '在文件管理器中显示' : 'Show in Files',
+          onTap: () {
+            close();
+            onReveal();
+          },
+        ),
+        DockMenuSeparator(),
+        DockMenuSubmenuRow(
+          icon: Icons.tune,
+          label: zh ? '选项' : 'Options',
+          submenu: (context) => Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              DockMenuRow(
+                icon: Icons.remove_circle_outline,
+                label: zh ? '从 Dock 中移除' : 'Remove from Dock',
+                onTap: () {
+                  close();
+                  onRemove();
+                },
+              ),
+              DockMenuRow(
+                icon: Icons.settings_outlined,
+                label: zh ? 'Dock 设置…' : 'Dock settings…',
+                onTap: () {
+                  close();
+                  onOpenSettings();
+                },
+              ),
+            ],
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+/// A file's picture: its thumbnail, or the type glyph on a card when the file
+/// has none. Clipped to the dock's tile radius so it reads as one item.
+class _FileArt extends StatelessWidget {
+  const _FileArt({
+    required this.path,
+    required this.preview,
+    required this.icon,
+    required this.color,
+    required this.size,
+  });
+
+  final String path;
+  final String? preview;
+  final IconData icon;
+  final Color color;
+  final double size;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = context.shellTheme;
+    final glyph = Icon(icon, size: size * 0.52, color: color);
+    return ClipRRect(
+      borderRadius: BorderRadius.circular(size * 0.22),
+      child: preview == null
+          ? DecoratedBox(
+              decoration: BoxDecoration(
+                color: theme.panelColor(theme.colors.surfaceContainerHigh),
+                border: Border.all(color: theme.colors.hairline),
+              ),
+              child: Center(child: glyph),
+            )
+          : Image.file(
+              File(preview!),
+              width: size,
+              height: size,
+              fit: BoxFit.cover,
+              cacheWidth: (size * 3).round(),
+              gaplessPlayback: true,
+              errorBuilder: (_, _, _) => DecoratedBox(
+                decoration: BoxDecoration(
+                  color: theme.panelColor(theme.colors.surfaceContainerHigh),
+                  border: Border.all(color: theme.colors.hairline),
+                ),
+                child: Center(child: glyph),
+              ),
+            ),
+    );
+  }
+}
+
+/// A folder shortcut. Clicking fans the folder's contents out above the icon,
+/// the way a macOS Stack does; the menu opens the folder in the file manager
+/// or removes it from the dock.
+class DockFolderItem extends StatefulWidget {
   const DockFolderItem({
     required this.folder,
     required this.size,
@@ -446,6 +744,13 @@ class DockFolderItem extends StatelessWidget {
     required this.onOverlayChanged,
     required this.monitorBounds,
     required this.onOpenSettings,
+    required this.onSetView,
+    required this.onSetSort,
+    required this.onSetStacked,
+    required this.onReorder,
+    this.workArea,
+    this.appearance = DockAppearance.macos,
+    this.trashRect,
     super.key,
   });
 
@@ -457,49 +762,435 @@ class DockFolderItem extends StatelessWidget {
   final VoidCallback onRemove;
   final ValueChanged<bool> onOverlayChanged;
   final Rect monitorBounds;
-  final VoidCallback onOpenSettings;
 
-  Future<void> _open() async {
-    await DockExtras.openPath(folder.path);
+  /// The output minus the system bar strip, which bounds the open fan.
+  final Rect? workArea;
+
+  /// Which icon language the stack draws itself in.
+  final DockAppearance appearance;
+  final VoidCallback onOpenSettings;
+  final ValueChanged<DockStackMode> onSetView;
+  final ValueChanged<DockStackSortMode> onSetSort;
+  final ValueChanged<bool> onSetStacked;
+
+  /// A dragged order from the open stack, in file names.
+  final ValueChanged<List<String>> onReorder;
+
+  /// The trash icon's rectangle in scene coordinates, so a row dragged out of
+  /// the stack can be dropped on it. Null when the dock hides the trash, and
+  /// then a drag reorders only.
+  final Rect? trashRect;
+
+  @override
+  State<DockFolderItem> createState() => _DockFolderItemState();
+}
+
+class _DockFolderItemState extends State<DockFolderItem> {
+  final OverlayPortalController _fan = OverlayPortalController();
+  bool _fanOpen = false;
+  List<DockStackEntry> _entries = const [];
+  String? _preview;
+  DockDownloadProgress? _download;
+  Timer? _downloadPoll;
+  DockStackWatch? _watch;
+
+  @override
+  void initState() {
+    super.initState();
+    _scheduleRefresh();
+  }
+
+  @override
+  void didUpdateWidget(covariant DockFolderItem oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.folder.path != widget.folder.path) {
+      _closeFan();
+      _preview = null;
+      _download = null;
+      _scheduleRefresh();
+      return;
+    }
+    // A sort change re-reads the listing; the preview then follows the new
+    // newest entry instead of staying on the old one.
+    if (oldWidget.folder.sort != widget.folder.sort && _fanOpen) {
+      _reloadEntries();
+    }
+  }
+
+  @override
+  void dispose() {
+    _downloadPoll?.cancel();
+    _watch?.stop();
+    if (_fanOpen) widget.onOverlayChanged(false);
+    super.dispose();
+  }
+
+  /// Reads the icon's picture after the dock has painted: the walk is
+  /// synchronous, and a large folder must not delay the first frame.
+  void _scheduleRefresh() {
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      _refresh();
+    });
+  }
+
+  /// Re-reads the folder for the icon and the download bar.
+  void _refresh() {
+    final entries = DockStackFiles.list(
+      widget.folder.path,
+      sort: widget.folder.sort,
+      order: widget.folder.order,
+    );
+    final preview = entries.isEmpty
+        ? null
+        : DockStackThumbs.preview(entries.first.path);
+    final download = DockStackFiles.progress(entries);
+    // The stacked icon draws the newest few entries, so the list has to be
+    // kept here too, not only when the fan opens.
+    final sameEntries =
+        _entries.length == entries.length &&
+        (_entries.isEmpty ||
+            (_entries.first.path == entries.first.path &&
+                _entries.last.path == entries.last.path));
+    if (preview == _preview &&
+        _sameDownload(download, _download) &&
+        sameEntries) {
+      return;
+    }
+    setState(() {
+      _entries = entries;
+      _preview = preview;
+      _download = download;
+    });
+    _watchDownloads(download);
+  }
+
+  static bool _sameDownload(
+    DockDownloadProgress? first,
+    DockDownloadProgress? second,
+  ) {
+    if (first == null || second == null) return first == second;
+    return first.files == second.files && first.fraction == second.fraction;
+  }
+
+  /// Polls while a transfer is live, because the shell reports no file change
+  /// and a bar that never moves is worse than none. Stops as soon as the folder
+  /// has no live download, so an idle dock does no work.
+  void _watchDownloads(DockDownloadProgress? download) {
+    if (download == null) {
+      _downloadPoll?.cancel();
+      _downloadPoll = null;
+      return;
+    }
+    _downloadPoll ??= Timer.periodic(const Duration(seconds: 2), (_) {
+      if (!mounted) return;
+      _refresh();
+    });
+  }
+
+  /// Re-reads the listing for an open stack: called on a sort change and by
+  /// the folder watch when a file lands or leaves.
+  void _reloadEntries() {
+    if (!mounted) return;
+    final entries = DockStackFiles.list(
+      widget.folder.path,
+      sort: widget.folder.sort,
+      order: widget.folder.order,
+    );
+    final preview = entries.isEmpty
+        ? null
+        : DockStackThumbs.preview(entries.first.path);
+    final download = DockStackFiles.progress(entries);
+    setState(() {
+      _entries = entries;
+      _preview = preview;
+      _download = download;
+    });
+    _watchDownloads(download);
+  }
+
+  Future<void> _openFolder() async {
+    _closeFan();
+    await DockExtras.openPath(widget.folder.path);
+  }
+
+  /// Reads the folder and opens it. The read is a synchronous walk of one
+  /// directory: the reference docks do the same, and a folder that large is
+  /// already truncated at [DockStackFiles.maxEntries].
+  void _toggleFan() {
+    if (_fanOpen) {
+      _closeFan();
+      return;
+    }
+    final entries = DockStackFiles.list(
+      widget.folder.path,
+      sort: widget.folder.sort,
+      order: widget.folder.order,
+    );
+    if (!mounted) return;
+    setState(() {
+      _entries = entries;
+      _preview = entries.isEmpty
+          ? null
+          : DockStackThumbs.preview(entries.first.path);
+      _download = DockStackFiles.progress(entries);
+      _fanOpen = true;
+    });
+    _watchDownloads(_download);
+    // The folder is watched only while it is open: a stack nobody is looking
+    // at has nothing to update.
+    (_watch ??= DockStackWatch(widget.folder.path, _reloadEntries)).start();
+    _fan.show();
+    widget.onOverlayChanged(true);
+  }
+
+  void _closeFan() {
+    if (!_fanOpen) return;
+    _watch?.stop();
+    _watch = null;
+    setState(() => _fanOpen = false);
+    _fan.hide();
+    widget.onOverlayChanged(false);
+  }
+
+  Future<void> _openEntry(DockStackEntry entry) async {
+    _closeFan();
+    await DockExtras.openPath(entry.path);
+  }
+
+  /// A dragged order keeps the stack open, so the user sees the result and can
+  /// keep dragging. The reorder is applied to the listing in place rather than
+  /// waiting for the settings write to come back around.
+  void _reorder(List<String> order) {
+    widget.onReorder(order);
+    final reordered = DockStackFiles.list(
+      widget.folder.path,
+      sort: DockStackSortMode.manual,
+      order: order,
+    );
+    setState(() {
+      _entries = reordered;
+      _preview = reordered.isEmpty
+          ? null
+          : DockStackThumbs.preview(reordered.first.path);
+    });
+  }
+
+  /// A row dropped on the trash. The stack closes first: the file it was
+  /// showing is gone, so the listing behind it is stale either way.
+  Future<void> _trash(DockStackEntry entry) async {
+    _closeFan();
+    final removed = await DockExtras.trashPath(entry.path);
+    if (removed && mounted) _refresh();
+  }
+
+  /// The icon's rect where it sits right now, in scene coordinates.
+  ///
+  /// The rect the portal measured when the fan opened is the icon at the
+  /// moment it was clicked — magnified, and with the dock slid aside for its
+  /// neighbours. By the time the cards fold back the pointer is elsewhere and
+  /// the icon has moved, so a flight aimed at the old rect lands beside it.
+  Rect _iconNow(Rect fallback) {
+    final box = context.findRenderObject();
+    if (box is! RenderBox || !box.hasSize) return fallback;
+    return box.localToGlobal(Offset.zero) & box.size;
   }
 
   @override
   Widget build(BuildContext context) {
-    return DockAccessoryItem(
-      label: folder.label,
-      icon: Icons.folder_rounded,
-      size: size,
-      lift: lift,
-      position: position,
-      onTap: _open,
-      onOverlayChanged: onOverlayChanged,
-      monitorBounds: monitorBounds,
-      menuBuilder: (context, close) => [
-        DockMenuRow(
-          icon: Icons.open_in_new,
-          label: zh ? '打开文件夹' : 'Open folder',
-          onTap: () {
-            close();
-            _open();
-          },
-        ),
-        DockMenuRow(
-          icon: Icons.remove_circle_outline,
-          label: zh ? '从 Dock 中移除' : 'Remove from Dock',
-          onTap: () {
-            close();
-            onRemove();
-          },
-        ),
-        DockMenuRow(
-          icon: Icons.tune,
-          label: zh ? 'Dock 设置…' : 'Dock settings…',
-          onTap: () {
-            close();
-            onOpenSettings();
-          },
-        ),
-      ],
+    return OverlayPortal.overlayChildLayoutBuilder(
+      controller: _fan,
+      overlayChildBuilder: (context, layout) {
+        if (!_fanOpen) return const SizedBox.shrink();
+        final anchor = MatrixUtils.transformRect(
+          layout.childPaintTransform,
+          Offset.zero & layout.childSize,
+        );
+        final scene = Offset.zero & layout.overlaySize;
+        final output = widget.monitorBounds.intersect(scene);
+        final bounds = output.isEmpty ? scene : output;
+        final work = widget.workArea?.intersect(scene);
+        return ShellInputRegion(
+          debugLabel: 'Dock folder stack',
+          pointerPolicy: ShellPointerPolicy.fullScene,
+          keyboardPolicy: ShellKeyboardPolicy.capture,
+          child: DockStackView(
+            entries: _entries,
+            anchor: anchor,
+            anchorNow: () => _iconNow(anchor),
+            bounds: bounds,
+            workArea: work == null || work.isEmpty ? null : work,
+            position: widget.position,
+            mode: widget.folder.view,
+            title: widget.folder.label,
+            zh: widget.zh,
+            onDismiss: _closeFan,
+            onOpenFolder: _openFolder,
+            onOpenEntry: _openEntry,
+            onReorder: _reorder,
+            trashRect: widget.trashRect,
+            onTrash: widget.trashRect == null ? null : _trash,
+          ),
+        );
+      },
+      child: DockAccessoryItem(
+        label: widget.folder.label,
+        icon: Icons.folder_rounded,
+        fill: _preview == null
+            ? null
+            : Image.file(
+                File(_preview!),
+                fit: BoxFit.cover,
+                cacheWidth: (widget.size * 3).round(),
+                gaplessPlayback: true,
+                errorBuilder: (_, _, _) => const SizedBox.shrink(),
+              ),
+        face: widget.appearance == DockAppearance.macos
+            ? (pressed) {
+                final previews = widget.folder.stacked
+                    ? [
+                        for (final entry in _entries.take(DockPile.count))
+                          DockStackPreview(
+                            // A folder is drawn as the blue folder at card
+                            // size, the way macOS piles folders and files
+                            // together.
+                            folder: entry.isDirectory,
+                            path: entry.isDirectory
+                                ? null
+                                : DockStackThumbs.preview(entry.path),
+                            icon: entry.isDirectory
+                                ? null
+                                : stackFileIcon(entry.extension),
+                            color: entry.isDirectory
+                                ? null
+                                : stackFileColor(entry.extension),
+                          ),
+                      ]
+                    : const <DockStackPreview>[];
+                // While the stack is out, the icon says so: the pile dims
+                // under a plate with a chevron pointing at the rows.
+                if (_fanOpen) {
+                  return DockStackOpenIcon(
+                    size: widget.size,
+                    previews: previews,
+                    quarterTurns: switch (widget.position) {
+                      DockPosition.bottom => 0,
+                      DockPosition.left => 3,
+                      DockPosition.right => 1,
+                    },
+                  );
+                }
+                return DockStackIcon(
+                  size: widget.size,
+                  previews: previews,
+                  pressed: pressed,
+                );
+              }
+            : null,
+        size: widget.size,
+        lift: widget.lift,
+        position: widget.position,
+        onTap: _toggleFan,
+        onOverlayChanged: widget.onOverlayChanged,
+        monitorBounds: widget.monitorBounds,
+        download: _download,
+        menuBuilder: (context, close) => [
+          // The same flat sections macOS puts on a stack's menu, in its order:
+          // sort, then how the icon looks, then how the stack opens.
+          DockMenuSectionLabel(widget.zh ? '排序方式' : 'Sort by'),
+          for (final sort in const [
+            DockStackSortMode.name,
+            DockStackSortMode.added,
+            DockStackSortMode.modified,
+            DockStackSortMode.kind,
+          ])
+            DockMenuRow(
+              label: switch (sort) {
+                DockStackSortMode.name => widget.zh ? '名称' : 'Name',
+                DockStackSortMode.added => widget.zh ? '添加日期' : 'Date Added',
+                DockStackSortMode.modified =>
+                  widget.zh ? '修改日期' : 'Date Modified',
+                DockStackSortMode.kind => widget.zh ? '种类' : 'Kind',
+                DockStackSortMode.manual => widget.zh ? '自定顺序' : 'Custom Order',
+              },
+              selected: widget.folder.sort == sort,
+              onTap: () {
+                close();
+                widget.onSetSort(sort);
+              },
+            ),
+          DockMenuSeparator(),
+          DockMenuSectionLabel(widget.zh ? '显示为' : 'Display as'),
+          for (final stacked in const [true, false])
+            DockMenuRow(
+              label: stacked
+                  ? (widget.zh ? '叠放' : 'Stack')
+                  : (widget.zh ? '文件夹' : 'Folder'),
+              selected: widget.folder.stacked == stacked,
+              onTap: () {
+                close();
+                widget.onSetStacked(stacked);
+              },
+            ),
+          DockMenuSeparator(),
+          DockMenuSectionLabel(widget.zh ? '显示内容为' : 'View content as'),
+          for (final view in const [
+            DockStackMode.fan,
+            DockStackMode.grid,
+            DockStackMode.list,
+            DockStackMode.auto,
+          ])
+            DockMenuRow(
+              label: switch (view) {
+                DockStackMode.fan => widget.zh ? '扇状' : 'Fan',
+                DockStackMode.grid => widget.zh ? '网格' : 'Grid',
+                DockStackMode.list => widget.zh ? '列表' : 'List',
+                DockStackMode.auto => widget.zh ? '自动' : 'Automatic',
+              },
+              selected: widget.folder.view == view,
+              onTap: () {
+                close();
+                widget.onSetView(view);
+              },
+            ),
+          DockMenuSeparator(),
+          DockMenuSubmenuRow(
+            icon: Icons.tune,
+            label: widget.zh ? '选项' : 'Options',
+            submenu: (context) => Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                DockMenuRow(
+                  icon: Icons.remove_circle_outline,
+                  label: widget.zh ? '从 Dock 中移除' : 'Remove from Dock',
+                  onTap: () {
+                    close();
+                    widget.onRemove();
+                  },
+                ),
+                DockMenuRow(
+                  icon: Icons.settings_outlined,
+                  label: widget.zh ? 'Dock 设置…' : 'Dock settings…',
+                  onTap: () {
+                    close();
+                    widget.onOpenSettings();
+                  },
+                ),
+              ],
+            ),
+          ),
+          DockMenuRow(
+            label: widget.zh
+                ? '打开“${widget.folder.label}”'
+                : 'Open “${widget.folder.label}”',
+            onTap: () {
+              close();
+              _openFolder();
+            },
+          ),
+        ],
+      ),
     );
   }
 }

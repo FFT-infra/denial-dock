@@ -185,6 +185,23 @@ enum DockIconMode {
   };
 }
 
+/// Which icon language the dock's own items speak.
+///
+/// [macos] draws a stacked folder, a wire trash can and a Launchpad grid, the
+/// shapes the reference screenshot shows. [denial] keeps the accent-tinted
+/// rounded tile the dock shipped with, so the old look stays one setting away.
+enum DockAppearance {
+  macos,
+  denial;
+
+  String get key => this == DockAppearance.denial ? 'denial' : 'macos';
+
+  static DockAppearance parse(
+    Object? value, {
+    DockAppearance fallback = DockAppearance.macos,
+  }) => value == 'denial' ? DockAppearance.denial : fallback;
+}
+
 /// Tinted-mode colours are stored as lowercase `#rrggbb`; anything else means
 /// the shell accent.
 String? normalizeTintColor(Object? value) {
@@ -207,6 +224,19 @@ String appIdentity(String id) {
   return normalizeAppId(colon >= 0 ? text.substring(colon + 1) : text);
 }
 
+/// A stored list of app ids, normalised and de-duplicated, in stored order.
+List<String> _identityList(Object? value) {
+  final ids = <String>[];
+  if (value is! List) return ids;
+  for (final entry in value) {
+    if (entry is! String || entry.trim().isEmpty) continue;
+    final key = appIdentity(entry);
+    if (ids.contains(key)) continue;
+    ids.add(key);
+  }
+  return ids;
+}
+
 class DockPin {
   const DockPin({required this.id, required this.appId, required this.name});
 
@@ -218,25 +248,121 @@ class DockPin {
   Map<String, String> toJson() => {'id': id, 'appId': appId, 'name': name};
 }
 
-/// A folder shortcut pinned to the accessory end of the dock.
-class DockFolder {
-  const DockFolder({required this.path, required this.label});
+/// How a folder stack opens. `auto` follows Finder: a fan while the folder fits
+/// one column, a grid once it would run off the screen.
+enum DockStackMode { auto, fan, grid, list }
+
+extension DockStackModeKey on DockStackMode {
+  String get key => switch (this) {
+    DockStackMode.auto => 'auto',
+    DockStackMode.fan => 'fan',
+    DockStackMode.grid => 'grid',
+    DockStackMode.list => 'list',
+  };
+
+  static DockStackMode parse(Object? value) => switch (value) {
+    'fan' => DockStackMode.fan,
+    'grid' => DockStackMode.grid,
+    'list' => DockStackMode.list,
+    _ => DockStackMode.auto,
+  };
+}
+
+/// The order a folder stack lists its files in, matching Finder's Stack menu.
+/// `manual` is the order the user dragged into place.
+enum DockStackSortMode { added, modified, name, kind, manual }
+
+extension DockStackSortModeKey on DockStackSortMode {
+  String get key => switch (this) {
+    DockStackSortMode.added => 'added',
+    DockStackSortMode.modified => 'modified',
+    DockStackSortMode.name => 'name',
+    DockStackSortMode.kind => 'kind',
+    DockStackSortMode.manual => 'manual',
+  };
+
+  static DockStackSortMode parse(Object? value) => switch (value) {
+    'modified' => DockStackSortMode.modified,
+    'name' => DockStackSortMode.name,
+    'kind' => DockStackSortMode.kind,
+    'manual' => DockStackSortMode.manual,
+    _ => DockStackSortMode.added,
+  };
+}
+
+/// A single file pinned to the accessory end of the dock, the way macOS lets
+/// you drag one file out of a stack and keep it there.
+class DockFile {
+  const DockFile({required this.path, required this.label});
 
   final String path;
   final String label;
 
-  Map<String, String> toJson() => {'path': path, 'label': label};
+  Map<String, Object> toJson() => {'path': path, 'label': label};
+
+  static DockFile? fromJson(Object? value) {
+    if (value is! Map) return null;
+    final path = value['path'];
+    if (path is! String || !path.startsWith('/')) return null;
+    final label = value['label'];
+    return DockFile(
+      path: path,
+      label: label is String && label.trim().isNotEmpty
+          ? label.trim()
+          : folderLabel(path),
+    );
+  }
+}
+
+/// A folder shortcut pinned to the accessory end of the dock.
+class DockFolder {
+  const DockFolder({
+    required this.path,
+    required this.label,
+    this.view = DockStackMode.auto,
+    this.sort = DockStackSortMode.added,
+    this.order = const [],
+    this.stacked = true,
+  });
+
+  final String path;
+  final String label;
+  final DockStackMode view;
+  final DockStackSortMode sort;
+
+  /// File names in the order the user dragged them, used by [sort] `manual`.
+  /// Names rather than paths so a folder that moves on disk keeps its order.
+  final List<String> order;
+
+  /// Whether the icon shows a pile of the newest files or a plain folder.
+  final bool stacked;
+
+  Map<String, Object> toJson() => {
+    'path': path,
+    'label': label,
+    'view': view.key,
+    'sort': sort.key,
+    if (order.isNotEmpty) 'order': order,
+    if (!stacked) 'stacked': false,
+  };
 
   static DockFolder? fromJson(Object? value) {
     if (value is! Map) return null;
     final path = value['path'];
     if (path is! String || !path.startsWith('/')) return null;
     final label = value['label'];
+    final order = value['order'];
     return DockFolder(
       path: normalizeFolderPath(path),
       label: label is String && label.trim().isNotEmpty
           ? label.trim()
           : folderLabel(path),
+      view: DockStackModeKey.parse(value['view']),
+      sort: DockStackSortModeKey.parse(value['sort']),
+      order: order is List
+          ? List.unmodifiable(order.whereType<String>())
+          : const [],
+      stacked: value['stacked'] != false,
     );
   }
 }
@@ -275,6 +401,7 @@ class DockSettings {
     this.magnificationAmount = 0.6,
     this.position = DockPosition.bottom,
     this.iconMode = DockIconMode.color,
+    this.appearance = DockAppearance.macos,
     this.iconOpacity = 1.0,
     this.tintColor,
     this.revealIndicator = true,
@@ -292,9 +419,11 @@ class DockSettings {
     this.extrasSide = DockSide.right,
     this.showTrash = true,
     this.folders = const [],
+    this.files = const [],
     this.dismissedSuggestions = const [],
     this.recentCount = defaultRecentCount,
     this.recentsOrder = const [],
+    this.parkedRecents = const [],
   });
 
   /// Base icon edge before magnification.
@@ -347,6 +476,9 @@ class DockSettings {
   final DockPosition position;
   final DockIconMode iconMode;
 
+  /// The icon language for the dock's own items (stack, trash, launcher).
+  final DockAppearance appearance;
+
   /// Opacity of the filtered icon modes; colour icons always draw at full
   /// strength.
   final double iconOpacity;
@@ -389,6 +521,10 @@ class DockSettings {
   final bool showTrash;
   final List<DockFolder> folders;
 
+  /// Single files pinned to the dock, in dock order. A file sits beside the
+  /// folders and opens in whatever handles it.
+  final List<DockFile> files;
+
   /// Normalized application ids the user dragged out of the suggestions. The
   /// launcher still records them as recent, so the dock filters them here
   /// rather than asking the host to forget the launch.
@@ -399,10 +535,14 @@ class DockSettings {
   /// here is wider because a dock this large can hold more.
   final int recentCount;
 
-  /// Slot order of the unpinned section, newest id appended at the end. An id
-  /// keeps its position after its app quits, which is what stops one launch
-  /// from shifting every neighbour.
+  /// The unpinned section itself, oldest first. An id keeps its position after
+  /// its app quits, which is what stops one launch from shifting every
+  /// neighbour.
   final List<String> recentsOrder;
+
+  /// Ids the section dropped, oldest first, so a smaller count or a hidden
+  /// section does not throw the history away.
+  final List<String> parkedRecents;
 
   static const int defaultRecentCount = 3;
   static const int minRecentCount = 0;
@@ -414,7 +554,7 @@ class DockSettings {
   /// Capsule height with no magnification.
   double get capsuleHeight => iconSize + padding * 2;
 
-  bool get hasExtras => showTrash || folders.isNotEmpty;
+  bool get hasExtras => showTrash || folders.isNotEmpty || files.isNotEmpty;
 
   DockSettings copyWith({
     List<DockPin>? pinned,
@@ -425,6 +565,7 @@ class DockSettings {
     double? magnificationAmount,
     DockPosition? position,
     DockIconMode? iconMode,
+    DockAppearance? appearance,
     double? iconOpacity,
     String? tintColor,
     bool clearTint = false,
@@ -443,9 +584,11 @@ class DockSettings {
     DockSide? extrasSide,
     bool? showTrash,
     List<DockFolder>? folders,
+    List<DockFile>? files,
     List<String>? dismissedSuggestions,
     int? recentCount,
     List<String>? recentsOrder,
+    List<String>? parkedRecents,
   }) => DockSettings(
     pinned: pinned ?? this.pinned,
     visibility: visibility ?? this.visibility,
@@ -457,6 +600,7 @@ class DockSettings {
     ),
     position: position ?? this.position,
     iconMode: iconMode ?? this.iconMode,
+    appearance: appearance ?? this.appearance,
     iconOpacity: clampIconOpacity(iconOpacity ?? this.iconOpacity),
     tintColor: clearTint ? null : (tintColor ?? this.tintColor),
     revealIndicator: revealIndicator ?? this.revealIndicator,
@@ -474,9 +618,11 @@ class DockSettings {
     extrasSide: extrasSide ?? this.extrasSide,
     showTrash: showTrash ?? this.showTrash,
     folders: folders ?? this.folders,
+    files: files ?? this.files,
     dismissedSuggestions: dismissedSuggestions ?? this.dismissedSuggestions,
     recentCount: clampRecentCount(recentCount ?? this.recentCount),
     recentsOrder: recentsOrder ?? this.recentsOrder,
+    parkedRecents: parkedRecents ?? this.parkedRecents,
   );
 
   static double clampIconSize(double value) {
@@ -512,10 +658,59 @@ class DockSettings {
         DockFolder(
           path: path,
           label: label.isEmpty ? folderLabel(path) : label,
+          view: folder.view,
+          sort: folder.sort,
+          order: folder.order,
+          stacked: folder.stacked,
         ),
       ]),
     );
   }
+
+  /// Changes how one folder opens, leaving the others alone.
+  DockSettings withFolderStack(
+    String path, {
+    DockStackMode? view,
+    DockStackSortMode? sort,
+    List<String>? order,
+    bool? stacked,
+  }) {
+    final key = normalizeFolderPath(path);
+    return copyWith(
+      folders: List.unmodifiable([
+        for (final folder in folders)
+          if (normalizeFolderPath(folder.path) != key)
+            folder
+          else
+            DockFolder(
+              path: folder.path,
+              label: folder.label,
+              view: view ?? folder.view,
+              sort: sort ?? folder.sort,
+              order: order ?? folder.order,
+              stacked: stacked ?? folder.stacked,
+            ),
+      ]),
+    );
+  }
+
+  /// Adds or replaces a pinned file, keeping the others in place.
+  DockSettings withFile(DockFile file) {
+    final path = normalizeFolderPath(file.path);
+    if (path.isEmpty) return this;
+    final without = files.where((existing) => existing.path != path).toList();
+    final label = file.label.trim();
+    return copyWith(
+      files: List.unmodifiable([
+        ...without,
+        DockFile(path: path, label: label.isEmpty ? folderLabel(path) : label),
+      ]),
+    );
+  }
+
+  DockSettings withoutFile(String path) => copyWith(
+    files: List.unmodifiable(files.where((file) => file.path != path)),
+  );
 
   DockSettings withoutFolder(String path) {
     final key = normalizeFolderPath(path);
@@ -547,6 +742,17 @@ class DockSettings {
         pins.add(DockPin(id: id, appId: appId, name: name));
       }
     }
+    final storedFiles = json['files'];
+    final files = <DockFile>[];
+    final seenFiles = <String>{};
+    if (storedFiles is List) {
+      for (final entry in storedFiles) {
+        final file = DockFile.fromJson(entry);
+        if (file == null) continue;
+        if (!seenFiles.add(file.path)) continue;
+        files.add(file);
+      }
+    }
     final storedFolders = json['folders'];
     final folders = <DockFolder>[];
     final seenFolders = <String>{};
@@ -568,16 +774,11 @@ class DockSettings {
         dismissed.add(key);
       }
     }
-    final storedOrder = json['recentsOrder'];
-    final order = <String>[];
-    if (storedOrder is List) {
-      for (final entry in storedOrder) {
-        if (entry is! String || entry.trim().isEmpty) continue;
-        final key = appIdentity(entry);
-        if (order.contains(key)) continue;
-        order.add(key);
-      }
-    }
+    final order = _identityList(json['recentsOrder']);
+    final parked = [
+      for (final id in _identityList(json['parkedRecents']))
+        if (!order.contains(id)) id,
+    ];
     final iconSize = json['iconSize'];
     return DockSettings(
       // An explicit empty list means the user removed every pin.
@@ -597,6 +798,7 @@ class DockSettings {
       ),
       position: DockPosition.parse(json['position']),
       iconMode: DockIconMode.parse(json['iconMode']),
+      appearance: DockAppearance.parse(json['appearance']),
       iconOpacity: clampIconOpacity(
         json['iconOpacity'] is num
             ? (json['iconOpacity'] as num).toDouble()
@@ -645,6 +847,7 @@ class DockSettings {
       extrasSide: DockSide.parse(json['extrasSide']),
       showTrash: json['showTrash'] is bool ? json['showTrash'] as bool : true,
       folders: List.unmodifiable(folders),
+      files: List.unmodifiable(files),
       dismissedSuggestions: List.unmodifiable(dismissed),
       recentCount: clampRecentCount(
         json['recentCount'] is num
@@ -652,6 +855,7 @@ class DockSettings {
             : defaultRecentCount,
       ),
       recentsOrder: List.unmodifiable(order),
+      parkedRecents: List.unmodifiable(parked),
     );
   }
 }
@@ -706,6 +910,7 @@ class DockPreferencesStore {
     json['magnificationAmount'] = settings.magnificationAmount;
     json['position'] = settings.position.key;
     json['iconMode'] = settings.iconMode.key;
+    json['appearance'] = settings.appearance.key;
     json['iconOpacity'] = settings.iconOpacity;
     if (settings.tintColor case final tint?) {
       json['tintColor'] = tint;
@@ -731,6 +936,7 @@ class DockPreferencesStore {
     json['folders'] = settings.folders
         .map((folder) => folder.toJson())
         .toList();
+    json['files'] = settings.files.map((file) => file.toJson()).toList();
     if (settings.dismissedSuggestions.isEmpty) {
       json.remove('dismissedSuggestions');
     } else {
@@ -741,6 +947,11 @@ class DockPreferencesStore {
       json.remove('recentsOrder');
     } else {
       json['recentsOrder'] = settings.recentsOrder;
+    }
+    if (settings.parkedRecents.isEmpty) {
+      json.remove('parkedRecents');
+    } else {
+      json['parkedRecents'] = settings.parkedRecents;
     }
     await file.parent.create(recursive: true);
     final temp = File('${file.path}.$pid.${_sequence++}.tmp');

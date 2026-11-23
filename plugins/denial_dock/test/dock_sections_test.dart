@@ -20,6 +20,7 @@ void main() {
           pinned.contains(slot.index) ? 'p${slot.index}' : 'r${slot.index}',
         DockSlotKind.launcher => 'launcher',
         DockSlotKind.folder => 'folder:${slot.folder!.label}',
+        DockSlotKind.file => 'file:${slot.file!.label}',
         DockSlotKind.trash => 'trash',
         DockSlotKind.divider => 'divider:${slot.dividerKey}',
       },

@@ -18,6 +18,7 @@ void main() {
   _expect(defaults.iconOpacity == 1.0, 'default icon opacity');
   _expect(defaults.tintColor == null, 'default tint follows the accent');
   _expect(defaults.iconMode == DockIconMode.color, 'default icon mode');
+  _expect(defaults.appearance == DockAppearance.macos, 'default appearance');
   _expect(defaults.revealIndicator, 'default reveal handle');
   _expect(defaults.folders.isEmpty, 'default folders');
   _expect(
@@ -81,6 +82,79 @@ void main() {
     'tint cleared',
   );
 
+  // A folder remembers whether its icon is a pile or a plain folder, and
+  // defaults to a pile.
+  final folder = DockFolder(path: '/tmp/x', label: 'x');
+  _expect(folder.stacked, 'a folder stacks by default');
+  _expect(
+    DockFolder.fromJson(folder.toJson())!.stacked,
+    'stacked survives JSON',
+  );
+  _expect(
+    !DockFolder.fromJson({'path': '/tmp/x', 'stacked': false})!.stacked,
+    'stacked false survives JSON',
+  );
+  _expect(
+    defaults
+            .withFolder(const DockFolder(path: '/tmp/x', label: 'x'))
+            .withFolderStack('/tmp/x', stacked: false)
+            .folders
+            .single
+            .stacked ==
+        false,
+    'withFolderStack clears stacked',
+  );
+  _expect(
+    DockStackModeKey.parse('list') == DockStackMode.list,
+    'list mode parses',
+  );
+
+  // A single file can be pinned beside the folders, and survives a reload.
+  const file = DockFile(path: '/tmp/report.pdf', label: 'report.pdf');
+  final withFile = defaults.withFile(file);
+  _expect(withFile.files.length == 1, 'a file is pinned');
+  _expect(withFile.hasExtras, 'a pinned file counts as an accessory');
+  _expect(
+    DockSettings.fromJson({
+          'files': [file.toJson()],
+        }).files.single.path ==
+        '/tmp/report.pdf',
+    'a pinned file survives JSON',
+  );
+  _expect(
+    withFile.withFile(file).files.length == 1,
+    'pinning the same file twice keeps one',
+  );
+  _expect(
+    withFile.withoutFile('/tmp/report.pdf').files.isEmpty,
+    'a pinned file can be removed',
+  );
+  _expect(
+    DockSettings.fromJson({
+      'files': [
+        {'label': 'no path'},
+      ],
+    }).files.isEmpty,
+    'a file without a path is dropped',
+  );
+
+  // The appearance setting reads back both ways and falls back to macOS.
+  _expect(
+    DockSettings.fromJson({'appearance': 'denial'}).appearance ==
+        DockAppearance.denial,
+    'appearance parses denial',
+  );
+  _expect(
+    DockSettings.fromJson({'appearance': 'nonsense'}).appearance ==
+        DockAppearance.macos,
+    'unknown appearance falls back to macOS',
+  );
+  _expect(
+    defaults.copyWith(appearance: DockAppearance.denial).appearance ==
+        DockAppearance.denial,
+    'appearance copies',
+  );
+
   // A full round trip through JSON keeps every field.
   final settings = DockSettings(
     pinned: const [
@@ -127,6 +201,7 @@ void main() {
     'iconOpacity': settings.iconOpacity,
     'tintColor': settings.tintColor,
     'iconMode': settings.iconMode.key,
+    'appearance': settings.appearance.key,
     'revealIndicator': settings.revealIndicator,
     'launchFeedback': settings.launchFeedback.key,
     'indicatorStyle': settings.indicatorStyle.key,

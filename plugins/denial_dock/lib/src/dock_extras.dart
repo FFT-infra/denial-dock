@@ -250,6 +250,18 @@ abstract final class DockExtras {
     }
   }
 
+  /// Moves [path] to the trash through `gio`, which writes the freedesktop
+  /// `.trashinfo` sidecar that the dock's own trash count reads. Returns false
+  /// when gio is missing or refuses the file.
+  static Future<bool> trashPath(String path) async {
+    try {
+      final result = await Process.run('gio', ['trash', path]);
+      return result.exitCode == 0;
+    } on ProcessException {
+      return false;
+    }
+  }
+
   /// Immediate subdirectories of [path], sorted, hidden entries included so
   /// dot-folders remain reachable. Unreadable directories yield an empty list.
   static List<String> listDirectories(String path) {
@@ -264,5 +276,30 @@ abstract final class DockExtras {
     } on FileSystemException {
       return const [];
     }
+  }
+
+  /// Files in [path] a user might pin to the dock: real files, sorted, hidden
+  /// entries skipped the way a file picker skips them by default.
+  static List<String> listFiles(String path) {
+    try {
+      final entries = Directory(path)
+          .listSync(followLinks: false)
+          .whereType<File>()
+          .map((file) => file.path)
+          .where((file) => !_basename(file).startsWith('.'))
+          .toList();
+      entries.sort();
+      return entries;
+    } on FileSystemException {
+      return const [];
+    }
+  }
+
+  static String _basename(String path) {
+    final trimmed = path.length > 1 && path.endsWith('/')
+        ? path.substring(0, path.length - 1)
+        : path;
+    final index = trimmed.lastIndexOf('/');
+    return index < 0 ? trimmed : trimmed.substring(index + 1);
   }
 }

@@ -30,8 +30,8 @@ turning it on.
   still. The hop stops as soon as a window appears, and after 500 ms at the
   earliest; it gives up after 5 s, or immediately if the launch fails.
 - **Window previews.** Two layouts. The card row waits 400 ms, the delay
-  Windows uses for taskbar thumbnails; the stack waits 300 ms and opens for a
-  single window too, with a close button on each row. The stack follows the
+  Windows uses for taskbar thumbnails; the stack waits the same 400 ms and
+  opens for a single window too, with a close button on each row. The stack follows the
   pointer: moving to a neighbouring running icon hands it over without waiting
   out another dwell. Hover one preview for
   300 ms to fade the other windows on that monitor; click it to focus that
@@ -44,8 +44,9 @@ turning it on.
 - **Click behaviour.** Clicking an icon with windows either minimizes the
   active window (default) or cycles to the next one; the choice is in the
   settings sheet. Clicking an application with no windows launches it.
-- **Context menu.** Right-click an icon for open / new window, show all
-  windows, pin or unpin, minimize, and close. Escape closes the menu, and
+- **Context menu.** Right-click an icon for its windows by title, then an
+  *Options* submenu (keep or remove from the dock, minimize, close), then open
+  or new window last, which is the macOS order. Escape closes the menu, and
   right-clicking the same icon again toggles it. The menu and trays are drawn
   in the shell overlay, clamped to the monitor. On a touch or pen pointer, a
   550 ms press opens the same menu.
@@ -54,6 +55,10 @@ turning it on.
   pinned icon more than one icon height above the capsule to remove it. Only
   primary-button drags start a move. The icon lifts, grows slightly and turns
   translucent while held, and neighbours ease into place.
+- **Resize by the divider.** Hovering a divider shows a resize cursor; drag it
+  and the icons, the capsule and the magnification follow the pointer, then
+  the size is saved. Whole pixels per step, so a drag does not rebuild every
+  icon texture on every event.
 - **Smart auto-hide.** When a non-minimized floating window on the same output
   and workspace reaches the dock's strip, the capsule slides down. Moving the
   pointer to the bottom edge brings it back after 90 ms, and tapping that edge
@@ -65,13 +70,14 @@ turning it on.
   other window, so a tiling layout retracts too. The other two modes are
   *always show* and *auto-hide*, which retracts as soon as the pointer leaves
   and comes back from the same edge strip.
-- **Folder shortcuts and Trash.** Add any folder from the settings sheet
-  through a built-in directory browser, with hidden entries behind a toggle.
-  Clicking a shortcut opens the folder with the system handler (`xdg-open`,
-  falling back to `gio open`). The trash can opens `trash:///` through `gio`
-  first, because `xdg-open` treats the scheme as a web address, shows a count
-  badge, and offers *Empty Trash*; emptying needs a second press, because it
-  cannot be undone.
+- **Folder shortcuts, pinned files and Trash.** Add any folder or single file
+  from the settings sheet through a built-in directory browser, with hidden
+  entries behind a toggle. Clicking a shortcut opens the folder with the system
+  handler (`xdg-open`, falling back to `gio open`); a pinned file opens with the
+  handler for its type and offers *Show in Files* and *Remove from Dock*. The
+  trash can opens `trash:///` through `gio` first, because `xdg-open` treats the
+  scheme as a web address, shows a count badge, and offers *Empty Trash*;
+  emptying needs a second press, because it cannot be undone.
 - **Dock menu and settings sheet.** Right-clicking the capsule background or the
   launcher opens a small dock menu, modelled on the macOS Dock menu: turn hiding
   on or off, turn magnification on or off, then *Position on Screen* with a
@@ -129,7 +135,7 @@ Most settings live in the settings sheet. The same values are stored in
   "launchFeedback": "hop",
   "indicatorStyle": "dot",
   "previewStyle": "cards",
-  "hoverFocusPreview": false,
+  "hoverFocusPreview": true,
   "dimInactivePinned": false,
   "showBadges": true,
   "showSuggestions": true,
@@ -143,7 +149,8 @@ Most settings live in the settings sheet. The same values are stored in
   "launcherSide": "left",
   "extrasSide": "right",
   "showTrash": true,
-  "folders": [{ "path": "/home/me/Documents", "label": "Documents" }]
+  "folders": [{ "path": "/home/me/Documents", "label": "Documents" }],
+  "files": [{ "path": "/home/me/report.pdf", "label": "report.pdf" }]
 }
 ```
 
@@ -174,17 +181,25 @@ Most settings live in the settings sheet. The same values are stored in
 - `previewStyle` is `"cards"` (default, a horizontal row of thumbnails above
   the dock) or `"stack"` (a narrow column anchored to the icon, opening for a
   single window too, with a close button on each row).
-- `hoverFocusPreview` (default `false`) focuses a window as the pointer moves
-  onto its row in the stacked previews. Off by default because it takes focus
-  from wherever you were typing.
+- `hoverFocusPreview` (default `true`) focuses a window as the pointer moves
+  onto its row in the previews. Turn it off to keep the pointer from moving
+  focus while the panel is open.
 - `dimInactivePinned` (default `false`) fades a pinned application that has no
   window to 62%.
 - `showBadges` (default `true`) counts unread notifications on an icon. A
   notification names its application through the `desktop-entry` hint, matched
   against the icon's identities; senders without the hint fall back to the
   application name.
-- `showSuggestions` (default `true`) appends recently used applications that
-  are not pinned, after a divider.
+- `showSuggestions` (default `true`) adds a section of unpinned applications
+  after a divider. It is a membership list, oldest first: an app joins when it
+  starts running, holds its slot after it quits, and only a launch over
+  `recentCount` evicts the oldest closed member. A running app is never
+  evicted, so the section grows past the count while that many are open.
+- `recentCount` is how many members the section holds, 0–8, default 3.
+- `dismissedSuggestions` holds the ids dragged out of the section. They stay
+  out until they run again.
+- `recentsOrder` and `parkedRecents` are the section and the evicted ids the
+  dock keeps, so lowering `recentCount` or hiding the section can be undone.
 - `scrollAction` is `"nothing"` (default), `"cycle-windows"` or
   `"switch-workspace"`. Wheel up walks backwards through the application's
   windows or towards the previous workspace; wheel down walks forwards. One
@@ -208,40 +223,15 @@ Most settings live in the settings sheet. The same values are stored in
 - `showTrash` turns the trash can off without touching the folder list.
 - `folders` holds absolute paths; a missing `label` falls back to the
   directory's basename. Duplicate paths are collapsed.
+- `files` holds pinned single files the same way. They sit after the folders
+  and before the trash, open with the system handler, and keep the folder's
+  icon size in a stack so either can cover the other.
 - An empty `pinnedApplications` list means you removed every pin.
 
 The dock rewrites this file atomically, merging over the existing keys so
 unknown keys survive. Hand edits are read when the plugin engine starts, so
 apply the plugin again (or restart the shell) after changing the file by hand.
 Values the dock cannot parse fall back to the defaults rather than throwing.
-
-## Known limitations
-
-- A dock longer than the edge it sits on has no scrolling or overflow mode.
-- Every output gets its own dock, but drag and auto-hide were only exercised on
-  a single monitor.
-- No quit, hide or per-application autostart. `ShellWindowServices` exposes
-  activate, minimize and close only, so a menu entry for them would be dead.
-- Notification badges only see what `desktopNotificationsProvider` still holds.
-  Notifications cleared from history, or sent by applications that report
-  neither a `desktop-entry` hint nor a matching application name, leave no
-  count.
-- Windows cannot be dropped onto an icon. The shell forwards no external drag.
-- Denial starts button pointers at the scene origin. The drag code works from
-  absolute scene positions to compensate; the first few pixels of a drag can
-  still feel less precise than a native toolkit drag.
-- Previews use the shell's window texture service. Applications without a
-  client texture fall back to a plain theme card.
-- The dock stores no per-window state. Everything is derived from the shell's
-  application, window and workspace services each frame.
-- The trash count reads the home trash and the per-mount trash directories of
-  every mount in `/proc/self/mounts`. Items in a trash directory the dock cannot
-  read are not counted.
-- Folder shortcuts open through `xdg-open` with a `gio open` fallback; the
-  trash tries `gio` first. Without either, clicking them does nothing.
-- The plugin has no settings-page contract in Denial 0.6.8. The sheet is a
-  shell popup owned by the dock, so it is not listed in any system settings
-  application.
 
 ## Development
 

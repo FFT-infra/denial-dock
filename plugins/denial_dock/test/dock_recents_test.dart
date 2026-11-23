@@ -30,7 +30,7 @@ void main() {
     'the oldest closed slot leaves',
   );
   _expect(
-    _members(['a', 'b', 'c', 'd'], running: const {}, count: 2) == 'c,d',
+    _members(['a', 'b', 'c', 'd'], count: 2) == 'c,d',
     'the cap keeps the newest closed slots',
   );
 
@@ -74,6 +74,56 @@ void main() {
     _members(['a', 'b', 'c'], running: {'a', 'b'}, removed: {'c'}) == 'a,b,c',
     'a relaunched app stays after it quits',
   );
+
+  // An evicted id is parked, not forgotten: lowering the count and raising it
+  // again brings the same apps back.
+  final shrunk = _resolve(['a', 'b', 'c', 'd', 'e'], count: 2);
+  _expect(shrunk.members == 'd,e', 'count 2 keeps the newest: $shrunk');
+  _expect(shrunk.parked == 'a,b,c', 'evicted ids are parked: $shrunk');
+  final grown = _resolve(
+    shrunk.members.split(','),
+    parked: shrunk.parked.split(','),
+  );
+  _expect(grown.members == 'c,d,e', 'the newest evicted id comes back first');
+  final restored = _resolve(
+    shrunk.members.split(','),
+    parked: shrunk.parked.split(','),
+    count: 5,
+  );
+  _expect(
+    restored.members == 'a,b,c,d,e',
+    'raising the count by three restores all three in order: $restored',
+  );
+
+  // Hiding the section stores the members but paints only the running apps,
+  // so turning it back on restores the row instead of seeding it.
+  final hidden = _resolve(['a', 'b', 'c'], running: {'a'}, count: 0);
+  _expect(hidden.members == 'a,b,c', 'a hidden section keeps its members');
+  _expect(hidden.shown == 'a', 'a hidden section paints the running apps only');
+  final backOn = _resolve(
+    hidden.members.split(','),
+    running: {'a'},
+    parked: hidden.parked.split(','),
+  );
+  _expect(backOn.shown == 'a,b,c', 'showing the section brings the row back');
+
+  // The park list is bounded and keeps the newest ids.
+  final long = _resolve(
+    List.generate(DockRecents.parkedLimit + 6, (i) => 'a$i'),
+    count: 1,
+  );
+  _expect(
+    long.parked.split(',').length == DockRecents.parkedLimit,
+    'the park list is bounded: ${long.parked.split(',').length}',
+  );
+  _expect(
+    long.parked.split(',').last == 'a${DockRecents.parkedLimit + 4}',
+    'the park list keeps the newest evicted id: ${long.parked}',
+  );
+  _expect(
+    long.parked.split(',').first == 'a5',
+    'the park list drops the oldest ids: ${long.parked}',
+  );
 }
 
 String _members(
@@ -82,13 +132,38 @@ String _members(
   Iterable<String> recent = const [],
   int count = 3,
   Set<String> removed = const {},
-}) => DockRecents.members(
-  order: order,
+  List<String> parked = const [],
+}) => _resolve(
+  order,
   running: running,
   recent: recent,
   count: count,
   removed: removed,
-).join(',');
+  parked: parked,
+).shown;
+
+({String members, String parked, String shown}) _resolve(
+  List<String> order, {
+  Set<String> running = const {},
+  Iterable<String> recent = const [],
+  int count = 3,
+  Set<String> removed = const {},
+  List<String> parked = const [],
+}) {
+  final resolved = DockRecents.resolve(
+    order: order,
+    parked: parked,
+    running: running,
+    recent: recent,
+    count: count,
+    removed: removed,
+  );
+  return (
+    members: resolved.members.join(','),
+    parked: resolved.parked.join(','),
+    shown: resolved.shown.join(','),
+  );
+}
 
 void _expect(bool condition, String message) {
   if (!condition) throw StateError(message);

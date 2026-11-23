@@ -10,6 +10,8 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import 'dock_extras.dart';
 import 'dock_preferences.dart';
+import 'dock_stack_files.dart' show DockStackFiles;
+import 'dock_stack_view.dart' show stackFileColor, stackFileIcon;
 
 const double _rowHeight = 48;
 const double _cardRadius = 12;
@@ -460,6 +462,19 @@ class _DockSettingsPanelState extends ConsumerState<DockSettingsPanel> {
                     onChanged: (value) =>
                         _controller.setMagnificationAmount(value),
                   ),
+                  _SegmentedField<DockAppearance>(
+                    label: _zh ? '外观' : 'Appearance',
+                    value: settings.appearance,
+                    options: [
+                      (DockAppearance.macos, 'macOS', Icons.grid_view_rounded),
+                      (
+                        DockAppearance.denial,
+                        'Denial',
+                        Icons.auto_awesome_mosaic_outlined,
+                      ),
+                    ],
+                    onChanged: (value) => _controller.setAppearance(value),
+                  ),
                   _SegmentedField<DockIconMode>(
                     label: _zh ? '图标' : 'Icons',
                     value: settings.iconMode,
@@ -678,7 +693,7 @@ class _DockSettingsPanelState extends ConsumerState<DockSettingsPanel> {
                     : 'Folders and the Trash open with the system handler '
                           '(xdg-open / gio).',
                 children: [
-                  if (settings.folders.isEmpty)
+                  if (settings.folders.isEmpty && settings.files.isEmpty)
                     _NoteRow(text: _zh ? '还没有添加文件夹。' : 'No folders added yet.'),
                   for (final folder in settings.folders)
                     _FolderRow(
@@ -686,9 +701,15 @@ class _DockSettingsPanelState extends ConsumerState<DockSettingsPanel> {
                       removeTooltip: _zh ? '移除' : 'Remove',
                       onRemove: () => _controller.removeFolder(folder.path),
                     ),
+                  for (final file in settings.files)
+                    _FileRow(
+                      file: file,
+                      removeTooltip: _zh ? '移除' : 'Remove',
+                      onRemove: () => _controller.removeFile(file.path),
+                    ),
                   _ActionRow(
                     icon: Icons.create_new_folder_outlined,
-                    label: _zh ? '添加文件夹…' : 'Add folder…',
+                    label: _zh ? '添加文件夹或文件…' : 'Add folder or file…',
                     onTap: () => setState(() {
                       _browsePath = _home();
                       _showHidden = false;
@@ -712,6 +733,9 @@ class _DockSettingsPanelState extends ConsumerState<DockSettingsPanel> {
       for (final directory in directories)
         if (_showHidden || !_basename(directory).startsWith('.')) directory,
     ];
+    // Files are pinnable too, so the same browser lists them below the
+    // folders: the dock lets one file sit beside the stacks.
+    final files = _showHidden ? const <String>[] : DockExtras.listFiles(path);
     final parent = _parentOf(path);
     return Column(
       key: key,
@@ -754,7 +778,20 @@ class _DockSettingsPanelState extends ConsumerState<DockSettingsPanel> {
                       radius: 8,
                       onTap: () => setState(() => _browsePath = directory),
                     ),
-                  if (visible.isEmpty)
+                  for (final file in files)
+                    _ActionRow(
+                      icon: Icons.insert_drive_file_outlined,
+                      label: _basename(file),
+                      margin: const EdgeInsets.symmetric(horizontal: 4),
+                      radius: 8,
+                      onTap: () {
+                        _controller.addFile(
+                          DockFile(path: file, label: _basename(file)),
+                        );
+                        setState(() => _browsePath = null);
+                      },
+                    ),
+                  if (visible.isEmpty && files.isEmpty)
                     Padding(
                       padding: const EdgeInsets.symmetric(
                         horizontal: 16,
@@ -2225,6 +2262,73 @@ class _FolderRow extends StatelessWidget {
                   const SizedBox(height: 1),
                   Text(
                     folder.path,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: _captionStyle(theme),
+                  ),
+                ],
+              ),
+            ),
+            const SizedBox(width: 6),
+            _IconButton(
+              icon: Icons.remove_circle_outline,
+              tooltip: removeTooltip,
+              size: 28,
+              iconSize: 16,
+              onPressed: onRemove,
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+/// A pinned single file, listed under the folder shortcuts.
+class _FileRow extends StatelessWidget {
+  const _FileRow({
+    required this.file,
+    required this.removeTooltip,
+    required this.onRemove,
+  });
+
+  final DockFile file;
+  final String removeTooltip;
+  final VoidCallback onRemove;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = context.shellTheme;
+    final colors = theme.colors;
+    return Semantics(
+      label: '${file.label}, ${file.path}',
+      child: _HoverSurface(
+        height: _rowHeight,
+        padding: const EdgeInsets.fromLTRB(12, 0, 6, 0),
+        child: Row(
+          children: [
+            _Glyph(
+              icon: stackFileIcon(DockStackFiles.extensionOf(file.path)),
+              tint: stackFileColor(DockStackFiles.extensionOf(file.path)),
+            ),
+            const SizedBox(width: 10),
+            Expanded(
+              child: Column(
+                mainAxisAlignment: MainAxisAlignment.center,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    file.label,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: theme.text.cardTitle.copyWith(
+                      color: colors.textPrimary,
+                      fontWeight: FontWeight.w600,
+                    ),
+                  ),
+                  const SizedBox(height: 1),
+                  Text(
+                    file.path,
                     maxLines: 1,
                     overflow: TextOverflow.ellipsis,
                     style: _captionStyle(theme),

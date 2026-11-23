@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:io' show File;
 import 'dart:math' as math;
 
 import 'package:denial_flutter_sdk/applications.dart'
@@ -13,11 +14,7 @@ import 'package:denial_flutter_sdk/state.dart'
 import 'package:denial_flutter_sdk/surfaces.dart';
 import 'package:denial_flutter_sdk/theme.dart';
 import 'package:flutter/gestures.dart'
-    show
-        GestureBinding,
-        PointerScrollEvent,
-        PointerSignalEvent,
-        kPrimaryButton;
+    show GestureBinding, PointerScrollEvent, PointerSignalEvent, kPrimaryButton;
 import 'package:flutter/material.dart';
 import 'package:flutter/scheduler.dart';
 import 'package:flutter/services.dart';
@@ -27,8 +24,10 @@ import 'dock_autohide.dart';
 import 'dock_badges.dart';
 import 'dock_recents.dart';
 import 'dock_drag.dart';
+import 'dock_extras.dart';
 import 'dock_extras_item.dart';
 import 'dock_icon.dart';
+import 'dock_mac_icons.dart';
 import 'dock_item.dart';
 import 'dock_layout.dart';
 import 'dock_math.dart';
@@ -37,6 +36,7 @@ import 'dock_preferences.dart';
 import 'dock_scroll.dart';
 import 'dock_sections.dart';
 import 'dock_settings_panel.dart';
+import 'dock_stack_thumbs.dart';
 
 /// The floating dock. Icons are laid out by [DockLayout] along the dock's main
 /// axis, so the same kernel serves a bottom dock and a side dock.
@@ -118,6 +118,10 @@ class _DockContainerState extends ConsumerState<DockContainer>
   );
 
   DockLayoutFrame? _frame;
+
+  /// The trash icon's rectangle in scene coordinates, or null when the dock
+  /// hides the trash. A folder stack uses it as its drop target.
+  Rect? _trashRect;
   Map<int, int> _entrySlots = const {};
   List<_LabelTarget?> _labels = const [];
   double _capsuleStart = 0;
@@ -138,9 +142,11 @@ class _DockContainerState extends ConsumerState<DockContainer>
   /// when the drag began.
   List<_DockEntry> _builtEntries = const [];
 
-  /// The recents slot order of the last build, saved when it differs from the
-  /// stored one so a slot survives a restart.
+  /// The recents section and the ids parked outside it, from the last build.
+  /// Saved when they differ from the stored ones, so a slot survives a
+  /// restart.
   List<String> _recentsOrder = const [];
+  List<String> _parkedRecents = const [];
   bool _recentsSaveScheduled = false;
   int _dragFrom = -1;
   int _dragTo = -1;
@@ -211,6 +217,11 @@ class _DockContainerState extends ConsumerState<DockContainer>
   void initState() {
     super.initState();
     _ticker = createTicker(_onTick);
+    // The thumbnail index is built before a folder is opened, so the fan shows
+    // previews on its first frame instead of a column of type icons, and stale
+    // generated previews are dropped so the cache cannot grow without bound.
+    DockStackThumbs.warm();
+    DockStackThumbs.sweepCache();
   }
 
   @override
@@ -818,16 +829,18 @@ class _DockContainerState extends ConsumerState<DockContainer>
     }
     final removed = settings.dismissedSuggestions.toSet();
     final count = settings.showSuggestions ? settings.recentCount : 0;
-    final order = DockRecents.members(
+    final resolved = DockRecents.resolve(
       order: settings.recentsOrder,
+      parked: settings.parkedRecents,
       running: running,
       recent: recents.reversed.map(_recentAppId),
       count: count,
       removed: removed,
     );
-    _recentsOrder = order;
+    _recentsOrder = resolved.members;
+    _parkedRecents = resolved.parked;
 
-    for (final key in order) {
+    for (final key in resolved.shown) {
       if (!seen.add(key)) continue;
       final group = windowsByApp[key];
       final app = byId[key] ?? appByGroup[key];
@@ -864,27 +877,32 @@ class _DockContainerState extends ConsumerState<DockContainer>
             DockSlotKind.app => _SlotKind.app,
             DockSlotKind.launcher => _SlotKind.launcher,
             DockSlotKind.folder => _SlotKind.folder,
+            DockSlotKind.file => _SlotKind.file,
             DockSlotKind.trash => _SlotKind.trash,
             DockSlotKind.divider => _SlotKind.divider,
           },
-          half: section.kind == DockSlotKind.divider
-              ? 0.5
-              : _iconSize / 2,
+          half: section.kind == DockSlotKind.divider ? 0.5 : _iconSize / 2,
           entry: section.index,
           folder: section.folder,
+          file: section.file,
           dividerKey: section.dividerKey,
         ),
     ];
   }
 
-  /// Persists a recents order that grew this build. The write is skipped when
-  /// the stored order already matches, so an idle dock never touches the file.
+  /// Persists a recents section that changed this build. The write is skipped
+  /// when the stored lists already match, so an idle dock never touches the
+  /// file.
   void _saveRecentsOrder(DockSettings settings, {required bool ready}) {
     final order = _recentsOrder;
+    final parked = _parkedRecents;
     // Before the file is read, `settings` is the default value and its empty
     // order would look like a change worth saving.
-    if (!ready || order.isEmpty) return;
-    if (_sameOrder(settings.recentsOrder, order)) return;
+    if (!ready) return;
+    if (_sameOrder(settings.recentsOrder, order) &&
+        _sameOrder(settings.parkedRecents, parked)) {
+      return;
+    }
     if (_recentsSaveScheduled) return;
     _recentsSaveScheduled = true;
     // Deferred out of build: the notifier's state change would rebuild the
@@ -893,7 +911,9 @@ class _DockContainerState extends ConsumerState<DockContainer>
       _recentsSaveScheduled = false;
       if (!mounted) return;
       unawaited(
-        ref.read(dockSettingsProvider.notifier).setRecentsOrder(_recentsOrder),
+        ref
+            .read(dockSettingsProvider.notifier)
+            .setRecentsOrder(_recentsOrder, _parkedRecents),
       );
     });
   }
@@ -999,10 +1019,10 @@ class _DockContainerState extends ConsumerState<DockContainer>
           for (var i = 0; i < specs.length; i++)
             _labelForSlot(specs, i, entries, launcherLabel, chinese),
         ];
-
         final hideOffset = (1 - _reveal) * (_capsuleHeight + 24);
         _capsuleCross = _edgeInset - hideOffset;
         _capsuleFar = _capsuleCross + _capsuleHeight;
+        _trashRect = _trashSlotRect(specs, frame);
 
         // Collision uses the rectangle the dock would occupy at full reveal,
         // never the animated one, so a retracted dock still reports the space
@@ -1068,7 +1088,12 @@ class _DockContainerState extends ConsumerState<DockContainer>
             : _DockLabelBubble(
                 text: label.name,
                 iconSize: _iconSize * (labelSlot?.scale ?? 1.0),
-                background: theme.panelColor(colors.surfaceContainer),
+                // A caption over a bright wallpaper needs a solid ground; the
+                // panel's own translucency leaves the text fighting whatever
+                // is behind it.
+                background: theme
+                    .panelColor(colors.surfaceContainer)
+                    .withValues(alpha: 0.94),
                 border: colors.hairline,
                 foreground: colors.textPrimary,
                 horizontal: _vertical,
@@ -1528,6 +1553,39 @@ class _DockContainerState extends ConsumerState<DockContainer>
     );
   }
 
+  /// Where the trash icon sits on screen, for the folder stack's drop target.
+  /// A hidden trash returns null rather than a stale rectangle.
+  Rect? _trashSlotRect(List<_SlotSpec> specs, DockLayoutFrame frame) {
+    for (var i = 0; i < specs.length; i++) {
+      if (specs[i].kind != _SlotKind.trash) continue;
+      final slot = frame.slots[i];
+      final extent = slot.half * 2;
+      // The slot's near edge, measured from the dock's own edge inward.
+      final near = _capsuleCross + DockSettings.padding;
+      return switch (_position) {
+        DockPosition.bottom => Rect.fromLTWH(
+          _output.left + slot.center - slot.half,
+          _output.top + _surfaceHeight - near - extent,
+          extent,
+          extent,
+        ),
+        DockPosition.left => Rect.fromLTWH(
+          _output.left + near,
+          _output.top + slot.center - slot.half,
+          extent,
+          extent,
+        ),
+        DockPosition.right => Rect.fromLTWH(
+          _output.right - near - extent,
+          _output.top + slot.center - slot.half,
+          extent,
+          extent,
+        ),
+      };
+    }
+    return null;
+  }
+
   double? _firstAppCenter(DockLayoutFrame frame, List<_SlotSpec> specs) {
     for (var i = 0; i < specs.length; i++) {
       if (specs[i].kind == _SlotKind.app) return frame.slots[i].center;
@@ -1545,6 +1603,11 @@ class _DockContainerState extends ConsumerState<DockContainer>
 
   Widget _capsuleSurface(BuildContext context, ShellThemeData theme) {
     final radius = theme.borderRadius(20);
+    // Mixed from the theme's own surface, not the glass backing: that backing
+    // is a flat white or black chosen by the glass appearance setting, so on a
+    // dark wallpaper it turned the dock into a pale bar nothing else on screen
+    // shared. The surface colour already follows the light or dark appearance.
+    final alpha = theme.effectivePanelOpacity.clamp(0.55, 0.86).toDouble();
     return ShellBackdropBlur(
       blur: theme.effectivePanelOpacity < 1,
       separateChild: true,
@@ -1555,8 +1618,10 @@ class _DockContainerState extends ConsumerState<DockContainer>
       child: DecoratedBox(
         decoration: BoxDecoration(
           borderRadius: radius,
-          color: theme.panelColor(theme.colors.surfaceContainer),
-          border: Border.all(color: theme.colors.hairline),
+          color: theme.colors.surfaceContainer.withValues(alpha: alpha),
+          border: Border.all(
+            color: theme.colors.hairline.withValues(alpha: 0.7),
+          ),
         ),
       ),
     );
@@ -1721,6 +1786,7 @@ class _DockContainerState extends ConsumerState<DockContainer>
             size: extent,
             lift: lift,
             position: _position,
+            appearance: _settings.appearance,
             label: launcherLabel,
             onTap: widget.services.toggleLauncher,
             onOpenMenu: () => _openDockMenu(slot.center),
@@ -1745,7 +1811,56 @@ class _DockContainerState extends ConsumerState<DockContainer>
             ),
             onOverlayChanged: _setOverlayHold,
             monitorBounds: _output,
+            workArea: widget.environment.workArea,
+            appearance: _settings.appearance,
             onOpenSettings: _openSettings,
+            onSetView: (view) => unawaited(
+              ref
+                  .read(dockSettingsProvider.notifier)
+                  .setFolderView(folder.path, view),
+            ),
+            onSetSort: (sort) => unawaited(
+              ref
+                  .read(dockSettingsProvider.notifier)
+                  .setFolderSort(folder.path, sort),
+            ),
+            onSetStacked: (stacked) => unawaited(
+              ref
+                  .read(dockSettingsProvider.notifier)
+                  .setFolderStacked(folder.path, stacked),
+            ),
+            onReorder: (order) => unawaited(
+              ref
+                  .read(dockSettingsProvider.notifier)
+                  .setFolderOrder(folder.path, order),
+            ),
+            trashRect: _trashRect,
+          ),
+        );
+      case _SlotKind.file:
+        final file = spec.file;
+        if (file == null) return null;
+        return slotAt(
+          key: ValueKey('dock-file-${file.path}'),
+          cross: DockSettings.padding,
+          mainExtent: extent,
+          crossExtent: extent,
+          child: DockFileItem(
+            file: file,
+            size: extent,
+            lift: lift,
+            position: _position,
+            zh: chinese,
+            appearance: _settings.appearance,
+            monitorBounds: _output,
+            onOpen: () => unawaited(DockExtras.openPath(file.path)),
+            onReveal: () =>
+                unawaited(DockExtras.openPath(File(file.path).parent.path)),
+            onRemove: () => unawaited(
+              ref.read(dockSettingsProvider.notifier).removeFile(file.path),
+            ),
+            onOpenSettings: _openSettings,
+            onOverlayChanged: _setOverlayHold,
           ),
         );
       case _SlotKind.trash:
@@ -1762,6 +1877,7 @@ class _DockContainerState extends ConsumerState<DockContainer>
             onOverlayChanged: _setOverlayHold,
             monitorBounds: _output,
             onOpenSettings: _openSettings,
+            appearance: _settings.appearance,
           ),
         );
       case _SlotKind.app:
@@ -1854,6 +1970,14 @@ class _DockContainerState extends ConsumerState<DockContainer>
                 name: spec.folder!.label,
                 center: center,
               ),
+      _SlotKind.file =>
+        spec.file == null
+            ? null
+            : _LabelTarget(
+                key: 'file-${spec.file!.path}',
+                name: spec.file!.label,
+                center: center,
+              ),
       _SlotKind.trash => _LabelTarget(
         key: 'trash',
         name: chinese ? '回收站' : 'Trash',
@@ -1864,7 +1988,7 @@ class _DockContainerState extends ConsumerState<DockContainer>
   }
 }
 
-enum _SlotKind { app, launcher, folder, trash, divider }
+enum _SlotKind { app, launcher, folder, file, trash, divider }
 
 class _SlotSpec {
   const _SlotSpec({
@@ -1872,6 +1996,7 @@ class _SlotSpec {
     required this.half,
     this.entry,
     this.folder,
+    this.file,
     this.dividerKey,
   });
 
@@ -1879,6 +2004,7 @@ class _SlotSpec {
   final double half;
   final int? entry;
   final DockFolder? folder;
+  final DockFile? file;
   final String? dividerKey;
 
   bool get growable => kind != _SlotKind.divider;
@@ -1927,12 +2053,14 @@ class _LauncherItem extends StatefulWidget {
     required this.label,
     required this.onTap,
     required this.onOpenMenu,
+    this.appearance = DockAppearance.macos,
   });
 
   final double size;
   final double lift;
   final DockPosition position;
   final String label;
+  final DockAppearance appearance;
   final VoidCallback onTap;
   final VoidCallback onOpenMenu;
 
@@ -1951,10 +2079,6 @@ class _LauncherItemState extends State<_LauncherItem> {
   @override
   Widget build(BuildContext context) {
     final theme = context.shellTheme;
-    final backing = Color.alphaBlend(
-      theme.accent.withValues(alpha: 0.18),
-      theme.cardColor(theme.colors.surfaceContainerHigh),
-    );
     return Transform.translate(
       offset: switch (widget.position) {
         DockPosition.bottom => Offset(0, -widget.lift),
@@ -1972,11 +2096,12 @@ class _LauncherItemState extends State<_LauncherItem> {
             behavior: HitTestBehavior.opaque,
             onTap: widget.onTap,
             onSecondaryTapDown: (_) => widget.onOpenMenu(),
-            child: DecoratedBox(
-              decoration: BoxDecoration(shape: BoxShape.circle, color: backing),
-              child: Stack(
-                children: [
-                  Center(
+            child: widget.appearance == DockAppearance.macos
+                ? DockLaunchpadIcon(size: widget.size, pressed: _pressed)
+                : DockTile(
+                    size: widget.size,
+                    accent: theme.accent,
+                    pressed: _pressed,
                     child: SizedBox.square(
                       dimension: widget.size * 0.42,
                       child: CustomPaint(
@@ -1984,25 +2109,6 @@ class _LauncherItemState extends State<_LauncherItem> {
                       ),
                     ),
                   ),
-                  Positioned.fill(
-                    child: IgnorePointer(
-                      child: AnimatedOpacity(
-                        duration: const Duration(milliseconds: 90),
-                        curve: Curves.easeOut,
-                        opacity: _pressed ? 1 : 0,
-                        child: DecoratedBox(
-                          decoration: BoxDecoration(
-                            shape: BoxShape.circle,
-                            color: const Color(0xFF000000)
-                                .withValues(alpha: 0.16),
-                          ),
-                        ),
-                      ),
-                    ),
-                  ),
-                ],
-              ),
-            ),
           ),
         ),
       ),
@@ -2038,11 +2144,11 @@ class _DockLabelBubble extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final theme = context.shellTheme;
-    final fontSize = (iconSize * 0.30).clamp(12.0, 17.0);
-    final padV = (iconSize * 0.17).clamp(6.0, 10.0);
-    final padH = (iconSize * 0.34).clamp(13.0, 20.0);
+    final fontSize = (iconSize * 0.26).clamp(11.0, 13.0);
+    final padV = (iconSize * 0.10).clamp(4.0, 6.0);
+    final padH = (iconSize * 0.24).clamp(10.0, 14.0);
     final height = fontSize * 1.25 + padV * 2;
-    final tailSize = (iconSize * 0.16).clamp(7.0, 11.0);
+    final tailSize = (iconSize * 0.13).clamp(6.0, 9.0);
     return CustomPaint(
       painter: _BubblePainter(
         color: background,
