@@ -233,34 +233,6 @@ unknown keys survive. Hand edits are read when the plugin engine starts, so
 apply the plugin again (or restart the shell) after changing the file by hand.
 Values the dock cannot parse fall back to the defaults rather than throwing.
 
-## Known limitations
-
-- A dock longer than the edge it sits on has no scrolling or overflow mode.
-- Every output gets its own dock, but drag and auto-hide were only exercised on
-  a single monitor.
-- No quit, hide or per-application autostart. `ShellWindowServices` exposes
-  activate, minimize and close only, so a menu entry for them would be dead.
-- Notification badges only see what `desktopNotificationsProvider` still holds.
-  Notifications cleared from history, or sent by applications that report
-  neither a `desktop-entry` hint nor a matching application name, leave no
-  count.
-- Windows cannot be dropped onto an icon. The shell forwards no external drag.
-- Denial starts button pointers at the scene origin. The drag code works from
-  absolute scene positions to compensate; the first few pixels of a drag can
-  still feel less precise than a native toolkit drag.
-- Previews use the shell's window texture service. Applications without a
-  client texture fall back to a plain theme card.
-- The dock stores no per-window state. Everything is derived from the shell's
-  application, window and workspace services each frame.
-- The trash count reads the home trash and the per-mount trash directories of
-  every mount in `/proc/self/mounts`. Items in a trash directory the dock cannot
-  read are not counted.
-- Folder shortcuts open through `xdg-open` with a `gio open` fallback; the
-  trash tries `gio` first. Without either, clicking them does nothing.
-- The plugin has no settings-page contract in Denial 0.6.8. The sheet is a
-  shell popup owned by the dock, so it is not listed in any system settings
-  application.
-
 ## Development
 
 The repository root is not a Dart package. Work inside
