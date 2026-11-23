@@ -12,6 +12,24 @@ import 'dock_pile.dart';
 /// A folder becomes a blue folder carrying a pile of its newest files, the
 /// trash becomes a wire can, and the launcher becomes the Launchpad grid.
 
+/// One card in a stack icon: the picture to draw, or the type glyph when the
+/// file has no thumbnail, and whether the entry is a folder. A folder draws
+/// the blue folder at card size, so folders and files sit on the pile at one
+/// size and cover one another by order.
+class DockStackPreview {
+  const DockStackPreview({
+    this.path,
+    this.folder = false,
+    this.icon,
+    this.color,
+  });
+
+  final String? path;
+  final bool folder;
+  final IconData? icon;
+  final Color? color;
+}
+
 /// A folder shown as a stack: the newest files piled on a folder, each card
 /// turned a little more than the one in front of it.
 class DockStackIcon extends StatelessWidget {
@@ -24,14 +42,22 @@ class DockStackIcon extends StatelessWidget {
 
   final double size;
 
-  /// Image paths, newest first. Missing or broken entries fall back to a
-  /// plain card, so a pile never collapses just because one thumbnail did.
-  final List<String?> previews;
+  /// Cards, newest first. Missing or broken entries fall back to a plain card,
+  /// so a pile never collapses just because one thumbnail did.
+  final List<DockStackPreview> previews;
 
   final bool pressed;
 
-  Widget _card(String? path) {
-    if (path == null) return const SizedBox.shrink();
+  Widget _card(DockStackPreview preview, double edge) {
+    if (preview.folder) return DockFolderIcon(size: edge);
+    final path = preview.path;
+    if (path == null) {
+      final icon = preview.icon;
+      if (icon == null) return const SizedBox.shrink();
+      return Center(
+        child: Icon(icon, size: edge * 0.55, color: preview.color),
+      );
+    }
     return Image.file(
       File(path),
       fit: BoxFit.cover,
@@ -67,8 +93,7 @@ class DockStackIcon extends StatelessWidget {
                   angle: DockPile.angle(i),
                   child: Center(
                     child: SizedBox.square(
-                      dimension:
-                          size * (1 - 2 * DockPile.inset) * DockPile.scale(i),
+                      dimension: size * DockPile.edge(i),
                       child: ClipRRect(
                         borderRadius: radius,
                         child: DecoratedBox(
@@ -80,7 +105,7 @@ class DockStackIcon extends StatelessWidget {
                               color: Colors.black.withValues(alpha: 0.10),
                             ),
                           ),
-                          child: _card(previews[i]),
+                          child: _card(previews[i], size * DockPile.edge(i)),
                         ),
                       ),
                     ),
@@ -95,6 +120,68 @@ class DockStackIcon extends StatelessWidget {
                 child: const ColoredBox(color: Color(0x29000000)),
               ),
             ),
+        ],
+      ),
+    );
+  }
+}
+
+/// The tile a stack shows while it is open: the pile dimmed under a
+/// translucent plate with a chevron pointing at the rows it just dealt out.
+///
+/// macOS does this so the icon still says "this is the open one" after its
+/// cards have flown off it — without it the pile sits there unchanged and
+/// reads as a second, unopened stack.
+class DockStackOpenIcon extends StatelessWidget {
+  const DockStackOpenIcon({
+    required this.size,
+    required this.previews,
+    this.quarterTurns = 0,
+    super.key,
+  });
+
+  final double size;
+  final List<DockStackPreview> previews;
+
+  /// Which way the chevron points, in quarter turns clockwise from down, so
+  /// it points at the rows the stack just opened into.
+  final int quarterTurns;
+
+  @override
+  Widget build(BuildContext context) {
+    final radius = BorderRadius.circular(size * 0.24);
+    return SizedBox.square(
+      dimension: size,
+      child: Stack(
+        children: [
+          // The pile stays underneath, so the tile is visibly the same stack.
+          Positioned.fill(
+            child: Opacity(
+              opacity: 0.45,
+              child: DockStackIcon(size: size, previews: previews),
+            ),
+          ),
+          Positioned.fill(
+            child: DecoratedBox(
+              decoration: BoxDecoration(
+                borderRadius: radius,
+                gradient: const LinearGradient(
+                  begin: Alignment.topCenter,
+                  end: Alignment.bottomCenter,
+                  colors: [Color(0x40FFFFFF), Color(0x14FFFFFF)],
+                ),
+                border: Border.all(color: const Color(0x2E000000)),
+              ),
+              child: RotatedBox(
+                quarterTurns: quarterTurns,
+                child: Icon(
+                  Icons.keyboard_arrow_down_rounded,
+                  size: size * 0.62,
+                  color: const Color(0xCC000000),
+                ),
+              ),
+            ),
+          ),
         ],
       ),
     );
@@ -166,26 +253,37 @@ class _FolderPainter extends CustomPainter {
   bool shouldRepaint(_FolderPainter old) => old.accent != accent;
 }
 
-/// A macOS trash can: a tapered wire basket under its lid.
+/// A macOS trash can: a tapered wire basket under its lid, holding paper once
+/// it has anything in it.
 class DockTrashIcon extends StatelessWidget {
-  const DockTrashIcon({required this.size, this.pressed = false, super.key});
+  const DockTrashIcon({
+    required this.size,
+    this.pressed = false,
+    this.full = false,
+    super.key,
+  });
 
   final double size;
   final bool pressed;
+
+  /// Whether the can holds something. macOS draws an empty can as bare metal
+  /// and a used one with paper inside it.
+  final bool full;
 
   @override
   Widget build(BuildContext context) {
     return SizedBox.square(
       dimension: size,
-      child: CustomPaint(painter: _TrashPainter(pressed)),
+      child: CustomPaint(painter: _TrashPainter(pressed, full)),
     );
   }
 }
 
 class _TrashPainter extends CustomPainter {
-  const _TrashPainter(this.pressed);
+  const _TrashPainter(this.pressed, this.full);
 
   final bool pressed;
+  final bool full;
 
   @override
   void paint(Canvas canvas, Size size) {
@@ -234,6 +332,38 @@ class _TrashPainter extends CustomPainter {
     canvas.drawPath(body, metal);
     canvas.drawPath(body, line);
 
+    if (full) {
+      // Paper seen through the wire: two sheets, the nearer one paler, both
+      // clipped to the basket so nothing spills past the wire.
+      canvas.save();
+      canvas.clipPath(body);
+      final back = Path()
+        ..moveTo(w * 0.32, h * 0.62)
+        ..lineTo(w * 0.46, h * 0.44)
+        ..lineTo(w * 0.58, h * 0.58)
+        ..lineTo(w * 0.70, h * 0.40)
+        ..lineTo(w * 0.74, h * 0.86)
+        ..lineTo(w * 0.30, h * 0.86)
+        ..close();
+      canvas.drawPath(back, Paint()..color = const Color(0xFFF4F1EA));
+      final front = Path()
+        ..moveTo(w * 0.36, h * 0.86)
+        ..lineTo(w * 0.42, h * 0.56)
+        ..lineTo(w * 0.54, h * 0.70)
+        ..lineTo(w * 0.62, h * 0.52)
+        ..lineTo(w * 0.66, h * 0.86)
+        ..close();
+      canvas.drawPath(front, Paint()..color = const Color(0xFFFFFFFF));
+      canvas.drawPath(
+        front,
+        Paint()
+          ..style = PaintingStyle.stroke
+          ..strokeWidth = stroke * 0.6
+          ..color = const Color(0xFFD8D3C8),
+      );
+      canvas.restore();
+    }
+
     final rib = Paint()
       ..style = PaintingStyle.stroke
       ..strokeWidth = stroke * 0.8
@@ -261,7 +391,8 @@ class _TrashPainter extends CustomPainter {
   }
 
   @override
-  bool shouldRepaint(_TrashPainter old) => old.pressed != pressed;
+  bool shouldRepaint(_TrashPainter old) =>
+      old.pressed != pressed || old.full != full;
 }
 
 /// The Launchpad grid: nine tinted squares on a pale tile.

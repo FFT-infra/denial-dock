@@ -27,4 +27,8 @@ abstract final class DockPile {
 
   /// Edge length of card [index] relative to the front card.
   static double scale(int index) => 1 - stepScale * index;
+
+  /// Edge length of card [index] as a fraction of the tile, which is also the
+  /// size the fan row of that file starts from.
+  static double edge(int index) => (1 - 2 * inset) * scale(index);
 }

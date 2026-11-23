@@ -109,6 +109,35 @@ void main() {
     'list mode parses',
   );
 
+  // A single file can be pinned beside the folders, and survives a reload.
+  const file = DockFile(path: '/tmp/report.pdf', label: 'report.pdf');
+  final withFile = defaults.withFile(file);
+  _expect(withFile.files.length == 1, 'a file is pinned');
+  _expect(withFile.hasExtras, 'a pinned file counts as an accessory');
+  _expect(
+    DockSettings.fromJson({
+          'files': [file.toJson()],
+        }).files.single.path ==
+        '/tmp/report.pdf',
+    'a pinned file survives JSON',
+  );
+  _expect(
+    withFile.withFile(file).files.length == 1,
+    'pinning the same file twice keeps one',
+  );
+  _expect(
+    withFile.withoutFile('/tmp/report.pdf').files.isEmpty,
+    'a pinned file can be removed',
+  );
+  _expect(
+    DockSettings.fromJson({
+      'files': [
+        {'label': 'no path'},
+      ],
+    }).files.isEmpty,
+    'a file without a path is dropped',
+  );
+
   // The appearance setting reads back both ways and falls back to macOS.
   _expect(
     DockSettings.fromJson({'appearance': 'denial'}).appearance ==

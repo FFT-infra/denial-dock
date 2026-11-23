@@ -23,6 +23,13 @@ void main() {
   _expect(DockPile.angle(2) < DockPile.angle(1), 'cards turn with depth');
   _expect(DockPile.scale(0) == 1, 'the front card is full size');
   _expect(DockPile.scale(2) < DockPile.scale(1), 'cards shrink with depth');
+
+  // The pile's edge is also the size a fan row starts from, so it has to
+  // stay inside the tile and shrink with depth.
+  for (var i = 0; i < DockPile.count; i++) {
+    _expect(DockPile.edge(i) > 0 && DockPile.edge(i) < 1, 'card $i fits');
+  }
+  _expect(DockPile.edge(2) < DockPile.edge(0), 'deeper cards sit smaller');
 }
 
 void _expect(bool condition, String message) {

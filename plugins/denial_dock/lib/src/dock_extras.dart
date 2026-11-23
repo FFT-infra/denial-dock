@@ -277,4 +277,29 @@ abstract final class DockExtras {
       return const [];
     }
   }
+
+  /// Files in [path] a user might pin to the dock: real files, sorted, hidden
+  /// entries skipped the way a file picker skips them by default.
+  static List<String> listFiles(String path) {
+    try {
+      final entries = Directory(path)
+          .listSync(followLinks: false)
+          .whereType<File>()
+          .map((file) => file.path)
+          .where((file) => !_basename(file).startsWith('.'))
+          .toList();
+      entries.sort();
+      return entries;
+    } on FileSystemException {
+      return const [];
+    }
+  }
+
+  static String _basename(String path) {
+    final trimmed = path.length > 1 && path.endsWith('/')
+        ? path.substring(0, path.length - 1)
+        : path;
+    final index = trimmed.lastIndexOf('/');
+    return index < 0 ? trimmed : trimmed.substring(index + 1);
+  }
 }

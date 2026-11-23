@@ -1134,6 +1134,79 @@ class _DockItemWidgetState extends State<DockItemWidget>
                               ),
                             ),
                           ),
+                          // macOS lists the app's windows first, by title, and
+                          // a click brings that window forward. The list is the
+                          // menu's whole point when an app has several, so it
+                          // sits above everything else rather than behind a
+                          // "show all windows" row.
+                          for (final window in _shownWindows.take(8))
+                            DockMenuRow(
+                              icon: window.active
+                                  ? Icons.check
+                                  : Icons.crop_square,
+                              label: window.title.trim().isEmpty
+                                  ? (chinese ? '未命名窗口' : 'Untitled window')
+                                  : window.title,
+                              onTap: () {
+                                _closeOverlay();
+                                _activateWindow(window.id);
+                              },
+                            ),
+                          if (widget.windows.length > 8)
+                            DockMenuRow(
+                              icon: Icons.window_outlined,
+                              label: chinese ? '显示所有窗口' : 'Show all windows',
+                              onTap: _showPreviews,
+                            ),
+                          if (widget.windows.isNotEmpty) DockMenuSeparator(),
+                          DockMenuSubmenuRow(
+                            icon: Icons.tune,
+                            label: chinese ? '选项' : 'Options',
+                            submenu: (context) => Column(
+                              mainAxisSize: MainAxisSize.min,
+                              crossAxisAlignment: CrossAxisAlignment.stretch,
+                              children: [
+                                DockMenuRow(
+                                  icon: widget.pinned
+                                      ? Icons.push_pin
+                                      : Icons.push_pin_outlined,
+                                  label: widget.pinned
+                                      ? (chinese
+                                            ? '从 Dock 中移除'
+                                            : 'Remove from Dock')
+                                      : (chinese ? '保留在 Dock' : 'Keep in Dock'),
+                                  onTap: () {
+                                    _closeOverlay();
+                                    widget.onTogglePin();
+                                  },
+                                ),
+                                if (widget.windows.isNotEmpty)
+                                  DockMenuRow(
+                                    icon: Icons.vertical_align_bottom,
+                                    label: widget.windows.length > 1
+                                        ? (chinese
+                                              ? '最小化全部窗口'
+                                              : 'Minimize all windows')
+                                        : (chinese ? '最小化' : 'Minimize'),
+                                    onTap: _minimizeAll,
+                                  ),
+                                // Closing sits last in the submenu, as in
+                                // macOS: it is the only entry that can discard
+                                // unsaved work.
+                                if (widget.windows.isNotEmpty)
+                                  DockMenuRow(
+                                    icon: Icons.close,
+                                    label: widget.windows.length > 1
+                                        ? (chinese
+                                              ? '关闭全部窗口'
+                                              : 'Close all windows')
+                                        : (chinese ? '关闭窗口' : 'Close window'),
+                                    onTap: _closeWindows,
+                                  ),
+                              ],
+                            ),
+                          ),
+                          DockMenuSeparator(),
                           DockMenuRow(
                             icon: Icons.open_in_new,
                             label: widget.windows.isEmpty
@@ -1144,44 +1217,6 @@ class _DockItemWidgetState extends State<DockItemWidget>
                               _launch();
                             },
                           ),
-                          if (widget.windows.length > 1)
-                            DockMenuRow(
-                              icon: Icons.window_outlined,
-                              label: chinese ? '显示所有窗口' : 'Show all windows',
-                              onTap: _showPreviews,
-                            ),
-                          DockMenuRow(
-                            icon: widget.pinned
-                                ? Icons.push_pin
-                                : Icons.push_pin_outlined,
-                            label: widget.pinned
-                                ? (chinese ? '从 Dock 中移除' : 'Remove from Dock')
-                                : (chinese ? '保留在 Dock' : 'Keep in Dock'),
-                            onTap: () {
-                              _closeOverlay();
-                              widget.onTogglePin();
-                            },
-                          ),
-                          if (widget.windows.isNotEmpty)
-                            DockMenuRow(
-                              icon: Icons.vertical_align_bottom,
-                              label: widget.windows.length > 1
-                                  ? (chinese
-                                        ? '最小化全部窗口'
-                                        : 'Minimize all windows')
-                                  : (chinese ? '最小化' : 'Minimize'),
-                              onTap: _minimizeAll,
-                            ),
-                          // Closing sits last, as in macOS, KDE and GNOME: it is
-                          // the only item here that can discard unsaved work.
-                          if (widget.windows.isNotEmpty)
-                            DockMenuRow(
-                              icon: Icons.close,
-                              label: widget.windows.length > 1
-                                  ? (chinese ? '关闭全部窗口' : 'Close all windows')
-                                  : (chinese ? '关闭窗口' : 'Close window'),
-                              onTap: _closeWindows,
-                            ),
                           if (_launchError case final error?)
                             Padding(
                               padding: const EdgeInsets.fromLTRB(14, 6, 14, 8),

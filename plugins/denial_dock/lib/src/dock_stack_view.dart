@@ -29,6 +29,7 @@ class DockStackView extends StatefulWidget {
     required this.entries,
     required this.anchor,
     required this.bounds,
+    this.anchorNow,
     this.workArea,
     required this.position,
     required this.mode,
@@ -47,6 +48,12 @@ class DockStackView extends StatefulWidget {
 
   /// The folder icon's rectangle in scene coordinates.
   final Rect anchor;
+
+  /// The icon's rectangle right now, for the cards' flight. The dock lifts and
+  /// slides its icons as the pointer moves, so the rect measured when the fan
+  /// opened is stale by the time the rows fold back: they would land beside
+  /// the icon instead of on it. Null falls back to [anchor].
+  final Rect Function()? anchorNow;
 
   /// The monitor's rectangle in scene coordinates, so the stack stays on it.
   final Rect bounds;
@@ -94,7 +101,11 @@ class _DockStackViewState extends State<DockStackView>
   late final AnimationController _open = AnimationController(
     vsync: this,
     duration: const Duration(milliseconds: 340),
-  )..forward();
+  );
+
+  bool _launched = false;
+  double _stagger = 0;
+  double _total = _springSeconds;
 
   _StackLayout? _layout;
   Object? _layoutKey;
@@ -135,18 +146,40 @@ class _DockStackViewState extends State<DockStackView>
   /// settle is allowed to travel.
   static const double _springSeconds = 0.30;
 
+  /// The smallest gap between one row leaving the pile and the next, in
+  /// seconds, and the longest the whole cascade may run. A stack of three
+  /// keeps a visible beat between cards; a tall fan tightens the beat so its
+  /// last row still lands in about the same time a short one takes.
+  static const double _staggerSeconds = 0.024;
+  static const double _staggerCap = 0.26;
+
   /// A damped-oscillator curve: overshoots its target once, then settles.
   /// This is the difference between a macOS motion and a plain decelerate.
   static final Curve _spring = _SpringCurve(Motion.bouncy, _springSeconds);
 
+  static double _staggerFor(int count) =>
+      count < 2 ? 0 : math.min(_staggerSeconds, _staggerCap / (count - 1));
+
   @override
   void didChangeDependencies() {
     super.didChangeDependencies();
-    // With motion turned off the stack has to be usable at once; the spring
-    // would otherwise still stagger every row in.
-    if (MediaQuery.disableAnimationsOf(context) && !_closing) {
+    if (MediaQuery.disableAnimationsOf(context)) {
+      // With motion turned off the stack has to be usable at once; the spring
+      // would otherwise still stagger every row in.
       _open.value = 1;
+      _launched = true;
+      return;
     }
+    if (_launched) return;
+    _launched = true;
+    // The number of rows is known before the layout runs, and the whole
+    // cascade is one controller: a fixed window per row would either rush a
+    // tall fan or crawl through a short one.
+    final count = math.max(1, widget.entries.length);
+    _stagger = _staggerFor(count);
+    _total = _stagger * math.max(0, count - 1) + _springSeconds;
+    _open.duration = Duration(microseconds: (_total * 1e6).round());
+    _open.forward();
   }
 
   @override
@@ -197,49 +230,54 @@ class _DockStackViewState extends State<DockStackView>
             onPointerSignal: (event) => _wheel(event, layout),
             child: AnimatedBuilder(
               animation: _open,
-              builder: (context, _) => Stack(
-                clipBehavior: Clip.none,
-                children: [
-                  // One catcher under everything answers presses and pans in
-                  // scene coordinates. It sits below the rows rather than
-                  // around them, so the search field above it keeps its own
-                  // text selection.
-                  Positioned.fill(
-                    child: GestureDetector(
-                      behavior: HitTestBehavior.opaque,
-                      onTapUp: (details) =>
-                          _press(details.localPosition, layout),
-                      onPanStart: (details) =>
-                          _dragStart(details.localPosition, layout),
-                      onPanUpdate: (details) =>
-                          _dragUpdate(details.localPosition, layout),
-                      onPanEnd: (_) => _dragEnd(layout),
-                      onPanCancel: _dragCancel,
-                      // A grid tall enough to scroll gives the plain drag to
-                      // the scroll view, so holding a cell first is what picks
-                      // it up — the gesture a phone launcher uses.
-                      onLongPressStart: (details) =>
-                          _dragStart(details.localPosition, layout),
-                      onLongPressMoveUpdate: (details) =>
-                          _dragUpdate(details.localPosition, layout),
-                      onLongPressEnd: (_) => _dragEnd(layout),
-                      onLongPressCancel: _dragCancel,
+              builder: (context, _) {
+                // Measured once per frame rather than per row: the rows all
+                // fold into the same icon.
+                final icon = widget.anchorNow?.call() ?? widget.anchor;
+                return Stack(
+                  clipBehavior: Clip.none,
+                  children: [
+                    // One catcher under everything answers presses and pans in
+                    // scene coordinates. It sits below the rows rather than
+                    // around them, so the search field above it keeps its own
+                    // text selection.
+                    Positioned.fill(
+                      child: GestureDetector(
+                        behavior: HitTestBehavior.opaque,
+                        onTapUp: (details) =>
+                            _press(details.localPosition, layout),
+                        onPanStart: (details) =>
+                            _dragStart(details.localPosition, layout),
+                        onPanUpdate: (details) =>
+                            _dragUpdate(details.localPosition, layout),
+                        onPanEnd: (_) => _dragEnd(layout),
+                        onPanCancel: _dragCancel,
+                        // A grid tall enough to scroll gives the plain drag to
+                        // the scroll view, so holding a cell first is what picks
+                        // it up — the gesture a phone launcher uses.
+                        onLongPressStart: (details) =>
+                            _dragStart(details.localPosition, layout),
+                        onLongPressMoveUpdate: (details) =>
+                            _dragUpdate(details.localPosition, layout),
+                        onLongPressEnd: (_) => _dragEnd(layout),
+                        onLongPressCancel: _dragCancel,
+                      ),
                     ),
-                  ),
-                  if (layout.isFan) ...[
-                    for (var i = 0; i < layout.rows.length; i++)
-                      _buildFanRow(context, layout, i),
-                    _buildOpenButton(context, layout),
-                  ] else if (layout.isList)
-                    _buildList(context, layout)
-                  else
-                    _buildGrid(context, layout),
-                  if (_searchable) _buildSearch(context, layout),
-                  if (_dragging && widget.trashRect != null)
-                    _buildTrashTarget(context),
-                  if (_dragging) _buildGhost(context, layout),
-                ],
-              ),
+                    if (layout.isFan) ...[
+                      for (var i = 0; i < layout.rows.length; i++)
+                        _buildFanRow(context, layout, i, icon),
+                      _buildOpenButton(context, layout),
+                    ] else if (layout.isList)
+                      _buildList(context, layout)
+                    else
+                      _buildGrid(context, layout),
+                    if (_searchable) _buildSearch(context, layout),
+                    if (_dragging && widget.trashRect != null)
+                      _buildTrashTarget(context),
+                    if (_dragging) _buildGhost(context, layout),
+                  ],
+                );
+              },
             ),
           ),
         ),
@@ -771,39 +809,88 @@ class _DockStackViewState extends State<DockStackView>
     );
   }
 
-  Widget _buildFanRow(BuildContext context, _StackLayout layout, int index) {
+  Widget _buildFanRow(
+    BuildContext context,
+    _StackLayout layout,
+    int index,
+    Rect icon,
+  ) {
     final theme = context.shellTheme;
     final row = layout.rows[index];
     final box = layout.fan[index];
-    final eased = _progressOf(index, layout.rows.length);
+    final eased = _progressOf(index);
     final lit = _hovered == index || _selected == index;
     final lifting = _dragFrom == index;
     final dropTarget = _dragging && _dragTo == index && !lifting;
     final centre = Offset(box.centerX, box.centerY);
-    // The rows start where the stacked icon drew its cards, so opening reads
-    // as the pile itself spreading out. Cards past the third share the
-    // deepest offset rather than flying in from off the icon.
+    // The row is drawn with its card on the end away from the dock, so the
+    // card — not the row's centre — is what has to leave and rejoin the pile.
+    // Placing the row by its centre left the card short of the dock icon on
+    // the way back, which read as the stack folding into empty space.
+    final thumb = DockStackFan.thumbSize;
+    final sign = layout.iconLeading ? -1.0 : 1.0;
+    final cardFrom = Offset(sign * (box.width - thumb) / 2, 0);
+    final pivot = Offset(sign * box.width / 2, 0);
+    // A card's centre relative to the row's centre once the tile has turned
+    // about its dock-side end and the row has scaled about its own centre —
+    // the order the two transforms apply in, outermost last.
+    Offset cardRel(double scale, double angle) {
+      final v = cardFrom - pivot;
+      final cos = math.cos(angle);
+      final sin = math.sin(angle);
+      final turned =
+          pivot + Offset(v.dx * cos - v.dy * sin, v.dx * sin + v.dy * cos);
+      return turned * scale;
+    }
+
+    // Cards past the third share the deepest offset rather than flying in
+    // from off the icon. The rect is read every frame: the dock magnifies and
+    // slides its icons, so the rect captured when the fan opened no longer
+    // covers the icon the rows have to fold back into.
     final pile = math.min(index, DockPile.count - 1);
-    final pileDx = DockPile.offset(pile).dx * (layout.iconLeading ? -1 : 1);
-    final start = Offset(
-      widget.anchor.center.dx + widget.anchor.width * pileDx,
-      widget.anchor.center.dy + widget.anchor.width * DockPile.offset(pile).dy,
+    final pileCentre = Offset(
+      icon.center.dx + icon.width * DockPile.offset(pile).dx,
+      icon.center.dy + icon.width * DockPile.offset(pile).dy,
     );
-    final at = Offset.lerp(start, centre, eased)!;
     final rest = eased.clamp(0.0, 1.0);
-    final tilt = DockPile.angle(pile) * (1 - rest) + box.angle * rest;
+    final angle =
+        DockPile.angle(pile) + (box.angle - DockPile.angle(pile)) * rest;
+    // The card starts at the size the pile drew it, so the hand-off is a
+    // continuation rather than a pop.
+    final from = icon.width * DockPile.edge(pile) / thumb;
+    final scale = from + (1 - from) * eased;
+    final target = Offset.lerp(
+      pileCentre,
+      centre + cardRel(1, box.angle),
+      eased,
+    )!;
+    final at = target - cardRel(scale, angle);
+    // The flight bows outward from the icon column, so the cards spread along
+    // the fan's arc instead of drawing one straight line of travel. The bow
+    // is zero at both ends, which keeps the landing exact.
+    final flight = centre - pileCentre;
+    final behind = flight.distance;
+    final bend = behind == 0
+        ? 0.0
+        : math.sin(math.pi * rest) * DockStackFan.gap * 1.4;
+    final across = behind == 0
+        ? Offset.zero
+        : Offset(-flight.dy / behind, flight.dx / behind);
+    final travel = at + across * bend;
+    // The name plate stays out of the way until the card has cleared the pile.
+    final label = ((eased - 0.30) / 0.55).clamp(0.0, 1.0);
     return Positioned(
       left: 0,
       top: 0,
       child: Transform.translate(
-        offset: at - Offset(box.width / 2, box.height / 2),
+        offset: travel - Offset(box.width / 2, box.height / 2),
         child: Transform.scale(
-          scale: (0.55 + 0.45 * eased) * (lit ? DockStackFan.hoverScale : 1),
+          scale: scale * (lit ? DockStackFan.hoverScale : 1),
           child: Opacity(
             // The row being dragged leaves a hole behind; the ghost carries
-            // the picture under the pointer. The spring may pass 1, so the
-            // fade is clamped rather than trusting it.
-            opacity: lifting ? 0.35 : eased.clamp(0.0, 1.0),
+            // the picture under the pointer. The card is opaque as soon as it
+            // lifts, so the hand-off from the pile's own card is seamless.
+            opacity: lifting ? 0.35 : (eased * 3).clamp(0.0, 1.0),
             child: IgnorePointer(
               child: SizedBox(
                 width: box.width,
@@ -812,7 +899,8 @@ class _DockStackViewState extends State<DockStackView>
                   row: row,
                   theme: theme,
                   lit: lit,
-                  tilt: tilt,
+                  tilt: angle,
+                  label: label,
                   dropTarget: dropTarget,
                   iconLeading: layout.iconLeading,
                 ),
@@ -832,7 +920,7 @@ class _DockStackViewState extends State<DockStackView>
     final theme = context.shellTheme;
     final top = layout.fan.last;
     const size = DockStackFan.openSize;
-    final eased = _progressOf(layout.rows.length, layout.rows.length + 1);
+    final eased = _progressOf(layout.rows.length);
     // The button sits on the icon column, above the top row, so the eye reads
     // one line from the dock to the button.
     return Positioned(
@@ -869,7 +957,7 @@ class _DockStackViewState extends State<DockStackView>
   /// contents the way Finder's List view does.
   Widget _buildList(BuildContext context, _StackLayout layout) {
     final theme = context.shellTheme;
-    final progress = _spring.transform(_open.value.clamp(0.0, 1.0));
+    final progress = _panelProgress;
     final max = math.max(0.0, layout.contentHeight - layout.height);
     final scroll = _scroll.clamp(0.0, max);
     return Positioned(
@@ -880,7 +968,7 @@ class _DockStackViewState extends State<DockStackView>
       child: Opacity(
         opacity: progress.clamp(0.0, 1.0),
         child: Transform.scale(
-          scale: 0.94 + 0.06 * progress,
+          scale: 0.60 + 0.40 * progress,
           alignment: Alignment.bottomCenter,
           child: DecoratedBox(
             decoration: BoxDecoration(
@@ -975,7 +1063,7 @@ class _DockStackViewState extends State<DockStackView>
         .toDouble();
     final max = math.max(0.0, layout.contentHeight - layout.height);
     final scroll = _scroll.clamp(0.0, max);
-    final progress = _spring.transform(_open.value.clamp(0.0, 1.0));
+    final progress = _panelProgress;
     // The header grows the panel upward rather than pushing the cells down,
     // so the hit test keeps using the grid's own origin.
     final header = widget.title == null ? 0.0 : 26.0;
@@ -987,7 +1075,7 @@ class _DockStackViewState extends State<DockStackView>
       child: Opacity(
         opacity: progress.clamp(0.0, 1.0),
         child: Transform.scale(
-          scale: 0.94 + 0.06 * progress,
+          scale: 0.60 + 0.40 * progress,
           alignment: Alignment.bottomCenter,
           child: DecoratedBox(
             decoration: BoxDecoration(
@@ -1150,15 +1238,21 @@ class _DockStackViewState extends State<DockStackView>
     );
   }
 
-  /// A row's own progress on the one timeline, staggered so the pack leaves
-  /// the icon in order and folds back from the top.
-  double _progressOf(int index, int count) {
-    // The stack opens as one unit: every row leaves the pile on the same
-    // clock, so the icon reads as unfolding rather than dissolving row by
-    // row. The rows travel different distances, which is what keeps the
-    // motion from looking rigid.
-    return _spring.transform(_open.value.clamp(0.0, 1.0));
+  /// A row's own progress on the one timeline. Each row's spring starts after
+  /// the row before it has left the pile, so the stack reads as cards being
+  /// dealt off the front rather than one block sliding out. Reversing the
+  /// controller folds the last card back first, which puts the newest file
+  /// onto the pile last.
+  double _progressOf(int index) {
+    final t = _open.value * _total - index * _stagger;
+    if (t <= 0) return 0;
+    return _spring.transform(math.min(1.0, t / _springSeconds));
   }
+
+  /// The grid and list panels have no rows to stagger, so they run on the
+  /// spring window alone rather than waiting out the fan's cascade.
+  double get _panelProgress =>
+      _spring.transform(math.min(1.0, _open.value * _total / _springSeconds));
 }
 
 class _StackLayout {
@@ -1242,6 +1336,7 @@ class _StackRowTile extends StatelessWidget {
     required this.theme,
     required this.lit,
     required this.tilt,
+    this.label = 1,
     this.dropTarget = false,
     this.iconLeading = false,
   });
@@ -1250,6 +1345,10 @@ class _StackRowTile extends StatelessWidget {
   final ShellThemeData theme;
   final bool lit;
   final bool dropTarget;
+
+  /// How much of the name plate is shown. The card leads the motion out of
+  /// the pile and the name arrives once it has cleared the stack.
+  final double label;
 
   /// A left-leaning fan keeps its previews on the left, so the card leads.
   final bool iconLeading;
@@ -1262,6 +1361,7 @@ class _StackRowTile extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final card = _previewCard();
+    final name = _labelPill();
     // The row is exactly as wide as its parts. The box the layout hands it is
     // the widest name in the fan, so letting the row fill that box stretched
     // the short names' pills out into long empty capsules.
@@ -1270,12 +1370,8 @@ class _StackRowTile extends StatelessWidget {
       child: Row(
         mainAxisSize: MainAxisSize.min,
         children: iconLeading
-            ? [card, const SizedBox(width: DockStackFan.thumbGap), _labelPill()]
-            : [
-                _labelPill(),
-                const SizedBox(width: DockStackFan.thumbGap),
-                card,
-              ],
+            ? [card, const SizedBox(width: DockStackFan.thumbGap), name]
+            : [name, const SizedBox(width: DockStackFan.thumbGap), card],
       ),
     );
     // Turning the row about the end nearest the dock icon keeps that end
@@ -1307,37 +1403,42 @@ class _StackRowTile extends StatelessWidget {
     // card's height, so the height is set and the pill centred. It stays at
     // its text's width too — flexing it out to the row's full width left a
     // long empty capsule, which the reference never draws.
-    return SizedBox(
-      height: DockStackFan.pillHeight,
-      child: IntrinsicWidth(
-        child: ConstrainedBox(
-          constraints: const BoxConstraints(
-            maxWidth: DockStackFan.labelMaxWidth + DockStackFan.padX * 2,
-          ),
-          child: DecoratedBox(
-            decoration: BoxDecoration(
-              color: fill,
-              // Fully round ends: the reference draws a capsule, not a
-              // rounded rectangle.
-              borderRadius: BorderRadius.circular(DockStackFan.pillHeight / 2),
-              border: Border.all(
-                color: dropTarget ? theme.accent : theme.colors.hairline,
-              ),
+    return Opacity(
+      opacity: label,
+      child: SizedBox(
+        height: DockStackFan.pillHeight,
+        child: IntrinsicWidth(
+          child: ConstrainedBox(
+            constraints: const BoxConstraints(
+              maxWidth: DockStackFan.labelMaxWidth + DockStackFan.padX * 2,
             ),
-            child: Padding(
-              padding: const EdgeInsets.symmetric(
-                horizontal: DockStackFan.padX,
+            child: DecoratedBox(
+              decoration: BoxDecoration(
+                color: fill,
+                // Fully round ends: the reference draws a capsule, not a
+                // rounded rectangle.
+                borderRadius: BorderRadius.circular(
+                  DockStackFan.pillHeight / 2,
+                ),
+                border: Border.all(
+                  color: dropTarget ? theme.accent : theme.colors.hairline,
+                ),
               ),
-              child: Align(
-                alignment: iconLeading
-                    ? Alignment.centerRight
-                    : Alignment.centerLeft,
-                child: Text(
-                  row.label,
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                  style: theme.text.systemBarCaption.copyWith(
-                    color: theme.colors.textPrimary,
+              child: Padding(
+                padding: const EdgeInsets.symmetric(
+                  horizontal: DockStackFan.padX,
+                ),
+                child: Align(
+                  alignment: iconLeading
+                      ? Alignment.centerRight
+                      : Alignment.centerLeft,
+                  child: Text(
+                    row.label,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: theme.text.systemBarCaption.copyWith(
+                      color: theme.colors.textPrimary,
+                    ),
                   ),
                 ),
               ),

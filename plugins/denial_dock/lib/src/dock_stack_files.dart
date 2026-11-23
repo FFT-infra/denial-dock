@@ -46,6 +46,15 @@ abstract final class DockStackFiles {
   /// allowed to stall the dock.
   static const int maxEntries = 5000;
 
+  /// A path's lower-case extension without the dot, or an empty string.
+  static String extensionOf(String path) {
+    final name = path.split('/').last;
+    final dot = name.lastIndexOf('.');
+    return dot <= 0 || dot == name.length - 1
+        ? ''
+        : name.substring(dot + 1).toLowerCase();
+  }
+
   static List<DockStackEntry> list(
     String path, {
     DockStackSort sort = DockStackSort.added,

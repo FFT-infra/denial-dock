@@ -44,8 +44,9 @@ turning it on.
 - **Click behaviour.** Clicking an icon with windows either minimizes the
   active window (default) or cycles to the next one; the choice is in the
   settings sheet. Clicking an application with no windows launches it.
-- **Context menu.** Right-click an icon for open / new window, show all
-  windows, pin or unpin, minimize, and close. Escape closes the menu, and
+- **Context menu.** Right-click an icon for its windows by title, then an
+  *Options* submenu (keep or remove from the dock, minimize, close), then open
+  or new window last, which is the macOS order. Escape closes the menu, and
   right-clicking the same icon again toggles it. The menu and trays are drawn
   in the shell overlay, clamped to the monitor. On a touch or pen pointer, a
   550 ms press opens the same menu.
@@ -69,13 +70,14 @@ turning it on.
   other window, so a tiling layout retracts too. The other two modes are
   *always show* and *auto-hide*, which retracts as soon as the pointer leaves
   and comes back from the same edge strip.
-- **Folder shortcuts and Trash.** Add any folder from the settings sheet
-  through a built-in directory browser, with hidden entries behind a toggle.
-  Clicking a shortcut opens the folder with the system handler (`xdg-open`,
-  falling back to `gio open`). The trash can opens `trash:///` through `gio`
-  first, because `xdg-open` treats the scheme as a web address, shows a count
-  badge, and offers *Empty Trash*; emptying needs a second press, because it
-  cannot be undone.
+- **Folder shortcuts, pinned files and Trash.** Add any folder or single file
+  from the settings sheet through a built-in directory browser, with hidden
+  entries behind a toggle. Clicking a shortcut opens the folder with the system
+  handler (`xdg-open`, falling back to `gio open`); a pinned file opens with the
+  handler for its type and offers *Show in Files* and *Remove from Dock*. The
+  trash can opens `trash:///` through `gio` first, because `xdg-open` treats the
+  scheme as a web address, shows a count badge, and offers *Empty Trash*;
+  emptying needs a second press, because it cannot be undone.
 - **Dock menu and settings sheet.** Right-clicking the capsule background or the
   launcher opens a small dock menu, modelled on the macOS Dock menu: turn hiding
   on or off, turn magnification on or off, then *Position on Screen* with a
@@ -147,7 +149,8 @@ Most settings live in the settings sheet. The same values are stored in
   "launcherSide": "left",
   "extrasSide": "right",
   "showTrash": true,
-  "folders": [{ "path": "/home/me/Documents", "label": "Documents" }]
+  "folders": [{ "path": "/home/me/Documents", "label": "Documents" }],
+  "files": [{ "path": "/home/me/report.pdf", "label": "report.pdf" }]
 }
 ```
 
@@ -220,6 +223,9 @@ Most settings live in the settings sheet. The same values are stored in
 - `showTrash` turns the trash can off without touching the folder list.
 - `folders` holds absolute paths; a missing `label` falls back to the
   directory's basename. Duplicate paths are collapsed.
+- `files` holds pinned single files the same way. They sit after the folders
+  and before the trash, open with the system handler, and keep the folder's
+  icon size in a stack so either can cover the other.
 - An empty `pinnedApplications` list means you removed every pin.
 
 The dock rewrites this file atomically, merging over the existing keys so

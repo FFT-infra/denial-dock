@@ -11,6 +11,9 @@ enum DockSlotKind {
   /// A folder shortcut.
   folder,
 
+  /// A single pinned file.
+  file,
+
   /// The trash can.
   trash,
 
@@ -22,29 +25,40 @@ class DockSectionSlot {
   const DockSectionSlot.app(this.index)
     : kind = DockSlotKind.app,
       folder = null,
+      file = null,
       dividerKey = null;
 
   const DockSectionSlot.launcher()
     : kind = DockSlotKind.launcher,
       index = null,
       folder = null,
+      file = null,
       dividerKey = null;
 
   const DockSectionSlot.folder(this.folder)
     : kind = DockSlotKind.folder,
       index = null,
+      file = null,
+      dividerKey = null;
+
+  const DockSectionSlot.file(this.file)
+    : kind = DockSlotKind.file,
+      index = null,
+      folder = null,
       dividerKey = null;
 
   const DockSectionSlot.trash()
     : kind = DockSlotKind.trash,
       index = null,
       folder = null,
+      file = null,
       dividerKey = null;
 
   const DockSectionSlot.divider(this.dividerKey)
     : kind = DockSlotKind.divider,
       index = null,
-      folder = null;
+      folder = null,
+      file = null;
 
   final DockSlotKind kind;
 
@@ -53,6 +67,9 @@ class DockSectionSlot {
 
   /// Folder record for [DockSlotKind.folder].
   final DockFolder? folder;
+
+  /// File record for [DockSlotKind.file].
+  final DockFile? file;
 
   /// Stable identity for a divider, so the layout and the widget tree agree on
   /// which line moved.
@@ -92,6 +109,8 @@ abstract final class DockSections {
     final extras = <DockSectionSlot>[
       if (settings.extrasSide != DockSide.hidden)
         for (final folder in settings.folders) DockSectionSlot.folder(folder),
+      if (settings.extrasSide != DockSide.hidden)
+        for (final file in settings.files) DockSectionSlot.file(file),
       if (settings.extrasSide != DockSide.hidden && settings.showTrash)
         const DockSectionSlot.trash(),
     ];

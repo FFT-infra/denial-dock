@@ -161,6 +161,12 @@ class DockSettingsController extends AsyncNotifier<DockSettings> {
   Future<void> removeFolder(String path) =>
       _update((current) => current.withoutFolder(path));
 
+  Future<void> addFile(DockFile file) =>
+      _update((current) => current.withFile(file));
+
+  Future<void> removeFile(String path) =>
+      _update((current) => current.withoutFile(path));
+
   Future<void> setFolderView(String path, DockStackMode view) =>
       _update((current) => current.withFolderStack(path, view: view));
 

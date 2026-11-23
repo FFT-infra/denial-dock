@@ -290,6 +290,30 @@ extension DockStackSortModeKey on DockStackSortMode {
   };
 }
 
+/// A single file pinned to the accessory end of the dock, the way macOS lets
+/// you drag one file out of a stack and keep it there.
+class DockFile {
+  const DockFile({required this.path, required this.label});
+
+  final String path;
+  final String label;
+
+  Map<String, Object> toJson() => {'path': path, 'label': label};
+
+  static DockFile? fromJson(Object? value) {
+    if (value is! Map) return null;
+    final path = value['path'];
+    if (path is! String || !path.startsWith('/')) return null;
+    final label = value['label'];
+    return DockFile(
+      path: path,
+      label: label is String && label.trim().isNotEmpty
+          ? label.trim()
+          : folderLabel(path),
+    );
+  }
+}
+
 /// A folder shortcut pinned to the accessory end of the dock.
 class DockFolder {
   const DockFolder({
@@ -395,6 +419,7 @@ class DockSettings {
     this.extrasSide = DockSide.right,
     this.showTrash = true,
     this.folders = const [],
+    this.files = const [],
     this.dismissedSuggestions = const [],
     this.recentCount = defaultRecentCount,
     this.recentsOrder = const [],
@@ -496,6 +521,10 @@ class DockSettings {
   final bool showTrash;
   final List<DockFolder> folders;
 
+  /// Single files pinned to the dock, in dock order. A file sits beside the
+  /// folders and opens in whatever handles it.
+  final List<DockFile> files;
+
   /// Normalized application ids the user dragged out of the suggestions. The
   /// launcher still records them as recent, so the dock filters them here
   /// rather than asking the host to forget the launch.
@@ -525,7 +554,7 @@ class DockSettings {
   /// Capsule height with no magnification.
   double get capsuleHeight => iconSize + padding * 2;
 
-  bool get hasExtras => showTrash || folders.isNotEmpty;
+  bool get hasExtras => showTrash || folders.isNotEmpty || files.isNotEmpty;
 
   DockSettings copyWith({
     List<DockPin>? pinned,
@@ -555,6 +584,7 @@ class DockSettings {
     DockSide? extrasSide,
     bool? showTrash,
     List<DockFolder>? folders,
+    List<DockFile>? files,
     List<String>? dismissedSuggestions,
     int? recentCount,
     List<String>? recentsOrder,
@@ -588,6 +618,7 @@ class DockSettings {
     extrasSide: extrasSide ?? this.extrasSide,
     showTrash: showTrash ?? this.showTrash,
     folders: folders ?? this.folders,
+    files: files ?? this.files,
     dismissedSuggestions: dismissedSuggestions ?? this.dismissedSuggestions,
     recentCount: clampRecentCount(recentCount ?? this.recentCount),
     recentsOrder: recentsOrder ?? this.recentsOrder,
@@ -663,6 +694,24 @@ class DockSettings {
     );
   }
 
+  /// Adds or replaces a pinned file, keeping the others in place.
+  DockSettings withFile(DockFile file) {
+    final path = normalizeFolderPath(file.path);
+    if (path.isEmpty) return this;
+    final without = files.where((existing) => existing.path != path).toList();
+    final label = file.label.trim();
+    return copyWith(
+      files: List.unmodifiable([
+        ...without,
+        DockFile(path: path, label: label.isEmpty ? folderLabel(path) : label),
+      ]),
+    );
+  }
+
+  DockSettings withoutFile(String path) => copyWith(
+    files: List.unmodifiable(files.where((file) => file.path != path)),
+  );
+
   DockSettings withoutFolder(String path) {
     final key = normalizeFolderPath(path);
     return copyWith(
@@ -691,6 +740,17 @@ class DockSettings {
           continue;
         }
         pins.add(DockPin(id: id, appId: appId, name: name));
+      }
+    }
+    final storedFiles = json['files'];
+    final files = <DockFile>[];
+    final seenFiles = <String>{};
+    if (storedFiles is List) {
+      for (final entry in storedFiles) {
+        final file = DockFile.fromJson(entry);
+        if (file == null) continue;
+        if (!seenFiles.add(file.path)) continue;
+        files.add(file);
       }
     }
     final storedFolders = json['folders'];
@@ -787,6 +847,7 @@ class DockSettings {
       extrasSide: DockSide.parse(json['extrasSide']),
       showTrash: json['showTrash'] is bool ? json['showTrash'] as bool : true,
       folders: List.unmodifiable(folders),
+      files: List.unmodifiable(files),
       dismissedSuggestions: List.unmodifiable(dismissed),
       recentCount: clampRecentCount(
         json['recentCount'] is num
@@ -875,6 +936,7 @@ class DockPreferencesStore {
     json['folders'] = settings.folders
         .map((folder) => folder.toJson())
         .toList();
+    json['files'] = settings.files.map((file) => file.toJson()).toList();
     if (settings.dismissedSuggestions.isEmpty) {
       json.remove('dismissedSuggestions');
     } else {

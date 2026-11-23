@@ -528,18 +528,22 @@ class _DockTrashItemState extends State<DockTrashItem> {
   @override
   Widget build(BuildContext context) {
     final full = _count > 0;
+    final mac = widget.appearance == DockAppearance.macos;
     return DockAccessoryItem(
       label: full ? '$_label ($_count)' : _label,
       icon: full ? Icons.delete_rounded : Icons.delete_outline_rounded,
       size: widget.size,
       lift: widget.lift,
       position: widget.position,
-      badge: _count,
+      // The macOS can shows its state in the artwork, so a count pill on top
+      // of it would be a second, redundant badge.
+      badge: mac ? 0 : _count,
       onTap: _open,
       onOverlayChanged: widget.onOverlayChanged,
       monitorBounds: widget.monitorBounds,
-      face: widget.appearance == DockAppearance.macos
-          ? (pressed) => DockTrashIcon(size: widget.size, pressed: pressed)
+      face: mac
+          ? (pressed) =>
+                DockTrashIcon(size: widget.size, pressed: pressed, full: full)
           : null,
       menuBuilder: (context, close) => [
         DockMenuRow(
@@ -566,6 +570,162 @@ class _DockTrashItemState extends State<DockTrashItem> {
           },
         ),
       ],
+    );
+  }
+}
+
+/// A single file pinned to the dock: its own picture or type icon, opening in
+/// whatever the system uses for that kind. macOS keeps a dragged-out file
+/// beside the stacks, so the dock does the same.
+class DockFileItem extends StatelessWidget {
+  const DockFileItem({
+    required this.file,
+    required this.size,
+    required this.lift,
+    required this.position,
+    required this.zh,
+    required this.onOpen,
+    required this.onReveal,
+    required this.onRemove,
+    required this.onOpenSettings,
+    required this.onOverlayChanged,
+    required this.monitorBounds,
+    this.appearance = DockAppearance.macos,
+    super.key,
+  });
+
+  final DockFile file;
+  final double size;
+  final double lift;
+  final DockPosition position;
+  final bool zh;
+  final VoidCallback onOpen;
+  final VoidCallback onReveal;
+  final VoidCallback onRemove;
+  final VoidCallback onOpenSettings;
+  final ValueChanged<bool> onOverlayChanged;
+  final Rect monitorBounds;
+  final DockAppearance appearance;
+
+  @override
+  Widget build(BuildContext context) {
+    final extension = DockStackFiles.extensionOf(file.path);
+    final preview = DockStackThumbs.preview(file.path);
+    final art = _FileArt(
+      path: file.path,
+      preview: preview,
+      icon: stackFileIcon(extension),
+      color: stackFileColor(extension),
+      size: size,
+    );
+    return DockAccessoryItem(
+      label: file.label,
+      icon: stackFileIcon(extension),
+      size: size,
+      lift: lift,
+      position: position,
+      onTap: onOpen,
+      onOverlayChanged: onOverlayChanged,
+      monitorBounds: monitorBounds,
+      // The macOS dock shows a pinned file as its own artwork; the Denial
+      // look keeps the accent tile with the type glyph inside it.
+      face: appearance == DockAppearance.macos ? (pressed) => art : null,
+      glyph: appearance == DockAppearance.macos ? null : art,
+      menuBuilder: (context, close) => [
+        DockMenuRow(
+          icon: Icons.open_in_new,
+          label: zh ? '打开' : 'Open',
+          onTap: () {
+            close();
+            onOpen();
+          },
+        ),
+        DockMenuRow(
+          icon: Icons.folder_open_outlined,
+          label: zh ? '在文件管理器中显示' : 'Show in Files',
+          onTap: () {
+            close();
+            onReveal();
+          },
+        ),
+        DockMenuSeparator(),
+        DockMenuSubmenuRow(
+          icon: Icons.tune,
+          label: zh ? '选项' : 'Options',
+          submenu: (context) => Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              DockMenuRow(
+                icon: Icons.remove_circle_outline,
+                label: zh ? '从 Dock 中移除' : 'Remove from Dock',
+                onTap: () {
+                  close();
+                  onRemove();
+                },
+              ),
+              DockMenuRow(
+                icon: Icons.settings_outlined,
+                label: zh ? 'Dock 设置…' : 'Dock settings…',
+                onTap: () {
+                  close();
+                  onOpenSettings();
+                },
+              ),
+            ],
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+/// A file's picture: its thumbnail, or the type glyph on a card when the file
+/// has none. Clipped to the dock's tile radius so it reads as one item.
+class _FileArt extends StatelessWidget {
+  const _FileArt({
+    required this.path,
+    required this.preview,
+    required this.icon,
+    required this.color,
+    required this.size,
+  });
+
+  final String path;
+  final String? preview;
+  final IconData icon;
+  final Color color;
+  final double size;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = context.shellTheme;
+    final glyph = Icon(icon, size: size * 0.52, color: color);
+    return ClipRRect(
+      borderRadius: BorderRadius.circular(size * 0.22),
+      child: preview == null
+          ? DecoratedBox(
+              decoration: BoxDecoration(
+                color: theme.panelColor(theme.colors.surfaceContainerHigh),
+                border: Border.all(color: theme.colors.hairline),
+              ),
+              child: Center(child: glyph),
+            )
+          : Image.file(
+              File(preview!),
+              width: size,
+              height: size,
+              fit: BoxFit.cover,
+              cacheWidth: (size * 3).round(),
+              gaplessPlayback: true,
+              errorBuilder: (_, _, _) => DecoratedBox(
+                decoration: BoxDecoration(
+                  color: theme.panelColor(theme.colors.surfaceContainerHigh),
+                  border: Border.all(color: theme.colors.hairline),
+                ),
+                child: Center(child: glyph),
+              ),
+            ),
     );
   }
 }
@@ -824,6 +984,18 @@ class _DockFolderItemState extends State<DockFolderItem> {
     if (removed && mounted) _refresh();
   }
 
+  /// The icon's rect where it sits right now, in scene coordinates.
+  ///
+  /// The rect the portal measured when the fan opened is the icon at the
+  /// moment it was clicked — magnified, and with the dock slid aside for its
+  /// neighbours. By the time the cards fold back the pointer is elsewhere and
+  /// the icon has moved, so a flight aimed at the old rect lands beside it.
+  Rect _iconNow(Rect fallback) {
+    final box = context.findRenderObject();
+    if (box is! RenderBox || !box.hasSize) return fallback;
+    return box.localToGlobal(Offset.zero) & box.size;
+  }
+
   @override
   Widget build(BuildContext context) {
     return OverlayPortal.overlayChildLayoutBuilder(
@@ -845,6 +1017,7 @@ class _DockFolderItemState extends State<DockFolderItem> {
           child: DockStackView(
             entries: _entries,
             anchor: anchor,
+            anchorNow: () => _iconNow(anchor),
             bounds: bounds,
             workArea: work == null || work.isEmpty ? null : work,
             position: widget.position,
@@ -873,16 +1046,46 @@ class _DockFolderItemState extends State<DockFolderItem> {
                 errorBuilder: (_, _, _) => const SizedBox.shrink(),
               ),
         face: widget.appearance == DockAppearance.macos
-            ? (pressed) => DockStackIcon(
-                size: widget.size,
-                previews: widget.folder.stacked
+            ? (pressed) {
+                final previews = widget.folder.stacked
                     ? [
                         for (final entry in _entries.take(DockPile.count))
-                          DockStackThumbs.preview(entry.path),
+                          DockStackPreview(
+                            // A folder is drawn as the blue folder at card
+                            // size, the way macOS piles folders and files
+                            // together.
+                            folder: entry.isDirectory,
+                            path: entry.isDirectory
+                                ? null
+                                : DockStackThumbs.preview(entry.path),
+                            icon: entry.isDirectory
+                                ? null
+                                : stackFileIcon(entry.extension),
+                            color: entry.isDirectory
+                                ? null
+                                : stackFileColor(entry.extension),
+                          ),
                       ]
-                    : const [],
-                pressed: pressed,
-              )
+                    : const <DockStackPreview>[];
+                // While the stack is out, the icon says so: the pile dims
+                // under a plate with a chevron pointing at the rows.
+                if (_fanOpen) {
+                  return DockStackOpenIcon(
+                    size: widget.size,
+                    previews: previews,
+                    quarterTurns: switch (widget.position) {
+                      DockPosition.bottom => 0,
+                      DockPosition.left => 3,
+                      DockPosition.right => 1,
+                    },
+                  );
+                }
+                return DockStackIcon(
+                  size: widget.size,
+                  previews: previews,
+                  pressed: pressed,
+                );
+              }
             : null,
         size: widget.size,
         lift: widget.lift,

@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:io' show File;
 import 'dart:math' as math;
 
 import 'package:denial_flutter_sdk/applications.dart'
@@ -23,6 +24,7 @@ import 'dock_autohide.dart';
 import 'dock_badges.dart';
 import 'dock_recents.dart';
 import 'dock_drag.dart';
+import 'dock_extras.dart';
 import 'dock_extras_item.dart';
 import 'dock_icon.dart';
 import 'dock_mac_icons.dart';
@@ -875,12 +877,14 @@ class _DockContainerState extends ConsumerState<DockContainer>
             DockSlotKind.app => _SlotKind.app,
             DockSlotKind.launcher => _SlotKind.launcher,
             DockSlotKind.folder => _SlotKind.folder,
+            DockSlotKind.file => _SlotKind.file,
             DockSlotKind.trash => _SlotKind.trash,
             DockSlotKind.divider => _SlotKind.divider,
           },
           half: section.kind == DockSlotKind.divider ? 0.5 : _iconSize / 2,
           entry: section.index,
           folder: section.folder,
+          file: section.file,
           dividerKey: section.dividerKey,
         ),
     ];
@@ -1833,6 +1837,32 @@ class _DockContainerState extends ConsumerState<DockContainer>
             trashRect: _trashRect,
           ),
         );
+      case _SlotKind.file:
+        final file = spec.file;
+        if (file == null) return null;
+        return slotAt(
+          key: ValueKey('dock-file-${file.path}'),
+          cross: DockSettings.padding,
+          mainExtent: extent,
+          crossExtent: extent,
+          child: DockFileItem(
+            file: file,
+            size: extent,
+            lift: lift,
+            position: _position,
+            zh: chinese,
+            appearance: _settings.appearance,
+            monitorBounds: _output,
+            onOpen: () => unawaited(DockExtras.openPath(file.path)),
+            onReveal: () =>
+                unawaited(DockExtras.openPath(File(file.path).parent.path)),
+            onRemove: () => unawaited(
+              ref.read(dockSettingsProvider.notifier).removeFile(file.path),
+            ),
+            onOpenSettings: _openSettings,
+            onOverlayChanged: _setOverlayHold,
+          ),
+        );
       case _SlotKind.trash:
         return slotAt(
           key: const ValueKey('dock-trash'),
@@ -1940,6 +1970,14 @@ class _DockContainerState extends ConsumerState<DockContainer>
                 name: spec.folder!.label,
                 center: center,
               ),
+      _SlotKind.file =>
+        spec.file == null
+            ? null
+            : _LabelTarget(
+                key: 'file-${spec.file!.path}',
+                name: spec.file!.label,
+                center: center,
+              ),
       _SlotKind.trash => _LabelTarget(
         key: 'trash',
         name: chinese ? '回收站' : 'Trash',
@@ -1950,7 +1988,7 @@ class _DockContainerState extends ConsumerState<DockContainer>
   }
 }
 
-enum _SlotKind { app, launcher, folder, trash, divider }
+enum _SlotKind { app, launcher, folder, file, trash, divider }
 
 class _SlotSpec {
   const _SlotSpec({
@@ -1958,6 +1996,7 @@ class _SlotSpec {
     required this.half,
     this.entry,
     this.folder,
+    this.file,
     this.dividerKey,
   });
 
@@ -1965,6 +2004,7 @@ class _SlotSpec {
   final double half;
   final int? entry;
   final DockFolder? folder;
+  final DockFile? file;
   final String? dividerKey;
 
   bool get growable => kind != _SlotKind.divider;
