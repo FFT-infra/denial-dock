@@ -20,3 +20,4 @@ denial_plugin:
   name: Dock
   provides:
     - contract: package:denial_flutter_sdk/surfaces.dart#ShellSurface
+    - contract: package:denial_flutter_sdk/actions.dart#ShellAction

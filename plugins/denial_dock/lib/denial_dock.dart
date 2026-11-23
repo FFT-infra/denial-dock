@@ -1,11 +1,13 @@
 @Plugin()
 library;
 
+import 'package:denial_flutter_sdk/actions.dart';
 import 'package:denial_flutter_sdk/surfaces.dart';
 import 'package:denial_sdk/composition.dart';
 import 'package:flutter/widgets.dart';
 
 import 'src/dock_container.dart';
+import 'src/dock_hotkeys.dart';
 
 /// A floating, macOS-style dock for Denial.
 ///
@@ -52,4 +54,80 @@ final class DockPlugin implements ShellSurface {
       environment: surface.environment,
     );
   }
+}
+
+/// Shortcut targets for the dock's first applications, the way Windows binds
+/// Win+1 to Win+9. They do nothing until the user gives one a shortcut.
+abstract base class _ActivateDockApp implements ShellAction {
+  const _ActivateDockApp(this.slot);
+
+  final int slot;
+
+  @override
+  String get id => 'denial_dock.activate_$slot';
+
+  @override
+  String get provider => 'Dock';
+
+  bool _chinese(BuildContext context) =>
+      Localizations.localeOf(context).languageCode == 'zh';
+
+  @override
+  String label(BuildContext context) => _chinese(context)
+      ? '激活 Dock 第 $slot 个应用'
+      : 'Activate Dock application $slot';
+
+  @override
+  String description(BuildContext context) => _chinese(context)
+      ? '相当于点击 Dock 上从头数第 $slot 个应用图标'
+      : 'Acts as a click on application icon $slot of the Dock';
+
+  @override
+  void invoke(ShellActionContext context) =>
+      DockHotkeys.activate(slot, monitorId: context.monitorId);
+}
+
+@Provides(ShellAction)
+final class ActivateDockAppOne extends _ActivateDockApp {
+  const ActivateDockAppOne() : super(1);
+}
+
+@Provides(ShellAction)
+final class ActivateDockAppTwo extends _ActivateDockApp {
+  const ActivateDockAppTwo() : super(2);
+}
+
+@Provides(ShellAction)
+final class ActivateDockAppThree extends _ActivateDockApp {
+  const ActivateDockAppThree() : super(3);
+}
+
+@Provides(ShellAction)
+final class ActivateDockAppFour extends _ActivateDockApp {
+  const ActivateDockAppFour() : super(4);
+}
+
+@Provides(ShellAction)
+final class ActivateDockAppFive extends _ActivateDockApp {
+  const ActivateDockAppFive() : super(5);
+}
+
+@Provides(ShellAction)
+final class ActivateDockAppSix extends _ActivateDockApp {
+  const ActivateDockAppSix() : super(6);
+}
+
+@Provides(ShellAction)
+final class ActivateDockAppSeven extends _ActivateDockApp {
+  const ActivateDockAppSeven() : super(7);
+}
+
+@Provides(ShellAction)
+final class ActivateDockAppEight extends _ActivateDockApp {
+  const ActivateDockAppEight() : super(8);
+}
+
+@Provides(ShellAction)
+final class ActivateDockAppNine extends _ActivateDockApp {
+  const ActivateDockAppNine() : super(9);
 }
