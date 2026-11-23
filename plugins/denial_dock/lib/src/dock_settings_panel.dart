@@ -47,9 +47,14 @@ TextStyle _valueStyle(ShellThemeData theme, Color color) =>
 /// Denial gives plugins no settings page, so the sheet is a managed shell popup
 /// with the scene barrier, focus, Escape and outside-tap dismissal for free.
 class DockSettingsPanel extends ConsumerStatefulWidget {
-  const DockSettingsPanel({required this.onClose, super.key});
+  const DockSettingsPanel({
+    required this.onClose,
+    this.initialPage = 0,
+    super.key,
+  });
 
   final VoidCallback onClose;
+  final int initialPage;
 
   @override
   ConsumerState<DockSettingsPanel> createState() => _DockSettingsPanelState();
@@ -58,7 +63,7 @@ class DockSettingsPanel extends ConsumerStatefulWidget {
 class _DockSettingsPanelState extends ConsumerState<DockSettingsPanel> {
   String? _browsePath;
   bool _showHidden = false;
-  int _page = 0;
+  late int _page = widget.initialPage;
   final ScrollController _bodyScroll = ScrollController();
   final ScrollController _browserScroll = ScrollController();
 

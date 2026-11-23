@@ -30,6 +30,7 @@ import 'dock_extras.dart';
 import 'dock_extras_item.dart';
 import 'dock_icon.dart';
 import 'dock_mac_icons.dart';
+import 'dock_debug.dart';
 import 'dock_hotkeys.dart';
 import 'dock_item.dart';
 import 'dock_launcher_entry.dart';
@@ -234,6 +235,20 @@ class _DockContainerState extends ConsumerState<DockContainer>
     DockStackThumbs.warm();
     DockStackThumbs.sweepCache();
     _hotkeys = DockHotkeys.requests.listen(_onHotkey);
+    _debug = DockDebug.commands.listen(_onDebug);
+  }
+
+  StreamSubscription<List<String>>? _debug;
+
+  void _onDebug(List<String> words) {
+    if (!mounted || !widget.environment.isMainOutput) return;
+    final number = words.length > 1 ? int.tryParse(words[1]) ?? 0 : 0;
+    switch (words.first) {
+      case 'settings':
+        _openSettings(page: number);
+      case 'click':
+        _onHotkey((slot: number, monitorId: widget.monitorId));
+    }
   }
 
   StreamSubscription<DockHotkey>? _hotkeys;
@@ -287,6 +302,7 @@ class _DockContainerState extends ConsumerState<DockContainer>
     _edgeTapTimer?.cancel();
     _audioTimer?.cancel();
     unawaited(_hotkeys?.cancel());
+    unawaited(_debug?.cancel());
     _activation.dispose();
     _ticker.dispose();
     super.dispose();
@@ -581,7 +597,7 @@ class _DockContainerState extends ConsumerState<DockContainer>
   /// The settings sheet is a managed shell popup, not an OverlayPortal menu, so
   /// it keeps its own hold: without it the capsule retracts behind the sheet
   /// when a window is parked on the dock strip.
-  void _openSettings() {
+  void _openSettings({int page = 0}) {
     if (_settingsOpen) return;
     _closeDockMenu();
     _settingsOpen = true;
@@ -593,7 +609,7 @@ class _DockContainerState extends ConsumerState<DockContainer>
           debugLabel: 'Dock settings',
           dismissPolicy: ShellDismissPolicy.outsideTapAndEscape,
           builder: (context, handle) =>
-              DockSettingsPanel(onClose: handle.close),
+              DockSettingsPanel(onClose: handle.close, initialPage: page),
         );
     // The handle has no completion callback; poll the popup list so the hold is
     // released once the sheet has finished its closing transition.
