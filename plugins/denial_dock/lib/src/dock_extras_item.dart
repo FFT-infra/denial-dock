@@ -1098,11 +1098,16 @@ class _DockFolderItemState extends State<DockFolderItem> {
           // The same flat sections macOS puts on a stack's menu, in its order:
           // sort, then how the icon looks, then how the stack opens.
           DockMenuSectionLabel(widget.zh ? '排序方式' : 'Sort by'),
-          for (final sort in const [
+          for (final sort in [
             DockStackSortMode.name,
             DockStackSortMode.added,
             DockStackSortMode.modified,
             DockStackSortMode.kind,
+            // A dragged order is a sort of its own; the four Finder orders
+            // would otherwise all read unchecked after a drag.
+            if (widget.folder.sort == DockStackSortMode.manual ||
+                widget.folder.order.isNotEmpty)
+              DockStackSortMode.manual,
           ])
             DockMenuRow(
               label: switch (sort) {
