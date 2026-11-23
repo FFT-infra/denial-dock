@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'dart:math' as math;
+import 'dart:ui' show ImageFilter;
 
 import 'package:denial_flutter_sdk/models.dart';
 import 'package:denial_flutter_sdk/services.dart';
@@ -516,7 +517,7 @@ class _CloseDotState extends State<_CloseDot> {
 /// and transport are the ones transcribed below) and the banner takes
 /// meniscus's 360, so neither face is drawn at a width it was never measured
 /// at.
-class IslandExpandedBody extends StatelessWidget {
+class IslandExpandedBody extends StatefulWidget {
   const IslandExpandedBody({
     required this.mode,
     required this.notification,
@@ -549,6 +550,16 @@ class IslandExpandedBody extends StatelessWidget {
     _ => BarTokens.islandMediaWidth,
   };
 
+  /// The card's outer height. darkshadow fixes each card at its own measured
+  /// size — the player 470 × 184, a notification 440 × 96 [S36] — instead of
+  /// letting the content decide, which is what lets the card morph from the
+  /// pill's rect to a known rect.
+  static double heightFor(IslandMode mode) => switch (mode) {
+    IslandMode.notice => BarTokens.islandBannerHeight,
+    IslandMode.charging => BarTokens.islandChargeHeight,
+    _ => BarTokens.islandMediaHeight,
+  };
+
   /// meniscus's banner spends 8 pt a side; the player and the charge face
   /// spend the island's measured 16 [S27][S36].
   static double _insetFor(IslandMode mode) => mode == IslandMode.notice
@@ -556,24 +567,84 @@ class IslandExpandedBody extends StatelessWidget {
       : BarTokens.islandPopupPadding;
 
   @override
+  State<IslandExpandedBody> createState() => _IslandExpandedBodyState();
+}
+
+class _IslandExpandedBodyState extends State<IslandExpandedBody>
+    with SingleTickerProviderStateMixin {
+  /// meniscus waits 0.14 s for the shape to grow, then brings the content up
+  /// from a 12 pt blur and 0.94 scale at `.smooth(0.32)` [S35]. Starting the
+  /// controller after the wait is the same thing without a second timer.
+  late final AnimationController _entrance = AnimationController(
+    vsync: this,
+    duration: BarTokens.islandContentIn,
+  );
+  late final Animation<double> _eased = CurvedAnimation(
+    parent: _entrance,
+    curve: Curves.easeInOutCubic,
+  );
+
+  @override
+  void initState() {
+    super.initState();
+    Future<void>.delayed(BarTokens.islandContentDelay, () {
+      if (mounted) _entrance.forward();
+    });
+  }
+
+  @override
+  void dispose() {
+    _entrance.dispose();
+    super.dispose();
+  }
+
+  @override
   Widget build(BuildContext context) {
     return SizedBox(
-      width: widthFor(mode),
+      width: IslandExpandedBody.widthFor(widget.mode),
       child: Padding(
-        padding: EdgeInsets.all(_insetFor(mode)),
-        child: switch (mode) {
-          IslandMode.notice => _NoticeView(
-            notification: notification,
-            onDismiss: onDismissNotice,
-            onActivate: onActivateNotice,
-          ),
-          IslandMode.charging => _ChargeView(percent: chargePercent ?? 0),
-          _ => _MediaView(
-            playback: playback,
-            artworkUrl: artworkUrl,
-            commands: commands,
-          ),
-        },
+        padding: EdgeInsets.all(IslandExpandedBody._insetFor(widget.mode)),
+        child: AnimatedBuilder(
+          animation: _eased,
+          builder: (context, child) {
+            final value = _eased.value;
+            final blur =
+                (1 - value) * BarTokens.islandContentBlur;
+            Widget content = child!;
+            if (blur > 0.05) {
+              content = ImageFiltered(
+                imageFilter: ImageFilter.blur(sigmaX: blur, sigmaY: blur),
+                child: content,
+              );
+            }
+            return Opacity(
+              opacity: value.clamp(0.0, 1.0),
+              child: Transform.scale(
+                // meniscus anchors the scale at the top edge.
+                alignment: Alignment.topCenter,
+                scale:
+                    BarTokens.islandContentScale +
+                    (1 - BarTokens.islandContentScale) * value,
+                child: content,
+              ),
+            );
+          },
+          child: switch (widget.mode) {
+            IslandMode.notice => _NoticeView(
+              notification: widget.notification,
+              onDismiss: widget.onDismissNotice,
+              onActivate: widget.onActivateNotice,
+            ),
+            IslandMode.charging => _ChargeView(
+              percent: widget.chargePercent ?? 0,
+            ),
+            _ => _MediaView(
+              playback: widget.playback,
+              artworkUrl: widget.artworkUrl,
+              commands: widget.commands,
+            ),
+          },
+        ),
       ),
     );
   }

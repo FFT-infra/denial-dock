@@ -92,6 +92,8 @@ class _TopBarSurfaceState extends ConsumerState<TopBarSurface> {
   @override
   void dispose() {
     _islandCollapse?.cancel();
+    _islandIntent?.cancel();
+    _islandLeave?.cancel();
     _chargeFlash?.cancel();
     super.dispose();
   }
@@ -129,6 +131,7 @@ class _TopBarSurfaceState extends ConsumerState<TopBarSurface> {
     bool glass = true,
     BarPanelAnchor placement = BarPanelAnchor.dropdown,
     Color? fill,
+    double? height,
   }) {
     showBarPanel(
       ref: ref,
@@ -140,6 +143,7 @@ class _TopBarSurfaceState extends ConsumerState<TopBarSurface> {
       placement: placement,
       fill: fill,
       barHeight: _bodyHeight,
+      height: height,
       builder: builder,
     );
     // showBarPanel toggles; mirror the resulting state so the cell wash and
@@ -175,6 +179,7 @@ class _TopBarSurfaceState extends ConsumerState<TopBarSurface> {
         chargePercent: ref.read(_services.battery).capacity,
       ),
       width: IslandExpandedBody.widthFor(mode),
+      height: IslandExpandedBody.heightFor(mode),
       placement: BarPanelAnchor.island,
       // The card is the pill grown, so it keeps the pill's black.
       fill: const Color(BarTokens.islandFill),
@@ -252,19 +257,33 @@ class _TopBarSurfaceState extends ConsumerState<TopBarSurface> {
     });
   }
 
+  /// meniscus's hover intent [S35]: the pointer must rest 180 ms before the
+  /// island opens, so a cursor crossing the notch cannot flash it open, and
+  /// leaving gives 120 ms of grace before it folds back.
+  Timer? _islandIntent;
+  Timer? _islandLeave;
+
   void _onIslandHover(bool hovered) {
     _islandHovered = hovered;
     if (hovered) {
+      _islandLeave?.cancel();
       _islandCollapse?.cancel();
-      // Hover peek: the pointer alone widens the pill, the way the system
-      // island reacts to a cursor resting on it.
       final peek = ref.read(barSettingsProvider).value?.islandHoverPeek ?? true;
-      if (peek && !_islandExpanded && _currentIslandMode != IslandMode.quiet) {
-        setState(() => _islandExpanded = true);
-      }
+      if (!peek || _islandExpanded) return;
+      _islandIntent?.cancel();
+      _islandIntent = Timer(BarTokens.islandHoverIntent, () {
+        if (!mounted || !_islandHovered) return;
+        if (_currentIslandMode != IslandMode.quiet) {
+          setState(() => _islandExpanded = true);
+        }
+      });
       return;
     }
-    _armIslandCollapse();
+    _islandIntent?.cancel();
+    _islandLeave?.cancel();
+    _islandLeave = Timer(BarTokens.islandLeaveGrace, () {
+      if (mounted) _armIslandCollapse();
+    });
   }
 
   /// Expands the pill when the track changes or a notice lands, matching

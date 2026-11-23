@@ -8,6 +8,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import 'bar_tokens.dart';
+import 'continuous_corners.dart';
 
 const String barPanelKey = 'denial_topbar.panel';
 
@@ -65,6 +66,7 @@ void showBarPanel({
   BarPanelAnchor placement = BarPanelAnchor.dropdown,
   Color? fill,
   double barHeight = BarTokens.height,
+  double? height,
 }) {
   final controller = ref.read(shellPopupControllerProvider.notifier);
   final previous = _openPopup;
@@ -87,6 +89,8 @@ void showBarPanel({
     keyName: keyName,
     debugLabel: 'Top bar $panelId',
     dismissPolicy: ShellDismissPolicy.outsideTapAndEscape,
+    // The surface's own fade and close both ride this duration; the island's
+    // shape grows on its own longer spring inside the frame.
     transitionDuration: Motion.cardSettle,
     barrierColor: Colors.transparent,
     builder: (context, popup) => BarPanelFrame(
@@ -97,6 +101,7 @@ void showBarPanel({
       placement: placement,
       fill: fill,
       barHeight: barHeight,
+      height: height,
       child: builder(context, popup.close),
     ),
   );
@@ -118,6 +123,7 @@ class BarPanelFrame extends StatelessWidget {
     this.placement = BarPanelAnchor.dropdown,
     this.fill,
     this.barHeight = BarTokens.height,
+    this.height,
     super.key,
   });
 
@@ -140,6 +146,10 @@ class BarPanelFrame extends StatelessWidget {
   /// Overrides the card's colour. The island's expanded card is the pill
   /// itself grown, so it keeps the pill's black instead of the panel glass.
   final Color? fill;
+
+  /// Fixed card height. The island's card is sized by its reference rather
+  /// than its content so the shape has a known rect to morph to.
+  final double? height;
 
   @override
   Widget build(BuildContext context) {
@@ -184,6 +194,84 @@ class BarPanelFrame extends StatelessWidget {
         ? scene.height - (top ?? 0) - 8
         : scene.height - (bottom ?? 0) - 8;
 
+    // macOS 27 draws its island card with continuous corners [S27], so that
+    // one shape is painted and clipped by the superellipse path; menus and
+    // popovers keep the circular radius their references use.
+    final continuous = placement == BarPanelAnchor.island;
+    final cardColor =
+        fill ??
+        (glass
+            ? theme.panelColor(theme.colors.panelBackground)
+            : theme.colors.panelBackground);
+
+    final Widget card = continuous
+        ? CustomPaint(
+            painter: _ContinuousCardPainter(
+              radius: radius,
+              fill: cardColor,
+              hairline: theme.colors.hairline,
+            ),
+            child: ClipPath(
+              clipper: ContinuousCornersClipper(radius: radius),
+              child: child,
+            ),
+          )
+        : DecoratedBox(
+            decoration: BoxDecoration(
+              // A menu is the opaque material macOS draws behind a dropdown;
+              // a panel is the translucent glass card.
+              color: cardColor,
+              borderRadius: BorderRadius.circular(radius),
+              border: Border.all(color: theme.colors.hairline, width: 0.8),
+            ),
+            child: ClipRRect(
+              borderRadius: BorderRadius.circular(radius - 1),
+              child: child,
+            ),
+          );
+
+    final shadows = <BoxShadow>[
+      BoxShadow(
+        color: theme.colors.shadow.withValues(alpha: 0.28),
+        blurRadius: 30,
+        offset: const Offset(0, 12),
+      ),
+    ];
+
+    // A BoxShadow follows a BorderRadius and would paint a rectangle behind
+    // the superellipse; ShapeDecoration casts the shadow along the shape.
+    final shadow = continuous
+        ? DecoratedBox(
+            decoration: ShapeDecoration(
+              shape: ContinuousCorners(radius: radius),
+              shadows: shadows,
+            ),
+            child: card,
+          )
+        : DecoratedBox(
+            decoration: BoxDecoration(
+              borderRadius: BorderRadius.circular(radius),
+              boxShadow: shadows,
+            ),
+            child: ShellBackdropBlur(
+              borderRadius: BorderRadius.circular(radius),
+              blendMode: BlendMode.srcOver,
+              child: card,
+            ),
+          );
+
+    if (continuous && rect != null) {
+      // darkshadow's card is the island growing: at t = 0 it sits on the
+      // pill's own rect, at t = 1 it is the card, and position, size and
+      // corners morph together [S36]. The popup surface is full-screen, so it
+      // can start the card on the pill instead of fading in beside it.
+      return _IslandCardMorph(
+        from: rect,
+        to: Rect.fromLTWH(left, top ?? 0, width, height ?? available),
+        child: shadow,
+      );
+    }
+
     return Stack(
       fit: StackFit.expand,
       children: <Widget>[
@@ -196,45 +284,141 @@ class BarPanelFrame extends StatelessWidget {
             constraints: BoxConstraints(
               maxHeight: available.clamp(120.0, scene.height),
             ),
-            child: DecoratedBox(
-              decoration: BoxDecoration(
-                borderRadius: BorderRadius.circular(radius),
-                boxShadow: <BoxShadow>[
-                  BoxShadow(
-                    color: theme.colors.shadow.withValues(alpha: 0.28),
-                    blurRadius: 30,
-                    offset: const Offset(0, 12),
-                  ),
-                ],
-              ),
-              child: ShellBackdropBlur(
-                borderRadius: BorderRadius.circular(radius),
-                blendMode: BlendMode.srcOver,
-                child: DecoratedBox(
-                  decoration: BoxDecoration(
-                    // A menu is the opaque material macOS draws behind a
-                    // dropdown; a panel is the translucent glass card.
-                    color:
-                        fill ??
-                        (glass
-                            ? theme.panelColor(theme.colors.panelBackground)
-                            : theme.colors.panelBackground),
-                    borderRadius: BorderRadius.circular(radius),
-                    border: Border.all(
-                      color: theme.colors.hairline,
-                      width: 0.8,
-                    ),
-                  ),
-                  child: ClipRRect(
-                    borderRadius: BorderRadius.circular(radius - 1),
-                    child: child,
-                  ),
-                ),
-              ),
-            ),
+            child: shadow,
           ),
         ),
       ],
     );
   }
+}
+
+/// The island card growing out of the pill.
+///
+/// darkshadow animates one rectangle from the pill's rect to the card's, the
+/// corners opening from half the strip height to 30 [S36]. The card is laid
+/// out at its final rect and scaled from the pill's width about its top
+/// centre: the pill and the card share that centre (the card is centred on the
+/// island's anchor), so the shape reads as the pill itself swelling, and the
+/// corners of a 32 pt superellipse scaled down to the pill's width are the
+/// pill's own round ends.
+class _IslandCardMorph extends StatefulWidget {
+  const _IslandCardMorph({
+    required this.from,
+    required this.to,
+    required this.child,
+  });
+
+  /// The pill's scene rect.
+  final Rect from;
+
+  /// The card's scene rect.
+  final Rect to;
+  final Widget child;
+
+  @override
+  State<_IslandCardMorph> createState() => _IslandCardMorphState();
+}
+
+class _IslandCardMorphState extends State<_IslandCardMorph>
+    with SingleTickerProviderStateMixin {
+  late final AnimationController _controller = AnimationController(
+    vsync: this,
+    duration: BarTokens.islandExpand,
+  );
+  late final Animation<double> _eased = CurvedAnimation(
+    parent: _controller,
+    // meniscus expands on `.spring(0.46, bounce 0.24)` [S35]; easeOutBack is
+    // that settle with its light overshoot, without a spring solver.
+    curve: Curves.easeOutBack,
+  );
+
+  @override
+  void initState() {
+    super.initState();
+    _controller.forward();
+  }
+
+  @override
+  void dispose() {
+    _controller.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final start = widget.to.width <= 0
+        ? 1.0
+        : (widget.from.width / widget.to.width).clamp(0.0, 1.0);
+    return Stack(
+      fit: StackFit.expand,
+      children: <Widget>[
+        Positioned(
+          left: widget.to.left,
+          top: widget.to.top,
+          width: widget.to.width,
+          height: widget.to.height,
+          child: AnimatedBuilder(
+            animation: _eased,
+            builder: (context, child) {
+              // The curve overshoots on purpose; the scale keeps the bounce,
+              // the opacity does not.
+              final t = _eased.value;
+              final rest = 1 - t;
+              return Transform.translate(
+                // At t = 0 the card is scaled to the pill's width and moved
+                // onto the pill's own rect, so the first frame is the pill.
+                offset: Offset(
+                  (widget.from.center.dx - widget.to.center.dx) * rest,
+                  (widget.from.top - widget.to.top) * rest,
+                ),
+                child: Transform.scale(
+                  alignment: Alignment.topCenter,
+                  scale: start + (1 - start) * t,
+                  child: Opacity(
+                    // The shape itself is there from the first frame; only the
+                    // surface's own fade-in is honoured, over the first third.
+                    opacity: (t * 3).clamp(0.0, 1.0),
+                    child: child,
+                  ),
+                ),
+              );
+            },
+            child: widget.child,
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+/// Paints the island card: the superellipse fill, then its hairline.
+class _ContinuousCardPainter extends CustomPainter {
+  const _ContinuousCardPainter({
+    required this.radius,
+    required this.fill,
+    required this.hairline,
+  });
+
+  final double radius;
+  final Color fill;
+  final Color hairline;
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final path = continuousRoundedRectPath(Offset.zero & size, radius);
+    canvas.drawPath(path, Paint()..color = fill);
+    canvas.drawPath(
+      path,
+      Paint()
+        ..color = hairline
+        ..style = PaintingStyle.stroke
+        ..strokeWidth = 0.8,
+    );
+  }
+
+  @override
+  bool shouldRepaint(_ContinuousCardPainter oldDelegate) =>
+      oldDelegate.radius != radius ||
+      oldDelegate.fill != fill ||
+      oldDelegate.hairline != hairline;
 }

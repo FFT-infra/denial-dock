@@ -177,6 +177,20 @@ abstract final class BarTokens {
   static const Duration islandExpand = Duration(milliseconds: 460);
   static const Duration islandCollapse = Duration(milliseconds: 360);
 
+  /// meniscus `Motion.swift` [S35]: the pointer has to rest 180 ms before the
+  /// island opens, so a cursor crossing the notch cannot flash it open, and
+  /// leaving gives 120 ms of grace before it closes.
+  static const Duration islandHoverIntent = Duration(milliseconds: 180);
+  static const Duration islandLeaveGrace = Duration(milliseconds: 120);
+
+  /// Content enters at `.smooth(0.32)` after a 0.14 s wait, fading up from a
+  /// 12 pt blur and 0.94 scale; it leaves at `.smooth(0.14)` [S35].
+  static const Duration islandContentIn = Duration(milliseconds: 320);
+  static const Duration islandContentOut = Duration(milliseconds: 140);
+  static const Duration islandContentDelay = Duration(milliseconds: 140);
+  static const double islandContentBlur = 12;
+  static const double islandContentScale = 0.94;
+
   /// Compact Now Playing: a 20 pt cover at the 24% radius every island
   /// element uses, then the waveform, 133 wide overall [S27].
   static const double islandCompactCover = 20;
@@ -192,11 +206,19 @@ abstract final class BarTokens {
   static const double islandPopupPadding = 16;
   static const double islandPlayerCover = 44;
   static const double islandMediaWidth = 470;
+
+  /// darkshadow fixes each card's size so the shape can morph to a known
+  /// rect: the player is 470 × 184, a notification 440 × 96, the charge face
+  /// 340 wide. meniscus caps the content height at 132 [S36]; the media card
+  /// spends its extra height on the transport row at `y: 134`.
+  static const double islandMediaHeight = 184;
   static const double islandBannerWidth = 360;
+  static const double islandBannerHeight = 96;
 
   /// darkshadow's charge face is 340 wide with the bolt, the number and the
   /// fill; the expanded card keeps that width.
   static const double islandChargeWidth = 340;
+  static const double islandChargeHeight = 96;
 
   /// meniscus's banner: 8 pt inset, 30 pt app tile, 10 pt gap [S36].
   static const double islandBannerInset = 8;
