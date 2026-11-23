@@ -1,3 +1,5 @@
+import 'dart:io';
+
 import 'package:denial_dock/src/dock_badges.dart';
 
 void main() {
@@ -64,7 +66,7 @@ void main() {
   ]);
   _expect(filtered.isEmpty, 'unread and known only');
 
-  print('All dock badge tests passed.');
+  stdout.writeln('All dock badge tests passed.');
 }
 
 void _expect(bool condition, String message) {

@@ -1011,8 +1011,7 @@ class _DockContainerState extends ConsumerState<DockContainer>
         _frame = frame;
         _capsuleStart = frame.capsuleStart;
         _entrySlots = {
-          for (var i = 0; i < specs.length; i++)
-            if (specs[i].entry case final entry?) entry: i,
+          for (var i = 0; i < specs.length; i++) ?specs[i].entry: i,
         };
         _labels = [
           for (var i = 0; i < specs.length; i++)
@@ -1288,7 +1287,7 @@ class _DockContainerState extends ConsumerState<DockContainer>
                     ),
                   ),
                 ),
-              if (nameLabel != null) nameLabel,
+              ?nameLabel,
               _placeInSurface(
                 main: 0,
                 cross: 0,

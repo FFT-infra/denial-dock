@@ -983,7 +983,7 @@ class _DockItemWidgetState extends State<DockItemWidget>
                                 style: theme.text.systemBarCaption,
                               ),
                             ),
-                          if (indicator != null) indicator,
+                          ?indicator,
                           Positioned.fill(
                             child: IgnorePointer(
                               child: AnimatedOpacity(

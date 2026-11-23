@@ -101,7 +101,7 @@ Future<void> main() async {
   }
 
   // Mount parsing tolerates the octal escapes the kernel writes.
-  final mounts = File('${Directory.systemTemp.path}/dock_mounts_${pid}.txt');
+  final mounts = File('${Directory.systemTemp.path}/dock_mounts_$pid.txt');
   try {
     mounts.writeAsStringSync(
       'proc /proc proc rw 0 0\n'

@@ -155,7 +155,7 @@ class DockTile extends StatelessWidget {
         child: Stack(
           fit: StackFit.expand,
           children: [
-            if (picture != null) picture,
+            ?picture,
             Center(child: child),
             if (pressed) const ColoredBox(color: Color(0x29000000)),
           ],

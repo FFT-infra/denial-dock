@@ -138,7 +138,7 @@ class _DockSettingsPanelState extends ConsumerState<DockSettingsPanel> {
                   switchOutCurve: Motion.standard,
                   layoutBuilder: (current, previous) => Stack(
                     fit: StackFit.expand,
-                    children: [...previous, if (current != null) current],
+                    children: [...previous, ?current],
                   ),
                   transitionBuilder: (child, animation) => FadeTransition(
                     opacity: animation,
@@ -235,7 +235,7 @@ class _DockSettingsPanelState extends ConsumerState<DockSettingsPanel> {
                     duration: swap,
                     layoutBuilder: (current, previous) => Stack(
                       alignment: AlignmentDirectional.centerStart,
-                      children: [...previous, if (current != null) current],
+                      children: [...previous, ?current],
                     ),
                     transitionBuilder: (child, animation) => FadeTransition(
                       opacity: animation,
