@@ -41,9 +41,16 @@ turning it on.
 - **Notification badges.** An icon with unread notifications carries a red
   count on its top corner, capped at `99+`, and loses it once the notification
   centre marks them read.
-- **Click behaviour.** Clicking an icon with windows either minimizes the
-  active window (default) or cycles to the next one; the choice is in the
-  settings sheet. Clicking an application with no windows launches it.
+- **Click behaviour.** Clicking an icon with windows minimizes the active
+  window (default), cycles to the next one, opens the previews, or only raises
+  it. The middle button opens a new window (default), closes or minimizes one,
+  or does nothing. Clicking an application with no windows launches it.
+- **What applications report.** Progress, a count and a request for attention
+  sent over the Unity `LauncherEntry` D-Bus signals show as a bar, a badge and
+  a hop. The menu lists the actions of the application's desktop file. A
+  speaker on icons that play sound is available and off by default.
+- **Shortcuts.** The plugin offers nine actions, *Activate Dock application
+  1–9*, to bind in Denial's shortcut settings.
 - **Context menu.** Right-click an icon for its windows by title, then an
   *Options* submenu (keep or remove from the dock, minimize, close), then open
   or new window last, which is the macOS order. Escape closes the menu, and
@@ -177,10 +184,18 @@ Most settings live in the settings sheet. The same values are stored in
 - `visibility` is `"smart"` (auto-hide while windows float, default),
   `"always"` (never retract) or `"persistent"` (retract whenever the pointer
   leaves, whatever is on screen).
-- `clickAction` is `"minimize"` (default) or `"cycle"`. Cycling visits
-  restored windows first and minimized ones last. A middle click on a running
-  application opens another window, and falls back to the normal click when the
-  entry has nothing to launch.
+- `clickAction` is `"minimize"` (default), `"cycle"`, `"previews"` or
+  `"raise"`. Cycling visits restored windows first and minimized ones last.
+- `middleClickAction` is `"new-window"` (default), `"close"`, `"minimize"` or
+  `"nothing"`.
+- `hideScope` says which windows make a smart-hiding dock retract: `"all"`
+  (default), `"active"` or `"maximized"`. `revealDelayMs` (default 90) and
+  `hideDelayMs` (default 200) time the slide.
+- `avoidReservedEdge` (default `true`) moves the dock inside a bar that
+  reserves the same edge.
+- `showProgress`, `showAttention` and `showDesktopActions` default to `true`;
+  `showAudioIndicator`, `lockItems`, `currentWorkspaceOnly` and
+  `previewMiddleClose` default to `false`.
 - `iconSize` is in logical pixels, clamped to 32–72 in steps of 4; the default
   is 48.
 - `magnification` (default `true`) makes icons grow under the pointer. Off keeps
@@ -194,7 +209,8 @@ Most settings live in the settings sheet. The same values are stored in
   does while its application starts. The older `bounceOnLaunch` boolean still
   reads, mapping to `"hop"` and `"none"`.
 - `indicatorStyle` is `"dot"` (default, one dot per window up to three),
-  `"line"` (a single bar) or `"none"`. The older `showIndicators` boolean still
+  `"line"` (a single bar), `"dashes"`, `"segments"` (the bar cut per window)
+  or `"none"`. The older `showIndicators` boolean still
   reads.
 - `previewStyle` is `"cards"` (default, a horizontal row of thumbnails above
   the dock) or `"stack"` (a narrow column anchored to the icon, opening for a
