@@ -95,7 +95,11 @@ class DockStackIcon extends StatelessWidget {
                     child: SizedBox.square(
                       dimension: size * DockPile.edge(i),
                       child: ClipRRect(
-                        borderRadius: radius,
+                        // A card's corner is a share of its own edge. Scaling
+                        // the tile's radius made the smallest card a circle.
+                        borderRadius: BorderRadius.circular(
+                          size * DockPile.edge(i) * 0.16,
+                        ),
                         child: DecoratedBox(
                           decoration: BoxDecoration(
                             color: theme.panelColor(
