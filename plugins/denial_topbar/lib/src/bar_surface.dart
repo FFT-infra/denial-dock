@@ -103,6 +103,21 @@ class _TopBarSurfaceState extends ConsumerState<TopBarSurface> {
 
   bool get _horizontal => _side.isHorizontal;
 
+  /// The strip's height as laid out, so a panel hangs from its real bottom
+  /// edge rather than the reference token.
+  double get _bodyHeight {
+    final settings =
+        ref.read(barSettingsProvider).value ?? BarSettings.defaults;
+    final thickness = widget.environment.settings.layout.systemBarThickness;
+    return math.max(
+      BarTokens.height,
+      thickness -
+          (settings.layout == BarLayout.attached
+              ? 0
+              : BarTokens.floatingMargin * 2),
+    );
+  }
+
   ShellServices get _services => widget.services;
 
   void _openPanel(
@@ -124,6 +139,7 @@ class _TopBarSurfaceState extends ConsumerState<TopBarSurface> {
       glass: glass,
       placement: placement,
       fill: fill,
+      barHeight: _bodyHeight,
       builder: builder,
     );
     // showBarPanel toggles; mirror the resulting state so the cell wash and

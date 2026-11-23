@@ -64,6 +64,7 @@ void showBarPanel({
   bool glass = true,
   BarPanelAnchor placement = BarPanelAnchor.dropdown,
   Color? fill,
+  double barHeight = BarTokens.height,
 }) {
   final controller = ref.read(shellPopupControllerProvider.notifier);
   final previous = _openPopup;
@@ -95,6 +96,7 @@ void showBarPanel({
       glass: glass,
       placement: placement,
       fill: fill,
+      barHeight: barHeight,
       child: builder(context, popup.close),
     ),
   );
@@ -115,6 +117,7 @@ class BarPanelFrame extends StatelessWidget {
     this.glass = true,
     this.placement = BarPanelAnchor.dropdown,
     this.fill,
+    this.barHeight = BarTokens.height,
     super.key,
   });
 
@@ -122,6 +125,12 @@ class BarPanelFrame extends StatelessWidget {
   final PanelEdge side;
   final double width;
   final Widget child;
+
+  /// The strip's real height. shell27 measures `barH + 3` / `barH + 6` from
+  /// the strip's own bottom edge, and Denial's `systemBarThickness` is often
+  /// taller than the 28 pt reference, so this must come from the layout
+  /// rather than the token or every panel tucks into the bar.
+  final double barHeight;
 
   /// Menus are opaque cards on macOS; panels are glass. The bar's own
   /// dropdowns pass false so their plate does not shimmer over a wallpaper.
@@ -169,7 +178,7 @@ class BarPanelFrame extends StatelessWidget {
 
     // shell27 measures from the bar's own bottom edge (`barH + 3`), not from
     // the item's box, so the panel never shifts with a taller title.
-    final top = below ? BarTokens.height + gap : null;
+    final top = below ? barHeight + gap : null;
     final bottom = below ? null : scene.height - (rect?.top ?? 0) + gap;
     final available = below
         ? scene.height - (top ?? 0) - 8
