@@ -28,11 +28,16 @@ void main() {
     );
   }
 
-  // macOS keeps every row upright: the arc is in the path the column takes,
-  // not in the items, so a turned label never happens.
-  for (final row in rows) {
-    _expect(row.angle == 0, 'row ${row.index} stays upright');
-  }
+  // A macOS stack turns its rows with the arc. A right lean lifts the end
+  // nearest the previews, so the row turns counter-clockwise: the first row
+  // is level and the last is furthest off it.
+  _expect(rows[0].angle == 0, 'the first row does not tilt');
+  _expect(
+    (rows[1].angle.abs() - DockStackFan.tiltDegrees * math.pi / 180).abs() <
+        1e-9,
+    'the second row tilts one step',
+  );
+  _expect(rows[3].angle < 0, 'a right lean lifts the preview end');
 
   // The rows never overlap vertically, whatever the label widths.
   for (var i = 1; i < rows.length; i++) {
@@ -56,19 +61,28 @@ void main() {
     'the upper row wins an overlap',
   );
 
-  // An upright row is a plain rectangle, so its own corners are inside it.
-  final upright = rows[3];
+  // A plain rectangle test would be wrong both ways: the unrotated box's
+  // corner is outside the turned row, and the turned row covers points the
+  // unrotated box does not.
+  final turned = rows[3];
   _expect(
-    DockStackFan.contains(upright, upright.left, upright.top),
-    'an upright row contains its own corner',
+    !DockStackFan.contains(turned, turned.left, turned.top),
+    'the unrotated corner is outside the turned row',
   );
+  // A point just inside the turned end is in the row; one just past it, on
+  // the unrotated box, is not.
+  const inset = 0.98;
+  final cornerX =
+      turned.centerX + turned.width / 2 * inset * math.cos(turned.angle);
+  final cornerY =
+      turned.centerY + turned.width / 2 * inset * math.sin(turned.angle);
   _expect(
-    !DockStackFan.contains(upright, upright.left - 1, upright.centerY),
-    'a point just outside the row misses it',
+    DockStackFan.contains(turned, cornerX, cornerY),
+    'the turned corner is inside the row',
   );
 
-  // A left lean mirrors the arc: the rows drift the other way, so a fan near
-  // the right edge stays on the screen.
+  // A left lean mirrors the arc: the rows drift and tilt the other way, so a
+  // fan near the right edge stays on the screen.
   final mirrored = DockStackFan.layout(
     widths: const [200, 200, 200],
     anchorX: 500,
@@ -79,15 +93,16 @@ void main() {
     mirrored[2].left < mirrored[0].left,
     'a left lean drifts the other way',
   );
+  _expect(mirrored[2].angle > 0, 'a left lean tilts the other way');
   _expect(
     (mirrored[1].left - (500 - DockStackFan.shift - DockStackFan.padX)).abs() <
         0.01,
     'the left lean keeps the row edge on the anchor',
   );
 
-  // The bounds hold every row, and grow with the drift.
+  // The bounds cover the turned rows, which reach past their unrotated boxes.
   final box = DockStackFan.bounds(rows);
-  _expect(box.left <= rows.first.left, 'the bounds reach the leftmost row');
+  _expect(box.left < rows.first.left, 'the turned labels reach further left');
   _expect(box.right >= rows.last.right, 'the bounds contain the widest row');
 
   // The lean follows the room: away from the nearer edge, and back when the
@@ -105,8 +120,8 @@ void main() {
 
   // The row count follows the screen instead of a fixed cap.
   _expect(
-    DockStackFan.fitRows(bottom: 1000, top: 0) == 14,
-    'a 1000 px screen fits 14 rows: ${DockStackFan.fitRows(bottom: 1000, top: 0)}',
+    DockStackFan.fitRows(bottom: 1000, top: 0) == 15,
+    'a 1000 px screen fits 15 rows: ${DockStackFan.fitRows(bottom: 1000, top: 0)}',
   );
   _expect(
     DockStackFan.fitRows(bottom: 200, top: 0) == 2,
@@ -117,17 +132,26 @@ void main() {
     'no room still leaves one row',
   );
 
-  // The row count is the room divided by the step, whatever the labels are:
-  // an upright row never reaches past its own box.
+  // A turned label lifts its far end, so a tall fan loses rows to the tilt
+  // before it runs out of steps. This is the bug that clipped the top row.
   final wide = List<double>.filled(20, 260);
-  _expect(
-    DockStackFan.fitRows(bottom: 1200, top: 0, widths: wide) ==
-        DockStackFan.fitRows(bottom: 1200, top: 0),
-    'label width no longer costs rows',
+  final withTilt = DockStackFan.fitRows(bottom: 1200, top: 0, widths: wide);
+  final withoutTilt = DockStackFan.fitRows(
+    bottom: 1200,
+    top: 0,
+    widths: wide,
+    tilt: 0,
   );
-  final kept = DockStackFan.fitRows(bottom: 1200, top: 0, widths: wide);
-  for (var i = 0; i < kept; i++) {
-    final rise = DockStackFan.rowStep * (i + 1);
+  _expect(
+    withTilt < withoutTilt,
+    'the tilt costs rows: $withTilt vs $withoutTilt',
+  );
+  // And the rows it keeps really do fit once turned.
+  for (var i = 0; i < withTilt; i++) {
+    final angle = DockStackFan.tiltDegrees * i * math.pi / 180;
+    final rise =
+        DockStackFan.rowStep * (i + 1) +
+        260 * math.sin(angle) * DockStackFan.hoverScale;
     _expect(rise <= 1200 - DockStackFan.gap + 0.01, 'row $i fits: $rise');
   }
 

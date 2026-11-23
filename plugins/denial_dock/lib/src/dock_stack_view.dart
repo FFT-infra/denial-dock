@@ -722,22 +722,30 @@ class _DockStackViewState extends State<DockStackView>
       top: 0,
       child: Transform.translate(
         offset: at - Offset(box.width / 2, box.height / 2),
-        child: Transform.scale(
-          scale: (0.35 + 0.65 * eased) * (lit ? DockStackFan.hoverScale : 1),
-          child: Opacity(
-            // The row being dragged leaves a hole behind; the ghost carries
-            // the picture under the pointer.
-            opacity: lifting ? 0.35 : eased,
-            child: IgnorePointer(
-              child: SizedBox(
-                width: box.width,
-                height: box.height,
-                child: _StackRowTile(
-                  row: row,
-                  theme: theme,
-                  lit: lit,
-                  dropTarget: dropTarget,
-                  iconLeading: layout.iconLeading,
+        // The row turns about its preview end, the way a macOS stack does:
+        // the cards keep their column and only the names fan out.
+        child: Transform.rotate(
+          angle: box.angle,
+          alignment: layout.iconLeading
+              ? Alignment.centerLeft
+              : Alignment.centerRight,
+          child: Transform.scale(
+            scale: (0.35 + 0.65 * eased) * (lit ? DockStackFan.hoverScale : 1),
+            child: Opacity(
+              // The row being dragged leaves a hole behind; the ghost carries
+              // the picture under the pointer.
+              opacity: lifting ? 0.35 : eased,
+              child: IgnorePointer(
+                child: SizedBox(
+                  width: box.width,
+                  height: box.height,
+                  child: _StackRowTile(
+                    row: row,
+                    theme: theme,
+                    lit: lit,
+                    dropTarget: dropTarget,
+                    iconLeading: layout.iconLeading,
+                  ),
                 ),
               ),
             ),
@@ -1065,7 +1073,9 @@ class _StackRowTile extends StatelessWidget {
           child: DecoratedBox(
             decoration: BoxDecoration(
               color: fill,
-              borderRadius: theme.borderRadius(DockStackFan.pillHeight / 2),
+              // Fully round ends: the reference draws a capsule, not a
+              // rounded rectangle.
+              borderRadius: BorderRadius.circular(DockStackFan.pillHeight / 2),
               border: Border.all(
                 color: dropTarget ? theme.accent : theme.colors.hairline,
               ),

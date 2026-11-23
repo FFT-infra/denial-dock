@@ -46,27 +46,30 @@ abstract final class DockStackFan {
   /// Row height: the preview card, which is what a row has to hold.
   static const double rowHeight = 56;
 
-  /// Vertical distance between rows: the row plus a 12 px gap, the spacing a
-  /// macOS stack keeps between its items.
-  static const double rowStep = 68;
+  /// Vertical distance between rows: the row plus an 8 px gap, the spacing
+  /// measured on a real macOS stack.
+  static const double rowStep = 64;
 
   /// Sideways drift coefficient; `x = shift * i^power`.
   ///
-  /// Calibrated on a real macOS stack of 56 px icons: about 27 px of drift
-  /// across five rows.
-  static const double shift = 1.68;
+  /// Measured on a real eight-item macOS stack: the preview column travels
+  /// about 20 pt across the whole fan. The arc is far gentler than it looks —
+  /// what reads as a bend is the tilt of the rows, not the travel.
+  static const double shift = 0.42;
 
   /// The drift's exponent. Two, so the column leaves the dock icon almost
   /// straight and bends harder with every row it climbs.
   static const double shiftPower = 2.0;
 
   /// Drift ceiling, so a full fan bends no further than a macOS one.
-  static const double shiftMax = 235;
+  static const double shiftMax = 26;
 
-  /// Tilt per row, in degrees. macOS keeps its icons and name plates upright —
-  /// the arc lives in the path the column takes, not in the items — so a row
-  /// does not turn.
-  static const double tiltDegrees = 0;
+  /// Tilt per row, in degrees.
+  ///
+  /// A macOS stack turns its rows with the arc: the end nearest the preview
+  /// lifts, most on the top row. Measured on the reference, the eighth row
+  /// sits about 10 degrees off level.
+  static const double tiltDegrees = 1.4;
 
   /// Distance between the dock capsule and the first row.
   static const double gap = 10;
@@ -169,7 +172,9 @@ abstract final class DockStackFan {
           top: centreY - height / 2,
           width: rowWidth,
           height: height,
-          angle: tilt * i * sign * math.pi / 180,
+          // The end nearest the preview column lifts, so the tilt runs
+          // against the drift's side: a right lean turns counter-clockwise.
+          angle: -tilt * i * sign * math.pi / 180,
           iconX: leading ? edge + icon / 2 : edge - icon / 2,
           iconY: centreY,
         ),
