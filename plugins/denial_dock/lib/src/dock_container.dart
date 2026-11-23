@@ -1,5 +1,4 @@
 import 'dart:async';
-import 'dart:io' show File;
 import 'dart:math' as math;
 
 import 'package:denial_flutter_sdk/applications.dart'
@@ -1854,8 +1853,7 @@ class _DockContainerState extends ConsumerState<DockContainer>
             appearance: _settings.appearance,
             monitorBounds: _output,
             onOpen: () => unawaited(DockExtras.openPath(file.path)),
-            onReveal: () =>
-                unawaited(DockExtras.openPath(File(file.path).parent.path)),
+            onReveal: () => unawaited(DockExtras.revealPath(file.path)),
             onRemove: () => unawaited(
               ref.read(dockSettingsProvider.notifier).removeFile(file.path),
             ),

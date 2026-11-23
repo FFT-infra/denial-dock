@@ -463,7 +463,7 @@ class _DockSettingsPanelState extends ConsumerState<DockSettingsPanel> {
                         _controller.setMagnificationAmount(value),
                   ),
                   _SegmentedField<DockAppearance>(
-                    label: _zh ? '外观' : 'Appearance',
+                    label: _zh ? '图标样式' : 'Icon style',
                     value: settings.appearance,
                     options: [
                       (DockAppearance.macos, 'macOS', Icons.grid_view_rounded),
@@ -735,7 +735,7 @@ class _DockSettingsPanelState extends ConsumerState<DockSettingsPanel> {
     ];
     // Files are pinnable too, so the same browser lists them below the
     // folders: the dock lets one file sit beside the stacks.
-    final files = _showHidden ? const <String>[] : DockExtras.listFiles(path);
+    final files = DockExtras.listFiles(path, hidden: _showHidden);
     final parent = _parentOf(path);
     return Column(
       key: key,
@@ -756,7 +756,7 @@ class _DockSettingsPanelState extends ConsumerState<DockSettingsPanel> {
                 padding: const EdgeInsets.fromLTRB(10, 8, 10, 8),
                 children: [
                   _ToggleRow(
-                    label: _zh ? '显示隐藏文件夹' : 'Show hidden folders',
+                    label: _zh ? '显示隐藏项' : 'Show hidden items',
                     value: _showHidden,
                     margin: const EdgeInsets.symmetric(horizontal: 4),
                     radius: 8,
@@ -816,7 +816,9 @@ class _DockSettingsPanelState extends ConsumerState<DockSettingsPanel> {
                           ),
                           const SizedBox(height: 12),
                           Text(
-                            _zh ? '此文件夹里没有子文件夹。' : 'No subfolders here.',
+                            _zh
+                                ? '这里没有可添加的子文件夹或文件。'
+                                : 'No folders or files here.',
                             textAlign: TextAlign.center,
                             style: _captionStyle(theme),
                           ),
