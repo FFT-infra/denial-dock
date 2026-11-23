@@ -291,7 +291,7 @@ class _DockAccessoryItemState extends State<DockAccessoryItem> {
                 anchor: placement,
                 overlaySize: layout.overlaySize,
                 child: DockMenuPanel(
-                  radius: theme.borderRadius(14),
+                  radius: theme.borderRadius(13),
                   maxHeight: maxHeight,
                   tail: placement.tail,
                   tailAlignment: placement.tailAlignment,

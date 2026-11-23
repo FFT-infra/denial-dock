@@ -1,7 +1,6 @@
 import 'dart:io';
 import 'dart:math' as math;
 
-import 'package:denial_flutter_sdk/effects.dart';
 import 'package:denial_flutter_sdk/theme.dart';
 import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
@@ -12,10 +11,11 @@ import 'dock_extras.dart';
 import 'dock_preferences.dart';
 import 'dock_stack_files.dart' show DockStackFiles;
 import 'dock_stack_view.dart' show stackFileColor, stackFileIcon;
+import 'dock_card.dart';
 
 const double _rowHeight = 48;
 const double _cardRadius = 12;
-const double _sheetRadius = 18;
+const double _sheetRadius = 22;
 const Duration _quick = Duration(milliseconds: 140);
 
 Duration _motion(BuildContext context, Duration duration) =>
@@ -115,59 +115,44 @@ class _DockSettingsPanelState extends ConsumerState<DockSettingsPanel> {
 
   Widget _buildShell(BuildContext context, DockSettings settings) {
     final theme = context.shellTheme;
-    final radius = theme.borderRadius(_sheetRadius);
     final browsing = _browsePath != null;
-    return ShellBackdropBlur(
-      blur: theme.effectivePanelOpacity < 1,
-      separateChild: true,
-      borderRadius: radius,
-      child: DecoratedBox(
-        decoration: BoxDecoration(
-          color: theme.panelColor(theme.colors.surfaceContainer),
-          borderRadius: radius,
-          border: Border.all(color: theme.colors.hairline),
-        ),
-        child: ClipRRect(
-          borderRadius: radius,
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.stretch,
-            children: [
-              _header(context, browsing),
-              SizedBox(
-                height: 1,
-                child: ColoredBox(color: theme.colors.hairline),
+    return DockCard(
+      radius: _sheetRadius,
+      minOpacity: 0.9,
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          _header(context, browsing),
+          SizedBox(height: 1, child: ColoredBox(color: theme.colors.hairline)),
+          Expanded(
+            child: AnimatedSwitcher(
+              duration: _motion(context, const Duration(milliseconds: 240)),
+              switchInCurve: Motion.standard,
+              switchOutCurve: Motion.standard,
+              layoutBuilder: (current, previous) => Stack(
+                fit: StackFit.expand,
+                children: [...previous, ?current],
               ),
-              Expanded(
-                child: AnimatedSwitcher(
-                  duration: _motion(context, const Duration(milliseconds: 240)),
-                  switchInCurve: Motion.standard,
-                  switchOutCurve: Motion.standard,
-                  layoutBuilder: (current, previous) => Stack(
-                    fit: StackFit.expand,
-                    children: [...previous, ?current],
-                  ),
-                  transitionBuilder: (child, animation) => FadeTransition(
-                    opacity: animation,
-                    child: SlideTransition(
-                      position: Tween<Offset>(
-                        begin: const Offset(0.02, 0),
-                        end: Offset.zero,
-                      ).animate(animation),
-                      child: child,
-                    ),
-                  ),
-                  child: browsing
-                      ? _buildBrowser(context, key: const ValueKey('browser'))
-                      : _buildBody(
-                          context,
-                          settings,
-                          key: const ValueKey('settings'),
-                        ),
+              transitionBuilder: (child, animation) => FadeTransition(
+                opacity: animation,
+                child: SlideTransition(
+                  position: Tween<Offset>(
+                    begin: const Offset(0.02, 0),
+                    end: Offset.zero,
+                  ).animate(animation),
+                  child: child,
                 ),
               ),
-            ],
+              child: browsing
+                  ? _buildBrowser(context, key: const ValueKey('browser'))
+                  : _buildBody(
+                      context,
+                      settings,
+                      key: const ValueKey('settings'),
+                    ),
+            ),
           ),
-        ),
+        ],
       ),
     );
   }

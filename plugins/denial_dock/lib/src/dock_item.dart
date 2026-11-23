@@ -1,7 +1,6 @@
 import 'dart:async';
 import 'dart:math' as math;
 
-import 'package:denial_flutter_sdk/effects.dart';
 import 'package:denial_flutter_sdk/input.dart';
 import 'package:denial_flutter_sdk/services.dart';
 import 'package:denial_flutter_sdk/surfaces.dart';
@@ -18,6 +17,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/scheduler.dart';
 import 'package:flutter/services.dart';
 
+import 'dock_card.dart';
 import 'dock_click.dart';
 import 'dock_desktop_actions.dart';
 import 'dock_icon.dart';
@@ -1281,7 +1281,7 @@ class _DockItemWidgetState extends State<DockItemWidget>
     final maxHeight = widget.position == DockPosition.bottom
         ? math.max(0.0, geometry.anchor.top - output.top - 16)
         : math.max(0.0, output.height - 16);
-    final radius = theme.borderRadius(14);
+    final radius = theme.borderRadius(13);
     return ShellInputRegion(
       debugLabel: 'Dock application menu',
       pointerPolicy: ShellPointerPolicy.fullScene,
@@ -1519,7 +1519,6 @@ class _DockItemWidgetState extends State<DockItemWidget>
               output.top + 8,
               math.max(output.top + 8, output.bottom - height - 8),
             );
-    final radius = theme.borderRadius(16);
     final panel = Rect.fromLTWH(left.toDouble(), top.toDouble(), width, height);
     return Stack(
       children: [
@@ -1528,12 +1527,12 @@ class _DockItemWidgetState extends State<DockItemWidget>
           rect: panel,
           child: TweenAnimationBuilder<double>(
             tween: Tween<double>(begin: 0, end: 1),
-            duration: const Duration(milliseconds: 300),
+            duration: const Duration(milliseconds: 240),
             curve: Curves.easeOutCubic,
             builder: (context, t, child) => Opacity(
               opacity: t,
               child: Transform.scale(
-                scale: 0.97 + 0.03 * t,
+                scale: 0.96 + 0.04 * t,
                 alignment: switch (widget.position) {
                   DockPosition.bottom => Alignment.bottomCenter,
                   DockPosition.left => Alignment.centerLeft,
@@ -1547,109 +1546,95 @@ class _DockItemWidgetState extends State<DockItemWidget>
               child: MouseRegion(
                 onEnter: (_) => _setPreviewsHovered(true),
                 onExit: (_) => _setPreviewsHovered(false),
-                child: ShellBackdropBlur(
-                  blur: theme.effectivePanelOpacity < 1,
-                  strength: 0.65,
-                  separateChild: true,
-                  borderRadius: radius,
-                  child: DecoratedBox(
-                    decoration: BoxDecoration(
-                      color: theme.panelColor(theme.colors.surfaceContainer),
-                      borderRadius: radius,
-                      border: Border.all(color: theme.colors.hairline),
-                    ),
-                    child: Padding(
-                      padding: const EdgeInsets.all(8),
-                      child: SingleChildScrollView(
-                        scrollDirection: Axis.horizontal,
-                        child: Row(
-                          crossAxisAlignment: CrossAxisAlignment.end,
-                          children: [
-                            for (final (index, window) in windows.indexed) ...[
-                              if (index > 0) const SizedBox(width: 8),
-                              SizedBox(
-                                width: sizes[index].width,
-                                height: cardHeight,
-                                child: MouseRegion(
-                                  onEnter: (_) =>
-                                      _previewHover(window.id, inside: true),
-                                  onExit: (_) =>
-                                      _previewHover(window.id, inside: false),
-                                  child: Semantics(
-                                    label: window.title,
-                                    button: true,
-                                    child: GestureDetector(
-                                      behavior: HitTestBehavior.opaque,
-                                      onTap: () => _activateWindow(window.id),
-                                      onTertiaryTapUp: widget.previewMiddleClose
-                                          ? (_) => widget.onCloseWindows([
-                                              window.id,
-                                            ])
-                                          : null,
-                                      child: Column(
-                                        crossAxisAlignment:
-                                            CrossAxisAlignment.stretch,
-                                        children: [
-                                          Expanded(
-                                            child: Stack(
-                                              fit: StackFit.expand,
-                                              children: [
-                                                _PreviewFrame(
-                                                  radius: theme.borderRadius(
-                                                    10,
+                child: DockCard(
+                  radius: 16,
+                  blurStrength: 0.65,
+                  child: Padding(
+                    padding: const EdgeInsets.all(8),
+                    child: SingleChildScrollView(
+                      scrollDirection: Axis.horizontal,
+                      child: Row(
+                        crossAxisAlignment: CrossAxisAlignment.end,
+                        children: [
+                          for (final (index, window) in windows.indexed) ...[
+                            if (index > 0) const SizedBox(width: 8),
+                            SizedBox(
+                              width: sizes[index].width,
+                              height: cardHeight,
+                              child: MouseRegion(
+                                onEnter: (_) =>
+                                    _previewHover(window.id, inside: true),
+                                onExit: (_) =>
+                                    _previewHover(window.id, inside: false),
+                                child: Semantics(
+                                  label: window.title,
+                                  button: true,
+                                  child: GestureDetector(
+                                    behavior: HitTestBehavior.opaque,
+                                    onTap: () => _activateWindow(window.id),
+                                    onTertiaryTapUp: widget.previewMiddleClose
+                                        ? (_) =>
+                                              widget.onCloseWindows([window.id])
+                                        : null,
+                                    child: Column(
+                                      crossAxisAlignment:
+                                          CrossAxisAlignment.stretch,
+                                      children: [
+                                        Expanded(
+                                          child: Stack(
+                                            fit: StackFit.expand,
+                                            children: [
+                                              _PreviewFrame(
+                                                radius: theme.borderRadius(10),
+                                                hovered:
+                                                    _hoverPreview == window.id,
+                                                accent: theme.accent,
+                                                child: ColoredBox(
+                                                  color: theme.cardColor(
+                                                    theme
+                                                        .colors
+                                                        .surfaceContainerHigh,
                                                   ),
-                                                  hovered:
-                                                      _hoverPreview ==
-                                                      window.id,
-                                                  accent: theme.accent,
-                                                  child: ColoredBox(
-                                                    color: theme.cardColor(
-                                                      theme
-                                                          .colors
-                                                          .surfaceContainerHigh,
-                                                    ),
-                                                    child: widget.services
-                                                        .buildWindowPreview(
-                                                          context,
+                                                  child: widget.services
+                                                      .buildWindowPreview(
+                                                        context,
+                                                        window.id,
+                                                      ),
+                                                ),
+                                              ),
+                                              if (_hoverPreview == window.id)
+                                                Positioned(
+                                                  top: 4,
+                                                  right: 4,
+                                                  child: _PreviewCloseButton(
+                                                    onTap: () =>
+                                                        widget.onCloseWindows([
                                                           window.id,
-                                                        ),
+                                                        ]),
                                                   ),
                                                 ),
-                                                if (_hoverPreview == window.id)
-                                                  Positioned(
-                                                    top: 4,
-                                                    right: 4,
-                                                    child: _PreviewCloseButton(
-                                                      onTap: () =>
-                                                          widget.onCloseWindows(
-                                                            [window.id],
-                                                          ),
-                                                    ),
-                                                  ),
-                                              ],
-                                            ),
+                                            ],
                                           ),
-                                          const SizedBox(height: 5),
-                                          Text(
-                                            window.title,
-                                            maxLines: 1,
-                                            overflow: TextOverflow.ellipsis,
-                                            textAlign: TextAlign.center,
-                                            style: theme.text.systemBarCaption
-                                                .copyWith(
-                                                  color:
-                                                      theme.colors.textPrimary,
-                                                ),
-                                          ),
-                                        ],
-                                      ),
+                                        ),
+                                        const SizedBox(height: 5),
+                                        Text(
+                                          window.title,
+                                          maxLines: 1,
+                                          overflow: TextOverflow.ellipsis,
+                                          textAlign: TextAlign.center,
+                                          style: theme.text.systemBarCaption
+                                              .copyWith(
+                                                color: theme.colors.textPrimary,
+                                              ),
+                                        ),
+                                      ],
                                     ),
                                   ),
                                 ),
                               ),
-                            ],
+                            ),
                           ],
-                        ),
+                        ],
                       ),
                     ),
                   ),
@@ -1728,7 +1713,6 @@ class _DockItemWidgetState extends State<DockItemWidget>
               output.top + 8,
               math.max(output.top + 8, output.bottom - height - 8),
             );
-    final radius = theme.borderRadius(16);
     final panel = Rect.fromLTWH(left.toDouble(), top.toDouble(), width, height);
     return Stack(
       children: [
@@ -1737,7 +1721,7 @@ class _DockItemWidgetState extends State<DockItemWidget>
           rect: panel,
           child: TweenAnimationBuilder<double>(
             tween: Tween<double>(begin: 0, end: 1),
-            duration: const Duration(milliseconds: 140),
+            duration: const Duration(milliseconds: 240),
             curve: Curves.easeOutCubic,
             builder: (context, t, child) => Opacity(
               opacity: t,
@@ -1756,48 +1740,39 @@ class _DockItemWidgetState extends State<DockItemWidget>
               child: MouseRegion(
                 onEnter: (_) => _setPreviewsHovered(true),
                 onExit: (_) => _setPreviewsHovered(false),
-                child: ShellBackdropBlur(
-                  blur: theme.effectivePanelOpacity < 1,
-                  strength: 0.65,
-                  separateChild: true,
-                  borderRadius: radius,
-                  child: DecoratedBox(
-                    decoration: BoxDecoration(
-                      color: theme.panelColor(theme.colors.surfaceContainer),
-                      borderRadius: radius,
-                      border: Border.all(color: theme.colors.hairline),
-                    ),
-                    child: Padding(
-                      padding: const EdgeInsets.all(pad),
-                      child: Column(
-                        mainAxisSize: MainAxisSize.min,
-                        crossAxisAlignment: CrossAxisAlignment.stretch,
-                        children: [
-                          for (final (index, window) in windows.indexed) ...[
-                            if (index > 0) const SizedBox(height: gap),
-                            SizedBox(
-                              height: sizes[index].height + titleHeight,
-                              child: _PreviewRow(
-                                window: window,
-                                radius: theme.borderRadius(10),
-                                titleStyle: theme.text.systemBarCaption
-                                    .copyWith(color: theme.colors.textPrimary),
-                                preview: widget.services.buildWindowPreview(
-                                  context,
-                                  window.id,
-                                ),
-                                onActivate: () => _activateWindow(window.id),
-                                onClose: () =>
-                                    widget.onCloseWindows([window.id]),
-                                middleClose: widget.previewMiddleClose,
-                                hovered: _hoverPreview == window.id,
-                                onHover: (inside) =>
-                                    _previewHover(window.id, inside: inside),
+                child: DockCard(
+                  radius: 16,
+                  blurStrength: 0.65,
+                  child: Padding(
+                    padding: const EdgeInsets.all(pad),
+                    child: Column(
+                      mainAxisSize: MainAxisSize.min,
+                      crossAxisAlignment: CrossAxisAlignment.stretch,
+                      children: [
+                        for (final (index, window) in windows.indexed) ...[
+                          if (index > 0) const SizedBox(height: gap),
+                          SizedBox(
+                            height: sizes[index].height + titleHeight,
+                            child: _PreviewRow(
+                              window: window,
+                              radius: theme.borderRadius(10),
+                              titleStyle: theme.text.systemBarCaption.copyWith(
+                                color: theme.colors.textPrimary,
                               ),
+                              preview: widget.services.buildWindowPreview(
+                                context,
+                                window.id,
+                              ),
+                              onActivate: () => _activateWindow(window.id),
+                              onClose: () => widget.onCloseWindows([window.id]),
+                              middleClose: widget.previewMiddleClose,
+                              hovered: _hoverPreview == window.id,
+                              onHover: (inside) =>
+                                  _previewHover(window.id, inside: inside),
                             ),
-                          ],
+                          ),
                         ],
-                      ),
+                      ],
                     ),
                   ),
                 ),
