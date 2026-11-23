@@ -46,30 +46,35 @@ abstract final class DockStackFan {
   /// Row height: the preview card, which is what a row has to hold.
   static const double rowHeight = 56;
 
-  /// Vertical distance between rows: the row plus an 8 px gap, the spacing
-  /// measured on a real macOS stack.
-  static const double rowStep = 64;
+  /// Vertical distance between rows: the row plus a gap.
+  ///
+  /// Fixed, as the reference implementation keeps it. Spreading a short fan
+  /// out to fill the screen was the wrong reading of the reference: macOS
+  /// keeps every stack on the same pitch and lets the count decide how tall
+  /// the fan is, so a folder of three items opens as a short fan rather than
+  /// a sparse column.
+  static const double rowStep = 68;
 
   /// Sideways drift coefficient; `x = shift * i^power`.
   ///
-  /// Measured on a real eight-item macOS stack: the preview column travels
-  /// about 20 pt across the whole fan. The arc is far gentler than it looks —
-  /// what reads as a bend is the tilt of the rows, not the travel.
-  static const double shift = 0.42;
+  /// The reference computes `FAN_ICON_SIZE * 0.03 * i^2` on a 56 px icon,
+  /// capped at `FAN_ICON_SIZE * 4.2`; this is the same curve at our scale.
+  static const double shift = 1.68;
 
   /// The drift's exponent. Two, so the column leaves the dock icon almost
   /// straight and bends harder with every row it climbs.
   static const double shiftPower = 2.0;
 
-  /// Drift ceiling, so a full fan bends no further than a macOS one.
-  static const double shiftMax = 26;
+  /// Drift ceiling, matching the reference's cap on a tall fan.
+  static const double shiftMax = 235;
 
   /// Tilt per row, in degrees.
   ///
-  /// A macOS stack turns its rows with the arc: the end nearest the preview
-  /// lifts, most on the top row. Measured on the reference, the eighth row
-  /// sits about 10 degrees off level.
-  static const double tiltDegrees = 1.4;
+  /// A macOS stack turns its name plates with the arc, the end nearest the
+  /// preview staying put and the far end lifting. Measured on the reference's
+  /// top plate: about 50 px of lift over 250 px, so roughly 11 degrees at the
+  /// eighth row. The cards themselves never turn.
+  static const double tiltDegrees = 1.5;
 
   /// Distance between the dock capsule and the first row.
   static const double gap = 10;
@@ -92,7 +97,7 @@ abstract final class DockStackFan {
   static const double pillHeight = 30;
 
   /// Gap between the label pill and the preview card.
-  static const double thumbGap = 8;
+  static const double thumbGap = 4;
 
   /// The open-in-Files button at the top of a fan.
   static const double openSize = 44;
@@ -112,9 +117,9 @@ abstract final class DockStackFan {
 
   /// Rows that fit on a screen this tall, between [bottom] and [top].
   ///
-  /// With [widths] the fit is exact: a row turned by [tilt] lifts the far end
-  /// of its label by `width x sin(angle)`, and a tall fan loses its top rows to
-  /// that overhang long before it runs out of steps.
+  /// With [widths] the fit is exact: a row turns about the end nearest its
+  /// preview, so its far end lifts by the full width times the sine while the
+  /// box itself shortens a little by the cosine.
   static int fitRows({
     required double bottom,
     required double top,
@@ -126,12 +131,14 @@ abstract final class DockStackFan {
     if (room <= 0) return 1;
     final plain = math.max(1, (room / (rowStep * scale)).floor());
     if (widths.isEmpty || tilt <= 0) return plain;
+    final half = rowHeight / 2 * scale;
     var fits = 0;
     for (var i = 0; i < widths.length && i < plain; i++) {
       final angle = tilt * i * math.pi / 180;
-      final rise =
-          rowStep * scale * (i + 1) + widths[i] * math.sin(angle) * hoverScale;
-      if (rise > room) break;
+      final lift =
+          (widths[i] * math.sin(angle) + half * (math.cos(angle) - 1)) *
+          hoverScale;
+      if (rowStep * scale * (i + 1) + lift > room) break;
       fits = i + 1;
     }
     return math.max(1, fits);
@@ -140,7 +147,8 @@ abstract final class DockStackFan {
   /// The rows for a settled fan, in slot order (0 nearest the dock).
   ///
   /// [widths] is each row's width once its label is measured. [anchorX] is the
-  /// dock icon's centre and [bottom] the y the first row sits above.
+  /// dock icon's centre and [bottom] the y the first row sits above. The pitch
+  /// is fixed, so the count decides how tall the fan opens, as on macOS.
   static List<DockFanRow> layout({
     required List<double> widths,
     required double anchorX,
@@ -172,9 +180,10 @@ abstract final class DockStackFan {
           top: centreY - height / 2,
           width: rowWidth,
           height: height,
-          // The end nearest the preview column lifts, so the tilt runs
-          // against the drift's side: a right lean turns counter-clockwise.
-          angle: -tilt * i * sign * math.pi / 180,
+          // The preview end sinks and the label end lifts, which is the way
+          // the reference's plates hang off the column: a right lean turns
+          // clockwise.
+          angle: tilt * i * sign * math.pi / 180,
           iconX: leading ? edge + icon / 2 : edge - icon / 2,
           iconY: centreY,
         ),

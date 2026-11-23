@@ -460,6 +460,19 @@ class _DockSettingsPanelState extends ConsumerState<DockSettingsPanel> {
                     onChanged: (value) =>
                         _controller.setMagnificationAmount(value),
                   ),
+                  _SegmentedField<DockAppearance>(
+                    label: _zh ? '外观' : 'Appearance',
+                    value: settings.appearance,
+                    options: [
+                      (DockAppearance.macos, 'macOS', Icons.grid_view_rounded),
+                      (
+                        DockAppearance.denial,
+                        'Denial',
+                        Icons.auto_awesome_mosaic_outlined,
+                      ),
+                    ],
+                    onChanged: (value) => _controller.setAppearance(value),
+                  ),
                   _SegmentedField<DockIconMode>(
                     label: _zh ? '图标' : 'Icons',
                     value: settings.iconMode,

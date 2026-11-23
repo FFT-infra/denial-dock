@@ -75,6 +75,9 @@ class DockSettingsController extends AsyncNotifier<DockSettings> {
   Future<void> setIconMode(DockIconMode mode) =>
       _update((current) => current.copyWith(iconMode: mode));
 
+  Future<void> setAppearance(DockAppearance appearance) =>
+      _update((current) => current.copyWith(appearance: appearance));
+
   Future<void> setIconOpacity(double opacity) =>
       _update((current) => current.copyWith(iconOpacity: opacity));
 
@@ -160,6 +163,9 @@ class DockSettingsController extends AsyncNotifier<DockSettings> {
 
   Future<void> setFolderView(String path, DockStackMode view) =>
       _update((current) => current.withFolderStack(path, view: view));
+
+  Future<void> setFolderStacked(String path, bool stacked) =>
+      _update((current) => current.withFolderStack(path, stacked: stacked));
 
   Future<void> setFolderSort(String path, DockStackSortMode sort) =>
       _update((current) => current.withFolderStack(path, sort: sort));

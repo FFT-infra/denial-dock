@@ -185,6 +185,23 @@ enum DockIconMode {
   };
 }
 
+/// Which icon language the dock's own items speak.
+///
+/// [macos] draws a stacked folder, a wire trash can and a Launchpad grid, the
+/// shapes the reference screenshot shows. [denial] keeps the accent-tinted
+/// rounded tile the dock shipped with, so the old look stays one setting away.
+enum DockAppearance {
+  macos,
+  denial;
+
+  String get key => this == DockAppearance.denial ? 'denial' : 'macos';
+
+  static DockAppearance parse(
+    Object? value, {
+    DockAppearance fallback = DockAppearance.macos,
+  }) => value == 'denial' ? DockAppearance.denial : fallback;
+}
+
 /// Tinted-mode colours are stored as lowercase `#rrggbb`; anything else means
 /// the shell accent.
 String? normalizeTintColor(Object? value) {
@@ -233,18 +250,20 @@ class DockPin {
 
 /// How a folder stack opens. `auto` follows Finder: a fan while the folder fits
 /// one column, a grid once it would run off the screen.
-enum DockStackMode { auto, fan, grid }
+enum DockStackMode { auto, fan, grid, list }
 
 extension DockStackModeKey on DockStackMode {
   String get key => switch (this) {
     DockStackMode.auto => 'auto',
     DockStackMode.fan => 'fan',
     DockStackMode.grid => 'grid',
+    DockStackMode.list => 'list',
   };
 
   static DockStackMode parse(Object? value) => switch (value) {
     'fan' => DockStackMode.fan,
     'grid' => DockStackMode.grid,
+    'list' => DockStackMode.list,
     _ => DockStackMode.auto,
   };
 }
@@ -279,6 +298,7 @@ class DockFolder {
     this.view = DockStackMode.auto,
     this.sort = DockStackSortMode.added,
     this.order = const [],
+    this.stacked = true,
   });
 
   final String path;
@@ -290,12 +310,16 @@ class DockFolder {
   /// Names rather than paths so a folder that moves on disk keeps its order.
   final List<String> order;
 
+  /// Whether the icon shows a pile of the newest files or a plain folder.
+  final bool stacked;
+
   Map<String, Object> toJson() => {
     'path': path,
     'label': label,
     'view': view.key,
     'sort': sort.key,
     if (order.isNotEmpty) 'order': order,
+    if (!stacked) 'stacked': false,
   };
 
   static DockFolder? fromJson(Object? value) {
@@ -314,6 +338,7 @@ class DockFolder {
       order: order is List
           ? List.unmodifiable(order.whereType<String>())
           : const [],
+      stacked: value['stacked'] != false,
     );
   }
 }
@@ -352,6 +377,7 @@ class DockSettings {
     this.magnificationAmount = 0.6,
     this.position = DockPosition.bottom,
     this.iconMode = DockIconMode.color,
+    this.appearance = DockAppearance.macos,
     this.iconOpacity = 1.0,
     this.tintColor,
     this.revealIndicator = true,
@@ -424,6 +450,9 @@ class DockSettings {
 
   final DockPosition position;
   final DockIconMode iconMode;
+
+  /// The icon language for the dock's own items (stack, trash, launcher).
+  final DockAppearance appearance;
 
   /// Opacity of the filtered icon modes; colour icons always draw at full
   /// strength.
@@ -507,6 +536,7 @@ class DockSettings {
     double? magnificationAmount,
     DockPosition? position,
     DockIconMode? iconMode,
+    DockAppearance? appearance,
     double? iconOpacity,
     String? tintColor,
     bool clearTint = false,
@@ -540,6 +570,7 @@ class DockSettings {
     ),
     position: position ?? this.position,
     iconMode: iconMode ?? this.iconMode,
+    appearance: appearance ?? this.appearance,
     iconOpacity: clampIconOpacity(iconOpacity ?? this.iconOpacity),
     tintColor: clearTint ? null : (tintColor ?? this.tintColor),
     revealIndicator: revealIndicator ?? this.revealIndicator,
@@ -599,6 +630,7 @@ class DockSettings {
           view: folder.view,
           sort: folder.sort,
           order: folder.order,
+          stacked: folder.stacked,
         ),
       ]),
     );
@@ -610,6 +642,7 @@ class DockSettings {
     DockStackMode? view,
     DockStackSortMode? sort,
     List<String>? order,
+    bool? stacked,
   }) {
     final key = normalizeFolderPath(path);
     return copyWith(
@@ -624,6 +657,7 @@ class DockSettings {
               view: view ?? folder.view,
               sort: sort ?? folder.sort,
               order: order ?? folder.order,
+              stacked: stacked ?? folder.stacked,
             ),
       ]),
     );
@@ -704,6 +738,7 @@ class DockSettings {
       ),
       position: DockPosition.parse(json['position']),
       iconMode: DockIconMode.parse(json['iconMode']),
+      appearance: DockAppearance.parse(json['appearance']),
       iconOpacity: clampIconOpacity(
         json['iconOpacity'] is num
             ? (json['iconOpacity'] as num).toDouble()
@@ -814,6 +849,7 @@ class DockPreferencesStore {
     json['magnificationAmount'] = settings.magnificationAmount;
     json['position'] = settings.position.key;
     json['iconMode'] = settings.iconMode.key;
+    json['appearance'] = settings.appearance.key;
     json['iconOpacity'] = settings.iconOpacity;
     if (settings.tintColor case final tint?) {
       json['tintColor'] = tint;

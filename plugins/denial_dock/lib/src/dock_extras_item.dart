@@ -10,6 +10,8 @@ import 'package:flutter/services.dart';
 
 import 'dock_extras.dart';
 import 'dock_icon.dart';
+import 'dock_mac_icons.dart';
+import 'dock_pile.dart';
 import 'dock_menu.dart';
 import 'dock_settings.dart';
 import 'dock_stack_files.dart'
@@ -41,6 +43,7 @@ class DockAccessoryItem extends StatefulWidget {
     this.glyph,
     this.fill,
     this.download,
+    this.face,
     super.key,
   });
 
@@ -54,6 +57,11 @@ class DockAccessoryItem extends StatefulWidget {
   /// Painted behind [glyph] and clipped to the tile: a folder's newest file
   /// fills the tile instead of sitting in a circle inside it.
   final Widget? fill;
+
+  /// Replaces the tinted tile with the caller's own artwork — the macOS-style
+  /// stack, trash can or Launchpad grid. The press, menu and badge wiring
+  /// around it stays the same.
+  final Widget Function(bool pressed)? face;
 
   /// A transfer running into this folder, drawn as a bar along the tile's
   /// bottom edge.
@@ -176,22 +184,25 @@ class _DockAccessoryItemState extends State<DockAccessoryItem> {
                 clipBehavior: Clip.none,
                 children: [
                   Positioned.fill(
-                    child: DockTile(
-                      size: widget.size,
-                      accent: theme.accent,
-                      fill: widget.fill,
-                      pressed: _pressed,
-                      // A full-bleed picture is the item's face; drawing the
-                      // type icon over it would be two icons in one tile.
-                      child: widget.fill != null
-                          ? const SizedBox.shrink()
-                          : widget.glyph ??
-                                Icon(
-                                  widget.icon,
-                                  size: widget.size * 0.46,
-                                  color: theme.accent,
-                                ),
-                    ),
+                    child:
+                        widget.face?.call(_pressed) ??
+                        DockTile(
+                          size: widget.size,
+                          accent: theme.accent,
+                          fill: widget.fill,
+                          pressed: _pressed,
+                          // A full-bleed picture is the item's face; drawing
+                          // the type icon over it would be two icons in one
+                          // tile.
+                          child: widget.fill != null
+                              ? const SizedBox.shrink()
+                              : widget.glyph ??
+                                    Icon(
+                                      widget.icon,
+                                      size: widget.size * 0.46,
+                                      color: theme.accent,
+                                    ),
+                        ),
                   ),
                   if (widget.download case final download?)
                     Positioned(
@@ -432,6 +443,7 @@ class DockTrashItem extends StatefulWidget {
     required this.onOverlayChanged,
     required this.monitorBounds,
     required this.onOpenSettings,
+    this.appearance = DockAppearance.macos,
     super.key,
   });
 
@@ -442,6 +454,7 @@ class DockTrashItem extends StatefulWidget {
   final ValueChanged<bool> onOverlayChanged;
   final Rect monitorBounds;
   final VoidCallback onOpenSettings;
+  final DockAppearance appearance;
 
   @override
   State<DockTrashItem> createState() => _DockTrashItemState();
@@ -525,6 +538,9 @@ class _DockTrashItemState extends State<DockTrashItem> {
       onTap: _open,
       onOverlayChanged: widget.onOverlayChanged,
       monitorBounds: widget.monitorBounds,
+      face: widget.appearance == DockAppearance.macos
+          ? (pressed) => DockTrashIcon(size: widget.size, pressed: pressed)
+          : null,
       menuBuilder: (context, close) => [
         DockMenuRow(
           icon: Icons.open_in_new,
@@ -570,7 +586,10 @@ class DockFolderItem extends StatefulWidget {
     required this.onOpenSettings,
     required this.onSetView,
     required this.onSetSort,
+    required this.onSetStacked,
     required this.onReorder,
+    this.workArea,
+    this.appearance = DockAppearance.macos,
     this.trashRect,
     super.key,
   });
@@ -583,9 +602,16 @@ class DockFolderItem extends StatefulWidget {
   final VoidCallback onRemove;
   final ValueChanged<bool> onOverlayChanged;
   final Rect monitorBounds;
+
+  /// The output minus the system bar strip, which bounds the open fan.
+  final Rect? workArea;
+
+  /// Which icon language the stack draws itself in.
+  final DockAppearance appearance;
   final VoidCallback onOpenSettings;
   final ValueChanged<DockStackMode> onSetView;
   final ValueChanged<DockStackSortMode> onSetSort;
+  final ValueChanged<bool> onSetStacked;
 
   /// A dragged order from the open stack, in file names.
   final ValueChanged<List<String>> onReorder;
@@ -659,8 +685,20 @@ class _DockFolderItemState extends State<DockFolderItem> {
         ? null
         : DockStackThumbs.preview(entries.first.path);
     final download = DockStackFiles.progress(entries);
-    if (preview == _preview && _sameDownload(download, _download)) return;
+    // The stacked icon draws the newest few entries, so the list has to be
+    // kept here too, not only when the fan opens.
+    final sameEntries =
+        _entries.length == entries.length &&
+        (_entries.isEmpty ||
+            (_entries.first.path == entries.first.path &&
+                _entries.last.path == entries.last.path));
+    if (preview == _preview &&
+        _sameDownload(download, _download) &&
+        sameEntries) {
+      return;
+    }
     setState(() {
+      _entries = entries;
       _preview = preview;
       _download = download;
     });
@@ -799,6 +837,7 @@ class _DockFolderItemState extends State<DockFolderItem> {
         final scene = Offset.zero & layout.overlaySize;
         final output = widget.monitorBounds.intersect(scene);
         final bounds = output.isEmpty ? scene : output;
+        final work = widget.workArea?.intersect(scene);
         return ShellInputRegion(
           debugLabel: 'Dock folder stack',
           pointerPolicy: ShellPointerPolicy.fullScene,
@@ -807,8 +846,10 @@ class _DockFolderItemState extends State<DockFolderItem> {
             entries: _entries,
             anchor: anchor,
             bounds: bounds,
+            workArea: work == null || work.isEmpty ? null : work,
             position: widget.position,
             mode: widget.folder.view,
+            title: widget.folder.label,
             zh: widget.zh,
             onDismiss: _closeFan,
             onOpenFolder: _openFolder,
@@ -831,6 +872,18 @@ class _DockFolderItemState extends State<DockFolderItem> {
                 gaplessPlayback: true,
                 errorBuilder: (_, _, _) => const SizedBox.shrink(),
               ),
+        face: widget.appearance == DockAppearance.macos
+            ? (pressed) => DockStackIcon(
+                size: widget.size,
+                previews: widget.folder.stacked
+                    ? [
+                        for (final entry in _entries.take(DockPile.count))
+                          DockStackThumbs.preview(entry.path),
+                      ]
+                    : const [],
+                pressed: pressed,
+              )
+            : null,
         size: widget.size,
         lift: widget.lift,
         position: widget.position,
@@ -839,94 +892,98 @@ class _DockFolderItemState extends State<DockFolderItem> {
         monitorBounds: widget.monitorBounds,
         download: _download,
         menuBuilder: (context, close) => [
+          // The same flat sections macOS puts on a stack's menu, in its order:
+          // sort, then how the icon looks, then how the stack opens.
+          DockMenuSectionLabel(widget.zh ? '排序方式' : 'Sort by'),
+          for (final sort in const [
+            DockStackSortMode.name,
+            DockStackSortMode.added,
+            DockStackSortMode.modified,
+            DockStackSortMode.kind,
+          ])
+            DockMenuRow(
+              label: switch (sort) {
+                DockStackSortMode.name => widget.zh ? '名称' : 'Name',
+                DockStackSortMode.added => widget.zh ? '添加日期' : 'Date Added',
+                DockStackSortMode.modified =>
+                  widget.zh ? '修改日期' : 'Date Modified',
+                DockStackSortMode.kind => widget.zh ? '种类' : 'Kind',
+                DockStackSortMode.manual => widget.zh ? '自定顺序' : 'Custom Order',
+              },
+              selected: widget.folder.sort == sort,
+              onTap: () {
+                close();
+                widget.onSetSort(sort);
+              },
+            ),
+          DockMenuSeparator(),
+          DockMenuSectionLabel(widget.zh ? '显示为' : 'Display as'),
+          for (final stacked in const [true, false])
+            DockMenuRow(
+              label: stacked
+                  ? (widget.zh ? '叠放' : 'Stack')
+                  : (widget.zh ? '文件夹' : 'Folder'),
+              selected: widget.folder.stacked == stacked,
+              onTap: () {
+                close();
+                widget.onSetStacked(stacked);
+              },
+            ),
+          DockMenuSeparator(),
+          DockMenuSectionLabel(widget.zh ? '显示内容为' : 'View content as'),
+          for (final view in const [
+            DockStackMode.fan,
+            DockStackMode.grid,
+            DockStackMode.list,
+            DockStackMode.auto,
+          ])
+            DockMenuRow(
+              label: switch (view) {
+                DockStackMode.fan => widget.zh ? '扇状' : 'Fan',
+                DockStackMode.grid => widget.zh ? '网格' : 'Grid',
+                DockStackMode.list => widget.zh ? '列表' : 'List',
+                DockStackMode.auto => widget.zh ? '自动' : 'Automatic',
+              },
+              selected: widget.folder.view == view,
+              onTap: () {
+                close();
+                widget.onSetView(view);
+              },
+            ),
+          DockMenuSeparator(),
+          DockMenuSubmenuRow(
+            icon: Icons.tune,
+            label: widget.zh ? '选项' : 'Options',
+            submenu: (context) => Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                DockMenuRow(
+                  icon: Icons.remove_circle_outline,
+                  label: widget.zh ? '从 Dock 中移除' : 'Remove from Dock',
+                  onTap: () {
+                    close();
+                    widget.onRemove();
+                  },
+                ),
+                DockMenuRow(
+                  icon: Icons.settings_outlined,
+                  label: widget.zh ? 'Dock 设置…' : 'Dock settings…',
+                  onTap: () {
+                    close();
+                    widget.onOpenSettings();
+                  },
+                ),
+              ],
+            ),
+          ),
           DockMenuRow(
-            icon: Icons.open_in_new,
-            label: widget.zh ? '打开文件夹' : 'Open folder',
+            label: widget.zh
+                ? '打开“${widget.folder.label}”'
+                : 'Open “${widget.folder.label}”',
             onTap: () {
               close();
               _openFolder();
-            },
-          ),
-          DockMenuSeparator(),
-          DockMenuSubmenuRow(
-            icon: Icons.grid_view_outlined,
-            label: widget.zh ? '显示为' : 'View as',
-            submenu: (context) => Column(
-              mainAxisSize: MainAxisSize.min,
-              crossAxisAlignment: CrossAxisAlignment.stretch,
-              children: [
-                for (final view in DockStackMode.values)
-                  DockMenuRow(
-                    icon: switch (view) {
-                      DockStackMode.auto => Icons.auto_awesome_outlined,
-                      DockStackMode.fan => Icons.filter_none,
-                      DockStackMode.grid => Icons.grid_view,
-                    },
-                    label: switch (view) {
-                      DockStackMode.auto => widget.zh ? '自动' : 'Automatic',
-                      DockStackMode.fan => widget.zh ? '扇形' : 'Fan',
-                      DockStackMode.grid => widget.zh ? '网格' : 'Grid',
-                    },
-                    selected: widget.folder.view == view,
-                    onTap: () {
-                      close();
-                      widget.onSetView(view);
-                    },
-                  ),
-              ],
-            ),
-          ),
-          DockMenuSubmenuRow(
-            icon: Icons.sort,
-            label: widget.zh ? '排序方式' : 'Sort by',
-            submenu: (context) => Column(
-              mainAxisSize: MainAxisSize.min,
-              crossAxisAlignment: CrossAxisAlignment.stretch,
-              children: [
-                for (final sort in DockStackSortMode.values)
-                  DockMenuRow(
-                    icon: switch (sort) {
-                      DockStackSortMode.added => Icons.schedule,
-                      DockStackSortMode.modified =>
-                        Icons.edit_calendar_outlined,
-                      DockStackSortMode.name => Icons.sort_by_alpha,
-                      DockStackSortMode.kind => Icons.category_outlined,
-                      DockStackSortMode.manual => Icons.drag_indicator,
-                    },
-                    label: switch (sort) {
-                      DockStackSortMode.added =>
-                        widget.zh ? '添加日期' : 'Date Added',
-                      DockStackSortMode.modified =>
-                        widget.zh ? '修改日期' : 'Date Modified',
-                      DockStackSortMode.name => widget.zh ? '名称' : 'Name',
-                      DockStackSortMode.kind => widget.zh ? '种类' : 'Kind',
-                      DockStackSortMode.manual =>
-                        widget.zh ? '自定顺序' : 'Custom Order',
-                    },
-                    selected: widget.folder.sort == sort,
-                    onTap: () {
-                      close();
-                      widget.onSetSort(sort);
-                    },
-                  ),
-              ],
-            ),
-          ),
-          DockMenuSeparator(),
-          DockMenuRow(
-            icon: Icons.remove_circle_outline,
-            label: widget.zh ? '从 Dock 中移除' : 'Remove from Dock',
-            onTap: () {
-              close();
-              widget.onRemove();
-            },
-          ),
-          DockMenuRow(
-            icon: Icons.tune,
-            label: widget.zh ? 'Dock 设置…' : 'Dock settings…',
-            onTap: () {
-              close();
-              widget.onOpenSettings();
             },
           ),
         ],

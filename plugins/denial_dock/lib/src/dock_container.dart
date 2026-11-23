@@ -25,6 +25,7 @@ import 'dock_recents.dart';
 import 'dock_drag.dart';
 import 'dock_extras_item.dart';
 import 'dock_icon.dart';
+import 'dock_mac_icons.dart';
 import 'dock_item.dart';
 import 'dock_layout.dart';
 import 'dock_math.dart';
@@ -1781,6 +1782,7 @@ class _DockContainerState extends ConsumerState<DockContainer>
             size: extent,
             lift: lift,
             position: _position,
+            appearance: _settings.appearance,
             label: launcherLabel,
             onTap: widget.services.toggleLauncher,
             onOpenMenu: () => _openDockMenu(slot.center),
@@ -1805,6 +1807,8 @@ class _DockContainerState extends ConsumerState<DockContainer>
             ),
             onOverlayChanged: _setOverlayHold,
             monitorBounds: _output,
+            workArea: widget.environment.workArea,
+            appearance: _settings.appearance,
             onOpenSettings: _openSettings,
             onSetView: (view) => unawaited(
               ref
@@ -1815,6 +1819,11 @@ class _DockContainerState extends ConsumerState<DockContainer>
               ref
                   .read(dockSettingsProvider.notifier)
                   .setFolderSort(folder.path, sort),
+            ),
+            onSetStacked: (stacked) => unawaited(
+              ref
+                  .read(dockSettingsProvider.notifier)
+                  .setFolderStacked(folder.path, stacked),
             ),
             onReorder: (order) => unawaited(
               ref
@@ -1838,6 +1847,7 @@ class _DockContainerState extends ConsumerState<DockContainer>
             onOverlayChanged: _setOverlayHold,
             monitorBounds: _output,
             onOpenSettings: _openSettings,
+            appearance: _settings.appearance,
           ),
         );
       case _SlotKind.app:
@@ -2003,12 +2013,14 @@ class _LauncherItem extends StatefulWidget {
     required this.label,
     required this.onTap,
     required this.onOpenMenu,
+    this.appearance = DockAppearance.macos,
   });
 
   final double size;
   final double lift;
   final DockPosition position;
   final String label;
+  final DockAppearance appearance;
   final VoidCallback onTap;
   final VoidCallback onOpenMenu;
 
@@ -2044,17 +2056,19 @@ class _LauncherItemState extends State<_LauncherItem> {
             behavior: HitTestBehavior.opaque,
             onTap: widget.onTap,
             onSecondaryTapDown: (_) => widget.onOpenMenu(),
-            child: DockTile(
-              size: widget.size,
-              accent: theme.accent,
-              pressed: _pressed,
-              child: SizedBox.square(
-                dimension: widget.size * 0.42,
-                child: CustomPaint(
-                  painter: _LauncherGlyphPainter(theme.accent),
-                ),
-              ),
-            ),
+            child: widget.appearance == DockAppearance.macos
+                ? DockLaunchpadIcon(size: widget.size, pressed: _pressed)
+                : DockTile(
+                    size: widget.size,
+                    accent: theme.accent,
+                    pressed: _pressed,
+                    child: SizedBox.square(
+                      dimension: widget.size * 0.42,
+                      child: CustomPaint(
+                        painter: _LauncherGlyphPainter(theme.accent),
+                      ),
+                    ),
+                  ),
           ),
         ),
       ),

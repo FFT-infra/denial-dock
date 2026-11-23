@@ -5,10 +5,14 @@ import 'package:denial_flutter_sdk/theme.dart';
 import 'package:flutter/gestures.dart'
     show PointerScrollEvent, PointerSignalEvent;
 import 'package:flutter/material.dart';
+import 'package:flutter/physics.dart';
 import 'package:flutter/services.dart';
 
 import 'dock_drag.dart';
-import 'dock_settings.dart' show DockPosition, DockStackMode;
+import 'dock_mac_icons.dart';
+import 'dock_menu.dart';
+import 'dock_settings.dart' show DockPosition, DockStackMode, DockStackSortMode;
+import 'dock_pile.dart';
 import 'dock_stack_fan.dart';
 import 'dock_stack_files.dart';
 import 'dock_stack_grid.dart';
@@ -25,8 +29,10 @@ class DockStackView extends StatefulWidget {
     required this.entries,
     required this.anchor,
     required this.bounds,
+    this.workArea,
     required this.position,
     required this.mode,
+    this.title,
     required this.zh,
     required this.onDismiss,
     required this.onOpenFolder,
@@ -45,6 +51,10 @@ class DockStackView extends StatefulWidget {
   /// The monitor's rectangle in scene coordinates, so the stack stays on it.
   final Rect bounds;
 
+  /// The output minus the system bar strip. A fan that grew into the full
+  /// output would climb under the top bar, so the rows stop at this edge.
+  final Rect? workArea;
+
   /// Which edge the dock sits on, so a side dock opens beside the icon rather
   /// than above it.
   final DockPosition position;
@@ -52,6 +62,10 @@ class DockStackView extends StatefulWidget {
   /// The view the user picked. `auto` falls back to a grid once the fan would
   /// not fit, the way Finder does.
   final DockStackMode mode;
+
+  /// The folder's name, drawn as the grid panel's header the way macOS titles
+  /// it.
+  final String? title;
 
   final bool zh;
 
@@ -79,7 +93,7 @@ class _DockStackViewState extends State<DockStackView>
     with SingleTickerProviderStateMixin {
   late final AnimationController _open = AnimationController(
     vsync: this,
-    duration: const Duration(milliseconds: 260),
+    duration: const Duration(milliseconds: 340),
   )..forward();
 
   _StackLayout? _layout;
@@ -116,9 +130,24 @@ class _DockStackViewState extends State<DockStackView>
 
   bool get _dragging => _dragFrom != null;
 
-  /// The stagger between rows leaving the icon, and how long one row takes.
-  static const double _stagger = 0.026;
-  static const double _rowSeconds = 0.2;
+  /// How much spring time one row's settle spans, in seconds. The curve is
+  /// sampled, not timed, so this only sets how far into the oscillation the
+  /// settle is allowed to travel.
+  static const double _springSeconds = 0.30;
+
+  /// A damped-oscillator curve: overshoots its target once, then settles.
+  /// This is the difference between a macOS motion and a plain decelerate.
+  static final Curve _spring = _SpringCurve(Motion.bouncy, _springSeconds);
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    // With motion turned off the stack has to be usable at once; the spring
+    // would otherwise still stagger every row in.
+    if (MediaQuery.disableAnimationsOf(context) && !_closing) {
+      _open.value = 1;
+    }
+  }
 
   @override
   void dispose() {
@@ -201,7 +230,9 @@ class _DockStackViewState extends State<DockStackView>
                     for (var i = 0; i < layout.rows.length; i++)
                       _buildFanRow(context, layout, i),
                     _buildOpenButton(context, layout),
-                  ] else
+                  ] else if (layout.isList)
+                    _buildList(context, layout)
+                  else
                     _buildGrid(context, layout),
                   if (_searchable) _buildSearch(context, layout),
                   if (_dragging && widget.trashRect != null)
@@ -368,6 +399,10 @@ class _DockStackViewState extends State<DockStackView>
     if (_closing) return;
     _closing = true;
     if (_hovered != null) setState(() => _hovered = null);
+    if (MediaQuery.disableAnimationsOf(context)) {
+      widget.onDismiss();
+      return;
+    }
     _open.reverse().whenComplete(() {
       if (mounted) widget.onDismiss();
     });
@@ -407,6 +442,9 @@ class _DockStackViewState extends State<DockStackView>
             : (widget.zh ? '没有匹配的项目' : 'No matches'),
       );
     }
+    // An explicit list is a menu of names, the way Finder's List view opens a
+    // stack; it never falls back to another shape.
+    if (widget.mode == DockStackMode.list) return _listLayout(entries, style);
     // The fan is what a folder of a few files opens into. `auto` falls back to
     // a grid when it cannot fit; `fan` truncates instead, because a grid is not
     // what the user asked for.
@@ -442,8 +480,11 @@ class _DockStackViewState extends State<DockStackView>
       DockStackMode.grid => 0.0,
       _ => widget.position == DockPosition.bottom ? openRoom : 0.0,
     };
+    // The work area already excludes the system bar, so the rows start at its
+    // edge; without one, fall back to the output with a small inset.
+    final top = widget.workArea?.top ?? widget.bounds.top;
     return (
-      top: widget.bounds.top + 8 + (_searchable ? searchHeight : 0) + reserve,
+      top: top + 8 + (_searchable ? searchHeight : 0) + reserve,
       bottom: widget.position == DockPosition.bottom
           ? widget.anchor.top - DockStackFan.gap
           : widget.bounds.bottom - 8,
@@ -474,8 +515,10 @@ class _DockStackViewState extends State<DockStackView>
       top: _room.top,
       widths: widths,
     );
-    // Too tall for a real fan: a grid carries more files in less room.
-    if (!truncate && slots < 2 && entries.length > 1) return null;
+    // Automatic view follows macOS: a fan that would have to leave files out
+    // is replaced by the grid panel, which shows all of them. Only an explicit
+    // fan truncates with a "more" row.
+    if (!truncate && slots < entries.length) return null;
     final overflows = slots < entries.length;
     final shown = overflows
         ? math.max(0, slots - 1)
@@ -515,7 +558,7 @@ class _DockStackViewState extends State<DockStackView>
 
   /// A side dock's stack: rows in a column beside the icon, centred on it, so
   /// the labels never trail back across the dock they came from.
-  _StackLayout _sideLayout(
+  _StackLayout? _sideLayout(
     TextStyle style,
     List<DockStackEntry> entries,
     double edge, {
@@ -523,7 +566,8 @@ class _DockStackViewState extends State<DockStackView>
   }) {
     final room = _room.bottom - _room.top;
     final slots = math.max(1, (room / DockStackFan.rowStep).floor());
-    final overflows = !truncate && slots < entries.length;
+    if (!truncate && slots < entries.length) return null;
+    final overflows = slots < entries.length;
     final shown = overflows
         ? math.max(0, slots - 1)
         : math.min(slots, entries.length);
@@ -548,6 +592,31 @@ class _DockStackViewState extends State<DockStackView>
       toRight: toRight,
     );
     return _StackLayout.fan(rows, geometry, iconLeading: !toRight);
+  }
+
+  /// Rows of names in one panel, the height of the screen's room or the
+  /// folder, whichever is shorter.
+  _StackLayout _listLayout(List<DockStackEntry> entries, TextStyle style) {
+    const rowHeight = 30.0;
+    const pad = 6.0;
+    final width = math.min(280.0, math.max(180.0, widget.bounds.width - 32));
+    final room = _room.bottom - _room.top;
+    final content = entries.length * rowHeight + pad * 2;
+    final height = math.min(content, room);
+    final left = (widget.anchor.center.dx - width / 2)
+        .clamp(
+          widget.bounds.left + 16,
+          math.max(widget.bounds.left + 16, widget.bounds.right - width - 16),
+        )
+        .toDouble();
+    return _StackLayout.list(
+      [for (final entry in entries) _StackRow.entry(entry)],
+      width: width,
+      height: height,
+      contentHeight: content,
+      scrolls: content > height,
+      origin: Offset(left, _room.bottom - height),
+    );
   }
 
   _StackLayout _gridLayout(ShellThemeData theme, List<DockStackEntry> entries) {
@@ -652,7 +721,7 @@ class _DockStackViewState extends State<DockStackView>
       top: top,
       width: width,
       child: Opacity(
-        opacity: Curves.easeOut.transform(_open.value),
+        opacity: _open.value.clamp(0.0, 1.0),
         child: SizedBox(
           height: 30,
           child: DecoratedBox(
@@ -711,41 +780,41 @@ class _DockStackViewState extends State<DockStackView>
     final lifting = _dragFrom == index;
     final dropTarget = _dragging && _dragTo == index && !lifting;
     final centre = Offset(box.centerX, box.centerY);
-    // The rows fly out of the icon: one that has not started yet sits on it.
-    final at = Offset.lerp(
-      Offset(widget.anchor.center.dx, widget.anchor.center.dy),
-      centre,
-      eased,
-    )!;
+    // The rows start where the stacked icon drew its cards, so opening reads
+    // as the pile itself spreading out. Cards past the third share the
+    // deepest offset rather than flying in from off the icon.
+    final pile = math.min(index, DockPile.count - 1);
+    final pileDx = DockPile.offset(pile).dx * (layout.iconLeading ? -1 : 1);
+    final start = Offset(
+      widget.anchor.center.dx + widget.anchor.width * pileDx,
+      widget.anchor.center.dy + widget.anchor.width * DockPile.offset(pile).dy,
+    );
+    final at = Offset.lerp(start, centre, eased)!;
+    final rest = eased.clamp(0.0, 1.0);
+    final tilt = DockPile.angle(pile) * (1 - rest) + box.angle * rest;
     return Positioned(
       left: 0,
       top: 0,
       child: Transform.translate(
         offset: at - Offset(box.width / 2, box.height / 2),
-        // The row turns about its preview end, the way a macOS stack does:
-        // the cards keep their column and only the names fan out.
-        child: Transform.rotate(
-          angle: box.angle,
-          alignment: layout.iconLeading
-              ? Alignment.centerLeft
-              : Alignment.centerRight,
-          child: Transform.scale(
-            scale: (0.35 + 0.65 * eased) * (lit ? DockStackFan.hoverScale : 1),
-            child: Opacity(
-              // The row being dragged leaves a hole behind; the ghost carries
-              // the picture under the pointer.
-              opacity: lifting ? 0.35 : eased,
-              child: IgnorePointer(
-                child: SizedBox(
-                  width: box.width,
-                  height: box.height,
-                  child: _StackRowTile(
-                    row: row,
-                    theme: theme,
-                    lit: lit,
-                    dropTarget: dropTarget,
-                    iconLeading: layout.iconLeading,
-                  ),
+        child: Transform.scale(
+          scale: (0.55 + 0.45 * eased) * (lit ? DockStackFan.hoverScale : 1),
+          child: Opacity(
+            // The row being dragged leaves a hole behind; the ghost carries
+            // the picture under the pointer. The spring may pass 1, so the
+            // fade is clamped rather than trusting it.
+            opacity: lifting ? 0.35 : eased.clamp(0.0, 1.0),
+            child: IgnorePointer(
+              child: SizedBox(
+                width: box.width,
+                height: box.height,
+                child: _StackRowTile(
+                  row: row,
+                  theme: theme,
+                  lit: lit,
+                  tilt: tilt,
+                  dropTarget: dropTarget,
+                  iconLeading: layout.iconLeading,
                 ),
               ),
             ),
@@ -772,7 +841,7 @@ class _DockStackViewState extends State<DockStackView>
       width: size,
       height: size,
       child: Opacity(
-        opacity: eased,
+        opacity: eased.clamp(0.0, 1.0),
         child: Transform.scale(
           scale: 0.7 + 0.3 * eased,
           child: GestureDetector(
@@ -796,25 +865,20 @@ class _DockStackViewState extends State<DockStackView>
     );
   }
 
-  Widget _buildGrid(BuildContext context, _StackLayout layout) {
+  /// The list panel: one row per name, folders opening a submenu of their own
+  /// contents the way Finder's List view does.
+  Widget _buildList(BuildContext context, _StackLayout layout) {
     final theme = context.shellTheme;
-    final width = layout.width;
-    final left = (widget.anchor.center.dx - width / 2)
-        .clamp(
-          widget.bounds.left + 16,
-          math.max(widget.bounds.left + 16, widget.bounds.right - width - 16),
-        )
-        .toDouble();
+    final progress = _spring.transform(_open.value.clamp(0.0, 1.0));
     final max = math.max(0.0, layout.contentHeight - layout.height);
     final scroll = _scroll.clamp(0.0, max);
-    final progress = Curves.easeOutCubic.transform(_open.value);
     return Positioned(
-      left: left,
-      top: _room.bottom - layout.height,
-      width: width,
+      left: layout.origin.dx,
+      top: layout.origin.dy,
+      width: layout.width,
       height: layout.height,
       child: Opacity(
-        opacity: progress,
+        opacity: progress.clamp(0.0, 1.0),
         child: Transform.scale(
           scale: 0.94 + 0.06 * progress,
           alignment: Alignment.bottomCenter,
@@ -831,35 +895,163 @@ class _DockStackViewState extends State<DockStackView>
                 physics: layout.scrolls
                     ? const ClampingScrollPhysics()
                     : const NeverScrollableScrollPhysics(),
-                child: SizedBox(
-                  width: width,
-                  height: layout.contentHeight,
-                  child: Stack(
+                child: Padding(
+                  padding: const EdgeInsets.symmetric(vertical: 6),
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    crossAxisAlignment: CrossAxisAlignment.stretch,
                     children: [
-                      for (final cell in layout.grid)
-                        Positioned(
-                          left: cell.left,
-                          top: cell.top,
-                          width: cell.size,
-                          height: cell.size,
-                          child: IgnorePointer(
-                            child: _GridCellTile(
-                              row: layout.rows[cell.index],
-                              theme: theme,
-                              lit:
-                                  _hovered == cell.index ||
-                                  _selected == cell.index,
-                              lifting: _dragFrom == cell.index,
-                              dropTarget:
-                                  _dragging &&
-                                  _dragTo == cell.index &&
-                                  _dragFrom != cell.index,
-                            ),
-                          ),
-                        ),
+                      for (final row in layout.rows)
+                        _buildListRow(context, row),
                     ],
                   ),
                 ),
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildListRow(BuildContext context, _StackRow row) {
+    final entry = row.entry;
+    if (entry == null) {
+      return DockMenuRow(label: row.label, onTap: _dismiss);
+    }
+    if (entry.isDirectory) {
+      return DockMenuSubmenuRow(
+        icon: Icons.folder_rounded,
+        label: entry.name,
+        submenu: (_) => _directoryMenu(entry.path, 0),
+      );
+    }
+    return DockMenuRow(
+      icon: stackFileIcon(entry.extension),
+      label: entry.name,
+      onTap: () => _activate(row),
+    );
+  }
+
+  /// A folder's contents as menu rows. Nested folders recurse a couple of
+  /// levels, which is as deep as a dock submenu stays usable.
+  Widget _directoryMenu(String path, int depth) {
+    final entries = DockStackFiles.list(path, sort: DockStackSortMode.name);
+    final shown = entries.take(40).toList();
+    return Column(
+      mainAxisSize: MainAxisSize.min,
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        for (final entry in shown)
+          if (entry.isDirectory && depth < 2)
+            DockMenuSubmenuRow(
+              icon: Icons.folder_rounded,
+              label: entry.name,
+              submenu: (_) => _directoryMenu(entry.path, depth + 1),
+            )
+          else
+            DockMenuRow(
+              icon: entry.isDirectory
+                  ? Icons.folder_rounded
+                  : stackFileIcon(entry.extension),
+              label: entry.name,
+              onTap: () {
+                widget.onOpenEntry(entry);
+                _dismiss();
+              },
+            ),
+      ],
+    );
+  }
+
+  Widget _buildGrid(BuildContext context, _StackLayout layout) {
+    final theme = context.shellTheme;
+    final width = layout.width;
+    final left = (widget.anchor.center.dx - width / 2)
+        .clamp(
+          widget.bounds.left + 16,
+          math.max(widget.bounds.left + 16, widget.bounds.right - width - 16),
+        )
+        .toDouble();
+    final max = math.max(0.0, layout.contentHeight - layout.height);
+    final scroll = _scroll.clamp(0.0, max);
+    final progress = _spring.transform(_open.value.clamp(0.0, 1.0));
+    // The header grows the panel upward rather than pushing the cells down,
+    // so the hit test keeps using the grid's own origin.
+    final header = widget.title == null ? 0.0 : 26.0;
+    return Positioned(
+      left: left,
+      top: _room.bottom - layout.height - header,
+      width: width,
+      height: layout.height + header,
+      child: Opacity(
+        opacity: progress.clamp(0.0, 1.0),
+        child: Transform.scale(
+          scale: 0.94 + 0.06 * progress,
+          alignment: Alignment.bottomCenter,
+          child: DecoratedBox(
+            decoration: BoxDecoration(
+              color: theme.panelColor(theme.colors.surfaceContainerHigh),
+              border: Border.all(color: theme.colors.hairline),
+              borderRadius: theme.borderRadius(DockStackFan.radius),
+            ),
+            child: ClipRRect(
+              borderRadius: theme.borderRadius(DockStackFan.radius),
+              child: Column(
+                children: [
+                  if (widget.title case final title?)
+                    SizedBox(
+                      height: header,
+                      child: Center(
+                        child: Text(
+                          title,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: theme.text.systemBarCaption.copyWith(
+                            color: theme.colors.textPrimary,
+                            fontWeight: FontWeight.w600,
+                          ),
+                        ),
+                      ),
+                    ),
+                  Expanded(
+                    child: SingleChildScrollView(
+                      controller: _gridController(scroll),
+                      physics: layout.scrolls
+                          ? const ClampingScrollPhysics()
+                          : const NeverScrollableScrollPhysics(),
+                      child: SizedBox(
+                        width: width,
+                        height: layout.contentHeight,
+                        child: Stack(
+                          children: [
+                            for (final cell in layout.grid)
+                              Positioned(
+                                left: cell.left,
+                                top: cell.top,
+                                width: cell.size,
+                                height: cell.size,
+                                child: IgnorePointer(
+                                  child: _GridCellTile(
+                                    row: layout.rows[cell.index],
+                                    theme: theme,
+                                    lit:
+                                        _hovered == cell.index ||
+                                        _selected == cell.index,
+                                    lifting: _dragFrom == cell.index,
+                                    dropTarget:
+                                        _dragging &&
+                                        _dragTo == cell.index &&
+                                        _dragFrom != cell.index,
+                                  ),
+                                ),
+                              ),
+                          ],
+                        ),
+                      ),
+                    ),
+                  ),
+                ],
               ),
             ),
           ),
@@ -961,9 +1153,11 @@ class _DockStackViewState extends State<DockStackView>
   /// A row's own progress on the one timeline, staggered so the pack leaves
   /// the icon in order and folds back from the top.
   double _progressOf(int index, int count) {
-    final slot = _closing ? count - 1 - index : index;
-    final start = (_open.value - slot * _stagger) / _rowSeconds;
-    return Curves.easeOutCubic.transform(start.clamp(0.0, 1.0));
+    // The stack opens as one unit: every row leaves the pile on the same
+    // clock, so the icon reads as unfolding rather than dissolving row by
+    // row. The rows travel different distances, which is what keeps the
+    // motion from looking rigid.
+    return _spring.transform(_open.value.clamp(0.0, 1.0));
   }
 }
 
@@ -976,7 +1170,22 @@ class _StackLayout {
       contentHeight = 0,
       scrolls = false,
       isFan = true,
+      isList = false,
       origin = Offset.zero;
+
+  const _StackLayout.list(
+    this.rows, {
+    required this.width,
+    required this.height,
+    required this.contentHeight,
+    required this.scrolls,
+    required this.origin,
+  }) : fan = const [],
+       grid = const [],
+       columns = 1,
+       isFan = false,
+       isList = true,
+       iconLeading = false;
 
   const _StackLayout.grid(
     this.rows, {
@@ -989,6 +1198,7 @@ class _StackLayout {
     required this.origin,
   }) : fan = const [],
        isFan = false,
+       isList = false,
        iconLeading = false;
 
   final List<_StackRow> rows;
@@ -1001,6 +1211,10 @@ class _StackLayout {
   final bool scrolls;
   final bool isFan;
 
+  /// The file list: rows stacked vertically in one panel, the way Finder's
+  /// List view opens a stack.
+  final bool isList;
+
   /// The grid panel's top-left corner in scene coordinates.
   final Offset origin;
 
@@ -1010,6 +1224,8 @@ class _StackLayout {
 
   int? hitTest(Offset point, double scroll) => isFan
       ? DockStackFan.hitTest(fan, point.dx, point.dy)
+      : isList
+      ? null
       : DockStackGrid.hitTest(
           grid,
           point.dx - origin.dx,
@@ -1025,6 +1241,7 @@ class _StackRowTile extends StatelessWidget {
     required this.row,
     required this.theme,
     required this.lit,
+    required this.tilt,
     this.dropTarget = false,
     this.iconLeading = false,
   });
@@ -1037,14 +1254,37 @@ class _StackRowTile extends StatelessWidget {
   /// A left-leaning fan keeps its previews on the left, so the card leads.
   final bool iconLeading;
 
+  /// The row's turn, in radians. The whole row turns — preview and name
+  /// together — pivoting on the end nearest the dock icon, which is what a
+  /// macOS stack draws: the arc is in the items, not only in their names.
+  final double tilt;
+
   @override
   Widget build(BuildContext context) {
     final card = _previewCard();
-    final pill = _labelPill();
-    return Row(
-      children: iconLeading
-          ? [card, const SizedBox(width: DockStackFan.thumbGap), pill]
-          : [pill, const SizedBox(width: DockStackFan.thumbGap), card],
+    // The row is exactly as wide as its parts. The box the layout hands it is
+    // the widest name in the fan, so letting the row fill that box stretched
+    // the short names' pills out into long empty capsules.
+    final row = Align(
+      alignment: iconLeading ? Alignment.centerLeft : Alignment.centerRight,
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: iconLeading
+            ? [card, const SizedBox(width: DockStackFan.thumbGap), _labelPill()]
+            : [
+                _labelPill(),
+                const SizedBox(width: DockStackFan.thumbGap),
+                card,
+              ],
+      ),
+    );
+    // Turning the row about the end nearest the dock icon keeps that end
+    // level with the icon column while the far end lifts, so the items trace
+    // the same arc their names do.
+    return Transform.rotate(
+      angle: tilt,
+      alignment: iconLeading ? Alignment.centerLeft : Alignment.centerRight,
+      child: row,
     );
   }
 
@@ -1064,12 +1304,16 @@ class _StackRowTile extends StatelessWidget {
         : theme.panelColor(theme.colors.surfaceContainerHigh);
     // The pill hugs its text: a macOS name plate is a thin capsule beside the
     // preview, not a panel as tall as the card. A Row would stretch it to the
-    // card's height, so the height is set and the pill centred.
-    return Flexible(
-      child: Align(
-        alignment: iconLeading ? Alignment.centerRight : Alignment.centerLeft,
-        child: SizedBox(
-          height: DockStackFan.pillHeight,
+    // card's height, so the height is set and the pill centred. It stays at
+    // its text's width too — flexing it out to the row's full width left a
+    // long empty capsule, which the reference never draws.
+    return SizedBox(
+      height: DockStackFan.pillHeight,
+      child: IntrinsicWidth(
+        child: ConstrainedBox(
+          constraints: const BoxConstraints(
+            maxWidth: DockStackFan.labelMaxWidth + DockStackFan.padX * 2,
+          ),
           child: DecoratedBox(
             decoration: BoxDecoration(
               color: fill,
@@ -1215,6 +1459,7 @@ class _StackIcon extends StatelessWidget {
     if (entry == null) {
       return Icon(Icons.folder_rounded, size: size * 0.8, color: theme.accent);
     }
+    if (entry.isDirectory) return DockFolderIcon(size: size);
     final path = thumbnail;
     if (path == null) return _glyph(entry, theme);
     return ClipRRect(
@@ -1232,9 +1477,7 @@ class _StackIcon extends StatelessWidget {
   }
 
   Widget _glyph(DockStackEntry entry, ShellThemeData theme) {
-    if (entry.isDirectory) {
-      return Icon(Icons.folder_rounded, size: size * 0.8, color: theme.accent);
-    }
+    if (entry.isDirectory) return DockFolderIcon(size: size);
     return Icon(
       stackFileIcon(entry.extension),
       size: size * 0.72,
@@ -1309,4 +1552,21 @@ class _StackRow {
 
   static String? _previewOf(DockStackEntry? entry) =>
       entry == null ? null : DockStackThumbs.preview(entry.path);
+}
+
+/// A damped oscillator sampled as a curve: the value runs past its target
+/// once, then settles back. A plain decelerate stops dead at the target, which
+/// is what makes scripted motion read as mechanical next to macOS.
+class _SpringCurve extends Curve {
+  const _SpringCurve(this.spring, this.seconds);
+
+  final SpringDescription spring;
+
+  /// How much spring time one unit of the curve spans. Too short and the
+  /// curve stops mid-bounce; long enough and it is at rest by the end.
+  final double seconds;
+
+  @override
+  double transformInternal(double t) =>
+      SpringSimulation(spring, 0, 1, 0).x(t * seconds);
 }

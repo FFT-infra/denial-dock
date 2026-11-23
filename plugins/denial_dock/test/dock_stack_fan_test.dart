@@ -37,7 +37,7 @@ void main() {
         1e-9,
     'the second row tilts one step',
   );
-  _expect(rows[3].angle < 0, 'a right lean lifts the preview end');
+  _expect(rows[3].angle > 0, 'a right lean sinks the preview end');
 
   // The rows never overlap vertically, whatever the label widths.
   for (var i = 1; i < rows.length; i++) {
@@ -93,7 +93,7 @@ void main() {
     mirrored[2].left < mirrored[0].left,
     'a left lean drifts the other way',
   );
-  _expect(mirrored[2].angle > 0, 'a left lean tilts the other way');
+  _expect(mirrored[2].angle < 0, 'a left lean tilts the other way');
   _expect(
     (mirrored[1].left - (500 - DockStackFan.shift - DockStackFan.padX)).abs() <
         0.01,
@@ -118,10 +118,11 @@ void main() {
     'no room outward leans back',
   );
 
-  // The row count follows the screen instead of a fixed cap.
+  // The row count follows the screen instead of a fixed cap, on the same
+  // fixed pitch a macOS stack keeps.
   _expect(
-    DockStackFan.fitRows(bottom: 1000, top: 0) == 15,
-    'a 1000 px screen fits 15 rows: ${DockStackFan.fitRows(bottom: 1000, top: 0)}',
+    DockStackFan.fitRows(bottom: 1000, top: 0) == 14,
+    'a 1000 px screen fits 14 rows: ${DockStackFan.fitRows(bottom: 1000, top: 0)}',
   );
   _expect(
     DockStackFan.fitRows(bottom: 200, top: 0) == 2,
@@ -149,9 +150,11 @@ void main() {
   // And the rows it keeps really do fit once turned.
   for (var i = 0; i < withTilt; i++) {
     final angle = DockStackFan.tiltDegrees * i * math.pi / 180;
-    final rise =
-        DockStackFan.rowStep * (i + 1) +
-        260 * math.sin(angle) * DockStackFan.hoverScale;
+    final lift =
+        (260 * math.sin(angle) +
+            DockStackFan.rowHeight / 2 * (math.cos(angle) - 1)) *
+        DockStackFan.hoverScale;
+    final rise = DockStackFan.rowStep * (i + 1) + lift;
     _expect(rise <= 1200 - DockStackFan.gap + 0.01, 'row $i fits: $rise');
   }
 

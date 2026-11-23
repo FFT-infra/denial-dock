@@ -523,18 +523,47 @@ class _DockMenuSubmenuRowState extends State<DockMenuSubmenuRow> {
   }
 }
 
+/// A grey caption that groups the rows under it, the way macOS titles the
+/// sections of a stack's menu.
+class DockMenuSectionLabel extends StatelessWidget {
+  const DockMenuSectionLabel(this.label, {super.key});
+
+  final String label;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = context.shellTheme;
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(22, 9, 16, 3),
+      child: Align(
+        alignment: AlignmentDirectional.centerStart,
+        child: Text(
+          label,
+          maxLines: 1,
+          overflow: TextOverflow.ellipsis,
+          style: theme.text.systemBarCaption.copyWith(
+            color: theme.colors.textTertiary,
+          ),
+        ),
+      ),
+    );
+  }
+}
+
 /// One selectable line in a dock menu. [selected] draws a trailing check, used
 /// by on/off settings and the active application.
 class DockMenuRow extends StatefulWidget {
   const DockMenuRow({
-    required this.icon,
     required this.label,
     required this.onTap,
+    this.icon,
     this.selected = false,
     super.key,
   });
 
-  final IconData icon;
+  /// Drawn ahead of the label when given; the stack's own menu is plain text
+  /// the way macOS draws it.
+  final IconData? icon;
   final String label;
   final VoidCallback onTap;
   final bool selected;
@@ -572,8 +601,10 @@ class _DockMenuRowState extends State<DockMenuRow> {
             ),
             child: Row(
               children: [
-                Icon(widget.icon, size: 17, color: foreground),
-                const SizedBox(width: 10),
+                if (widget.icon case final icon?) ...[
+                  Icon(icon, size: 17, color: foreground),
+                  const SizedBox(width: 10),
+                ],
                 Expanded(
                   child: Text(
                     widget.label,
