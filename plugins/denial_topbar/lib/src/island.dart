@@ -118,7 +118,7 @@ class _TopBarIslandState extends State<TopBarIsland> {
           label: 'Dynamic Island',
           child: AnimatedContainer(
             duration: BarTokens.islandWidth,
-            curve: Curves.easeOutCubic,
+            curve: const Cubic(0.16, 1.0, 0.3, 1.0),
             width: width,
             height: widget.height,
             decoration: BoxDecoration(
@@ -198,6 +198,7 @@ class _TopBarIslandState extends State<TopBarIsland> {
         BarTokens.islandNoticeMaxWidth - padding,
       ),
       IslandMode.charging => 132.0,
+      IslandMode.hud => 124.0,
       IslandMode.quiet => math.max(BarTokens.islandIdleWidth - padding, clock),
     };
     return content + padding;
@@ -212,6 +213,7 @@ class _TopBarIslandState extends State<TopBarIsland> {
       IslandMode.media => _media(context),
       IslandMode.notice => _notice(context),
       IslandMode.charging => _charge(context),
+      IslandMode.hud => _hud(context),
       IslandMode.quiet => _idle(context),
     };
   }
@@ -342,6 +344,35 @@ class _TopBarIslandState extends State<TopBarIsland> {
 
   /// darkshadow's charge face, cut to the strip: the bolt, the percentage and
   /// a fill that runs up to the level.
+  Widget _hud(BuildContext context) {
+    const ink = Color(0xffffffff);
+    return Row(
+      mainAxisSize: MainAxisSize.min,
+      children: <Widget>[
+        const Icon(BarIcons.volumeUp, size: 13, color: ink),
+        const SizedBox(width: 8),
+        Container(
+          width: 76,
+          height: 4,
+          decoration: BoxDecoration(
+            color: ink.withValues(alpha: 0.22),
+            borderRadius: BorderRadius.circular(2),
+          ),
+          child: FractionallySizedBox(
+            alignment: Alignment.centerLeft,
+            widthFactor: 0.65,
+            child: Container(
+              decoration: BoxDecoration(
+                color: ink,
+                borderRadius: BorderRadius.circular(2),
+              ),
+            ),
+          ),
+        ),
+      ],
+    );
+  }
+
   Widget _charge(BuildContext context) {
     const ink = Color(0xffffffff);
     final percent = (widget.chargePercent ?? 0).clamp(0, 100);
@@ -1071,7 +1102,7 @@ class _PlayButtonState extends State<_PlayButton> {
         onTap: widget.onTap,
         child: AnimatedScale(
           duration: const Duration(milliseconds: 220),
-          curve: Curves.easeOutBack,
+          curve: const Cubic(0.2, 0.9, 0.2, 1.0),
           scale: _pressed ? 0.86 : 1,
           child: Container(
             width: 40,

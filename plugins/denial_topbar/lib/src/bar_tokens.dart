@@ -12,7 +12,11 @@
 ///   `screen - 300 - 10`, popovers `barH + 6`, `fullW` 320/330/250
 /// - 0-ss/MacShell `MacBar.qml` (MIT): item hover `height - 6`, radius 6
 /// - Apple HIG "The menu bar": active app name in bold
+/// - NextKDE `ControlCenterPanel.qml`, `ControlCenterCard.qml` and
+///   `bar/controlcenter/*.qml`: the panel's card grid and its card geometry
 library;
+
+import 'dart:math' as math;
 
 abstract final class BarTokens {
   // ── Strip ────────────────────────────────────────────────────────────────
@@ -123,33 +127,84 @@ abstract final class BarTokens {
   static const double bluetoothPopoverWidth = 320;
   static const double keyboardPopoverWidth = 250;
 
-  /// Control Centre: `width: 300`, `x: screen - width - 10`, `y: barH + 6`.
+  /// Control Centre, from NextKDE `ControlCenterPanel.qml`.
   ///
-  /// shell27 lays it out as a 4-column bento grid (`ccLayout`): `ccCellH: 66`,
-  /// `ccGap: 6` between columns, `ccRowGap: 12` between rows, and
-  /// `ccSliderGap: 16` around a slider row. Tiles are radius 34, the two
-  /// slider tiles 26, and a 1×1 control is drawn as a 63 pt circle centred in
-  /// its cell. The macOS-style slab pads the 300 pt grid by 12.
-  static const double controlCenterWidth = 300;
+  /// The panel is `max(296, min(336, screenW - 24))` wide with 20 pt of inset
+  /// on every side, so the content is `width - 40`. The cards sit on a fixed
+  /// coordinate grid rather than a packer: the connectivity pills take
+  /// `round((content - 8) * 137 / 288)` of the top-left, the media card takes
+  /// the rest of that row, five 52 pt squares share the next row at 9 pt
+  /// spacing, and the two sliders span the full width underneath.
+  static double controlCenterWidthFor(double screenWidth) =>
+      math.max(296, math.min(336, screenWidth - 24));
+  static const double controlCenterWidth = 336;
   static const double controlCenterInset = 10;
-  static const double controlCenterMargin = 12;
-  static const double ccCellHeight = 66;
-  static const double ccGap = 6;
-  static const double ccRowGap = 12;
-  static const double ccSliderGap = 16;
-  static const double ccTileRadius = 34;
-  static const double ccSliderTileRadius = 26;
-  static const double ccCircle = 63;
-  static const double ccButtonSize = 40;
-  static const double ccSmallGlyph = 21;
-  static const double ccGlyphRatio = 0.46;
-  static const double ccLabelInset = 15;
-  static const double ccSliderTop = 28;
-  static const double ccSliderTrackX = 28;
-  static const double ccSliderTrackW = 26;
-  static const double ccSliderTrackHeight = 4;
-  static const double ccSliderKnobWidth = 21;
-  static const double ccSliderKnobHeight = 14;
+  static const double controlCenterMargin = 20;
+
+  /// Content width the card grid is laid out against.
+  static const double ccContentWidth = controlCenterWidth - controlCenterMargin * 2;
+
+  /// Connectivity pill width: `round((content - 8) * 137 / 288)`.
+  static const double ccConnectivityWidth = 137;
+  static const double ccSquareGap = 9;
+
+  /// Card geometry. The pills are near-circles at 59 high; the media card is
+  /// 25; a square is 26; a slider card is 19.
+  static const double ccPillHeight = 59;
+  static const double ccPillRadius = 29.5;
+  static const double ccMediaHeight = 127;
+  static const double ccMediaRadius = 25;
+  static const double ccSquareRadius = 26;
+  static const double ccSliderHeight = 57;
+  static const double ccSliderRadius = 19;
+
+  /// Row tops: the pills at 20 and 87, the squares at 155, brightness at 217,
+  /// sound at 282. The panel is 359 high.
+  static const double ccPillTop = 20;
+  static const double ccPillSecondTop = 87;
+  static const double ccSquareTop = 155;
+  static const double ccBrightnessTop = 217;
+  static const double ccSoundTop = 282;
+  static const double ccPanelHeight = 359;
+
+  /// Pill contents: a 39 pt disc 10 in from the left, 20 pt glyph, text at 58,
+  /// a 14 pt chevron 8 in from the right.
+  static const double ccDisc = 39;
+  static const double ccDiscInset = 10;
+  static const double ccDiscGlyph = 20;
+  static const double ccPillTextLeft = 58;
+  static const double ccPillTextRight = 22;
+  static const double ccChevronInset = 8;
+  static const double ccChevronSize = 14;
+
+  /// Square contents: a 22 pt glyph, hover 1.06, press 0.91.
+  static const double ccSquareGlyph = 22;
+
+  /// Slider card: label at (14, 8), percent 9 pt at right 30, chevron 15 pt at
+  /// right 13 / top 5, the track 5 pt tall with a 30 × 16 thumb.
+  static const double ccSliderLabelLeft = 14;
+  static const double ccSliderLabelTop = 8;
+  static const double ccSliderPercentRight = 30;
+  static const double ccSliderChevronRight = 13;
+  static const double ccSliderChevronTop = 5;
+  static const double ccSliderChevronSize = 15;
+  static const double ccSliderHeight2 = 30;
+  static const double ccSliderTrackHeight = 5;
+  static const double ccSliderThumbWidth = 30;
+  static const double ccSliderThumbHeight = 16;
+  static const double ccBrightnessTrackLeft = 31;
+  static const double ccBrightnessTrackRight = 31;
+  static const double ccSoundTrackLeft = 36;
+  static const double ccSoundTrackRight = 17;
+  static const double ccSliderTrackBottom = 8;
+
+  /// Sub-pages, from NextKDE `SubmenuCard.qml` and its page files.
+  static const double ccSubmenuHeaderHeight = 28;
+  static const double ccSubmenuDividerGap = 9;
+  static const double ccWifiPageHeight = 360;
+  static const double ccBluetoothPageHeight = 340;
+  static const double ccBrightnessPageHeight = 280;
+  static const double ccSoundPageHeight = 420;
 
   /// Generic panel card.
   static const double panelGap = 6;

@@ -1,6 +1,5 @@
 import 'dart:math' as math;
 
-import 'package:denial_flutter_sdk/effects.dart';
 import 'package:denial_flutter_sdk/theme.dart';
 import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
@@ -13,11 +12,12 @@ import '../bar_tokens.dart';
 import '../bar_type.dart';
 
 /// The dock's settings sheet geometry, copied so the two panels read as one
-/// product: 48-high rows inside 12-radius cards, an 18-radius sheet, and a
-/// 140 ms quick transition.
+/// product: 48-high rows inside 12-radius cards and a 140 ms quick transition.
+/// The sheet itself carries no radius: `BarPanelFrame` already draws the card
+/// at its own 26 pt radius, and a second rounded layer inside it only stacked a
+/// second blur and left a visible rim.
 const double _rowHeight = 48;
 const double _cardRadius = 12;
-const double _sheetRadius = 18;
 const Duration _quick = Duration(milliseconds: 140);
 
 Duration _motion(BuildContext context, Duration duration) =>
@@ -80,43 +80,32 @@ class _BarSettingsPanelState extends ConsumerState<BarSettingsPanel> {
     final stored = ref.watch(barSettingsProvider).value;
     final settings = stored ?? BarSettings.defaults;
     final controller = ref.read(barSettingsProvider.notifier);
-    final radius = theme.borderRadius(_sheetRadius);
     final enabled = stored != null;
 
     void save(BarSettings Function(BarSettings current) change) {
       if (enabled) controller.save(change);
     }
 
+    // `BarPanelFrame` already blurs and clips this content; the sheet adds only
+    // the sections, so it must not draw a second surface of its own.
     return SizedBox(
       width: widget.width,
       child: ConstrainedBox(
         constraints: BoxConstraints(maxHeight: widget.maxHeight),
-        child: ShellBackdropBlur(
-          blur: theme.effectivePanelOpacity < 1,
-          separateChild: true,
-          borderRadius: radius,
-          child: DecoratedBox(
-            decoration: BoxDecoration(
-              color: theme.panelColor(theme.colors.surfaceContainer),
-              borderRadius: radius,
-              border: Border.all(color: theme.colors.hairline),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: <Widget>[
+            _Header(onClose: widget.onClose),
+            SizedBox(
+              height: 1,
+              child: ColoredBox(color: theme.colors.hairline),
             ),
-            child: ClipRRect(
-              borderRadius: radius,
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                crossAxisAlignment: CrossAxisAlignment.stretch,
+            Flexible(
+              child: ListView(
+                controller: _scroll,
+                padding: const EdgeInsets.fromLTRB(16, 16, 16, 24),
                 children: <Widget>[
-                  _Header(onClose: widget.onClose),
-                  SizedBox(
-                    height: 1,
-                    child: ColoredBox(color: theme.colors.hairline),
-                  ),
-                  Flexible(
-                    child: ListView(
-                      controller: _scroll,
-                      padding: const EdgeInsets.fromLTRB(16, 16, 16, 24),
-                      children: <Widget>[
                         _SettingsSection(
                           title: 'Layout',
                           footer:
@@ -356,10 +345,7 @@ class _BarSettingsPanelState extends ConsumerState<BarSettingsPanel> {
                 ],
               ),
             ),
-          ),
-        ),
-      ),
-    );
+          );
   }
 }
 

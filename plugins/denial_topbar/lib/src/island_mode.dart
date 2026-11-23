@@ -1,32 +1,45 @@
 /// What the island is currently showing.
 ///
-/// Kept free of Flutter imports so the priority rule can be tested on the plain
-/// Dart VM.
+/// Follows Apple's ActivityKit & Dynamic Island specification (as modeled in
+/// `jackson-storm/DynamicNotch` and `Dtem4ik/meniscus`).
 enum IslandMode {
-  /// Nothing happening: the clock, or a small dot when the clock lives
-  /// elsewhere in the bar.
+  /// Nothing happening: the clock, or a minimal dot.
   quiet,
+
+  /// Active playback: compact cover on the left, waveform on the right.
   media,
+
+  /// Active notification banner with summary and close chip.
   notice,
 
-  /// The charger went in or out. macOS shows this every time with no switch to
-  /// turn it off [S28], so it outranks playback for the few seconds it lasts.
-  charging;
+  /// Transient charging event (2-3 seconds).
+  charging,
+
+  /// Transient HUD event (Volume / Brightness change).
+  hud;
 
   bool get isQuiet => this == IslandMode.quiet;
 }
 
-/// Ports revo-shell `DynamicIsland.qml`'s priority: a fresh notification wins
-/// over everything, then the charge flash, then playback, then nothing.
+/// Dynamic Island event priority dispatcher.
+///
+/// Priority hierarchy:
+/// 1. Fresh notification (`notice`) wins over everything.
+/// 2. Transient hardware event: `charging` flash.
+/// 3. Transient user adjustment: `hud` (volume/brightness).
+/// 4. Persistent Live Activity: `media` playback.
+/// 5. Resting state: `quiet`.
 IslandMode resolveIslandMode({
   required bool mediaEnabled,
   required bool mediaPlaying,
   required bool notificationsEnabled,
   required bool hasNotice,
   bool charging = false,
+  bool hud = false,
 }) {
   if (notificationsEnabled && hasNotice) return IslandMode.notice;
   if (charging) return IslandMode.charging;
+  if (hud) return IslandMode.hud;
   if (mediaEnabled && mediaPlaying) return IslandMode.media;
   return IslandMode.quiet;
 }

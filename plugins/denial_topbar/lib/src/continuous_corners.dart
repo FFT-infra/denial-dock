@@ -12,14 +12,16 @@ import 'package:flutter/rendering.dart';
 /// macOS panel look soft rather than stamped. macOS 27's expanded island is
 /// 32 pt of exactly this [S27].
 ///
-/// The corner is `|x/r|^n + |y/r|^n = 1` with `n = 5`, sampled into a path.
-/// Sampling rather than approximating with a few beziers keeps the curve exact
-/// at every radius; 16 segments per corner is under a pixel of error at the
-/// sizes this bar draws.
+/// The corner is `|x/r|^n + |y/r|^n = 1`, sampled into a path. `n = 3` is
+/// NextKDE `AppearanceTokens.qml`'s `cornerExponent`: 2.0 is a plain circular
+/// arc, 2.5-4 is the useful range, and 3 overhangs the arc by 12% along the
+/// diagonal, which is what reads as Apple's fuller corner. Sampling rather than
+/// approximating with a few beziers keeps the curve exact at every radius; 16
+/// segments per corner is under a pixel of error at the sizes this bar draws.
 Path continuousRoundedRectPath(
   Rect rect,
   double radius, {
-  double exponent = 5,
+  double exponent = 3,
   int segments = 16,
 }) {
   final r = math.max(
@@ -80,7 +82,7 @@ Path continuousRoundedRectPath(
 class ContinuousCorners extends ShapeBorder {
   const ContinuousCorners({
     required this.radius,
-    this.exponent = 5,
+    this.exponent = 3,
     this.side = BorderSide.none,
   });
 
@@ -155,7 +157,7 @@ class ContinuousCorners extends ShapeBorder {
 class ContinuousCornersClipper extends CustomClipper<Path> {
   const ContinuousCornersClipper({
     required this.radius,
-    this.exponent = 5,
+    this.exponent = 3,
   });
 
   final double radius;

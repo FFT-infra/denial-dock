@@ -203,7 +203,12 @@ class _DoNotDisturbRow extends StatelessWidget {
   }
 }
 
-/// One notification card: shell27's 18-radius tile with a 44 pt app icon.
+/// One notification card.
+///
+/// NextKDE `NotificationHistoryEntry.qml`: an 18-radius card at `rgba(69,74,82,
+/// 0.38)` on dark and `rgba(240,240,242,0.38)` on light, a 1 px rim at white
+/// 0.09 / black 0.07, a 16 pt source icon at (12, 12), the app name at (34, 13),
+/// the age 33 in from the right, and the content column 12 in and 36 down.
 class NotificationCard extends StatefulWidget {
   const NotificationCard({
     required this.group,
@@ -244,6 +249,9 @@ class _NotificationCardState extends State<NotificationCard> {
     final timeSensitive = newest.urgency == DesktopNotificationUrgency.critical;
     final age = _ago(newest.timeMs);
 
+    final dark = theme.colors.brightness == Brightness.dark;
+    final ink = theme.colors.textPrimary;
+
     return MouseRegion(
       cursor: SystemMouseCursors.click,
       onEnter: (_) => setState(() => _hovered = true),
@@ -253,94 +261,114 @@ class _NotificationCardState extends State<NotificationCard> {
         onTap: widget.onActivate,
         child: DecoratedBox(
           decoration: BoxDecoration(
-            color: theme.colors.textPrimary.withValues(alpha: 0.07),
-            borderRadius: theme.borderRadius(18),
+            color: dark
+                ? const Color(0xff454a52).withValues(alpha: 0.38)
+                : const Color(0xfff0f0f2).withValues(alpha: 0.38),
+            borderRadius: BorderRadius.circular(18),
             border: Border.all(
-              color: theme.colors.hairlineSoft.withValues(alpha: 0.4),
+              color: dark
+                  ? const Color(0xffffffff).withValues(alpha: 0.09)
+                  : const Color(0xff000000).withValues(alpha: 0.07),
             ),
           ),
-          child: Padding(
-            padding: const EdgeInsets.fromLTRB(14, 15, 14, 15),
-            child: Row(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: <Widget>[
-                Container(
-                  width: 44,
-                  height: 44,
-                  decoration: BoxDecoration(
-                    color: theme.accent,
-                    borderRadius: theme.borderRadius(10),
-                  ),
-                  child: Center(
-                    child: BarGlyph(
-                      BarIcons.bell,
-                      size: 24,
-                      color: const Color(0xffffffff),
+          child: Stack(
+            children: <Widget>[
+              Padding(
+                padding: const EdgeInsets.fromLTRB(12, 12, 12, 12),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: <Widget>[
+                    SizedBox(
+                      height: 16,
+                      child: Row(
+                        children: <Widget>[
+                          SizedBox(
+                            width: 16,
+                            height: 16,
+                            child: Center(
+                              child: BarGlyph(
+                                BarIcons.bell,
+                                size: 16,
+                                color: ink,
+                              ),
+                            ),
+                          ),
+                          const SizedBox(width: 6),
+                          Expanded(
+                            child: Text(
+                              timeSensitive ? 'TIME SENSITIVE' : app,
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                              style: PanelText.detail(theme).copyWith(
+                                fontSize: 10,
+                                fontWeight: FontWeight.w600,
+                                letterSpacing: timeSensitive ? 0.4 : 0,
+                                color: timeSensitive
+                                    ? theme.colors.textSecondary
+                                    : ink,
+                              ),
+                            ),
+                          ),
+                          const SizedBox(width: 33),
+                        ],
+                      ),
                     ),
-                  ),
-                ),
-                const SizedBox(width: 12),
-                Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: <Widget>[
-                      if (app.isNotEmpty)
-                        Text(
-                          timeSensitive ? 'TIME SENSITIVE' : app,
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
-                          style: PanelText.body(theme).copyWith(
-                            fontSize: timeSensitive ? 12 : 14,
-                            fontWeight: FontWeight.w600,
-                            letterSpacing: timeSensitive ? 0.4 : 0,
-                            color: timeSensitive
-                                ? theme.colors.textSecondary
-                                : theme.colors.textPrimary,
-                          ),
+                    const SizedBox(height: 8),
+                    if (summary.isNotEmpty)
+                      Text(
+                        summary,
+                        maxLines: 2,
+                        overflow: TextOverflow.ellipsis,
+                        style: PanelText.body(theme).copyWith(
+                          fontSize: 13,
+                          fontWeight: FontWeight.w600,
+                          color: ink,
                         ),
-                      if (summary.isNotEmpty)
-                        Text(
-                          summary,
-                          maxLines: 2,
-                          overflow: TextOverflow.ellipsis,
-                          style: PanelText.body(theme).copyWith(
-                            fontSize: 14,
-                            fontWeight: FontWeight.w700,
-                          ),
+                      ),
+                    if (body.isNotEmpty) ...<Widget>[
+                      const SizedBox(height: 4),
+                      Text(
+                        body,
+                        maxLines: 3,
+                        overflow: TextOverflow.ellipsis,
+                        style: PanelText.body(theme).copyWith(
+                          fontSize: 12,
+                          color: ink,
                         ),
-                      if (body.isNotEmpty) ...<Widget>[
-                        const SizedBox(height: 1),
-                        Text(
-                          body,
-                          maxLines: 3,
-                          overflow: TextOverflow.ellipsis,
-                          style: PanelText.body(theme),
-                        ),
-                      ],
-                      if (widget.group.stacked) ...<Widget>[
-                        const SizedBox(height: 3),
-                        Text(
-                          '${widget.group.members.length} notifications',
-                          style: PanelText.detail(theme),
-                        ),
-                      ],
+                      ),
                     ],
+                    if (widget.group.stacked) ...<Widget>[
+                      const SizedBox(height: 4),
+                      Text(
+                        '${widget.group.members.length} notifications',
+                        style: PanelText.detail(theme).copyWith(
+                          fontSize: 11,
+                          color: ink.withValues(alpha: 0.85),
+                        ),
+                      ),
+                    ],
+                  ],
+                ),
+              ),
+              Positioned(
+                right: 33,
+                top: 13,
+                child: Text(
+                  age,
+                  style: PanelText.detail(theme).copyWith(
+                    fontSize: 9,
+                    color: ink.withValues(alpha: 0.85),
                   ),
                 ),
-                const SizedBox(width: 8),
-                SizedBox(
-                  width: 44,
-                  child: Align(
-                    alignment: Alignment.topRight,
-                    child: _hovered && widget.group.clearable
-                        ? _CloseButton(onTap: widget.onDismiss)
-                        : (age.isEmpty
-                              ? const SizedBox.shrink()
-                              : Text(age, style: PanelText.detail(theme))),
-                  ),
-                ),
-              ],
-            ),
+              ),
+              Positioned(
+                right: 5,
+                top: 5,
+                child: _hovered && widget.group.clearable
+                    ? _CloseButton(onTap: widget.onDismiss)
+                    : const SizedBox.shrink(),
+              ),
+            ],
           ),
         ),
       ),
@@ -348,7 +376,8 @@ class _NotificationCardState extends State<NotificationCard> {
   }
 }
 
-/// shell27's close chip: 22 × 22 at radius 11, `rightMargin: 10`, `y: 10`.
+/// NextKDE's remove button: 28 × 28 at radius 14, 5 in from the top-right,
+/// transparent until hovered.
 class _CloseButton extends StatefulWidget {
   const _CloseButton({required this.onTap});
 
@@ -364,6 +393,7 @@ class _CloseButtonState extends State<_CloseButton> {
   @override
   Widget build(BuildContext context) {
     final theme = context.shellTheme;
+    final ink = theme.colors.textPrimary;
     return MouseRegion(
       cursor: SystemMouseCursors.click,
       onEnter: (_) => setState(() => _hovered = true),
@@ -373,19 +403,18 @@ class _CloseButtonState extends State<_CloseButton> {
         onTap: widget.onTap,
         child: AnimatedContainer(
           duration: const Duration(milliseconds: 120),
-          width: 22,
-          height: 22,
+          width: 28,
+          height: 28,
           decoration: BoxDecoration(
-            shape: BoxShape.circle,
-            color: theme.colors.textPrimary.withValues(
-              alpha: _hovered ? 0.18 : 0.1,
-            ),
+            borderRadius: BorderRadius.circular(14),
+            color: _hovered
+                ? const Color(0xff808080).withValues(alpha: 0.18)
+                : Colors.transparent,
           ),
           child: Center(
-            child: BarGlyph(
-              BarIcons.xmark,
-              size: 12,
-              color: theme.colors.textPrimary,
+            child: Opacity(
+              opacity: _hovered ? 1 : 0.5,
+              child: BarGlyph(BarIcons.xmark, size: 14, color: ink),
             ),
           ),
         ),

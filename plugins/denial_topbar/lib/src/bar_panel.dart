@@ -109,6 +109,88 @@ void showBarPanel({
   _openPopup = handle.id;
 }
 
+const String barDialogKey = 'denial_topbar.dialog';
+
+/// Opens a centred dialog over the desktop, outside the bar's popover chain.
+///
+/// NextKDE `NetworkPanel.qml` makes the join dialog a system modal rather than
+/// a row inside the Wi-Fi list: it closes the list first, then shows the card
+/// on its own so the card, not the scrolling list, owns the keyboard. The same
+/// rule applies here — a dialog is not anchored to a bar item and is not part
+/// of the single-open popover group, so it can outlive the panel that opened it.
+void showBarDialog({
+  required WidgetRef ref,
+  required Widget Function(BuildContext context, VoidCallback close) builder,
+  double width = 420,
+  String keyName = barDialogKey,
+}) {
+  final controller = ref.read(shellPopupControllerProvider.notifier);
+  for (final popup in ref.read(shellPopupControllerProvider)) {
+    if (popup.keyName == keyName) controller.close(popup.id);
+  }
+  controller.show(
+    keyName: keyName,
+    debugLabel: 'Top bar dialog',
+    dismissPolicy: ShellDismissPolicy.outsideTapAndEscape,
+    transitionDuration: Motion.cardSettle,
+    barrierColor: Colors.transparent,
+    builder: (context, popup) => _CentredDialog(
+      width: width,
+      child: builder(context, popup.close),
+    ),
+  );
+}
+
+/// The card a bar dialog sits in: the same glass as a popover, a little
+/// further from the bar, and centred on the screen rather than hung from a cell.
+class _CentredDialog extends StatelessWidget {
+  const _CentredDialog({required this.width, required this.child});
+
+  final double width;
+  final Widget child;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = context.shellTheme;
+    const radius = 22.0;
+    return Stack(
+      fit: StackFit.expand,
+      children: <Widget>[
+        Center(
+          child: SizedBox(
+            width: width,
+            child: DecoratedBox(
+              decoration: ShapeDecoration(
+                shape: ContinuousCorners(radius: radius),
+                shadows: <BoxShadow>[
+                  BoxShadow(
+                    color: theme.colors.shadow.withValues(alpha: 0.32),
+                    blurRadius: 34,
+                    offset: const Offset(0, 14),
+                  ),
+                ],
+              ),
+              child: ClipPath(
+                clipper: ContinuousCornersClipper(radius: radius),
+                child: ShellBackdropBlur(
+                  child: CustomPaint(
+                    painter: _ContinuousCardPainter(
+                      radius: radius,
+                      fill: theme.panelColor(theme.colors.panelBackground),
+                      hairline: theme.colors.hairline,
+                    ),
+                    child: child,
+                  ),
+                ),
+              ),
+            ),
+          ),
+        ),
+      ],
+    );
+  }
+}
+
 /// The glass card every bar panel is drawn in.
 ///
 /// shell27 gives a dropdown `radius 14` at `barH + 3` and a popover `radius 26`
@@ -194,26 +276,33 @@ class BarPanelFrame extends StatelessWidget {
         ? scene.height - (top ?? 0) - 8
         : scene.height - (bottom ?? 0) - 8;
 
-    // macOS 27 draws its island card with continuous corners [S27], so that
-    // one shape is painted and clipped by the superellipse path; menus and
-    // popovers keep the circular radius their references use.
-    final continuous = placement == BarPanelAnchor.island;
+    // macOS 27 draws its cards with continuous corners, and NextKDE gives every
+    // glass surface the same `cornerExponent: 3`; only the dropdown menus stay
+    // a plain rounded rectangle, which is the radius their reference uses.
+    final continuous = placement != BarPanelAnchor.dropdown;
     final cardColor =
         fill ??
         (glass
             ? theme.panelColor(theme.colors.panelBackground)
             : theme.colors.panelBackground);
 
+    // The blur sits inside the superellipse clip so the frosted region follows
+    // the corner rather than a bounding rectangle, and the fill paints over it
+    // — the same order the rounded branch gets from `ShellBackdropBlur` outside
+    // its `DecoratedBox`.
     final Widget card = continuous
-        ? CustomPaint(
-            painter: _ContinuousCardPainter(
-              radius: radius,
-              fill: cardColor,
-              hairline: theme.colors.hairline,
-            ),
-            child: ClipPath(
-              clipper: ContinuousCornersClipper(radius: radius),
-              child: child,
+        ? ClipPath(
+            clipper: ContinuousCornersClipper(radius: radius),
+            child: ShellBackdropBlur(
+              blur: glass,
+              child: CustomPaint(
+                painter: _ContinuousCardPainter(
+                  radius: radius,
+                  fill: cardColor,
+                  hairline: theme.colors.hairline,
+                ),
+                child: child,
+              ),
             ),
           )
         : DecoratedBox(
@@ -260,11 +349,14 @@ class BarPanelFrame extends StatelessWidget {
             ),
           );
 
-    if (continuous && rect != null) {
+    if (placement == BarPanelAnchor.island && rect != null) {
       // darkshadow's card is the island growing: at t = 0 it sits on the
       // pill's own rect, at t = 1 it is the card, and position, size and
       // corners morph together [S36]. The popup surface is full-screen, so it
       // can start the card on the pill instead of fading in beside it.
+      //
+      // Only the island grows from its anchor; every other popover is sized by
+      // its content, so it takes the plain positioned branch below.
       return _IslandCardMorph(
         from: rect,
         to: Rect.fromLTWH(left, top ?? 0, width, height ?? available),
@@ -329,7 +421,8 @@ class _IslandCardMorphState extends State<_IslandCardMorph>
     parent: _controller,
     // meniscus expands on `.spring(0.46, bounce 0.24)` [S35]; easeOutBack is
     // that settle with its light overshoot, without a spring solver.
-    curve: Curves.easeOutBack,
+    // meniscus expands on `.spring(0.46, bounce 0.24)` with subtle ~3-4% overshoot
+    curve: const Cubic(0.18, 1.04, 0.22, 1.0),
   );
 
   @override

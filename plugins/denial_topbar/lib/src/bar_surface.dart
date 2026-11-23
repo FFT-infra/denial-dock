@@ -8,6 +8,7 @@ import 'package:denial_flutter_sdk/popups.dart';
 import 'package:denial_flutter_sdk/services.dart';
 import 'package:denial_flutter_sdk/state.dart';
 import 'package:denial_flutter_sdk/surfaces.dart';
+import 'package:denial_flutter_sdk/system_services.dart' show WifiNetwork;
 import 'package:denial_flutter_sdk/theme.dart';
 import 'package:denial_flutter_sdk/wallpaper.dart';
 import 'package:flutter/material.dart';
@@ -26,12 +27,14 @@ import 'clock_label.dart';
 import 'island.dart';
 import 'panels/audio_panel.dart';
 import 'panels/bar_settings_panel.dart';
+import 'panels/cc_card.dart';
 import 'panels/notification_center_panel.dart';
 import 'panels/control_center.dart';
 import 'panels/media_card.dart';
 import 'panels/network_panels.dart';
 import 'panels/notifications_panel.dart';
 import 'panels/panel_parts.dart';
+import 'panels/wifi_join_dialog.dart';
 import 'system_menu.dart';
 import 'workspace_dots.dart';
 import 'workspace_switcher.dart';
@@ -122,6 +125,12 @@ class _TopBarSurfaceState extends ConsumerState<TopBarSurface> {
 
   ShellServices get _services => widget.services;
 
+  /// The Control Centre's own width. NextKDE sizes it from the screen rather
+  /// than pinning a constant, so a 1524 pt display gets 336 and a narrow one
+  /// falls back to 296.
+  double get _controlCenterWidth =>
+      BarTokens.controlCenterWidthFor(MediaQuery.sizeOf(context).width);
+
   void _openPanel(
     String id,
     GlobalKey anchor,
@@ -154,18 +163,28 @@ class _TopBarSurfaceState extends ConsumerState<TopBarSurface> {
     setState(() => _openPanelId = open ? id : null);
   }
 
+  /// Shows the "Join “SSID”" dialog for a secured network with no saved
+  /// profile.
+  ///
+  /// The reference closes the Wi-Fi list before opening it, because the dialog
+  /// is a system modal that has to own the keyboard; the list would otherwise
+  /// keep focus. `showBarDialog` puts the card on its own surface for the same
+  /// reason.
+  void _openWifiJoin(WifiNetwork network) {
+    showBarDialog(
+      ref: ref,
+      width: WifiJoinDialog.width,
+      builder: (_, close) =>
+          WifiJoinDialog(network: network, onClose: close),
+    );
+  }
+
   void _openIsland() {
     final note = ref.read(
       desktopNotificationsProvider.select((state) => state.bannerNotification),
     );
     final mode = _currentIslandMode;
     if (mode == IslandMode.quiet && note == null) {
-      _openPanel(
-        'controlcenter',
-        _islandKey,
-        (_, _) => _controlCenterBody(),
-        width: BarTokens.controlCenterWidth + BarTokens.controlCenterMargin * 2,
-      );
       return;
     }
     _openPanel(
@@ -230,6 +249,7 @@ class _TopBarSurfaceState extends ConsumerState<TopBarSurface> {
       },
       onOpenIsland: _openIsland,
       onOpenDisplaySettings: () => _services.openPowerSettings(),
+      onJoinNetwork: _openWifiJoin,
       onOpenNowPlaying: () => _openPanel(
         'nowplaying',
         _controlCenterKey,
@@ -358,6 +378,7 @@ class _TopBarSurfaceState extends ConsumerState<TopBarSurface> {
       IslandMode.notice => 'notice:${banner?.id}',
       // The flash expands once per plug event and folds back when it ends.
       IslandMode.charging => 'charge',
+      IslandMode.hud => 'hud',
       IslandMode.quiet => '',
     };
     WidgetsBinding.instance.addPostFrameCallback((_) {
@@ -443,10 +464,11 @@ class _TopBarSurfaceState extends ConsumerState<TopBarSurface> {
         'wifi',
         _wifiKey,
         (_, close) => _PopoverShell(
-          child: WifiContent(
-            onOpenSettings: () {
+          child: _WifiPopover(
+            services: _services,
+            onJoinNetwork: (network) {
               close();
-              _services.openPowerSettings();
+              _openWifiJoin(network);
             },
           ),
         ),
@@ -480,7 +502,7 @@ class _TopBarSurfaceState extends ConsumerState<TopBarSurface> {
         'controlcenter',
         _controlCenterKey,
         (_, _) => _controlCenterBody(),
-        width: BarTokens.controlCenterWidth,
+        width: _controlCenterWidth,
         placement: BarPanelAnchor.trailing,
       ),
       onSettings: () => _openPanel(
@@ -833,6 +855,47 @@ class _DistroGlyph extends StatelessWidget {
   }
 }
 
+
+/// The bar's own Wi-Fi popover: the shared sub-page header over the same
+/// network page Control Centre shows.
+class _WifiPopover extends ConsumerWidget {
+  const _WifiPopover({required this.services, required this.onJoinNetwork});
+
+  final ShellServices services;
+  final ValueChanged<WifiNetwork> onJoinNetwork;
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final state = ref.watch(networkConnectivityProvider);
+    final controller = ref.read(networkConnectivityProvider.notifier);
+    final on = state.snapshot.wirelessEnabled;
+    // The popover is the same card the Control Centre's Wi-Fi page draws, at
+    // the reference's own 360 pt height, so the two views cannot drift.
+    return SizedBox(
+      height: BarTokens.ccWifiPageHeight,
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: <Widget>[
+          CcSubmenuHeader(
+            title: services.strings(context).wifiTitle,
+            trailing: CcSwitch(
+              value: on,
+              busy: state.radioChanging,
+              onChanged: () => controller.setWirelessEnabled(!on),
+            ),
+          ),
+          const SizedBox(height: 6),
+          Expanded(
+            child: WifiContent(
+              onOpenSettings: () => services.openPowerSettings(),
+              onJoinNetwork: onJoinNetwork,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
 
 /// The padding shell27 gives every popover's content: loaded at `x: 11; y: 11`
 /// inside a 320-wide shape, which leaves 11 pt on each side and 11 at the top.
