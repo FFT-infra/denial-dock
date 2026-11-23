@@ -770,6 +770,10 @@ class _BarRow extends StatelessWidget {
             child: ClipRect(
               child: OverflowBox(
                 alignment: Alignment.centerLeft,
+                // Without an explicit minimum the box passes the Expanded's
+                // tight width through, the Row stretches to it, and the
+                // alignment has nothing left to move.
+                minWidth: 0,
                 maxWidth: double.infinity,
                 child: Row(
                   mainAxisSize: MainAxisSize.min,
@@ -786,6 +790,7 @@ class _BarRow extends StatelessWidget {
             child: ClipRect(
               child: OverflowBox(
                 alignment: Alignment.centerRight,
+                minWidth: 0,
                 maxWidth: double.infinity,
                 child: Row(
                   mainAxisSize: MainAxisSize.min,
