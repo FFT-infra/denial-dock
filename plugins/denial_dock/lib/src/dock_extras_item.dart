@@ -810,11 +810,21 @@ class _DockFolderItemState extends State<DockFolderItem> {
       _scheduleRefresh();
       return;
     }
-    // A sort change re-reads the listing; the preview then follows the new
-    // newest entry instead of staying on the old one.
-    if (oldWidget.folder.sort != widget.folder.sort && _fanOpen) {
+    // A sort or order change re-reads the listing whether or not the fan is
+    // open: the icon's pile is drawn from the same list, and the sort menu
+    // can be reached from the icon without ever opening the fan.
+    if (oldWidget.folder.sort != widget.folder.sort ||
+        !_sameOrder(oldWidget.folder.order, widget.folder.order)) {
       _reloadEntries();
     }
+  }
+
+  static bool _sameOrder(List<String> first, List<String> second) {
+    if (first.length != second.length) return false;
+    for (var i = 0; i < first.length; i++) {
+      if (first[i] != second[i]) return false;
+    }
+    return true;
   }
 
   @override
@@ -846,12 +856,12 @@ class _DockFolderItemState extends State<DockFolderItem> {
         : DockStackThumbs.preview(entries.first.path);
     final download = DockStackFiles.progress(entries);
     // The stacked icon draws the newest few entries, so the list has to be
-    // kept here too, not only when the fan opens.
+    // kept here too, not only when the fan opens. A card in the pile can
+    // change while the first and last names stay put.
+    final shown = math.min(DockPile.count, entries.length);
     final sameEntries =
         _entries.length == entries.length &&
-        (_entries.isEmpty ||
-            (_entries.first.path == entries.first.path &&
-                _entries.last.path == entries.last.path));
+        _samePaths(_entries, entries, shown);
     if (preview == _preview &&
         _sameDownload(download, _download) &&
         sameEntries) {
@@ -863,6 +873,18 @@ class _DockFolderItemState extends State<DockFolderItem> {
       _download = download;
     });
     _watchDownloads(download);
+  }
+
+  /// Whether the first [count] entries of both listings name the same files.
+  static bool _samePaths(
+    List<DockStackEntry> first,
+    List<DockStackEntry> second,
+    int count,
+  ) {
+    for (var i = 0; i < count; i++) {
+      if (first[i].path != second[i].path) return false;
+    }
+    return true;
   }
 
   static bool _sameDownload(
