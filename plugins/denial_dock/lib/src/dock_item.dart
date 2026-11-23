@@ -6,6 +6,7 @@ import 'package:denial_flutter_sdk/input.dart';
 import 'package:denial_flutter_sdk/services.dart';
 import 'package:denial_flutter_sdk/surfaces.dart';
 import 'package:denial_flutter_sdk/theme.dart';
+import 'package:flutter/foundation.dart' show ValueListenable;
 import 'package:flutter/gestures.dart'
     show
         GestureBinding,
@@ -18,6 +19,7 @@ import 'package:flutter/scheduler.dart';
 import 'package:flutter/services.dart';
 
 import 'dock_click.dart';
+import 'dock_desktop_actions.dart';
 import 'dock_icon.dart';
 import 'dock_launch.dart';
 import 'dock_menu.dart';
@@ -64,6 +66,13 @@ class DockItemWidget extends StatefulWidget {
     required this.hoverFocusPreview,
     required this.dimInactivePinned,
     required this.badge,
+    required this.progress,
+    required this.attention,
+    required this.audioMuted,
+    required this.middleClickAction,
+    required this.showDesktopActions,
+    required this.previewMiddleClose,
+    required this.activation,
     required this.iconMode,
     required this.iconOpacity,
     required this.tintColor,
@@ -135,6 +144,27 @@ class DockItemWidget extends StatefulWidget {
   /// Unread notifications for this application; zero hides the badge.
   final int badge;
 
+  /// Progress the application publishes, from zero to one; null hides the bar.
+  final double? progress;
+
+  /// The application is asking for attention.
+  final bool attention;
+
+  /// Null while the application plays nothing, otherwise whether every stream
+  /// of it is silent.
+  final bool? audioMuted;
+
+  final DockMiddleClickAction middleClickAction;
+
+  /// Lists the desktop file's own actions in the menu.
+  final bool showDesktopActions;
+
+  /// A middle click on a window preview closes that window.
+  final bool previewMiddleClose;
+
+  /// A shortcut's request to act as if this icon had been clicked.
+  final ValueListenable<({String key, int serial})?> activation;
+
   final DockIconMode iconMode;
   final double iconOpacity;
 
@@ -172,7 +202,7 @@ class DockItemWidget extends StatefulWidget {
 }
 
 class _DockItemWidgetState extends State<DockItemWidget>
-    with SingleTickerProviderStateMixin {
+    with TickerProviderStateMixin {
   final OverlayPortalController _portal = OverlayPortalController();
   final FocusNode _focus = FocusNode(debugLabel: 'Dock application');
 
@@ -227,6 +257,12 @@ class _DockItemWidgetState extends State<DockItemWidget>
   bool _launching = false;
   String? _launchError;
 
+  /// Hops the icon for as long as the application asks for attention.
+  late final AnimationController _attention;
+
+  /// The desktop file's actions, read when the menu first opens.
+  List<DesktopAction>? _desktopActions;
+
   bool get _overlayOpen => _menuOpen || _previewsOpen;
 
   /// Unit vector pointing away from the screen edge the dock is attached to.
@@ -240,6 +276,23 @@ class _DockItemWidgetState extends State<DockItemWidget>
   void initState() {
     super.initState();
     _launchTicker = createTicker(_onLaunchTick);
+    _attention = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 1500),
+    );
+    if (widget.attention) unawaited(_attention.repeat());
+    widget.activation.addListener(_onActivation);
+  }
+
+  void _onActivation() {
+    final request = widget.activation.value;
+    if (request == null || !mounted) return;
+    final launch = widget.launchId;
+    if (request.key != appIdentity(widget.appId) &&
+        (launch == null || request.key != appIdentity(launch))) {
+      return;
+    }
+    _activate();
   }
 
   @override
@@ -253,6 +306,23 @@ class _DockItemWidgetState extends State<DockItemWidget>
   @override
   void didUpdateWidget(covariant DockItemWidget oldWidget) {
     super.didUpdateWidget(oldWidget);
+    if (widget.activation != oldWidget.activation) {
+      oldWidget.activation.removeListener(_onActivation);
+      widget.activation.addListener(_onActivation);
+    }
+    if (widget.attention != oldWidget.attention) {
+      if (widget.attention) {
+        unawaited(_attention.repeat());
+      } else {
+        _attention
+          ..stop()
+          ..value = 0;
+      }
+    }
+    if (widget.launchId != oldWidget.launchId ||
+        widget.appId != oldWidget.appId) {
+      _desktopActions = null;
+    }
     if (widget.windows.isEmpty &&
         oldWidget.windows.isNotEmpty &&
         _overlayOpen) {
@@ -287,6 +357,8 @@ class _DockItemWidgetState extends State<DockItemWidget>
     _pressTimer?.cancel();
     _hoverSwitchTimer?.cancel();
     _clearEmphasis();
+    widget.activation.removeListener(_onActivation);
+    _attention.dispose();
     // Give the counted hold back, or the dock never retracts again.
     if (_overlayOpen) widget.onOverlayChanged(false);
     _focus.dispose();
@@ -444,6 +516,22 @@ class _DockItemWidgetState extends State<DockItemWidget>
     if (!_portal.isShowing) _portal.show();
     _focus.requestFocus();
     widget.onOverlayChanged(true);
+    if (widget.showDesktopActions && _desktopActions == null) {
+      unawaited(_loadDesktopActions());
+    }
+  }
+
+  Future<void> _loadDesktopActions() async {
+    final locale = Localizations.localeOf(context);
+    final country = locale.countryCode;
+    final actions = await DesktopActions.load(
+      [?widget.launchId, widget.appId],
+      locale: country == null || country.isEmpty
+          ? locale.languageCode
+          : '${locale.languageCode}_$country',
+    );
+    if (!mounted) return;
+    setState(() => _desktopActions = actions);
   }
 
   void _closeOverlay() {
@@ -510,20 +598,58 @@ class _DockItemWidgetState extends State<DockItemWidget>
     final activeIndex = DockClick.activeIndex(
       windows.map((window) => window.active),
     );
-    final next = DockClick.nextIndex(
+    final click = DockClick.resolve(
       action: widget.clickAction,
       count: windows.length,
       activeIndex: activeIndex,
       minimized: windows.map((window) => window.minimized),
     );
-    if (next == null) {
-      if (activeIndex >= 0 && activeIndex < windows.length) {
-        widget.services.minimizeWindow(windows[activeIndex].id);
-      }
-    } else {
-      widget.services.activateWindow(windows[next].id);
+    switch (click.kind) {
+      case DockClickKind.previews:
+        if (_previewsOpen) {
+          _closeOverlay();
+        } else {
+          _showPreviewTimer?.cancel();
+          _showPreviewTimer = null;
+          _showPreviews();
+        }
+        return;
+      case DockClickKind.activate:
+        widget.services.activateWindow(windows[click.index].id);
+      case DockClickKind.minimize:
+        widget.services.minimizeWindow(windows[click.index].id);
+      case DockClickKind.nothing:
+        break;
     }
     _closeOverlay();
+  }
+
+  /// The middle button. With no window open every choice but "nothing" starts
+  /// the application, since there is nothing to close or minimize.
+  void _middleClick() {
+    final action = widget.middleClickAction;
+    if (action == DockMiddleClickAction.nothing) return;
+    final windows = widget.windows;
+    if (windows.isEmpty) {
+      _activate();
+      return;
+    }
+    final activeIndex = DockClick.activeIndex(
+      windows.map((window) => window.active),
+    );
+    final target = windows[activeIndex < 0 ? 0 : activeIndex];
+    switch (action) {
+      case DockMiddleClickAction.newWindow:
+        _launch();
+      case DockMiddleClickAction.close:
+        _closeOverlay();
+        widget.onCloseWindows([target.id]);
+      case DockMiddleClickAction.minimize:
+        widget.services.minimizeWindow(target.id);
+        _closeOverlay();
+      case DockMiddleClickAction.nothing:
+        break;
+    }
   }
 
   Future<void> _launch() async {
@@ -724,14 +850,32 @@ class _DockItemWidgetState extends State<DockItemWidget>
     required int count,
     required DockIndicatorStyle style,
   }) {
-    if (style == DockIndicatorStyle.line) {
+    if (style == DockIndicatorStyle.line ||
+        style == DockIndicatorStyle.segments) {
       final thickness = math.max(2.0, widget.size * 0.055);
-      final bar = DecoratedBox(
+      final pieces = style == DockIndicatorStyle.segments
+          ? math.min(4, math.max(1, count))
+          : 1;
+      final piece = DecoratedBox(
         decoration: BoxDecoration(
           borderRadius: BorderRadius.circular(thickness / 2),
           color: color,
         ),
       );
+      // One piece per window, as Windows' taskbar splits its underline.
+      final bar = pieces == 1
+          ? piece
+          : Flex(
+              direction: widget.position == DockPosition.bottom
+                  ? Axis.horizontal
+                  : Axis.vertical,
+              children: [
+                for (var i = 0; i < pieces; i++) ...[
+                  if (i > 0) SizedBox.square(dimension: thickness),
+                  Expanded(child: piece),
+                ],
+              ],
+            );
       return switch (widget.position) {
         DockPosition.bottom => Positioned(
           left: widget.size * 0.22,
@@ -756,11 +900,13 @@ class _DockItemWidgetState extends State<DockItemWidget>
         ),
       };
     }
-    final dotCount = math.min(3, math.max(1, count));
+    final dashes = style == DockIndicatorStyle.dashes;
+    final dotCount = math.min(dashes ? 4 : 3, math.max(1, count));
     // The marker scales with the icon: a 4 px dot under a magnified 76 px
     // icon reads as a speck, and macOS keeps the dot in proportion.
     final dotSize = widget.size * (dotCount >= 3 ? 0.085 : 0.10);
     final spacing = dotSize * 0.45;
+    final length = dashes ? dotSize * 2.2 : dotSize;
     return switch (widget.position) {
       DockPosition.bottom => Positioned(
         left: 0,
@@ -774,7 +920,7 @@ class _DockItemWidgetState extends State<DockItemWidget>
               children: [
                 for (var i = 0; i < dotCount; i++) ...[
                   if (i > 0) SizedBox(width: spacing),
-                  _Dot(size: dotSize, color: color),
+                  _Dot(width: length, height: dotSize, color: color),
                 ],
               ],
             ),
@@ -794,7 +940,7 @@ class _DockItemWidgetState extends State<DockItemWidget>
               children: [
                 for (var i = 0; i < dotCount; i++) ...[
                   if (i > 0) SizedBox(height: spacing),
-                  _Dot(size: dotSize, color: color),
+                  _Dot(width: dotSize, height: length, color: color),
                 ],
               ],
             ),
@@ -829,6 +975,9 @@ class _DockItemWidgetState extends State<DockItemWidget>
           hoverLift: widget.lift,
           launchLift: _launchLift,
         ));
+
+    final progress = widget.progress;
+    final muted = widget.audioMuted;
 
     return OverlayPortal.overlayChildLayoutBuilder(
       controller: _portal,
@@ -918,17 +1067,10 @@ class _DockItemWidgetState extends State<DockItemWidget>
                   },
                   onSecondaryTapDown: (_) =>
                       _menuOpen ? _closeOverlay() : _openMenu(),
-                  // The middle button asks for another window of an application
-                  // that is already running, as Omarchy and Plasma do. Without
-                  // a launch entry there is nothing to start, so it falls
-                  // through to the normal click.
-                  onTertiaryTapDown: (_) {
-                    if (widget.windows.isEmpty) {
-                      _activate();
-                    } else {
-                      _launch();
-                    }
-                  },
+                  // By default the middle button asks for another window of an
+                  // application that is already running, as Omarchy and Plasma
+                  // do.
+                  onTertiaryTapDown: (_) => _middleClick(),
                   // Secondary-button drags must not reorder or pin anything; a
                   // right-drag is a menu gesture.
                   onPanStart: widget.onDragStart == null
@@ -947,8 +1089,20 @@ class _DockItemWidgetState extends State<DockItemWidget>
                       ? null
                       : (_) => widget.onDragEnd!(),
                   onPanCancel: widget.onDragEnd,
-                  child: Transform.translate(
-                    offset: offset,
+                  child: AnimatedBuilder(
+                    animation: _attention,
+                    builder: (context, child) => Transform.translate(
+                      // One hop at the start of each period, then a rest.
+                      offset:
+                          offset +
+                          _away *
+                              (_attention.value < 0.4
+                                  ? math.sin(_attention.value / 0.4 * math.pi) *
+                                        size *
+                                        0.22
+                                  : 0),
+                      child: child,
+                    ),
                     child: SizedBox(
                       width: size,
                       height: size,
@@ -981,6 +1135,45 @@ class _DockItemWidgetState extends State<DockItemWidget>
                                 count: widget.badge,
                                 size: math.max(16, size * 0.36),
                                 style: theme.text.systemBarCaption,
+                              ),
+                            ),
+                          if (progress != null && !widget.dragging)
+                            Positioned(
+                              left: size * 0.12,
+                              right: size * 0.12,
+                              bottom: size * 0.07,
+                              child: IgnorePointer(
+                                child: _Progress(
+                                  value: progress,
+                                  height: math.max(3, size * 0.075),
+                                  track: const Color(0xFF000000)
+                                      .withValues(alpha: 0.45),
+                                  fill: theme.accent,
+                                ),
+                              ),
+                            ),
+                          if (muted != null && !widget.dragging)
+                            Positioned(
+                              left: -size * 0.06,
+                              top: -size * 0.06,
+                              child: IgnorePointer(
+                                child: Container(
+                                  width: math.max(14, size * 0.32),
+                                  height: math.max(14, size * 0.32),
+                                  decoration: BoxDecoration(
+                                    shape: BoxShape.circle,
+                                    color: colors.background.withValues(
+                                      alpha: 0.78,
+                                    ),
+                                  ),
+                                  child: Icon(
+                                    muted
+                                        ? Icons.volume_off_rounded
+                                        : Icons.volume_up_rounded,
+                                    size: math.max(9, size * 0.2),
+                                    color: colors.textPrimary,
+                                  ),
+                                ),
                               ),
                             ),
                           ?indicator,
@@ -1217,6 +1410,17 @@ class _DockItemWidgetState extends State<DockItemWidget>
                               _launch();
                             },
                           ),
+                          if (widget.showDesktopActions)
+                            for (final action
+                                in _desktopActions ?? const <DesktopAction>[])
+                              DockMenuRow(
+                                icon: Icons.bolt_outlined,
+                                label: action.name,
+                                onTap: () {
+                                  _closeOverlay();
+                                  unawaited(DesktopActions.run(action));
+                                },
+                              ),
                           if (_launchError case final error?)
                             Padding(
                               padding: const EdgeInsets.fromLTRB(14, 6, 14, 8),
@@ -1377,28 +1581,52 @@ class _DockItemWidgetState extends State<DockItemWidget>
                                     child: GestureDetector(
                                       behavior: HitTestBehavior.opaque,
                                       onTap: () => _activateWindow(window.id),
+                                      onTertiaryTapUp: widget.previewMiddleClose
+                                          ? (_) => widget.onCloseWindows([
+                                              window.id,
+                                            ])
+                                          : null,
                                       child: Column(
                                         crossAxisAlignment:
                                             CrossAxisAlignment.stretch,
                                         children: [
                                           Expanded(
-                                            child: _PreviewFrame(
-                                              radius: theme.borderRadius(10),
-                                              hovered:
-                                                  _hoverPreview == window.id,
-                                              accent: theme.accent,
-                                              child: ColoredBox(
-                                                color: theme.cardColor(
-                                                  theme
-                                                      .colors
-                                                      .surfaceContainerHigh,
-                                                ),
-                                                child: widget.services
-                                                    .buildWindowPreview(
-                                                      context,
+                                            child: Stack(
+                                              fit: StackFit.expand,
+                                              children: [
+                                                _PreviewFrame(
+                                                  radius: theme.borderRadius(
+                                                    10,
+                                                  ),
+                                                  hovered:
+                                                      _hoverPreview ==
                                                       window.id,
+                                                  accent: theme.accent,
+                                                  child: ColoredBox(
+                                                    color: theme.cardColor(
+                                                      theme
+                                                          .colors
+                                                          .surfaceContainerHigh,
                                                     ),
-                                              ),
+                                                    child: widget.services
+                                                        .buildWindowPreview(
+                                                          context,
+                                                          window.id,
+                                                        ),
+                                                  ),
+                                                ),
+                                                if (_hoverPreview == window.id)
+                                                  Positioned(
+                                                    top: 4,
+                                                    right: 4,
+                                                    child: _PreviewCloseButton(
+                                                      onTap: () =>
+                                                          widget.onCloseWindows(
+                                                            [window.id],
+                                                          ),
+                                                    ),
+                                                  ),
+                                              ],
                                             ),
                                           ),
                                           const SizedBox(height: 5),
@@ -1561,6 +1789,7 @@ class _DockItemWidgetState extends State<DockItemWidget>
                                 onActivate: () => _activateWindow(window.id),
                                 onClose: () =>
                                     widget.onCloseWindows([window.id]),
+                                middleClose: widget.previewMiddleClose,
                                 hovered: _hoverPreview == window.id,
                                 onHover: (inside) =>
                                     _previewHover(window.id, inside: inside),
@@ -1592,8 +1821,11 @@ class _PreviewRow extends StatelessWidget {
     required this.preview,
     required this.onActivate,
     required this.onClose,
+    required this.middleClose,
     required this.onHover,
   });
+
+  final bool middleClose;
 
   final ApplicationWindow window;
   final BorderRadius radius;
@@ -1616,6 +1848,7 @@ class _PreviewRow extends StatelessWidget {
         child: GestureDetector(
           behavior: HitTestBehavior.opaque,
           onTap: onActivate,
+          onTertiaryTapUp: middleClose ? (_) => onClose() : null,
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
@@ -1744,16 +1977,51 @@ class _PreviewCloseButton extends StatelessWidget {
 }
 
 class _Dot extends StatelessWidget {
-  const _Dot({required this.size, required this.color});
+  const _Dot({required this.width, required this.height, required this.color});
 
-  final double size;
+  final double width;
+  final double height;
   final Color color;
 
   @override
   Widget build(BuildContext context) => Container(
-    width: size,
-    height: size,
-    decoration: BoxDecoration(shape: BoxShape.circle, color: color),
+    width: width,
+    height: height,
+    decoration: BoxDecoration(
+      borderRadius: BorderRadius.circular(math.min(width, height) / 2),
+      color: color,
+    ),
+  );
+}
+
+/// The bar an application's own progress fills across the foot of its icon.
+class _Progress extends StatelessWidget {
+  const _Progress({
+    required this.value,
+    required this.height,
+    required this.track,
+    required this.fill,
+  });
+
+  final double value;
+  final double height;
+  final Color track;
+  final Color fill;
+
+  @override
+  Widget build(BuildContext context) => ClipRRect(
+    borderRadius: BorderRadius.circular(height / 2),
+    child: SizedBox(
+      height: height,
+      child: ColoredBox(
+        color: track,
+        child: FractionallySizedBox(
+          alignment: AlignmentDirectional.centerStart,
+          widthFactor: value.clamp(0.0, 1.0),
+          child: ColoredBox(color: fill),
+        ),
+      ),
+    ),
   );
 }
 

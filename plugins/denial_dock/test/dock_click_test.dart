@@ -2,6 +2,49 @@ import 'package:denial_dock/src/dock_click.dart';
 import 'package:denial_dock/src/dock_settings.dart';
 
 void main() {
+  // The outcome a click resolves to, per action.
+  ({DockClickKind kind, int index}) click(
+    DockClickAction action,
+    int count,
+    int active,
+  ) => DockClick.resolve(action: action, count: count, activeIndex: active);
+  _expect(
+    click(DockClickAction.minimize, 2, 1) ==
+        (kind: DockClickKind.minimize, index: 1),
+    'front app minimizes its active window',
+  );
+  _expect(
+    click(DockClickAction.minimize, 2, -1) ==
+        (kind: DockClickKind.activate, index: 0),
+    'background app comes forward',
+  );
+  _expect(
+    click(DockClickAction.cycle, 3, 0) ==
+        (kind: DockClickKind.activate, index: 1),
+    'cycle advances',
+  );
+  _expect(
+    click(DockClickAction.previews, 2, 0).kind == DockClickKind.previews &&
+        click(DockClickAction.previews, 2, -1).kind == DockClickKind.previews,
+    'several windows open the previews',
+  );
+  _expect(
+    click(DockClickAction.previews, 1, 0) ==
+        (kind: DockClickKind.minimize, index: 0),
+    'one window falls back to minimize',
+  );
+  _expect(
+    click(DockClickAction.raise, 2, 0).kind == DockClickKind.nothing &&
+        click(DockClickAction.raise, 1, 0).kind == DockClickKind.nothing &&
+        click(DockClickAction.raise, 2, -1) ==
+            (kind: DockClickKind.activate, index: 0),
+    'raise never minimizes',
+  );
+  _expect(
+    click(DockClickAction.minimize, 0, -1).kind == DockClickKind.nothing,
+    'no windows',
+  );
+
   // Minimize mode: a front-most application minimizes, anything else comes
   // forward.
   _expect(

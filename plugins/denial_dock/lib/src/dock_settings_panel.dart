@@ -58,6 +58,7 @@ class DockSettingsPanel extends ConsumerStatefulWidget {
 class _DockSettingsPanelState extends ConsumerState<DockSettingsPanel> {
   String? _browsePath;
   bool _showHidden = false;
+  int _page = 0;
   final ScrollController _bodyScroll = ScrollController();
   final ScrollController _browserScroll = ScrollController();
 
@@ -85,7 +86,7 @@ class _DockSettingsPanelState extends ConsumerState<DockSettingsPanel> {
     return LayoutBuilder(
       builder: (context, constraints) {
         final width = math.min(
-          460.0,
+          700.0,
           math.max(280.0, constraints.maxWidth - 32),
         );
         final height = math.min(
@@ -282,10 +283,684 @@ class _DockSettingsPanelState extends ConsumerState<DockSettingsPanel> {
     );
   }
 
-  Widget _buildBody(BuildContext context, DockSettings settings, {Key? key}) {
+  String _delayText(int ms) =>
+      ms == 0 ? (_zh ? '立即' : 'At once') : (_zh ? '$ms 毫秒' : '$ms ms');
+
+  /// The settings, one page per category. A narrow sheet stacks the pages
+  /// into the single column it had before.
+  List<({String title, IconData icon, List<Widget> sections})> _pages(
+    DockSettings settings,
+  ) {
+    final hides = settings.visibility != DockVisibilityMode.always;
+    const gap = SizedBox(height: 22);
+    return [
+      (
+        title: _zh ? '显示与隐藏' : 'Visibility',
+        icon: Icons.visibility_outlined,
+        sections: [
+          _SettingsSection(
+            title: _zh ? '显示方式' : 'Visibility',
+            footer: _zh
+                ? '智能隐藏只在窗口挡住 Dock 时收起；自动隐藏则一直收起，指针碰到屏幕边缘才出现。'
+                : 'Smart hide retracts only when a window reaches the '
+                      'dock; auto-hide stays away until the pointer '
+                      'touches the screen edge.',
+            children: [
+              _SegmentedField<DockVisibilityMode>(
+                value: settings.visibility,
+                options: [
+                  (
+                    DockVisibilityMode.smart,
+                    _zh ? '智能隐藏' : 'Smart hide',
+                    Icons.visibility_off_outlined,
+                  ),
+                  (
+                    DockVisibilityMode.always,
+                    _zh ? '始终显示' : 'Always show',
+                    Icons.visibility_outlined,
+                  ),
+                  (
+                    DockVisibilityMode.persistent,
+                    _zh ? '自动隐藏' : 'Auto-hide',
+                    Icons.vertical_align_bottom,
+                  ),
+                ],
+                onChanged: (value) => _controller.setVisibility(value),
+              ),
+              _SegmentedField<DockHideScope>(
+                label: _zh ? '哪些窗口会让 Dock 收起' : 'Windows that hide the dock',
+                value: settings.hideScope,
+                options: [
+                  (
+                    DockHideScope.all,
+                    _zh ? '所有窗口' : 'Any window',
+                    Icons.select_all,
+                  ),
+                  (
+                    DockHideScope.active,
+                    _zh ? '当前窗口' : 'Focused window',
+                    Icons.filter_center_focus,
+                  ),
+                  (
+                    DockHideScope.maximized,
+                    _zh ? '最大化窗口' : 'Maximized',
+                    Icons.crop_square,
+                  ),
+                ],
+                onChanged: (value) => _controller.setHideScope(value),
+              ),
+              _SliderRow(
+                label: _zh ? '出现前等待' : 'Delay before showing',
+                value: settings.revealDelayMs.toDouble(),
+                min: 0,
+                max: DockSettings.maxRevealDelayMs.toDouble(),
+                divisions:
+                    DockSettings.maxRevealDelayMs ~/ DockSettings.delayStepMs,
+                display: _delayText(settings.revealDelayMs),
+                describe: (value) => _delayText(value.round()),
+                enabled: hides,
+                onChanged: (value) =>
+                    _controller.setRevealDelayMs(value.round()),
+              ),
+              _SliderRow(
+                label: _zh ? '收起前等待' : 'Delay before hiding',
+                value: settings.hideDelayMs.toDouble(),
+                min: 0,
+                max: DockSettings.maxHideDelayMs.toDouble(),
+                divisions:
+                    DockSettings.maxHideDelayMs ~/ DockSettings.delayStepMs,
+                display: _delayText(settings.hideDelayMs),
+                describe: (value) => _delayText(value.round()),
+                enabled: hides,
+                onChanged: (value) => _controller.setHideDelayMs(value.round()),
+              ),
+              _ToggleRow(
+                label: _zh ? '收起时显示提示条' : 'Show a handle while hidden',
+                value: settings.revealIndicator,
+                onChanged: (value) =>
+                    _controller.setRevealIndicator(show: value),
+              ),
+            ],
+          ),
+          gap,
+          _SettingsSection(
+            title: _zh ? '置于屏幕上的位置' : 'Position on screen',
+            footer: _zh
+                ? '顶栏或其他面板占用同一条边时，Dock 会让到它的内侧。'
+                : 'When a bar holds the same edge, the dock sits inside '
+                      'it.',
+            children: [
+              _SegmentedField<DockPosition>(
+                value: settings.position,
+                options: [
+                  (
+                    DockPosition.left,
+                    _zh ? '左边' : 'Left',
+                    Icons.align_horizontal_left,
+                  ),
+                  (
+                    DockPosition.bottom,
+                    _zh ? '底部' : 'Bottom',
+                    Icons.vertical_align_bottom,
+                  ),
+                  (
+                    DockPosition.right,
+                    _zh ? '右边' : 'Right',
+                    Icons.align_horizontal_right,
+                  ),
+                ],
+                onChanged: (value) => _controller.setPosition(value),
+              ),
+              _ToggleRow(
+                label: _zh
+                    ? '避开同一边上的顶栏'
+                    : 'Keep clear of a bar on the same edge',
+                value: settings.avoidReservedEdge,
+                onChanged: (value) =>
+                    _controller.setAvoidReservedEdge(avoid: value),
+              ),
+            ],
+          ),
+        ],
+      ),
+      (
+        title: _zh ? '点击与滚轮' : 'Clicks and wheel',
+        icon: Icons.mouse_outlined,
+        sections: [
+          _SettingsSection(
+            title: _zh ? '点击' : 'Clicks',
+            footer: _zh
+                ? '没有窗口的应用，左键和中键都会启动它。'
+                : 'An application with no window starts on either '
+                      'button.',
+            children: [
+              _SegmentedField<DockClickAction>(
+                label: _zh ? '点击已打开的应用' : 'Clicking an open application',
+                value: settings.clickAction,
+                options: [
+                  (
+                    DockClickAction.minimize,
+                    _zh ? '最小化' : 'Minimize',
+                    Icons.vertical_align_bottom,
+                  ),
+                  (
+                    DockClickAction.cycle,
+                    _zh ? '切换窗口' : 'Cycle windows',
+                    Icons.swap_horiz,
+                  ),
+                  (
+                    DockClickAction.previews,
+                    _zh ? '窗口预览' : 'Previews',
+                    Icons.view_carousel_outlined,
+                  ),
+                  (
+                    DockClickAction.raise,
+                    _zh ? '仅前置' : 'Raise only',
+                    Icons.flip_to_front,
+                  ),
+                ],
+                onChanged: (value) => _controller.setClickAction(value),
+              ),
+              _SegmentedField<DockMiddleClickAction>(
+                label: _zh
+                    ? '中键点击已打开的应用'
+                    : 'Middle-clicking an open application',
+                value: settings.middleClickAction,
+                options: [
+                  (
+                    DockMiddleClickAction.newWindow,
+                    _zh ? '新窗口' : 'New window',
+                    Icons.open_in_new,
+                  ),
+                  (
+                    DockMiddleClickAction.close,
+                    _zh ? '关闭窗口' : 'Close',
+                    Icons.close,
+                  ),
+                  (
+                    DockMiddleClickAction.minimize,
+                    _zh ? '最小化' : 'Minimize',
+                    Icons.vertical_align_bottom,
+                  ),
+                  (
+                    DockMiddleClickAction.nothing,
+                    _zh ? '不操作' : 'Nothing',
+                    Icons.block,
+                  ),
+                ],
+                onChanged: (value) => _controller.setMiddleClickAction(value),
+              ),
+            ],
+          ),
+          gap,
+          _SettingsSection(
+            title: _zh ? '滚轮' : 'Wheel',
+            children: [
+              _SegmentedField<DockScrollAction>(
+                label: _zh ? '在 Dock 上滚动滚轮' : 'Scrolling over the dock',
+                value: settings.scrollAction,
+                options: [
+                  (
+                    DockScrollAction.nothing,
+                    _zh ? '不操作' : 'Do nothing',
+                    Icons.block,
+                  ),
+                  (
+                    DockScrollAction.cycleWindows,
+                    _zh ? '切换窗口' : 'Cycle windows',
+                    Icons.swap_vert,
+                  ),
+                  (
+                    DockScrollAction.switchWorkspace,
+                    _zh ? '切换工作区' : 'Switch workspace',
+                    Icons.space_dashboard_outlined,
+                  ),
+                ],
+                onChanged: (value) => _controller.setScrollAction(value),
+              ),
+              _ToggleRow(
+                label: _zh ? '反向滚动' : 'Reverse scroll direction',
+                value: settings.scrollReversed,
+                enabled: settings.scrollAction != DockScrollAction.nothing,
+                onChanged: (value) =>
+                    _controller.setScrollReversed(reversed: value),
+              ),
+              _ToggleRow(
+                label: _zh
+                    ? '滚到尽头时循环到另一端'
+                    : 'Wrap around at the last workspace',
+                value: settings.scrollWraps,
+                enabled:
+                    settings.scrollAction == DockScrollAction.switchWorkspace,
+                onChanged: (value) => _controller.setScrollWraps(wraps: value),
+              ),
+            ],
+          ),
+          gap,
+          _SettingsSection(
+            title: _zh ? '快捷键' : 'Shortcuts',
+            children: [
+              _NoteRow(
+                text: _zh
+                    ? '系统设置的快捷键里有「激活 Dock 第 1–9 个应用」，绑定后相当于点击对应图标。'
+                    : 'System shortcuts list "Activate Dock application '
+                          '1–9"; a bound one acts as a click on that icon.',
+              ),
+            ],
+          ),
+        ],
+      ),
+      (
+        title: _zh ? '外观' : 'Appearance',
+        icon: Icons.palette_outlined,
+        sections: [
+          _SettingsSection(
+            title: _zh ? '大小' : 'Size',
+            children: [
+              _SliderRow(
+                label: _zh ? '大小' : 'Size',
+                value: settings.iconSize,
+                min: DockSettings.minIconSize,
+                max: DockSettings.maxIconSize,
+                divisions:
+                    ((DockSettings.maxIconSize - DockSettings.minIconSize) /
+                            DockSettings.iconSizeStep)
+                        .round(),
+                display: '${settings.iconSize.round()}',
+                describe: (value) => '${value.round()}',
+                onChanged: (value) => _controller.setIconSize(value),
+              ),
+              _ToggleRow(
+                label: _zh ? '放大' : 'Magnification',
+                value: settings.magnification,
+                onChanged: (value) =>
+                    _controller.setMagnification(magnification: value),
+              ),
+              _SliderRow(
+                label: _zh ? '放大程度' : 'Magnification amount',
+                value: settings.magnificationAmount,
+                min: DockSettings.minMagnificationAmount,
+                max: DockSettings.maxMagnificationAmount,
+                divisions:
+                    ((DockSettings.maxMagnificationAmount -
+                                DockSettings.minMagnificationAmount) /
+                            DockSettings.magnificationAmountStep)
+                        .round(),
+                display: settings.magnificationAmount == 0
+                    ? (_zh ? '关闭' : 'Off')
+                    : '${(settings.magnificationAmount * 100).round()}%',
+                describe: (value) => value == 0
+                    ? (_zh ? '关闭' : 'Off')
+                    : '${(value * 100).round()}%',
+                enabled: settings.magnification,
+                onChanged: (value) => _controller.setMagnificationAmount(value),
+              ),
+            ],
+          ),
+          gap,
+          _SettingsSection(
+            title: _zh ? '图标' : 'Icons',
+            children: [
+              _SegmentedField<DockAppearance>(
+                label: _zh ? '图标样式' : 'Icon style',
+                value: settings.appearance,
+                options: [
+                  (DockAppearance.macos, 'macOS', Icons.grid_view_rounded),
+                  (
+                    DockAppearance.denial,
+                    'Denial',
+                    Icons.auto_awesome_mosaic_outlined,
+                  ),
+                ],
+                onChanged: (value) => _controller.setAppearance(value),
+              ),
+              _SegmentedField<DockIconMode>(
+                label: _zh ? '图标' : 'Icons',
+                value: settings.iconMode,
+                options: [
+                  (
+                    DockIconMode.color,
+                    _zh ? '彩色' : 'Colour',
+                    Icons.palette_outlined,
+                  ),
+                  (
+                    DockIconMode.grayscale,
+                    _zh ? '灰度' : 'Greyscale',
+                    Icons.tonality_outlined,
+                  ),
+                  (
+                    DockIconMode.tinted,
+                    _zh ? '着色' : 'Tinted',
+                    Icons.colorize_outlined,
+                  ),
+                ],
+                onChanged: (value) => _controller.setIconMode(value),
+              ),
+              _SliderRow(
+                label: _zh ? '图标强度' : 'Icon strength',
+                value: settings.iconOpacity,
+                min: DockSettings.minIconOpacity,
+                max: 1,
+                divisions:
+                    ((1 - DockSettings.minIconOpacity) /
+                            DockSettings.iconOpacityStep)
+                        .round(),
+                display: '${(settings.iconOpacity * 100).round()}%',
+                describe: (value) => '${(value * 100).round()}%',
+                enabled: settings.iconMode != DockIconMode.color,
+                onChanged: (value) => _controller.setIconOpacity(value),
+              ),
+              _TintRow(
+                label: _zh ? '着色颜色' : 'Tint colour',
+                accentLabel: _zh ? '强调色' : 'Accent',
+                value: settings.tintColor,
+                accent: context.shellTheme.accent,
+                enabled: settings.iconMode == DockIconMode.tinted,
+                onChanged: (value) => _controller.setTintColor(value),
+              ),
+              _SegmentedField<DockLaunchFeedback>(
+                label: _zh ? '启动时' : 'While an app starts',
+                value: settings.launchFeedback,
+                options: [
+                  (
+                    DockLaunchFeedback.hop,
+                    _zh ? '跳动' : 'Hop',
+                    Icons.vertical_align_top,
+                  ),
+                  (
+                    DockLaunchFeedback.pulse,
+                    _zh ? '呼吸' : 'Pulse',
+                    Icons.blur_on,
+                  ),
+                  (DockLaunchFeedback.none, _zh ? '无' : 'None', Icons.block),
+                ],
+                onChanged: (value) => _controller.setLaunchFeedback(value),
+              ),
+            ],
+          ),
+        ],
+      ),
+      (
+        title: _zh ? '标记与角标' : 'Markers and badges',
+        icon: Icons.circle_notifications_outlined,
+        sections: [
+          _SettingsSection(
+            title: _zh ? '运行状态' : 'Running state',
+            children: [
+              _SegmentedField<DockIndicatorStyle>(
+                label: _zh ? '运行标记' : 'Running marker',
+                value: settings.indicatorStyle,
+                options: [
+                  (
+                    DockIndicatorStyle.dot,
+                    _zh ? '圆点' : 'Dots',
+                    Icons.fiber_manual_record_outlined,
+                  ),
+                  (
+                    DockIndicatorStyle.line,
+                    _zh ? '横条' : 'Line',
+                    Icons.horizontal_rule,
+                  ),
+                  (
+                    DockIndicatorStyle.dashes,
+                    _zh ? '短线' : 'Dashes',
+                    Icons.more_horiz,
+                  ),
+                  (
+                    DockIndicatorStyle.segments,
+                    _zh ? '分段' : 'Segments',
+                    Icons.power_input,
+                  ),
+                  (DockIndicatorStyle.none, _zh ? '无' : 'None', Icons.block),
+                ],
+                onChanged: (value) => _controller.setIndicatorStyle(value),
+              ),
+              _ToggleRow(
+                label: _zh
+                    ? '没打开时淡出固定的 App'
+                    : 'Fade pinned apps that are not running',
+                value: settings.dimInactivePinned,
+                onChanged: (value) =>
+                    _controller.setDimInactivePinned(dim: value),
+              ),
+            ],
+          ),
+          gap,
+          _SettingsSection(
+            title: _zh ? '应用发布的状态' : 'What applications report',
+            footer: _zh
+                ? '进度和提醒来自应用自己发布的 Unity LauncherEntry 信号，不发布的应用不会显示。声音标记需要每隔几秒查询一次混音器。'
+                : 'Progress and attention come from the Unity '
+                      'LauncherEntry signals an application sends itself. '
+                      'The sound marker asks the mixer every few seconds.',
+            children: [
+              _ToggleRow(
+                label: _zh ? '显示通知角标' : 'Show notification badges',
+                value: settings.showBadges,
+                onChanged: (value) => _controller.setShowBadges(show: value),
+              ),
+              _ToggleRow(
+                label: _zh ? '在图标上显示进度条' : 'Show progress on icons',
+                value: settings.showProgress,
+                onChanged: (value) => _controller.setShowProgress(show: value),
+              ),
+              _ToggleRow(
+                label: _zh
+                    ? '应用请求注意时跳动'
+                    : 'Hop when an application wants attention',
+                value: settings.showAttention,
+                onChanged: (value) => _controller.setShowAttention(show: value),
+              ),
+              _ToggleRow(
+                label: _zh
+                    ? '正在发声的应用显示喇叭'
+                    : 'Mark applications that play sound',
+                value: settings.showAudioIndicator,
+                onChanged: (value) =>
+                    _controller.setShowAudioIndicator(show: value),
+              ),
+            ],
+          ),
+        ],
+      ),
+      (
+        title: _zh ? '窗口与菜单' : 'Windows and menus',
+        icon: Icons.web_asset_outlined,
+        sections: [
+          _SettingsSection(
+            title: _zh ? '窗口预览' : 'Window previews',
+            children: [
+              _SegmentedField<DockPreviewStyle>(
+                label: _zh ? '窗口预览' : 'Window previews',
+                value: settings.previewStyle,
+                options: [
+                  (
+                    DockPreviewStyle.cards,
+                    _zh ? '横排卡片' : 'Card row',
+                    Icons.view_carousel_outlined,
+                  ),
+                  (
+                    DockPreviewStyle.stack,
+                    _zh ? '竖排列表' : 'Stacked list',
+                    Icons.view_agenda_outlined,
+                  ),
+                ],
+                onChanged: (value) => _controller.setPreviewStyle(value),
+              ),
+              _ToggleRow(
+                label: _zh ? '悬停预览即切换窗口' : 'Switch to a window on hover',
+                value: settings.hoverFocusPreview,
+                onChanged: (value) =>
+                    _controller.setHoverFocusPreview(focus: value),
+              ),
+              _ToggleRow(
+                label: _zh ? '中键点预览关闭窗口' : 'Middle-click a preview to close it',
+                value: settings.previewMiddleClose,
+                onChanged: (value) =>
+                    _controller.setPreviewMiddleClose(close: value),
+              ),
+            ],
+          ),
+          gap,
+          _SettingsSection(
+            title: _zh ? '窗口与菜单' : 'Windows and menus',
+            children: [
+              _ToggleRow(
+                label: _zh ? '只显示当前工作区的窗口' : 'Only windows on this workspace',
+                value: settings.currentWorkspaceOnly,
+                onChanged: (value) =>
+                    _controller.setCurrentWorkspaceOnly(only: value),
+              ),
+              _ToggleRow(
+                label: _zh
+                    ? '图标菜单里显示应用的快捷操作'
+                    : 'List application actions in the menu',
+                value: settings.showDesktopActions,
+                onChanged: (value) =>
+                    _controller.setShowDesktopActions(show: value),
+              ),
+            ],
+          ),
+        ],
+      ),
+      (
+        title: _zh ? '布局' : 'Layout',
+        icon: Icons.dashboard_customize_outlined,
+        sections: [
+          _SettingsSection(
+            title: _zh ? '布局' : 'Layout',
+            footer: _zh
+                ? '锁定后不能拖动图标排序、拖出移除，也不能拖分隔线改大小。'
+                : 'A locked dock ignores drags: no reordering, no removing, '
+                      'no resizing by the divider.',
+            children: [
+              _SegmentedField<DockSide>(
+                label: _zh ? '启动台' : 'Launcher',
+                value: settings.launcherSide,
+                options: [
+                  (
+                    DockSide.left,
+                    _zh ? '左侧' : 'Left',
+                    Icons.align_horizontal_left,
+                  ),
+                  (
+                    DockSide.right,
+                    _zh ? '右侧' : 'Right',
+                    Icons.align_horizontal_right,
+                  ),
+                  (
+                    DockSide.hidden,
+                    _zh ? '隐藏' : 'Hidden',
+                    Icons.visibility_off,
+                  ),
+                ],
+                onChanged: (value) => _controller.setLauncherSide(value),
+              ),
+              _SegmentedField<DockSide>(
+                label: _zh ? '文件夹与回收站' : 'Folders and Trash',
+                value: settings.extrasSide,
+                options: [
+                  (
+                    DockSide.left,
+                    _zh ? '左侧' : 'Left',
+                    Icons.align_horizontal_left,
+                  ),
+                  (
+                    DockSide.right,
+                    _zh ? '右侧' : 'Right',
+                    Icons.align_horizontal_right,
+                  ),
+                  (
+                    DockSide.hidden,
+                    _zh ? '隐藏' : 'Hidden',
+                    Icons.visibility_off,
+                  ),
+                ],
+                onChanged: (value) => _controller.setExtrasSide(value),
+              ),
+              _ToggleRow(
+                label: _zh ? '显示回收站' : 'Show Trash',
+                value: settings.showTrash,
+                onChanged: (value) => _controller.setShowTrash(show: value),
+              ),
+              _ToggleRow(
+                label: _zh ? '锁定 Dock 内容' : 'Lock the dock',
+                value: settings.lockItems,
+                onChanged: (value) => _controller.setLockItems(locked: value),
+              ),
+            ],
+          ),
+          gap,
+          _SettingsSection(
+            title: _zh ? '建议与最近使用' : 'Suggestions and recents',
+            children: [
+              _ToggleRow(
+                label: _zh
+                    ? '显示建议 App 和最近使用的 App'
+                    : 'Show suggested and recent apps',
+                value: settings.showSuggestions,
+                onChanged: (value) =>
+                    _controller.setShowSuggestions(show: value),
+              ),
+              _SliderRow(
+                label: _zh ? '最近 App 数量' : 'Recent app count',
+                value: settings.recentCount.toDouble(),
+                min: DockSettings.minRecentCount.toDouble(),
+                max: DockSettings.maxRecentCount.toDouble(),
+                divisions:
+                    DockSettings.maxRecentCount - DockSettings.minRecentCount,
+                display: '${settings.recentCount}',
+                describe: (value) => '${value.round()}',
+                enabled: settings.showSuggestions,
+                onChanged: (value) => _controller.setRecentCount(value.round()),
+              ),
+            ],
+          ),
+        ],
+      ),
+      (
+        title: _zh ? '文件夹' : 'Folders',
+        icon: Icons.folder_outlined,
+        sections: [
+          _SettingsSection(
+            title: _zh ? '文件夹快捷方式' : 'Folder shortcuts',
+            footer: _zh
+                ? '点文件夹图标会展开它的内容；要打开文件夹本身，用图标菜单里的「打开」。'
+                : 'A click fans a folder out; open the folder itself from '
+                      'its menu.',
+            children: [
+              if (settings.folders.isEmpty && settings.files.isEmpty)
+                _NoteRow(text: _zh ? '还没有添加文件夹或文件。' : 'Nothing added yet.'),
+              for (final folder in settings.folders)
+                _FolderRow(
+                  folder: folder,
+                  removeTooltip: _zh ? '移除' : 'Remove',
+                  onRemove: () => _controller.removeFolder(folder.path),
+                ),
+              for (final file in settings.files)
+                _FileRow(
+                  file: file,
+                  removeTooltip: _zh ? '移除' : 'Remove',
+                  onRemove: () => _controller.removeFile(file.path),
+                ),
+              _ActionRow(
+                icon: Icons.create_new_folder_outlined,
+                label: _zh ? '添加文件夹或文件…' : 'Add folder or file…',
+                onTap: () => setState(() {
+                  _browsePath = _home();
+                  _showHidden = false;
+                }),
+              ),
+            ],
+          ),
+        ],
+      ),
+    ];
+  }
+
+  Widget _pageScroll(BuildContext context, List<Widget> children) {
     final theme = context.shellTheme;
     return _ScrollEdgeFade(
-      key: key,
       controller: _bodyScroll,
       child: RawScrollbar(
         controller: _bodyScroll,
@@ -299,428 +974,58 @@ class _DockSettingsPanelState extends ConsumerState<DockSettingsPanel> {
           padding: const EdgeInsets.fromLTRB(16, 16, 16, 24),
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.stretch,
-            children: [
-              _SettingsSection(
-                title: _zh ? '行为' : 'Behaviour',
-                footer: settings.clickAction == DockClickAction.cycle
-                    ? (_zh
-                          ? '再次点击会把下一个窗口切到前台，按窗口列表顺序循环。'
-                          : 'Another click brings the next window forward, in '
-                                'window-list order.')
-                    : (_zh
-                          ? '点击最前面的应用会最小化它的当前窗口。'
-                          : 'Clicking the front-most application minimizes its '
-                                'active window.'),
-                children: [
-                  _SegmentedField<DockVisibilityMode>(
-                    value: settings.visibility,
-                    options: [
-                      (
-                        DockVisibilityMode.smart,
-                        _zh ? '智能隐藏' : 'Smart hide',
-                        Icons.visibility_off_outlined,
-                      ),
-                      (
-                        DockVisibilityMode.always,
-                        _zh ? '始终显示' : 'Always show',
-                        Icons.visibility_outlined,
-                      ),
-                      (
-                        DockVisibilityMode.persistent,
-                        _zh ? '自动隐藏' : 'Auto-hide',
-                        Icons.vertical_align_bottom,
-                      ),
-                    ],
-                    onChanged: (value) => _controller.setVisibility(value),
-                  ),
-                  _SegmentedField<DockClickAction>(
-                    label: _zh ? '点击已打开的应用' : 'Clicking an open application',
-                    value: settings.clickAction,
-                    options: [
-                      (
-                        DockClickAction.minimize,
-                        _zh ? '最小化' : 'Minimize',
-                        Icons.vertical_align_bottom,
-                      ),
-                      (
-                        DockClickAction.cycle,
-                        _zh ? '切换窗口' : 'Cycle windows',
-                        Icons.swap_horiz,
-                      ),
-                    ],
-                    onChanged: (value) => _controller.setClickAction(value),
-                  ),
-                  _SegmentedField<DockScrollAction>(
-                    label: _zh ? '在 Dock 上滚动滚轮' : 'Scrolling over the dock',
-                    value: settings.scrollAction,
-                    options: [
-                      (
-                        DockScrollAction.nothing,
-                        _zh ? '不操作' : 'Do nothing',
-                        Icons.block,
-                      ),
-                      (
-                        DockScrollAction.cycleWindows,
-                        _zh ? '切换窗口' : 'Cycle windows',
-                        Icons.swap_vert,
-                      ),
-                      (
-                        DockScrollAction.switchWorkspace,
-                        _zh ? '切换工作区' : 'Switch workspace',
-                        Icons.space_dashboard_outlined,
-                      ),
-                    ],
-                    onChanged: (value) => _controller.setScrollAction(value),
-                  ),
-                  _ToggleRow(
-                    label: _zh ? '反向滚动' : 'Reverse scroll direction',
-                    value: settings.scrollReversed,
-                    enabled: settings.scrollAction != DockScrollAction.nothing,
-                    onChanged: (value) =>
-                        _controller.setScrollReversed(reversed: value),
-                  ),
-                  _ToggleRow(
-                    label: _zh
-                        ? '滚到尽头时循环到另一端'
-                        : 'Wrap around at the last workspace',
-                    value: settings.scrollWraps,
-                    enabled:
-                        settings.scrollAction ==
-                        DockScrollAction.switchWorkspace,
-                    onChanged: (value) =>
-                        _controller.setScrollWraps(wraps: value),
-                  ),
-                ],
-              ),
-              const SizedBox(height: 22),
-              _SettingsSection(
-                title: _zh ? '置于屏幕上的位置' : 'Position on screen',
-                children: [
-                  _SegmentedField<DockPosition>(
-                    value: settings.position,
-                    options: [
-                      (
-                        DockPosition.left,
-                        _zh ? '左边' : 'Left',
-                        Icons.align_horizontal_left,
-                      ),
-                      (
-                        DockPosition.bottom,
-                        _zh ? '底部' : 'Bottom',
-                        Icons.vertical_align_bottom,
-                      ),
-                      (
-                        DockPosition.right,
-                        _zh ? '右边' : 'Right',
-                        Icons.align_horizontal_right,
-                      ),
-                    ],
-                    onChanged: (value) => _controller.setPosition(value),
-                  ),
-                ],
-              ),
-              const SizedBox(height: 22),
-              _SettingsSection(
-                title: _zh ? '外观' : 'Appearance',
-                children: [
-                  _SliderRow(
-                    label: _zh ? '大小' : 'Size',
-                    value: settings.iconSize,
-                    min: DockSettings.minIconSize,
-                    max: DockSettings.maxIconSize,
-                    divisions:
-                        ((DockSettings.maxIconSize - DockSettings.minIconSize) /
-                                DockSettings.iconSizeStep)
-                            .round(),
-                    display: '${settings.iconSize.round()}',
-                    describe: (value) => '${value.round()}',
-                    onChanged: (value) => _controller.setIconSize(value),
-                  ),
-                  _ToggleRow(
-                    label: _zh ? '放大' : 'Magnification',
-                    value: settings.magnification,
-                    onChanged: (value) =>
-                        _controller.setMagnification(magnification: value),
-                  ),
-                  _SliderRow(
-                    label: _zh ? '放大程度' : 'Magnification amount',
-                    value: settings.magnificationAmount,
-                    min: DockSettings.minMagnificationAmount,
-                    max: DockSettings.maxMagnificationAmount,
-                    divisions:
-                        ((DockSettings.maxMagnificationAmount -
-                                    DockSettings.minMagnificationAmount) /
-                                DockSettings.magnificationAmountStep)
-                            .round(),
-                    display: settings.magnificationAmount == 0
-                        ? (_zh ? '关闭' : 'Off')
-                        : '${(settings.magnificationAmount * 100).round()}%',
-                    describe: (value) => value == 0
-                        ? (_zh ? '关闭' : 'Off')
-                        : '${(value * 100).round()}%',
-                    enabled: settings.magnification,
-                    onChanged: (value) =>
-                        _controller.setMagnificationAmount(value),
-                  ),
-                  _SegmentedField<DockAppearance>(
-                    label: _zh ? '图标样式' : 'Icon style',
-                    value: settings.appearance,
-                    options: [
-                      (DockAppearance.macos, 'macOS', Icons.grid_view_rounded),
-                      (
-                        DockAppearance.denial,
-                        'Denial',
-                        Icons.auto_awesome_mosaic_outlined,
-                      ),
-                    ],
-                    onChanged: (value) => _controller.setAppearance(value),
-                  ),
-                  _SegmentedField<DockIconMode>(
-                    label: _zh ? '图标' : 'Icons',
-                    value: settings.iconMode,
-                    options: [
-                      (
-                        DockIconMode.color,
-                        _zh ? '彩色' : 'Colour',
-                        Icons.palette_outlined,
-                      ),
-                      (
-                        DockIconMode.grayscale,
-                        _zh ? '灰度' : 'Greyscale',
-                        Icons.tonality_outlined,
-                      ),
-                      (
-                        DockIconMode.tinted,
-                        _zh ? '着色' : 'Tinted',
-                        Icons.colorize_outlined,
-                      ),
-                    ],
-                    onChanged: (value) => _controller.setIconMode(value),
-                  ),
-                  _SliderRow(
-                    label: _zh ? '图标强度' : 'Icon strength',
-                    value: settings.iconOpacity,
-                    min: DockSettings.minIconOpacity,
-                    max: 1,
-                    divisions:
-                        ((1 - DockSettings.minIconOpacity) /
-                                DockSettings.iconOpacityStep)
-                            .round(),
-                    display: '${(settings.iconOpacity * 100).round()}%',
-                    describe: (value) => '${(value * 100).round()}%',
-                    enabled: settings.iconMode != DockIconMode.color,
-                    onChanged: (value) => _controller.setIconOpacity(value),
-                  ),
-                  _TintRow(
-                    label: _zh ? '着色颜色' : 'Tint colour',
-                    accentLabel: _zh ? '强调色' : 'Accent',
-                    value: settings.tintColor,
-                    accent: context.shellTheme.accent,
-                    enabled: settings.iconMode == DockIconMode.tinted,
-                    onChanged: (value) => _controller.setTintColor(value),
-                  ),
-                  _SegmentedField<DockLaunchFeedback>(
-                    label: _zh ? '启动时' : 'While an app starts',
-                    value: settings.launchFeedback,
-                    options: [
-                      (
-                        DockLaunchFeedback.hop,
-                        _zh ? '跳动' : 'Hop',
-                        Icons.vertical_align_top,
-                      ),
-                      (
-                        DockLaunchFeedback.pulse,
-                        _zh ? '呼吸' : 'Pulse',
-                        Icons.blur_on,
-                      ),
-                      (
-                        DockLaunchFeedback.none,
-                        _zh ? '无' : 'None',
-                        Icons.block,
-                      ),
-                    ],
-                    onChanged: (value) => _controller.setLaunchFeedback(value),
-                  ),
-                  _ToggleRow(
-                    label: _zh ? '收起时显示提示条' : 'Show a handle while hidden',
-                    value: settings.revealIndicator,
-                    onChanged: (value) =>
-                        _controller.setRevealIndicator(show: value),
-                  ),
-                  _SegmentedField<DockIndicatorStyle>(
-                    label: _zh ? '运行标记' : 'Running marker',
-                    value: settings.indicatorStyle,
-                    options: [
-                      (
-                        DockIndicatorStyle.dot,
-                        _zh ? '圆点' : 'Dots',
-                        Icons.more_horiz,
-                      ),
-                      (
-                        DockIndicatorStyle.line,
-                        _zh ? '横条' : 'Line',
-                        Icons.horizontal_rule,
-                      ),
-                      (
-                        DockIndicatorStyle.none,
-                        _zh ? '无' : 'None',
-                        Icons.block,
-                      ),
-                    ],
-                    onChanged: (value) => _controller.setIndicatorStyle(value),
-                  ),
-                  _ToggleRow(
-                    label: _zh
-                        ? '没打开时淡出固定的 App'
-                        : 'Fade pinned apps that are not running',
-                    value: settings.dimInactivePinned,
-                    onChanged: (value) =>
-                        _controller.setDimInactivePinned(dim: value),
-                  ),
-                  _SegmentedField<DockPreviewStyle>(
-                    label: _zh ? '窗口预览' : 'Window previews',
-                    value: settings.previewStyle,
-                    options: [
-                      (
-                        DockPreviewStyle.cards,
-                        _zh ? '横排卡片' : 'Card row',
-                        Icons.view_carousel_outlined,
-                      ),
-                      (
-                        DockPreviewStyle.stack,
-                        _zh ? '竖排列表' : 'Stacked list',
-                        Icons.view_agenda_outlined,
-                      ),
-                    ],
-                    onChanged: (value) => _controller.setPreviewStyle(value),
-                  ),
-                  _ToggleRow(
-                    label: _zh ? '悬停预览即切换窗口' : 'Switch to a window on hover',
-                    value: settings.hoverFocusPreview,
-                    onChanged: (value) =>
-                        _controller.setHoverFocusPreview(focus: value),
-                  ),
-                  _ToggleRow(
-                    label: _zh ? '显示通知角标' : 'Show notification badges',
-                    value: settings.showBadges,
-                    onChanged: (value) =>
-                        _controller.setShowBadges(show: value),
-                  ),
-                  _ToggleRow(
-                    label: _zh
-                        ? '显示建议 App 和最近使用的 App'
-                        : 'Show suggested and recent apps',
-                    value: settings.showSuggestions,
-                    onChanged: (value) =>
-                        _controller.setShowSuggestions(show: value),
-                  ),
-                  _SliderRow(
-                    label: _zh ? '最近 App 数量' : 'Recent app count',
-                    value: settings.recentCount.toDouble(),
-                    min: DockSettings.minRecentCount.toDouble(),
-                    max: DockSettings.maxRecentCount.toDouble(),
-                    divisions:
-                        DockSettings.maxRecentCount -
-                        DockSettings.minRecentCount,
-                    display: '${settings.recentCount}',
-                    describe: (value) => '${value.round()}',
-                    enabled: settings.showSuggestions,
-                    onChanged: (value) =>
-                        _controller.setRecentCount(value.round()),
-                  ),
-                ],
-              ),
-              const SizedBox(height: 22),
-              _SettingsSection(
-                title: _zh ? '布局' : 'Layout',
-                children: [
-                  _SegmentedField<DockSide>(
-                    label: _zh ? '启动台' : 'Launcher',
-                    value: settings.launcherSide,
-                    options: [
-                      (
-                        DockSide.left,
-                        _zh ? '左侧' : 'Left',
-                        Icons.align_horizontal_left,
-                      ),
-                      (
-                        DockSide.right,
-                        _zh ? '右侧' : 'Right',
-                        Icons.align_horizontal_right,
-                      ),
-                      (
-                        DockSide.hidden,
-                        _zh ? '隐藏' : 'Hidden',
-                        Icons.visibility_off,
-                      ),
-                    ],
-                    onChanged: (value) => _controller.setLauncherSide(value),
-                  ),
-                  _SegmentedField<DockSide>(
-                    label: _zh ? '文件夹与回收站' : 'Folders and Trash',
-                    value: settings.extrasSide,
-                    options: [
-                      (
-                        DockSide.left,
-                        _zh ? '左侧' : 'Left',
-                        Icons.align_horizontal_left,
-                      ),
-                      (
-                        DockSide.right,
-                        _zh ? '右侧' : 'Right',
-                        Icons.align_horizontal_right,
-                      ),
-                      (
-                        DockSide.hidden,
-                        _zh ? '隐藏' : 'Hidden',
-                        Icons.visibility_off,
-                      ),
-                    ],
-                    onChanged: (value) => _controller.setExtrasSide(value),
-                  ),
-                  _ToggleRow(
-                    label: _zh ? '显示回收站' : 'Show Trash',
-                    value: settings.showTrash,
-                    onChanged: (value) => _controller.setShowTrash(show: value),
-                  ),
-                ],
-              ),
-              const SizedBox(height: 22),
-              _SettingsSection(
-                title: _zh ? '文件夹快捷方式' : 'Folder shortcuts',
-                footer: _zh
-                    ? '点文件夹图标会展开它的内容；要打开文件夹本身，用图标菜单里的「打开」。'
-                    : 'A click fans a folder out; open the folder itself from '
-                          'its menu.',
-                children: [
-                  if (settings.folders.isEmpty && settings.files.isEmpty)
-                    _NoteRow(text: _zh ? '还没有添加文件夹或文件。' : 'Nothing added yet.'),
-                  for (final folder in settings.folders)
-                    _FolderRow(
-                      folder: folder,
-                      removeTooltip: _zh ? '移除' : 'Remove',
-                      onRemove: () => _controller.removeFolder(folder.path),
-                    ),
-                  for (final file in settings.files)
-                    _FileRow(
-                      file: file,
-                      removeTooltip: _zh ? '移除' : 'Remove',
-                      onRemove: () => _controller.removeFile(file.path),
-                    ),
-                  _ActionRow(
-                    icon: Icons.create_new_folder_outlined,
-                    label: _zh ? '添加文件夹或文件…' : 'Add folder or file…',
-                    onTap: () => setState(() {
-                      _browsePath = _home();
-                      _showHidden = false;
-                    }),
-                  ),
-                ],
-              ),
-            ],
+            children: children,
           ),
         ),
       ),
+    );
+  }
+
+  Widget _buildBody(BuildContext context, DockSettings settings, {Key? key}) {
+    final theme = context.shellTheme;
+    final pages = _pages(settings);
+    return LayoutBuilder(
+      key: key,
+      builder: (context, constraints) {
+        if (constraints.maxWidth < _twoPaneWidth) {
+          return _pageScroll(context, [
+            for (final (index, page) in pages.indexed) ...[
+              if (index > 0) const SizedBox(height: 22),
+              ...page.sections,
+            ],
+          ]);
+        }
+        final selected = _page.clamp(0, pages.length - 1);
+        return Row(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            SizedBox(
+              width: 204,
+              child: SingleChildScrollView(
+                padding: const EdgeInsets.fromLTRB(10, 12, 10, 12),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: [
+                    for (final (index, page) in pages.indexed)
+                      _CategoryItem(
+                        icon: page.icon,
+                        label: page.title,
+                        selected: index == selected,
+                        onTap: () {
+                          if (index == selected) return;
+                          setState(() => _page = index);
+                          if (_bodyScroll.hasClients) _bodyScroll.jumpTo(0);
+                        },
+                      ),
+                  ],
+                ),
+              ),
+            ),
+            SizedBox(width: 1, child: ColoredBox(color: theme.colors.hairline)),
+            Expanded(child: _pageScroll(context, pages[selected].sections)),
+          ],
+        );
+      },
     );
   }
 
@@ -886,11 +1191,7 @@ class _DockSettingsPanelState extends ConsumerState<DockSettingsPanel> {
 }
 
 class _ScrollEdgeFade extends StatefulWidget {
-  const _ScrollEdgeFade({
-    required this.controller,
-    required this.child,
-    super.key,
-  });
+  const _ScrollEdgeFade({required this.controller, required this.child});
 
   final ScrollController controller;
   final Widget child;
@@ -995,6 +1296,90 @@ class _ScrollEdgeFadeState extends State<_ScrollEdgeFade> {
             ).createShader(rect);
           },
           child: widget.child,
+        ),
+      ),
+    );
+  }
+}
+
+/// Below this the sheet has no room for a category list beside the page.
+const double _twoPaneWidth = 600;
+
+class _CategoryItem extends StatefulWidget {
+  const _CategoryItem({
+    required this.icon,
+    required this.label,
+    required this.selected,
+    required this.onTap,
+  });
+
+  final IconData icon;
+  final String label;
+  final bool selected;
+  final VoidCallback onTap;
+
+  @override
+  State<_CategoryItem> createState() => _CategoryItemState();
+}
+
+class _CategoryItemState extends State<_CategoryItem> {
+  bool _hovered = false;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = context.shellTheme;
+    final colors = theme.colors;
+    final selected = widget.selected;
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 2),
+      child: MouseRegion(
+        cursor: SystemMouseCursors.click,
+        onEnter: (_) => setState(() => _hovered = true),
+        onExit: (_) => setState(() => _hovered = false),
+        child: Semantics(
+          button: true,
+          selected: selected,
+          label: widget.label,
+          child: GestureDetector(
+            behavior: HitTestBehavior.opaque,
+            onTap: widget.onTap,
+            child: AnimatedContainer(
+              duration: _motion(context, const Duration(milliseconds: 140)),
+              height: 36,
+              padding: const EdgeInsets.symmetric(horizontal: 10),
+              decoration: BoxDecoration(
+                borderRadius: theme.borderRadius(9),
+                color: selected
+                    ? theme.accent.withValues(alpha: 0.18)
+                    : colors.textPrimary.withValues(alpha: _hovered ? 0.06 : 0),
+              ),
+              child: Row(
+                children: [
+                  Icon(
+                    widget.icon,
+                    size: 16,
+                    color: selected ? theme.accent : colors.textSecondary,
+                  ),
+                  const SizedBox(width: 10),
+                  Expanded(
+                    child: ExcludeSemantics(
+                      child: Text(
+                        widget.label,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: _labelStyle(theme).copyWith(
+                          color: colors.textPrimary,
+                          fontWeight: selected
+                              ? FontWeight.w600
+                              : FontWeight.w400,
+                        ),
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
         ),
       ),
     );

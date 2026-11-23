@@ -146,6 +146,42 @@ class DockSettingsController extends AsyncNotifier<DockSettings> {
   Future<void> setScrollAction(DockScrollAction action) =>
       _update((current) => current.copyWith(scrollAction: action));
 
+  Future<void> setMiddleClickAction(DockMiddleClickAction action) =>
+      _update((current) => current.copyWith(middleClickAction: action));
+
+  Future<void> setHideScope(DockHideScope scope) =>
+      _update((current) => current.copyWith(hideScope: scope));
+
+  Future<void> setRevealDelayMs(int delay) =>
+      _update((current) => current.copyWith(revealDelayMs: delay));
+
+  Future<void> setHideDelayMs(int delay) =>
+      _update((current) => current.copyWith(hideDelayMs: delay));
+
+  Future<void> setShowProgress({required bool show}) =>
+      _update((current) => current.copyWith(showProgress: show));
+
+  Future<void> setShowAttention({required bool show}) =>
+      _update((current) => current.copyWith(showAttention: show));
+
+  Future<void> setShowDesktopActions({required bool show}) =>
+      _update((current) => current.copyWith(showDesktopActions: show));
+
+  Future<void> setShowAudioIndicator({required bool show}) =>
+      _update((current) => current.copyWith(showAudioIndicator: show));
+
+  Future<void> setLockItems({required bool locked}) =>
+      _update((current) => current.copyWith(lockItems: locked));
+
+  Future<void> setCurrentWorkspaceOnly({required bool only}) =>
+      _update((current) => current.copyWith(currentWorkspaceOnly: only));
+
+  Future<void> setPreviewMiddleClose({required bool close}) =>
+      _update((current) => current.copyWith(previewMiddleClose: close));
+
+  Future<void> setAvoidReservedEdge({required bool avoid}) =>
+      _update((current) => current.copyWith(avoidReservedEdge: avoid));
+
   Future<void> setLauncherSide(DockSide side) =>
       _update((current) => current.copyWith(launcherSide: side));
 

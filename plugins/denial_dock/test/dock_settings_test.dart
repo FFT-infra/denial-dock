@@ -425,6 +425,68 @@ void main() {
     'launch prefix and case strip',
   );
 
+  // A file written before these settings existed reads as the old behaviour.
+  final old = DockSettings.fromJson(const {'visibility': 'smart'});
+  _expect(
+    old.middleClickAction == DockMiddleClickAction.newWindow &&
+        old.hideScope == DockHideScope.all &&
+        old.revealDelayMs == 90 &&
+        old.hideDelayMs == 200 &&
+        !old.lockItems &&
+        !old.currentWorkspaceOnly &&
+        !old.previewMiddleClose &&
+        !old.showAudioIndicator &&
+        old.showProgress &&
+        old.showAttention &&
+        old.showDesktopActions &&
+        old.avoidReservedEdge,
+    'defaults of the newer settings',
+  );
+  final newer = DockSettings.fromJson(const {
+    'clickAction': 'previews',
+    'middleClickAction': 'close',
+    'hideScope': 'maximized',
+    'indicatorStyle': 'segments',
+    'revealDelayMs': 5000,
+    'hideDelayMs': -3,
+    'showProgress': false,
+    'showAttention': false,
+    'showDesktopActions': false,
+    'showAudioIndicator': true,
+    'lockItems': true,
+    'currentWorkspaceOnly': true,
+    'previewMiddleClose': true,
+    'avoidReservedEdge': false,
+  });
+  _expect(
+    newer.clickAction == DockClickAction.previews &&
+        newer.middleClickAction == DockMiddleClickAction.close &&
+        newer.hideScope == DockHideScope.maximized &&
+        newer.indicatorStyle == DockIndicatorStyle.segments &&
+        newer.revealDelayMs == DockSettings.maxRevealDelayMs &&
+        newer.hideDelayMs == 0 &&
+        !newer.showProgress &&
+        !newer.showAttention &&
+        !newer.showDesktopActions &&
+        newer.showAudioIndicator &&
+        newer.lockItems &&
+        newer.currentWorkspaceOnly &&
+        newer.previewMiddleClose &&
+        !newer.avoidReservedEdge,
+    'newer settings parse and clamp',
+  );
+  final copied = DockSettings.fromJson(const {}).copyWith(
+    middleClickAction: DockMiddleClickAction.minimize,
+    hideScope: DockHideScope.active,
+    lockItems: true,
+  );
+  _expect(
+    copied.middleClickAction == DockMiddleClickAction.minimize &&
+        copied.hideScope == DockHideScope.active &&
+        copied.lockItems,
+    'newer settings copy',
+  );
+
   _storeRoundTrip(settings);
 }
 
@@ -447,6 +509,24 @@ Future<void> _storeRoundTrip(DockSettings settings) async {
     _expect(written['iconSize'] == 56, 'written size');
     _expect(written['magnification'] == false, 'written magnification');
     _expect(written['showBadges'] == false, 'written badges');
+    await store.write(
+      settings.copyWith(
+        middleClickAction: DockMiddleClickAction.close,
+        hideScope: DockHideScope.active,
+        revealDelayMs: 300,
+        lockItems: true,
+      ),
+    );
+    final again = await store.read();
+    _expect(
+      again.middleClickAction == DockMiddleClickAction.close &&
+          again.hideScope == DockHideScope.active &&
+          again.revealDelayMs == 300 &&
+          again.lockItems &&
+          again.clickAction == settings.clickAction,
+      'newer settings survive the store',
+    );
+    await store.write(settings);
     _expect(written['iconOpacity'] == 0.5, 'written icon opacity');
     _expect(written['tintColor'] == '#a855f7', 'written tint');
     _expect(

@@ -34,14 +34,82 @@ enum DockClickAction {
 
   /// Clicking the front-most application focuses its next window, in stable
   /// window-list order.
-  cycle;
+  cycle,
 
-  String get key => this == DockClickAction.cycle ? 'cycle' : 'minimize';
+  /// An application with several windows opens its previews instead, as Dash
+  /// to Dock's "show window previews" does. One window behaves as [minimize].
+  previews,
+
+  /// A click only ever brings the application forward; it never minimizes.
+  raise;
+
+  String get key => switch (this) {
+    DockClickAction.minimize => 'minimize',
+    DockClickAction.cycle => 'cycle',
+    DockClickAction.previews => 'previews',
+    DockClickAction.raise => 'raise',
+  };
 
   static DockClickAction parse(
     Object? value, {
     DockClickAction fallback = DockClickAction.minimize,
-  }) => value == 'cycle' ? DockClickAction.cycle : fallback;
+  }) => switch (value) {
+    'minimize' => DockClickAction.minimize,
+    'cycle' => DockClickAction.cycle,
+    'previews' => DockClickAction.previews,
+    'raise' => DockClickAction.raise,
+    _ => fallback,
+  };
+}
+
+/// What the middle button does on an application that is already running. A
+/// stopped application always starts.
+enum DockMiddleClickAction {
+  newWindow,
+
+  /// Closes the application's focused window, or its first one.
+  close,
+  minimize,
+  nothing;
+
+  String get key => switch (this) {
+    DockMiddleClickAction.newWindow => 'new-window',
+    DockMiddleClickAction.close => 'close',
+    DockMiddleClickAction.minimize => 'minimize',
+    DockMiddleClickAction.nothing => 'nothing',
+  };
+
+  static DockMiddleClickAction parse(Object? value) => switch (value) {
+    'close' => DockMiddleClickAction.close,
+    'minimize' => DockMiddleClickAction.minimize,
+    'nothing' => DockMiddleClickAction.nothing,
+    _ => DockMiddleClickAction.newWindow,
+  };
+}
+
+/// Which windows make a smart-hiding dock retract, as Plank's hide modes
+/// split them.
+enum DockHideScope {
+  /// Any window that reaches the dock.
+  all,
+
+  /// Only the focused window.
+  active,
+
+  /// Only a maximized window.
+  maximized;
+
+  String get key => switch (this) {
+    DockHideScope.all => 'all',
+    DockHideScope.active => 'active',
+    DockHideScope.maximized => 'maximized',
+  };
+
+  static DockHideScope parse(Object? value) => switch (value) {
+    'active' => DockHideScope.active,
+    'maximized' => DockHideScope.maximized,
+    _ => DockHideScope.all,
+  };
 }
 
 /// What a wheel turn over the dock does, as in Dash to Dock's scroll action.
@@ -79,11 +147,19 @@ enum DockIndicatorStyle {
   /// A single bar the width of the icon.
   line,
 
+  /// One short dash per window, up to four.
+  dashes,
+
+  /// The bar, cut into one segment per window, up to four.
+  segments,
+
   none;
 
   String get key => switch (this) {
     DockIndicatorStyle.dot => 'dot',
     DockIndicatorStyle.line => 'line',
+    DockIndicatorStyle.dashes => 'dashes',
+    DockIndicatorStyle.segments => 'segments',
     DockIndicatorStyle.none => 'none',
   };
 
@@ -93,6 +169,8 @@ enum DockIndicatorStyle {
   }) => switch (value) {
     'dot' => DockIndicatorStyle.dot,
     'line' => DockIndicatorStyle.line,
+    'dashes' => DockIndicatorStyle.dashes,
+    'segments' => DockIndicatorStyle.segments,
     'none' => DockIndicatorStyle.none,
     _ => fallback,
   };
@@ -424,6 +502,18 @@ class DockSettings {
     this.recentCount = defaultRecentCount,
     this.recentsOrder = const [],
     this.parkedRecents = const [],
+    this.middleClickAction = DockMiddleClickAction.newWindow,
+    this.hideScope = DockHideScope.all,
+    this.revealDelayMs = defaultRevealDelayMs,
+    this.hideDelayMs = defaultHideDelayMs,
+    this.showProgress = true,
+    this.showAttention = true,
+    this.showDesktopActions = true,
+    this.showAudioIndicator = false,
+    this.lockItems = false,
+    this.currentWorkspaceOnly = false,
+    this.previewMiddleClose = false,
+    this.avoidReservedEdge = true,
   });
 
   /// Base icon edge before magnification.
@@ -544,6 +634,51 @@ class DockSettings {
   /// section does not throw the history away.
   final List<String> parkedRecents;
 
+  final DockMiddleClickAction middleClickAction;
+
+  /// Which windows retract a smart-hiding dock.
+  final DockHideScope hideScope;
+
+  /// How long the pointer rests on the screen edge before a hidden dock
+  /// comes out, and how long it stays after the pointer leaves.
+  final int revealDelayMs;
+
+  final int hideDelayMs;
+
+  /// Draws the progress an application publishes through the Unity launcher
+  /// API along the bottom of its icon.
+  final bool showProgress;
+
+  /// Shakes an icon whose application asks for attention the same way.
+  final bool showAttention;
+
+  /// Lists the desktop file's own actions in the icon's menu.
+  final bool showDesktopActions;
+
+  /// Marks an application that is playing sound.
+  final bool showAudioIndicator;
+
+  /// Keeps icons from being dragged and the dock from being resized.
+  final bool lockItems;
+
+  /// Counts only the windows on the workspace in view.
+  final bool currentWorkspaceOnly;
+
+  /// Lets the middle button close a window from its preview.
+  final bool previewMiddleClose;
+
+  /// Moves the dock inward when something else, such as a bar, reserves the
+  /// edge it sits on.
+  final bool avoidReservedEdge;
+
+  static const int defaultRevealDelayMs = 90;
+  static const int defaultHideDelayMs = 200;
+  static const int maxRevealDelayMs = 1000;
+  static const int maxHideDelayMs = 2000;
+  static const int delayStepMs = 10;
+
+  static int clampDelay(int value, int max) => value.clamp(0, max);
+
   static const int defaultRecentCount = 3;
   static const int minRecentCount = 0;
   static const int maxRecentCount = 8;
@@ -589,6 +724,18 @@ class DockSettings {
     int? recentCount,
     List<String>? recentsOrder,
     List<String>? parkedRecents,
+    DockMiddleClickAction? middleClickAction,
+    DockHideScope? hideScope,
+    int? revealDelayMs,
+    int? hideDelayMs,
+    bool? showProgress,
+    bool? showAttention,
+    bool? showDesktopActions,
+    bool? showAudioIndicator,
+    bool? lockItems,
+    bool? currentWorkspaceOnly,
+    bool? previewMiddleClose,
+    bool? avoidReservedEdge,
   }) => DockSettings(
     pinned: pinned ?? this.pinned,
     visibility: visibility ?? this.visibility,
@@ -623,6 +770,21 @@ class DockSettings {
     recentCount: clampRecentCount(recentCount ?? this.recentCount),
     recentsOrder: recentsOrder ?? this.recentsOrder,
     parkedRecents: parkedRecents ?? this.parkedRecents,
+    middleClickAction: middleClickAction ?? this.middleClickAction,
+    hideScope: hideScope ?? this.hideScope,
+    revealDelayMs: clampDelay(
+      revealDelayMs ?? this.revealDelayMs,
+      maxRevealDelayMs,
+    ),
+    hideDelayMs: clampDelay(hideDelayMs ?? this.hideDelayMs, maxHideDelayMs),
+    showProgress: showProgress ?? this.showProgress,
+    showAttention: showAttention ?? this.showAttention,
+    showDesktopActions: showDesktopActions ?? this.showDesktopActions,
+    showAudioIndicator: showAudioIndicator ?? this.showAudioIndicator,
+    lockItems: lockItems ?? this.lockItems,
+    currentWorkspaceOnly: currentWorkspaceOnly ?? this.currentWorkspaceOnly,
+    previewMiddleClose: previewMiddleClose ?? this.previewMiddleClose,
+    avoidReservedEdge: avoidReservedEdge ?? this.avoidReservedEdge,
   );
 
   static double clampIconSize(double value) {
@@ -856,6 +1018,42 @@ class DockSettings {
       ),
       recentsOrder: List.unmodifiable(order),
       parkedRecents: List.unmodifiable(parked),
+      middleClickAction: DockMiddleClickAction.parse(json['middleClickAction']),
+      hideScope: DockHideScope.parse(json['hideScope']),
+      revealDelayMs: clampDelay(
+        json['revealDelayMs'] is num
+            ? (json['revealDelayMs'] as num).toInt()
+            : defaultRevealDelayMs,
+        maxRevealDelayMs,
+      ),
+      hideDelayMs: clampDelay(
+        json['hideDelayMs'] is num
+            ? (json['hideDelayMs'] as num).toInt()
+            : defaultHideDelayMs,
+        maxHideDelayMs,
+      ),
+      showProgress: json['showProgress'] is bool
+          ? json['showProgress'] as bool
+          : true,
+      showAttention: json['showAttention'] is bool
+          ? json['showAttention'] as bool
+          : true,
+      showDesktopActions: json['showDesktopActions'] is bool
+          ? json['showDesktopActions'] as bool
+          : true,
+      showAudioIndicator: json['showAudioIndicator'] is bool
+          ? json['showAudioIndicator'] as bool
+          : false,
+      lockItems: json['lockItems'] is bool ? json['lockItems'] as bool : false,
+      currentWorkspaceOnly: json['currentWorkspaceOnly'] is bool
+          ? json['currentWorkspaceOnly'] as bool
+          : false,
+      previewMiddleClose: json['previewMiddleClose'] is bool
+          ? json['previewMiddleClose'] as bool
+          : false,
+      avoidReservedEdge: json['avoidReservedEdge'] is bool
+          ? json['avoidReservedEdge'] as bool
+          : true,
     );
   }
 }
@@ -953,6 +1151,18 @@ class DockPreferencesStore {
     } else {
       json['parkedRecents'] = settings.parkedRecents;
     }
+    json['middleClickAction'] = settings.middleClickAction.key;
+    json['hideScope'] = settings.hideScope.key;
+    json['revealDelayMs'] = settings.revealDelayMs;
+    json['hideDelayMs'] = settings.hideDelayMs;
+    json['showProgress'] = settings.showProgress;
+    json['showAttention'] = settings.showAttention;
+    json['showDesktopActions'] = settings.showDesktopActions;
+    json['showAudioIndicator'] = settings.showAudioIndicator;
+    json['lockItems'] = settings.lockItems;
+    json['currentWorkspaceOnly'] = settings.currentWorkspaceOnly;
+    json['previewMiddleClose'] = settings.previewMiddleClose;
+    json['avoidReservedEdge'] = settings.avoidReservedEdge;
     await file.parent.create(recursive: true);
     final temp = File('${file.path}.$pid.${_sequence++}.tmp');
     try {
