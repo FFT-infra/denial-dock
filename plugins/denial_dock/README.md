@@ -74,10 +74,12 @@ turning it on.
   from the settings sheet through a built-in directory browser, with hidden
   entries behind a toggle. Clicking a folder fans its contents out of the icon
   as a stack, and clicking it again folds them back. The stack opens as a fan,
-  a grid or a list, sorts by name, date added, date modified or kind, and
-  re-reads the folder while it is open, so a file that lands shows up. A row
-  opens its file or folder; a row dragged out onto the trash icon moves it
-  there. The folder's own menu opens it in the file manager (`xdg-open`,
+  a grid or a list, sorts by name, date added, date modified, kind or a dragged
+  order, and re-reads the folder while it is open, so a file that lands shows
+  up. A row
+  opens its file or folder; a row dragged within the stack saves a custom
+  order, and one dragged out onto the trash icon moves it there. The folder's
+  own menu opens it in the file manager (`xdg-open`,
   falling back to `gio open`) and holds the sort, display and view choices. A
   pinned file opens with the handler for its type and offers *Show in Files*
   and *Remove from Dock*. The trash can opens `trash:///` through `gio` first,
