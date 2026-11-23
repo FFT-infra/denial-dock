@@ -689,12 +689,12 @@ class _DockSettingsPanelState extends ConsumerState<DockSettingsPanel> {
               _SettingsSection(
                 title: _zh ? '文件夹快捷方式' : 'Folder shortcuts',
                 footer: _zh
-                    ? '打开的文件夹和回收站使用系统默认程序（xdg-open / gio）。'
-                    : 'Folders and the Trash open with the system handler '
-                          '(xdg-open / gio).',
+                    ? '点文件夹图标会展开它的内容；要打开文件夹本身，用图标菜单里的「打开」。'
+                    : 'A click fans a folder out; open the folder itself from '
+                          'its menu.',
                 children: [
                   if (settings.folders.isEmpty && settings.files.isEmpty)
-                    _NoteRow(text: _zh ? '还没有添加文件夹。' : 'No folders added yet.'),
+                    _NoteRow(text: _zh ? '还没有添加文件夹或文件。' : 'Nothing added yet.'),
                   for (final folder in settings.folders)
                     _FolderRow(
                       folder: folder,

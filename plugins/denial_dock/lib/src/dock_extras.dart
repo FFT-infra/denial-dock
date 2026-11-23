@@ -238,11 +238,9 @@ abstract final class DockExtras {
   /// The D-Bus call is waited on rather than detached: a file manager that is
   /// not running leaves the name unowned, and only the exit status says so.
   static Future<bool> revealPath(String path) async {
+    final command = revealCommand(path);
     try {
-      final result = await Process.run(
-        revealCommand(path).first,
-        revealCommand(path).sublist(1),
-      );
+      final result = await Process.run(command.first, command.sublist(1));
       if (result.exitCode == 0) return true;
     } on ProcessException {
       // dbus-send is missing; fall through to the folder.
