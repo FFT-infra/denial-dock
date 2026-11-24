@@ -443,7 +443,7 @@ class _DockMenuSubmenuRowState extends State<DockMenuSubmenuRow> {
   @override
   Widget build(BuildContext context) {
     final theme = context.shellTheme;
-    final colors = theme.colors;
+    final row = KitStyle.of(context).menuRow(theme, hot: _open);
     return OverlayPortal.overlayChildLayoutBuilder(
       controller: _portal,
       overlayChildBuilder: (context, layout) =>
@@ -460,11 +460,11 @@ class _DockMenuSubmenuRowState extends State<DockMenuSubmenuRow> {
             padding: const EdgeInsets.symmetric(horizontal: 10),
             decoration: BoxDecoration(
               borderRadius: theme.borderRadius(8),
-              color: _open ? colors.textPrimary.withValues(alpha: 0.08) : null,
+              color: row.fill,
             ),
             child: Row(
               children: [
-                Icon(widget.icon, size: 17, color: colors.textPrimary),
+                Icon(widget.icon, size: 17, color: row.ink),
                 const SizedBox(width: 10),
                 Expanded(
                   child: Text(
@@ -472,11 +472,11 @@ class _DockMenuSubmenuRowState extends State<DockMenuSubmenuRow> {
                     maxLines: 1,
                     overflow: TextOverflow.ellipsis,
                     style: theme.text.systemBarCaption.copyWith(
-                      color: colors.textPrimary,
+                      color: row.ink,
                     ),
                   ),
                 ),
-                Icon(Icons.chevron_right, size: 16, color: colors.textTertiary),
+                Icon(Icons.chevron_right, size: 16, color: row.dim),
               ],
             ),
           ),
@@ -581,8 +581,8 @@ class _DockMenuRowState extends State<DockMenuRow> {
   @override
   Widget build(BuildContext context) {
     final theme = context.shellTheme;
-    final colors = theme.colors;
-    final foreground = colors.textPrimary;
+    final row = KitStyle.of(context).menuRow(theme, hot: _hovered);
+    final foreground = row.ink;
     return Semantics(
       button: true,
       selected: widget.selected,
@@ -598,9 +598,7 @@ class _DockMenuRowState extends State<DockMenuRow> {
             padding: const EdgeInsets.symmetric(horizontal: 10),
             decoration: BoxDecoration(
               borderRadius: theme.borderRadius(8),
-              color: _hovered
-                  ? colors.textPrimary.withValues(alpha: 0.08)
-                  : null,
+              color: row.fill,
             ),
             child: Row(
               children: [
@@ -619,7 +617,13 @@ class _DockMenuRowState extends State<DockMenuRow> {
                   ),
                 ),
                 if (widget.selected)
-                  Icon(Icons.check, size: 16, color: theme.kitAccent),
+                  Icon(
+                    Icons.check,
+                    size: 16,
+                    color: _hovered && KitStyle.of(context).accentMenuRows
+                        ? foreground
+                        : theme.kitAccent,
+                  ),
               ],
             ),
           ),

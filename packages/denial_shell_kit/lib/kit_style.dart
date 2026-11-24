@@ -114,6 +114,31 @@ class KitStyle {
       ? const Color(0xffffffff)
       : theme.accentPalette.onPrimary;
 
+  /// The plate under a menu row and the ink on it; [hot] is the row under
+  /// the pointer or the keyboard. One look fills the hot row with its
+  /// accent, the other lays a quiet plate and leaves the ink alone.
+  ({Color fill, Color ink, Color dim}) menuRow(
+    ShellThemeData theme, {
+    required bool hot,
+    bool enabled = true,
+  }) {
+    final filled = hot && enabled && accentMenuRows;
+    final on = onAccent(theme);
+    return (
+      fill: filled
+          ? accent(theme)
+          : hot && enabled
+          ? theme.colors.textPrimary.withValues(alpha: 0.10)
+          : const Color(0x00000000),
+      ink: !enabled
+          ? theme.colors.textTertiary
+          : filled
+          ? on
+          : theme.colors.textPrimary,
+      dim: filled ? on.withValues(alpha: 0.8) : theme.colors.textTertiary,
+    );
+  }
+
   double radius(ShellThemeData theme, double base) =>
       scaleCorners ? theme.scaledRadius(base) : base;
 
