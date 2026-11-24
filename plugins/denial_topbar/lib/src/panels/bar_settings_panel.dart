@@ -96,7 +96,7 @@ class _BarSettingsPanelState extends ConsumerState<BarSettingsPanel> {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.stretch,
               children: <Widget>[
-                BarWindowHandle(
+                KitWindowHandle(
                   child: Padding(
                     padding: const EdgeInsets.fromLTRB(18, 18, 12, 12),
                     child: Text(
@@ -135,7 +135,7 @@ class _BarSettingsPanelState extends ConsumerState<BarSettingsPanel> {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.stretch,
               children: <Widget>[
-                BarWindowHandle(
+                KitWindowHandle(
                   child: Padding(
                     padding: const EdgeInsets.fromLTRB(22, 14, 12, 8),
                     child: Row(

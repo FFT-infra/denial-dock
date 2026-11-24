@@ -32,13 +32,13 @@ void showNotificationCenter({
   bool widgets = true,
   String panelId = 'clock',
 }) {
-  if (barOpenPanel.value == panelId) {
-    closeBarPanel();
+  if (kitOpenPanel.value == panelId) {
+    closeKitPanel();
     return;
   }
-  showBarLayer(
+  showKitLayer(
     ref: ref,
-    keyName: barPanelKey,
+    keyName: kitPanelKey,
     panelId: panelId,
     open: KitMotion.settle,
     close: KitMotion.enter,
@@ -227,7 +227,7 @@ class _ColumnState extends ConsumerState<_Column> {
   @override
   Widget build(BuildContext context) {
     final scene = MediaQuery.sizeOf(context);
-    final animation = BarLayer.of(context).animation;
+    final animation = KitLayer.of(context).animation;
     final state = ref.watch(desktopNotificationsProvider);
     final controller = ref.read(desktopNotificationsProvider.notifier);
     final groups = notifications
@@ -271,7 +271,7 @@ class _ColumnState extends ConsumerState<_Column> {
             },
             child: Align(
               alignment: Alignment.topCenter,
-              child: BarCardGroup(
+              child: KitCardGroup(
                 child: SingleChildScrollView(
                   clipBehavior: Clip.none,
                   child: Column(
@@ -360,7 +360,7 @@ class _Surface extends StatelessWidget {
   Widget build(BuildContext context) {
     return Listener(
       behavior: HitTestBehavior.opaque,
-      child: BarCard(radius: 22, elevation: 0.6, child: child),
+      child: KitCard(radius: 22, elevation: 0.6, child: child),
     );
   }
 }
@@ -379,7 +379,7 @@ class _ClearChip extends StatelessWidget {
       scale: 0.92,
       child: Listener(
         behavior: HitTestBehavior.opaque,
-        child: BarCard(
+        child: KitCard(
           radius: 12,
           elevation: 0.3,
           child: Padding(
@@ -482,7 +482,7 @@ class _GroupStackState extends State<_GroupStack> {
                     height: 40,
                     child: Opacity(
                       opacity: 1 - index * 0.25,
-                      child: const BarCard(
+                      child: const KitCard(
                         radius: 22,
                         elevation: 0.3,
                         child: SizedBox.expand(),
@@ -728,7 +728,7 @@ class _CardState extends State<_Card> with SingleTickerProviderStateMixin {
                         child: Pressable(
                           onTap: widget.onDismiss,
                           scale: 0.85,
-                          child: BarCard(
+                          child: KitCard(
                             radius: 11,
                             elevation: 0.3,
                             child: SizedBox(

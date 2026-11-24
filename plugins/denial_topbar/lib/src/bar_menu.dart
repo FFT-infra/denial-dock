@@ -77,16 +77,16 @@ void showBarMenu({
   bool vertical = false,
   bool fromRight = false,
 }) {
-  if (barOpenPanel.value == panelId) {
-    closeBarPanel();
+  if (kitOpenPanel.value == panelId) {
+    closeKitPanel();
     return;
   }
   final rect = at != null
       ? Rect.fromLTWH(at.dx + 4, at.dy, 0, 0)
-      : (anchor == null ? null : barSceneRect(anchor)) ?? Rect.zero;
-  showBarLayer(
+      : (anchor == null ? null : kitSceneRect(anchor)) ?? Rect.zero;
+  showKitLayer(
     ref: ref,
-    keyName: barPanelKey,
+    keyName: kitPanelKey,
     panelId: panelId,
     open: KitMotion.menuOpen,
     close: KitMotion.menuExit,
@@ -320,7 +320,7 @@ class _MenuTreeState extends State<_MenuTree> {
     return Focus(
       focusNode: _focus,
       onKeyEvent: _onKey,
-      child: BarSwell(
+      child: KitSwell(
         alignment: Alignment.topLeft,
         fadeOnly: true,
         child: CustomMultiChildLayout(
@@ -445,7 +445,7 @@ class _MenuCard extends StatelessWidget {
     );
     Widget card = Listener(
       behavior: HitTestBehavior.opaque,
-      child: BarCard(
+      child: KitCard(
         radius: _M.radius,
         elevation: 0.7,
         fill: theme.panelColor(theme.colors.surfaceContainer),

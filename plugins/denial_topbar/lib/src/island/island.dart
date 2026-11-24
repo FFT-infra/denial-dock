@@ -181,7 +181,7 @@ class _IslandState extends ConsumerState<Island> with TickerProviderStateMixin {
   @override
   void initState() {
     super.initState();
-    barOpenPanel.addListener(_onPanel);
+    kitOpenPanel.addListener(_onPanel);
     _timerSeen = islandTimer.finishedAt;
     islandTimer.addListener(_onTimer);
     micWatch.addListener(_onMic);
@@ -195,7 +195,7 @@ class _IslandState extends ConsumerState<Island> with TickerProviderStateMixin {
 
   @override
   void dispose() {
-    barOpenPanel.removeListener(_onPanel);
+    kitOpenPanel.removeListener(_onPanel);
     islandTimer.removeListener(_onTimer);
     micWatch.removeListener(_onMic);
     debugCommand.removeListener(_debug);
@@ -216,7 +216,7 @@ class _IslandState extends ConsumerState<Island> with TickerProviderStateMixin {
   }
 
   void _onPanel() {
-    if (barOpenPanel.value != null) _setOpen(false);
+    if (kitOpenPanel.value != null) _setOpen(false);
   }
 
   void _debug() {
@@ -316,7 +316,7 @@ class _IslandState extends ConsumerState<Island> with TickerProviderStateMixin {
     if (open) {
       final kind = _engine.kind;
       if (kind == null || !kind.expandable) return;
-      if (barOpenPanel.value != null) return;
+      if (kitOpenPanel.value != null) return;
       _card = kind;
       _engine.expand();
       _animate(true);
@@ -348,7 +348,7 @@ class _IslandState extends ConsumerState<Island> with TickerProviderStateMixin {
   }
 
   void _hud(IconData icon, double level) {
-    if (barOpenPanel.value != null) return;
+    if (kitOpenPanel.value != null) return;
     _hudIcon = icon;
     _hudLevel = level.clamp(0.0, 1.0);
     _show(IslandKind.hud, 'level', _I.hudHold);
@@ -364,7 +364,7 @@ class _IslandState extends ConsumerState<Island> with TickerProviderStateMixin {
   }) {
     // Sources report their first state as a change while the shell starts.
     if (_now.difference(_born) < _I.settle) return;
-    if (barOpenPanel.value != null) return;
+    if (kitOpenPanel.value != null) return;
     _statusIcon = icon;
     _statusTint = tint;
     _statusLabel = label;

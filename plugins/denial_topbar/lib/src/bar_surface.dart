@@ -46,7 +46,7 @@ const double barShadowExtent = BarTokens.shadowExtent;
 
 /// The macOS 27 menu bar.
 ///
-/// Ports NextKDE `BarWindow.qml`'s composition — system menu, app menu, status
+/// Ports NextKDE `KitWindow.qml`'s composition — system menu, app menu, status
 /// cluster, clock — with revo-shell's Dynamic Island in the centre. The strip
 /// itself keeps macOS's own treatment: no plate by default, type drawn
 /// straight on the wallpaper with the ink chosen against it.
@@ -80,18 +80,18 @@ class _TopBarSurfaceState extends ConsumerState<TopBarSurface> {
 
   final GlobalKey _appKey = GlobalKey();
 
-  String? get _openPanelId => barOpenPanel.value;
+  String? get _openPanelId => kitOpenPanel.value;
 
   void _panelChanged() {
     if (!mounted) return;
     setState(() {});
-    if (barOpenPanel.value == null) _hover();
+    if (kitOpenPanel.value == null) _hover();
   }
 
   @override
   void initState() {
     super.initState();
-    barOpenPanel.addListener(_panelChanged);
+    kitOpenPanel.addListener(_panelChanged);
     startDebugRemote();
     debugCommand.addListener(_debug);
   }
@@ -113,7 +113,7 @@ class _TopBarSurfaceState extends ConsumerState<TopBarSurface> {
     if (!_autoHide || _hidden) return;
     _hideTimer = Timer(after, () {
       if (!mounted || !_autoHide) return;
-      if (_overBar || _overIsland || barOpenPanel.value != null) return;
+      if (_overBar || _overIsland || kitOpenPanel.value != null) return;
       setState(() => _hidden = true);
     });
   }
@@ -154,7 +154,7 @@ class _TopBarSurfaceState extends ConsumerState<TopBarSurface> {
   void dispose() {
     _hideTimer?.cancel();
     _revealTimer?.cancel();
-    barOpenPanel.removeListener(_panelChanged);
+    kitOpenPanel.removeListener(_panelChanged);
     debugCommand.removeListener(_debug);
     _islandReserved.dispose();
     super.dispose();
@@ -193,7 +193,6 @@ class _TopBarSurfaceState extends ConsumerState<TopBarSurface> {
     bool glass = true,
     BarPanelAnchor placement = BarPanelAnchor.dropdown,
     Color? fill,
-    double? height,
   }) {
     showBarPanel(
       ref: ref,
@@ -205,7 +204,6 @@ class _TopBarSurfaceState extends ConsumerState<TopBarSurface> {
       placement: placement,
       fill: fill,
       barHeight: _bodyHeight,
-      height: height,
       builder: builder,
     );
   }
@@ -215,10 +213,10 @@ class _TopBarSurfaceState extends ConsumerState<TopBarSurface> {
   ///
   /// The reference closes the Wi-Fi list before opening it, because the dialog
   /// is a system modal that has to own the keyboard; the list would otherwise
-  /// keep focus. `showBarDialog` puts the card on its own surface for the same
+  /// keep focus. `showKitDialog` puts the card on its own surface for the same
   /// reason.
   void _openWifiJoin(WifiNetwork network) {
-    showBarDialog(
+    showKitDialog(
       ref: ref,
       width: WifiJoinDialog.width,
       builder: (_, close) => WifiJoinDialog(network: network, onClose: close),
@@ -226,7 +224,7 @@ class _TopBarSurfaceState extends ConsumerState<TopBarSurface> {
   }
 
   void _openBarSettings({int page = 0}) {
-    showBarDialog(
+    showKitDialog(
       ref: ref,
       width: barSettingsWidth,
       keyName: 'denial_topbar.settings',
@@ -249,7 +247,7 @@ class _TopBarSurfaceState extends ConsumerState<TopBarSurface> {
     final number = words.length > 1 ? int.tryParse(words[1]) ?? 0 : 0;
     switch (words.first) {
       case 'close':
-        closeBarPanel();
+        closeKitPanel();
       case 'cc':
         status.onControlCenter();
       case 'clock':
@@ -274,7 +272,7 @@ class _TopBarSurfaceState extends ConsumerState<TopBarSurface> {
   }
 
   void _openAbout() {
-    showBarDialog(
+    showKitDialog(
       ref: ref,
       width: AboutSystemDialog.width,
       builder: (context, close) => AboutSystemDialog(
@@ -288,7 +286,7 @@ class _TopBarSurfaceState extends ConsumerState<TopBarSurface> {
   }
 
   void _openForceQuit() {
-    showBarDialog(
+    showKitDialog(
       ref: ref,
       width: ForceQuitDialog.width,
       builder: (context, close) =>
@@ -309,7 +307,7 @@ class _TopBarSurfaceState extends ConsumerState<TopBarSurface> {
       _ => ('Are you sure you want to shut down now?', 'Shut Down'),
     };
     final power = ref.read(sessionPowerProvider.notifier);
-    showBarDialog(
+    showKitDialog(
       ref: ref,
       width: ConfirmDialog.width,
       builder: (context, close) => ConfirmDialog(

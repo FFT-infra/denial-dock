@@ -111,7 +111,7 @@ class _BarWorkspacesState extends ConsumerState<BarWorkspaces> {
 
   void _openSpaces() {
     _intent?.cancel();
-    if (barOpenPanel.value == 'spaces') return;
+    if (kitOpenPanel.value == 'spaces') return;
     showBarPanel(
       ref: ref,
       panelId: 'spaces',
@@ -252,7 +252,7 @@ class _SpacesStripState extends ConsumerState<SpacesStrip> {
 
   int? _spaceAt(Offset global) {
     for (final entry in _cards.entries) {
-      final rect = barSceneRect(entry.value);
+      final rect = kitSceneRect(entry.value);
       if (rect != null && rect.inflate(6).contains(global)) return entry.key;
     }
     return null;

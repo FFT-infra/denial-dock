@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:math' as math;
 
 import 'package:denial_flutter_sdk/theme.dart';
+import 'package:denial_shell_kit/kit_layer.dart' show kitPressTargets;
 import 'package:denial_shell_kit/kit_motion.dart';
 import 'package:flutter/material.dart';
 
@@ -85,6 +86,8 @@ class _BarButtonState extends State<BarButton> {
   void initState() {
     super.initState();
     BarButton._mounted.add(this);
+    // A press outside an open panel that lands on a bar item opens that item.
+    kitPressTargets.add(BarButton.targetAt);
   }
 
   @override
