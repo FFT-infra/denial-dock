@@ -144,6 +144,7 @@ const Map<String, String> zh = <String, String>{
   'Settings': '设置',
   'Appearance': '外观',
   'Look': '风格',
+  'Motion speed': '动画速度',
   'Dynamic Island': '灵动岛',
   'Menu Bar Items': '菜单栏项目',
   'Clock & Notifications': '时钟与通知',

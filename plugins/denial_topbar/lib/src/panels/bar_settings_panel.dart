@@ -3,6 +3,7 @@ import 'dart:math' as math;
 import 'package:denial_flutter_sdk/settings.dart';
 import 'package:denial_flutter_sdk/services.dart';
 import 'package:denial_flutter_sdk/theme.dart';
+import 'package:denial_shell_kit/kit_motion.dart';
 import 'package:denial_shell_kit/kit_style.dart';
 import 'package:flutter/widgets.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -174,7 +175,7 @@ class _BarSettingsPanelState extends ConsumerState<BarSettingsPanel> {
                 ),
                 Expanded(
                   child: AnimatedSwitcher(
-                    duration: const Duration(milliseconds: 180),
+                    duration: KitMotion.duration(context, KitMotion.turn),
                     layoutBuilder: (current, previous) => Stack(
                       alignment: Alignment.topCenter,
                       children: <Widget>[...previous, ?current],
@@ -210,6 +211,20 @@ class _BarSettingsPanelState extends ConsumerState<BarSettingsPanel> {
                   (KitStyle.mac, 'macOS'),
                 ],
                 onChanged: kitStyle.choose,
+              ),
+            ),
+            _Row(
+              label: context.tr('Motion speed'),
+              trailing: _Segments<double>(
+                value: kitSpeed.value,
+                options: const <(double, String)>[
+                  (0.5, '0.5×'),
+                  (0.75, '0.75×'),
+                  (1, '1×'),
+                  (1.5, '1.5×'),
+                  (2, '2×'),
+                ],
+                onChanged: (speed) => kitSpeed.value = speed,
               ),
             ),
             _Row(
@@ -777,7 +792,7 @@ class _SidebarItem extends StatelessWidget {
         scale: 0.98,
         child: const SizedBox.shrink(),
         builder: (context, hovered, _) => AnimatedContainer(
-          duration: const Duration(milliseconds: 120),
+          duration: KitMotion.duration(context, KitMotion.fade),
           height: 34,
           padding: const EdgeInsets.symmetric(horizontal: 8),
           decoration: BoxDecoration(
@@ -912,7 +927,7 @@ class _Row extends StatelessWidget {
     return IgnorePointer(
       ignoring: !enabled,
       child: AnimatedOpacity(
-        duration: const Duration(milliseconds: 160),
+        duration: KitMotion.duration(context, KitMotion.fill),
         opacity: enabled ? 1 : 0.4,
         child: ConstrainedBox(
           constraints: const BoxConstraints(minHeight: 42),
@@ -996,8 +1011,8 @@ class _Segments<T> extends StatelessWidget {
               onTap: option == value ? null : () => onChanged(option),
               scale: 0.95,
               child: AnimatedContainer(
-                duration: const Duration(milliseconds: 180),
-                curve: Curves.easeOutCubic,
+                duration: KitMotion.duration(context, KitMotion.turn),
+                curve: KitMotion.outCubic,
                 height: 24,
                 constraints: const BoxConstraints(minWidth: 46),
                 padding: const EdgeInsets.symmetric(horizontal: 11),
@@ -1189,14 +1204,16 @@ class _OrderListState extends State<_OrderList> {
       final dragging = id == _dragId;
       return AnimatedPositioned(
         key: ValueKey<String>(id),
-        duration: Duration(milliseconds: dragging ? 0 : 240),
-        curve: Curves.easeOutCubic,
+        duration: dragging
+            ? Duration.zero
+            : KitMotion.duration(context, KitMotion.enterLarge),
+        curve: KitMotion.outCubic,
         left: 0,
         right: 0,
         top: dragging ? _dragTop : order.indexOf(id) * _h,
         height: _h,
         child: AnimatedContainer(
-          duration: const Duration(milliseconds: 140),
+          duration: KitMotion.duration(context, KitMotion.ease),
           decoration: BoxDecoration(
             color: dragging
                 ? Color.alphaBlend(
