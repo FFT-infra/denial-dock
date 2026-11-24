@@ -31,7 +31,7 @@
 ## 安装
 
 ```sh
-denial-plugins add https://github.com/FFT-infra/denial-dock.git --path plugins/denial_dock
+denial-plugins add https://github.com/FFT-infra/denial-shell-plugins.git --path plugins/denial_dock
 denial-plugins apply
 ```
 
