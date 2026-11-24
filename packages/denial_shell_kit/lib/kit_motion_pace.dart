@@ -8,9 +8,10 @@ import 'dart:math' as math;
 class KitMotionPace {
   const KitMotionPace({required this.speed, required this.reduced});
 
-  /// The speeds the setting offers, slowest first. They are the five steps of
-  /// the reference shell's duration scale, without its off step: turning
-  /// motion off is what the system's reduced-motion flag already does.
+  /// The speeds the setting offers, slowest first: half to double, the span
+  /// such a setting usually covers, in five steps so it fits a segmented
+  /// control. There is no off step, because turning motion off is what the
+  /// system's reduced-motion flag already does.
   static const List<double> speeds = <double>[0.5, 0.75, 1, 1.5, 2];
 
   static const double minSpeed = 0.5;
@@ -56,11 +57,6 @@ class KitMotionPace {
   /// unchanged, which is why the shape — the overshoot above all — stays the
   /// same at every speed.
   double springStep(double dt) => dt * speed;
-
-  /// The stiffness a spring needs to complete in 1/speed the time at the same
-  /// damping ratio: the damping term follows from the ratio, so scaling
-  /// stiffness alone scales the clock and not the shape.
-  double springStiffness(double stiffness) => stiffness * speed * speed;
 }
 
 /// The damped-spring integrator behind the kit's springs, without Flutter, so

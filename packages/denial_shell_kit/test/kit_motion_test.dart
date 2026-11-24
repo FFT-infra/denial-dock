@@ -55,40 +55,58 @@ void main() {
   _expect(KitMotionPace.clampSpeed(1.3) == 1.5, 'a near value snaps up');
   _expect(KitMotionPace.clampSpeed(0.65) == 0.75, 'the nearest step wins');
 
-  // A spring at speed s is the same spring on a clock s times faster: every
-  // state at speed 2 after one step equals the state at speed 1 after two
-  // steps, so the damping ratio and the overshoot are untouched.
-  final slow = SpringMotion(0, stiffness: 300, dampingRatio: 0.7, target: 1);
-  final fast = SpringMotion(0, stiffness: 300, dampingRatio: 0.7, target: 1);
-  const frame = 1 / 480;
-  final fastFrame = const KitMotionPace(
-    speed: 2,
-    reduced: false,
-  ).springStep(frame);
-  var peak = 0.0;
-  for (var i = 0; i < 300; i++) {
-    fast.step(fastFrame);
-    slow.step(frame);
-    slow.step(frame);
-    peak = math.max(peak, slow.value);
+  // A spring at speed s is the same spring on a clock s times faster. Run it
+  // at every offered speed on a 120 Hz frame clock and compare it with the
+  // unpaced spring read at s times the elapsed time: the whole trajectory
+  // matches, so the overshoot is the same and only the time to reach it
+  // changes, by 1/speed.
+  const frame = 1 / 120;
+  const substep = 1 / 480;
+  SpringMotion spring() =>
+      SpringMotion(0, stiffness: 300, dampingRatio: 0.7, target: 1);
+  int framesToTarget(double speed) {
+    final pace = KitMotionPace(speed: speed, reduced: false);
+    final paced = spring();
+    var frames = 0;
+    while (paced.value < 1) {
+      paced.step(pace.springStep(frame));
+      frames++;
+    }
+    return frames;
+  }
+
+  final normalFrames = framesToTarget(1);
+  for (final speed in KitMotionPace.speeds) {
+    final pace = KitMotionPace(speed: speed, reduced: false);
+    final paced = spring();
+    final plain = spring();
+    // Each paced frame covers this many of the plain spring's sub-steps.
+    final perFrame = (speed * frame / substep).round();
+    var pacedPeak = 0.0;
+    var plainPeak = 0.0;
+    for (var i = 0; i < 480; i++) {
+      paced.step(pace.springStep(frame));
+      for (var k = 0; k < perFrame; k++) {
+        plain.step(substep);
+        plainPeak = math.max(plainPeak, plain.value);
+      }
+      pacedPeak = math.max(pacedPeak, paced.value);
+      _expect(
+        (paced.value - plain.value).abs() < 1e-9 &&
+            (paced.velocity - plain.velocity).abs() < 1e-6,
+        'speed $speed, frame $i: the same spring on a faster clock',
+      );
+    }
+    _expect(plainPeak > 1.01, 'the spring overshoots');
+    // The paced spring is only seen once a frame, so its highest frame sits a
+    // little under the true peak.
     _expect(
-      (fast.value - slow.value).abs() < 1e-12 &&
-          (fast.velocity - slow.velocity).abs() < 1e-9,
-      'step $i: speed 2 is the same spring, twice as fast',
+      pacedPeak <= plainPeak && plainPeak - pacedPeak < 1e-3,
+      'speed $speed keeps the overshoot',
+    );
+    _expect(
+      (framesToTarget(speed) - normalFrames / speed).abs() <= 1,
+      'speed $speed reaches the target in 1/speed the time',
     );
   }
-  _expect(peak > 1, 'the spring is free to overshoot');
-
-  // The same property written as stiffness: k · speed² moves the natural
-  // frequency by the speed and leaves the damping ratio alone.
-  const stiffness = 300.0;
-  const ratio = 0.7;
-  final faster = const KitMotionPace(
-    speed: 2,
-    reduced: false,
-  ).springStiffness(stiffness);
-  _expect(faster == stiffness * 4, 'stiffness follows the speed squared');
-  final damping = 2 * ratio * math.sqrt(faster);
-  final fasterRatio = damping / (2 * math.sqrt(faster));
-  _expect((fasterRatio - ratio).abs() < 1e-12, 'the damping ratio is kept');
 }
