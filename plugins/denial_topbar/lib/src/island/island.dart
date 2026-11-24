@@ -296,8 +296,8 @@ class _IslandState extends ConsumerState<Island> with TickerProviderStateMixin {
     }
     // The speed stretches the spring's clock: dividing the duration scales
     // stiffness by the speed squared and leaves the bounce's damping ratio
-    // alone. The initial velocity is in value per second, so it divides by
-    // the same clock. At normal speed every number is what it was.
+    // alone. The controller reports its velocity in real seconds, which is the
+    // clock the new spring runs on too, so the hand-over takes it unchanged.
     final spring = SpringDescription.withDurationAndBounce(
       duration: pace.scaled(
         open ? BarTokens.islandExpand : BarTokens.islandCollapse,
@@ -305,12 +305,7 @@ class _IslandState extends ConsumerState<Island> with TickerProviderStateMixin {
       bounce: open ? 0.24 : 0,
     );
     _open.animateWith(
-      SpringSimulation(
-        spring,
-        _open.value,
-        open ? 1 : 0,
-        _open.velocity * pace.speed,
-      ),
+      SpringSimulation(spring, _open.value, open ? 1 : 0, _open.velocity),
     );
   }
 
