@@ -4,6 +4,8 @@ import 'dart:io';
 import 'package:denial_flutter_sdk/theme.dart';
 import 'package:flutter/widgets.dart';
 
+import 'kit_motion_pace.dart';
+
 /// How a spring is tuned: stiffness and damping ratio, as Denial's liquid
 /// motion recipe writes them.
 @immutable
@@ -151,55 +153,96 @@ class KitStyle {
 /// preferences.
 final KitStyleNotifier kitStyle = KitStyleNotifier._();
 
+/// How fast the shell's motion runs, kept in the same file as the look so a
+/// program with both plugins has one value.
+final KitSpeedNotifier kitSpeed = KitSpeedNotifier._();
+
+File? _kitFile() {
+  final env = Platform.environment;
+  final configured = env['XDG_CONFIG_HOME'];
+  final home = env['HOME'];
+  final root = configured != null && configured.startsWith('/')
+      ? configured
+      : home != null && home.startsWith('/')
+      ? '$home/.config'
+      : null;
+  return root == null
+      ? null
+      : File('$root/denial/plugins/denial_shell_kit.json');
+}
+
+Map<String, dynamic> _readKitJson() {
+  final file = _kitFile();
+  if (file == null) return <String, dynamic>{};
+  try {
+    final json = jsonDecode(file.readAsStringSync());
+    return json is Map<String, dynamic> ? json : <String, dynamic>{};
+  } on Object {
+    return <String, dynamic>{};
+  }
+}
+
+/// Writes the keys given, keeping every other key the file already has: the
+/// look and the speed are separate settings in one file, and a newer build
+/// may have added more.
+void _writeKitJson(Map<String, dynamic> json) {
+  final file = _kitFile();
+  if (file == null) return;
+  try {
+    file.parent.createSync(recursive: true);
+    final temp = File('${file.path}.$pid.tmp')
+      ..writeAsStringSync('${jsonEncode(json)}\n');
+    temp.renameSync(file.path);
+  } on FileSystemException {
+    return;
+  }
+}
+
+/// Both settings reach most widgets without a subscription, and a switch is
+/// rare, so everything is built again.
+void _rebuildEverything() {
+  void visit(Element element) {
+    element.markNeedsBuild();
+    element.visitChildren(visit);
+  }
+
+  WidgetsBinding.instance.rootElement?.visitChildren(visit);
+}
+
 class KitStyleNotifier extends ValueNotifier<KitStyle> {
   KitStyleNotifier._() : super(_read());
 
-  static File? _file() {
-    final env = Platform.environment;
-    final configured = env['XDG_CONFIG_HOME'];
-    final home = env['HOME'];
-    final root = configured != null && configured.startsWith('/')
-        ? configured
-        : home != null && home.startsWith('/')
-        ? '$home/.config'
-        : null;
-    return root == null
-        ? null
-        : File('$root/denial/plugins/denial_shell_kit.json');
-  }
-
   static KitStyle _read() {
-    try {
-      final json = jsonDecode(_file()!.readAsStringSync());
-      return KitStyle.byId(json is Map ? json['style'] as String? : null);
-    } on Object {
-      return KitStyle.denial;
-    }
+    final style = _readKitJson()['style'];
+    return KitStyle.byId(style is String ? style : null);
   }
 
   /// Switches the look and remembers it.
   void choose(KitStyle style) {
     if (style.id == value.id) return;
     value = style;
-    // The look reaches into type, colour and motion everywhere, and most
-    // widgets read it without subscribing. A switch is rare, so everything
-    // is simply built again.
-    void visit(Element element) {
-      element.markNeedsBuild();
-      element.visitChildren(visit);
-    }
+    _rebuildEverything();
+    final json = _readKitJson()..['style'] = style.id;
+    _writeKitJson(json);
+  }
+}
 
-    WidgetsBinding.instance.rootElement?.visitChildren(visit);
-    final file = _file();
-    if (file == null) return;
-    try {
-      file.parent.createSync(recursive: true);
-      final temp = File('${file.path}.$pid.tmp')
-        ..writeAsStringSync('${jsonEncode({'style': style.id})}\n');
-      temp.renameSync(file.path);
-    } on FileSystemException {
-      return;
-    }
+class KitSpeedNotifier extends ValueNotifier<double> {
+  KitSpeedNotifier._() : super(_read());
+
+  static double _read() => KitMotionPace.clampSpeed(_readKitJson()['speed']);
+
+  /// Sets the speed multiplier and remembers it. A missing value in a file
+  /// written by an older build means normal speed; anything else lands on one
+  /// of [KitMotionPace.speeds].
+  @override
+  set value(double next) {
+    final speed = KitMotionPace.clampSpeed(next);
+    if (speed == super.value) return;
+    super.value = speed;
+    final json = _readKitJson()..['speed'] = speed;
+    _writeKitJson(json);
+    _rebuildEverything();
   }
 }
 

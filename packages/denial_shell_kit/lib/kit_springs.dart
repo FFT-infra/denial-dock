@@ -3,39 +3,22 @@ import 'dart:math' as math;
 import 'package:flutter/scheduler.dart';
 import 'package:flutter/widgets.dart';
 
+import 'kit_motion.dart';
 import 'kit_style.dart';
 
 /// A damped spring stepped by the frame clock, after the recipe in Denial's
 /// `docs/LIQUID_MOTION.md`: a new target keeps the velocity, so quick changes
 /// blend into one motion. Values are free to overshoot.
-class KitSpring {
-  KitSpring(this.value, KitSpringTuning tuning)
-    : target = value,
-      stiffness = tuning.stiffness,
-      dampingRatio = tuning.dampingRatio;
-
-  double value;
-  double target;
-  double velocity = 0;
-  double stiffness;
-  double dampingRatio;
+class KitSpring extends SpringMotion {
+  KitSpring(super.value, KitSpringTuning tuning)
+    : super(
+        stiffness: tuning.stiffness,
+        dampingRatio: tuning.dampingRatio,
+      );
 
   void tune(KitSpringTuning tuning) {
     stiffness = tuning.stiffness;
     dampingRatio = tuning.dampingRatio;
-  }
-
-  /// Sub-steps of at most 1/480 s keep a stiff spring stable at any refresh
-  /// rate.
-  void step(double dt) {
-    final damping = 2 * dampingRatio * math.sqrt(stiffness);
-    var left = dt;
-    while (left > 0) {
-      final h = math.min(left, 1 / 480);
-      velocity += (-stiffness * (value - target) - damping * velocity) * h;
-      value += velocity * h;
-      left -= h;
-    }
   }
 
   bool resting(double tolerance) =>
@@ -88,10 +71,16 @@ class KitSprings extends ChangeNotifier {
     final dt = last == null
         ? 1 / 120
         : ((elapsed - last).inMicroseconds / 1e6).clamp(0.0, 1 / 30);
-    before?.call(dt);
+    // The user's speed stretches the clock the springs run on; reduced motion
+    // never reaches here because kick settles them at once.
+    final paced = KitMotionPace(
+      speed: KitMotion.speed,
+      reduced: false,
+    ).springStep(dt);
+    before?.call(paced);
     var resting = true;
     for (final spring in springs) {
-      spring.step(dt);
+      spring.step(paced);
       resting = resting && spring.resting(tolerance);
     }
     if (resting) {
@@ -148,7 +137,7 @@ class _SprungState extends State<Sprung> with SingleTickerProviderStateMixin {
     _spring.tune(widget.tuning);
     if (widget.target != _spring.target) {
       _spring.target = widget.target;
-      _springs.kick(reduceMotion: MediaQuery.disableAnimationsOf(context));
+      _springs.kick(reduceMotion: KitMotion.reduced(context));
     }
   }
 
@@ -233,7 +222,7 @@ class _LiquidFillState extends State<LiquidFill>
     super.didUpdateWidget(old);
     if (widget.level != _level.target) {
       _level.target = widget.level;
-      _springs.kick(reduceMotion: MediaQuery.disableAnimationsOf(context));
+      _springs.kick(reduceMotion: KitMotion.reduced(context));
     }
   }
 
