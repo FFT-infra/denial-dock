@@ -113,6 +113,7 @@ class BarSettings {
     this.hairline = false,
     this.islandEnabled = true,
     this.islandHoverPeek = true,
+    this.islandHoverFade = false,
     this.islandNoticeSeconds = 5,
     this.activityMedia = true,
     this.activityCharging = true,
@@ -175,6 +176,10 @@ class BarSettings {
 
   final bool islandEnabled;
   final bool islandHoverPeek;
+
+  /// The compact island fades away under a resting pointer, to show what
+  /// it covers; a click still opens it.
+  final bool islandHoverFade;
 
   /// How long a notice or a track change keeps the island open, in seconds.
   final int islandNoticeSeconds;
@@ -265,6 +270,7 @@ class BarSettings {
     bool? hairline,
     bool? islandEnabled,
     bool? islandHoverPeek,
+    bool? islandHoverFade,
     int? islandNoticeSeconds,
     bool? activityMedia,
     bool? activityCharging,
@@ -320,6 +326,7 @@ class BarSettings {
     hairline: hairline ?? this.hairline,
     islandEnabled: islandEnabled ?? this.islandEnabled,
     islandHoverPeek: islandHoverPeek ?? this.islandHoverPeek,
+    islandHoverFade: islandHoverFade ?? this.islandHoverFade,
     islandNoticeSeconds: islandNoticeSeconds ?? this.islandNoticeSeconds,
     activityMedia: activityMedia ?? this.activityMedia,
     activityCharging: activityCharging ?? this.activityCharging,
@@ -396,6 +403,7 @@ class BarSettings {
       hairline: flag('hairline', false),
       islandEnabled: flag('islandEnabled', true),
       islandHoverPeek: flag('islandHoverPeek', true),
+      islandHoverFade: flag('islandHoverFade', false),
       islandNoticeSeconds: (json['islandNoticeSeconds'] is num)
           ? (json['islandNoticeSeconds'] as num).round().clamp(2, 12)
           : 5,
@@ -464,6 +472,7 @@ class BarSettings {
     json['hairline'] = hairline;
     json['islandEnabled'] = islandEnabled;
     json['islandHoverPeek'] = islandHoverPeek;
+    json['islandHoverFade'] = islandHoverFade;
     json['islandNoticeSeconds'] = islandNoticeSeconds;
     json['activityMedia'] = activityMedia;
     json['activityCharging'] = activityCharging;

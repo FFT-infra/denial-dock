@@ -5,6 +5,7 @@ import 'package:denial_flutter_sdk/theme.dart';
 import 'package:flutter/widgets.dart';
 
 import 'continuous_corners.dart';
+import 'kit_style.dart';
 
 /// The card every popup of the dock and the top bar draws on: continuous
 /// corners, backdrop blur, a hairline and one soft shadow.
@@ -17,9 +18,12 @@ class GlassCard extends StatelessWidget {
     this.minOpacity = 0,
     this.blurStrength = 1,
     this.fade,
+    this.grouped = false,
     super.key,
   });
 
+  /// The corner radius at the shell's normal roundness; where the look
+  /// follows the shell, the card scales it.
   final double radius;
 
   /// The panel colour unless given.
@@ -34,6 +38,11 @@ class GlassCard extends StatelessWidget {
   /// Fades the shadow, the backdrop and the content together, for a card
   /// that appears with its layer.
   final Animation<double>? fade;
+
+  /// Shares one backdrop with the other grouped cards under the nearest
+  /// [BackdropGroup], for cards that sit side by side and move together.
+  /// Every ungrouped card reads the screen back for itself.
+  final bool grouped;
   final Widget child;
 
   static Color fillOf(ShellThemeData theme, {double minOpacity = 0}) {
@@ -44,6 +53,7 @@ class GlassCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final theme = context.shellTheme;
+    final radius = KitStyle.of(context).radius(theme, this.radius);
     final fade = this.fade;
     final fill = this.fill ?? fillOf(theme, minOpacity: minOpacity);
     final Widget shadow = DecoratedBox(
@@ -72,6 +82,7 @@ class GlassCard extends StatelessWidget {
           clipper: ContinuousCornersClipper(radius: radius),
           child: ShellBackdropBlur(
             blur: fill.a < 1,
+            grouped: grouped,
             strength: blurStrength,
             // A fading backdrop carries its content through the fade.
             separateChild: fade == null,

@@ -1,10 +1,12 @@
 import 'package:denial_flutter_sdk/localization.dart';
 import 'package:denial_flutter_sdk/state.dart';
 import 'package:denial_flutter_sdk/theme.dart';
+import 'package:denial_shell_kit/kit_style.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../bar_icons.dart';
+
 import 'package:denial_shell_kit/continuous_corners.dart';
 
 /// Apple system red for the calendar widget.
@@ -298,7 +300,9 @@ class _CompactDay extends StatelessWidget {
       alignment: Alignment.center,
       decoration: BoxDecoration(
         shape: BoxShape.circle,
-        color: isToday ? calendarRed : Colors.transparent,
+        color: isToday
+            ? KitStyle.of(context).plate(theme, calendarRed)
+            : Colors.transparent,
       ),
       child: Text(
         '${value.day}',
@@ -306,7 +310,9 @@ class _CompactDay extends StatelessWidget {
           fontSize: size < 16 ? 10 : 11,
           height: 1,
           fontWeight: isToday ? FontWeight.w700 : FontWeight.w400,
-          color: isToday ? const Color(0xffffffff) : theme.colors.textPrimary,
+          color: isToday
+              ? KitStyle.of(context).onPlate(theme)
+              : theme.colors.textPrimary,
         ),
       ),
     );

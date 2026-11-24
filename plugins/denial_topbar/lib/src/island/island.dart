@@ -7,6 +7,8 @@ import 'package:denial_flutter_sdk/models.dart';
 import 'package:denial_flutter_sdk/services.dart';
 import 'package:denial_flutter_sdk/state.dart';
 import 'package:denial_sdk/system.dart' show BatteryStatus;
+import 'package:denial_shell_kit/kit_springs.dart';
+import 'package:denial_shell_kit/kit_style.dart';
 import 'package:flutter/physics.dart';
 import 'package:flutter/widgets.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -16,8 +18,10 @@ import '../bar_panel.dart';
 import '../bar_settings.dart';
 import '../bar_tokens.dart';
 import '../bar_type.dart';
+
 import 'package:denial_shell_kit/continuous_corners.dart';
 import 'package:denial_shell_kit/launcher_entry_bus.dart';
+
 import '../debug_remote.dart';
 import '../l10n.dart';
 import '../mic_watch.dart';
@@ -106,8 +110,7 @@ class Island extends ConsumerStatefulWidget {
   ConsumerState<Island> createState() => _IslandState();
 }
 
-class _IslandState extends ConsumerState<Island>
-    with SingleTickerProviderStateMixin {
+class _IslandState extends ConsumerState<Island> with TickerProviderStateMixin {
   final IslandEngine _engine = IslandEngine();
   late final AnimationController _open = AnimationController.unbounded(
     vsync: this,
@@ -135,6 +138,41 @@ class _IslandState extends ConsumerState<Island>
   bool _hovered = false;
   bool _pressed = false;
   Offset _pull = Offset.zero;
+
+  // How the pill answers the pointer: it swells under it, leans toward it,
+  // gives under a press and, where the user asks, fades to show what it
+  // covers. Springs, so a quick in-and-out never jumps.
+  late final KitSpring _hoverFeel = KitSpring(
+    0,
+    const KitSpringTuning(380, 0.7),
+  );
+  late final KitSpring _pressFeel = KitSpring(0, KitStyle.denial.pressTuning);
+  late final KitSpring _pullX = KitSpring(0, const KitSpringTuning(300, 0.8));
+  late final KitSpring _pullY = KitSpring(0, const KitSpringTuning(300, 0.8));
+  late final KitSpring _veil = KitSpring(0, const KitSpringTuning(260, 1));
+  late final KitSprings _feel = KitSprings(this, <KitSpring>[
+    _hoverFeel,
+    _pressFeel,
+    _pullX,
+    _pullY,
+    _veil,
+  ]);
+
+  /// Points the springs at what the pointer is doing now.
+  void _aim() {
+    final fade = widget.settings.islandHoverFade && !_engine.expanded;
+    _hoverFeel.target = _hovered && !fade ? 1 : 0;
+    _pressFeel
+      ..tune(KitStyle.of(context).pressTuning)
+      ..target = _pressed ? 1 : 0;
+    _pullX.target = fade ? 0 : _pull.dx;
+    _pullY.target = fade ? 0 : _pull.dy;
+    _veil.target = _hovered && fade ? 1 : 0;
+    _feel.kick(
+      reduceMotion: MediaQuery.maybeDisableAnimationsOf(context) ?? false,
+    );
+  }
+
   double? _dragFrom;
   double _dragged = 0;
 
@@ -174,6 +212,7 @@ class _IslandState extends ConsumerState<Island>
       timer?.cancel();
     }
     _open.dispose();
+    _feel.dispose();
     super.dispose();
   }
 
@@ -521,6 +560,7 @@ class _IslandState extends ConsumerState<Island>
         if (mounted && _hovered) _setOpen(true);
       });
     }
+    _aim();
     setState(() {});
   }
 
@@ -534,6 +574,7 @@ class _IslandState extends ConsumerState<Island>
         if (mounted && !_hovered) _setOpen(false);
       });
     }
+    _aim();
     setState(() {});
   }
 
@@ -656,16 +697,18 @@ class _IslandState extends ConsumerState<Island>
         .toList();
     final cardEnd = _cardSize(_card);
 
-    return TweenAnimationBuilder<double>(
-      tween: Tween<double>(end: compact),
-      duration: const Duration(milliseconds: 420),
-      curve: BarTokens.spring,
+    // The pill's width follows its content on a spring with a little bounce:
+    // a change that arrives mid-move bends the motion instead of restarting.
+    return Sprung(
+      target: compact,
+      tuning: const KitSpringTuning(300, 0.62),
+      tolerance: 0.05,
       builder: (context, cw, _) => TweenAnimationBuilder<Size?>(
         tween: SizeTween(end: cardEnd),
         duration: const Duration(milliseconds: 360),
         curve: Curves.easeOutCubic,
         builder: (context, cardNow, _) => AnimatedBuilder(
-          animation: _open,
+          animation: Listenable.merge(<Listenable>[_open, _feel]),
           builder: (context, _) {
             final card = cardNow ?? cardEnd;
             final t = _open.value;
@@ -675,9 +718,13 @@ class _IslandState extends ConsumerState<Island>
             final radius = lerpDouble(h / 2, _cardRadius(_card), tc)!;
             final faceOpacity = (1 - tc / 0.22).clamp(0.0, 1.0);
             final cardOpacity = ((tc - 0.32) / 0.5).clamp(0.0, 1.0);
-            final swell = _pressed
-                ? 0.96
-                : (_hovered ? 1 + 0.07 * (1 - tc) : 1.0);
+            final swell =
+                1 +
+                0.07 * _hoverFeel.value * (1 - tc) -
+                0.05 * _pressFeel.value;
+            // Open, the island is in use and shows in full whatever the
+            // pointer does.
+            final veil = (_veil.value * (1 - tc)).clamp(0.0, 1.0);
             final coverSize = lerpDouble(_I.cover, _I.bigCover, tc)!;
             final coverInset = (h - _I.cover) / 2;
 
@@ -807,7 +854,7 @@ class _IslandState extends ConsumerState<Island>
             );
 
             final pill = Transform.translate(
-              offset: _pull * (1 - tc),
+              offset: Offset(_pullX.value, _pullY.value) * (1 - tc),
               child: Transform.scale(
                 scale: swell,
                 alignment: Alignment.topCenter,
@@ -835,7 +882,8 @@ class _IslandState extends ConsumerState<Island>
                             1.5,
                       );
                       if ((pull - _pull).distance > 0.3) {
-                        setState(() => _pull = pull);
+                        _pull = pull;
+                        _aim();
                       }
                     },
                     child: Listener(
@@ -846,11 +894,18 @@ class _IslandState extends ConsumerState<Island>
                         behavior: HitTestBehavior.opaque,
                         onTapDown: (_) {
                           if (!_engine.expanded) {
-                            setState(() => _pressed = true);
+                            _pressed = true;
+                            _aim();
                           }
                         },
-                        onTapUp: (_) => setState(() => _pressed = false),
-                        onTapCancel: () => setState(() => _pressed = false),
+                        onTapUp: (_) {
+                          _pressed = false;
+                          _aim();
+                        },
+                        onTapCancel: () {
+                          _pressed = false;
+                          _aim();
+                        },
                         onTap: _engine.expanded
                             ? null
                             : () => _setOpen(true, byTouch: !_hovered),
@@ -861,7 +916,11 @@ class _IslandState extends ConsumerState<Island>
                             settings.islandSwipe && lives.length > 1
                             ? _swipe
                             : null,
-                        child: shape,
+                        // Faded, the shape still takes the pointer: only its
+                        // paint goes.
+                        child: veil <= 0.001
+                            ? shape
+                            : Opacity(opacity: 1 - 0.94 * veil, child: shape),
                       ),
                     ),
                   ),

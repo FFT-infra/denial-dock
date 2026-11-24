@@ -1,12 +1,12 @@
 import 'package:denial_flutter_sdk/state.dart';
 import 'package:denial_flutter_sdk/system_services.dart' show WifiNetwork;
 import 'package:denial_flutter_sdk/theme.dart';
+import 'package:denial_shell_kit/kit_style.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../bar_icons.dart';
 import '../bar_type.dart';
-import 'mac_kit.dart';
 
 /// The "Join “SSID”" dialog.
 ///
@@ -185,7 +185,11 @@ class _WifiJoinDialogState extends ConsumerState<WifiJoinDialog> {
             left: 0,
             right: 0,
             child: Center(
-              child: BarGlyph(BarIcons.wifi, size: 44, color: macBlue),
+              child: BarGlyph(
+                BarIcons.wifi,
+                size: 44,
+                color: context.shellTheme.kitAccent,
+              ),
             ),
           ),
           Positioned(
@@ -401,7 +405,7 @@ class _PasswordPillState extends State<_PasswordPill> {
         borderRadius: BorderRadius.circular(14),
         border: Border.all(
           color: _focused
-              ? macBlue.withValues(alpha: 0.80)
+              ? context.shellTheme.kitAccent.withValues(alpha: 0.80)
               : Colors.transparent,
         ),
       ),
@@ -412,7 +416,7 @@ class _PasswordPillState extends State<_PasswordPill> {
           focusNode: widget.focusNode,
           obscureText: true,
           style: BarType.caption.copyWith(fontSize: 14, color: widget.ink),
-          cursorColor: macBlue,
+          cursorColor: context.shellTheme.kitAccent,
           onSubmitted: (_) => widget.onSubmitted(),
           decoration: InputDecoration(
             isDense: true,
@@ -450,12 +454,13 @@ class _SavedStrip extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final accent = context.shellTheme.kitAccent;
     return Container(
       height: 38,
       decoration: BoxDecoration(
-        color: macBlue.withValues(alpha: 0.16),
+        color: accent.withValues(alpha: 0.16),
         borderRadius: BorderRadius.circular(14),
-        border: Border.all(color: macBlue.withValues(alpha: 0.36)),
+        border: Border.all(color: accent.withValues(alpha: 0.36)),
       ),
       child: Row(
         children: <Widget>[

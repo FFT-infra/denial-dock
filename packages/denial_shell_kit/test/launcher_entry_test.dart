@@ -105,7 +105,10 @@ void main() {
     'spelling',
   );
   entries.removeSender(':1.30');
-  _expect(entries.spelling('org.gnome.nautilus') == 'org.gnome.nautilus', 'forgotten');
+  _expect(
+    entries.spelling('org.gnome.nautilus') == 'org.gnome.nautilus',
+    'forgotten',
+  );
 
   stdout.writeln('All launcher entry tests passed.');
 }

@@ -5,6 +5,7 @@ import 'package:denial_flutter_sdk/localization.dart';
 import 'package:denial_flutter_sdk/services.dart';
 import 'package:denial_flutter_sdk/state.dart';
 import 'package:denial_flutter_sdk/theme.dart';
+import 'package:denial_shell_kit/kit_style.dart';
 import 'package:flutter/widgets.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
@@ -500,7 +501,9 @@ class _CpuWidget extends ConsumerWidget {
     final cpu = ref.watch(services.cpu);
     final load = cpu.current;
     final temperature = cpu.temperatureC;
-    final colour = (load ?? 0) > 0.8 ? macRed : macBlue;
+    final colour = (load ?? 0) > 0.8
+        ? macRed
+        : KitStyle.of(context).accent(context.shellTheme);
     return _Gauge(
       wide: wide,
       extra: wide && cpu.history.length > 1

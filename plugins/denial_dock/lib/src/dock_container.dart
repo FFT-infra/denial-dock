@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'dart:math' as math;
 
+import 'package:denial_shell_kit/kit_style.dart';
 import 'package:denial_flutter_sdk/applications.dart'
     show applicationRecentsProvider;
 import 'package:denial_flutter_sdk/effects.dart';
@@ -33,8 +34,10 @@ import 'dock_mac_icons.dart';
 import 'dock_debug.dart';
 import 'dock_hotkeys.dart';
 import 'dock_item.dart';
+
 import 'package:denial_shell_kit/launcher_entry.dart';
 import 'package:denial_shell_kit/launcher_entry_bus.dart';
+
 import 'dock_layout.dart';
 import 'dock_math.dart';
 import 'dock_menu.dart';
@@ -1332,7 +1335,7 @@ class _DockContainerState extends ConsumerState<DockContainer>
                                   settings: settings,
                                   tintColor: dockTintColor(
                                     settings.tintColor,
-                                    theme.accent,
+                                    theme.kitAccent,
                                   ),
                                   chinese: chinese,
                                 )
@@ -1367,7 +1370,10 @@ class _DockContainerState extends ConsumerState<DockContainer>
                       child: DockIcon(
                         mode: settings.iconMode,
                         opacity: settings.iconOpacity,
-                        accent: dockTintColor(settings.tintColor, theme.accent),
+                        accent: dockTintColor(
+                          settings.tintColor,
+                          theme.kitAccent,
+                        ),
                         child: widget.services.buildApplicationIcon(
                           context,
                           dragEntry.appId,
@@ -2262,12 +2268,12 @@ class _LauncherItemState extends State<_LauncherItem> {
                 ? DockLaunchpadIcon(size: widget.size, pressed: _pressed)
                 : DockTile(
                     size: widget.size,
-                    accent: theme.accent,
+                    accent: theme.kitAccent,
                     pressed: _pressed,
                     child: SizedBox.square(
                       dimension: widget.size * 0.42,
                       child: CustomPaint(
-                        painter: _LauncherGlyphPainter(theme.accent),
+                        painter: _LauncherGlyphPainter(theme.kitAccent),
                       ),
                     ),
                   ),

@@ -1,11 +1,13 @@
 import 'dart:async';
 import 'dart:math' as math;
 
+import 'package:denial_shell_kit/kit_style.dart';
 import 'package:denial_flutter_sdk/effects.dart';
 import 'package:denial_flutter_sdk/theme.dart';
 import 'package:flutter/material.dart';
 
 import 'dock_settings.dart' show DockPosition;
+
 import 'package:denial_shell_kit/glass_card.dart';
 
 /// Which side of a menu panel carries the pointer tail, mirroring the dock's
@@ -617,7 +619,7 @@ class _DockMenuRowState extends State<DockMenuRow> {
                   ),
                 ),
                 if (widget.selected)
-                  Icon(Icons.check, size: 16, color: theme.accent),
+                  Icon(Icons.check, size: 16, color: theme.kitAccent),
               ],
             ),
           ),

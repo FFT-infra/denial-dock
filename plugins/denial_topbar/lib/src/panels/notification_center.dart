@@ -261,74 +261,76 @@ class _ColumnState extends ConsumerState<_Column> {
             },
             child: Align(
               alignment: Alignment.topCenter,
-              child: SingleChildScrollView(
-                clipBehavior: Clip.none,
-                child: Column(
-                  mainAxisSize: MainAxisSize.min,
-                  crossAxisAlignment: CrossAxisAlignment.stretch,
-                  children: <Widget>[
-                    if (groups.isNotEmpty)
-                      Padding(
-                        padding: const EdgeInsets.fromLTRB(6, 0, 2, 8),
-                        child: Row(
-                          children: <Widget>[
-                            Expanded(
-                              child: Text(
-                                context.tr('Notification Center'),
-                                style: BarType.display.copyWith(
-                                  fontSize: 17,
-                                  fontWeight: FontWeight.w700,
-                                  color: const Color(0xffffffff),
-                                  shadows: const <Shadow>[
-                                    Shadow(
-                                      color: Color(0x66000000),
-                                      blurRadius: 8,
-                                    ),
-                                  ],
+              child: BarCardGroup(
+                child: SingleChildScrollView(
+                  clipBehavior: Clip.none,
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    crossAxisAlignment: CrossAxisAlignment.stretch,
+                    children: <Widget>[
+                      if (groups.isNotEmpty)
+                        Padding(
+                          padding: const EdgeInsets.fromLTRB(6, 0, 2, 8),
+                          child: Row(
+                            children: <Widget>[
+                              Expanded(
+                                child: Text(
+                                  context.tr('Notification Center'),
+                                  style: BarType.display.copyWith(
+                                    fontSize: 17,
+                                    fontWeight: FontWeight.w700,
+                                    color: const Color(0xffffffff),
+                                    shadows: const <Shadow>[
+                                      Shadow(
+                                        color: Color(0x66000000),
+                                        blurRadius: 8,
+                                      ),
+                                    ],
+                                  ),
                                 ),
                               ),
-                            ),
-                            _ClearChip(
-                              label: context.tr('Clear All'),
-                              onTap: controller.clearAll,
-                            ),
-                          ],
+                              _ClearChip(
+                                label: context.tr('Clear All'),
+                                onTap: controller.clearAll,
+                              ),
+                            ],
+                          ),
                         ),
-                      ),
-                    for (final group in groups)
-                      Padding(
-                        padding: const EdgeInsets.only(bottom: 10),
-                        child: _GroupStack(
-                          key: ValueKey<String>(group.key),
-                          group: group,
-                          services: services,
-                          onActivate: (id) {
-                            controller.invokeDefaultAction(id);
-                            onClose();
-                          },
-                          onDismiss: controller.dismissFromHistory,
-                          onDismissGroup: () =>
-                              controller.dismissGroupFromHistory(group.key),
+                      for (final group in groups)
+                        Padding(
+                          padding: const EdgeInsets.only(bottom: 10),
+                          child: _GroupStack(
+                            key: ValueKey<String>(group.key),
+                            group: group,
+                            services: services,
+                            onActivate: (id) {
+                              controller.invokeDefaultAction(id);
+                              onClose();
+                            },
+                            onDismiss: controller.dismissFromHistory,
+                            onDismissGroup: () =>
+                                controller.dismissGroupFromHistory(group.key),
+                          ),
                         ),
-                      ),
-                    if (widgets) ...<Widget>[
-                      if (groups.isNotEmpty) const SizedBox(height: 4),
-                      ..._widgets(context, width),
-                    ] else if (groups.isEmpty)
-                      _Surface(
-                        child: SizedBox(
-                          height: 72,
-                          child: Center(
-                            child: Text(
-                              context.tr('No Notifications'),
-                              style: BarType.menuRow.copyWith(
-                                color: theme.colors.textSecondary,
+                      if (widgets) ...<Widget>[
+                        if (groups.isNotEmpty) const SizedBox(height: 4),
+                        ..._widgets(context, width),
+                      ] else if (groups.isEmpty)
+                        _Surface(
+                          child: SizedBox(
+                            height: 72,
+                            child: Center(
+                              child: Text(
+                                context.tr('No Notifications'),
+                                style: BarType.menuRow.copyWith(
+                                  color: theme.colors.textSecondary,
+                                ),
                               ),
                             ),
                           ),
                         ),
-                      ),
-                  ],
+                    ],
+                  ),
                 ),
               ),
             ),

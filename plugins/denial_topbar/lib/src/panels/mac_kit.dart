@@ -1,4 +1,6 @@
 import 'package:denial_flutter_sdk/theme.dart';
+import 'package:denial_shell_kit/kit_springs.dart';
+import 'package:denial_shell_kit/kit_style.dart';
 import 'package:flutter/widgets.dart';
 
 import '../bar_icons.dart';
@@ -53,10 +55,11 @@ class _PressableState extends State<Pressable> {
         onTapCancel: () => setState(() => _pressed = false),
         onTap: widget.onTap,
         onLongPress: widget.onLongPress,
-        child: AnimatedScale(
-          duration: Duration(milliseconds: _pressed ? 80 : 260),
-          curve: _pressed ? Curves.easeOut : Curves.easeOutBack,
-          scale: _pressed ? widget.scale : 1,
+        child: Sprung(
+          target: _pressed ? widget.scale : 1,
+          tuning: KitStyle.of(context).pressTuning,
+          builder: (context, value, child) =>
+              Transform.scale(scale: value, child: child),
           child:
               widget.builder?.call(context, _hovered, _pressed) ?? widget.child,
         ),
@@ -80,6 +83,7 @@ class MacSwitch extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final theme = context.shellTheme;
+    final style = KitStyle.of(context);
     final enabled = onChanged != null && !busy;
     return Opacity(
       opacity: enabled ? 1 : 0.55,
@@ -94,35 +98,53 @@ class MacSwitch extends StatelessWidget {
             : null,
         child: MouseRegion(
           cursor: enabled ? SystemMouseCursors.click : MouseCursor.defer,
-          child: AnimatedContainer(
-            duration: const Duration(milliseconds: 220),
-            curve: Curves.easeOutCubic,
+          child: SizedBox(
             width: 46,
             height: 26,
-            padding: const EdgeInsets.all(2),
-            decoration: BoxDecoration(
-              color: value
-                  ? macBlue
-                  : theme.colors.textPrimary.withValues(alpha: 0.18),
-              borderRadius: BorderRadius.circular(13),
-            ),
-            child: AnimatedAlign(
-              duration: const Duration(milliseconds: 260),
-              curve: Curves.easeOutBack,
-              alignment: value ? Alignment.centerRight : Alignment.centerLeft,
-              child: Container(
-                width: 28,
-                height: 22,
-                decoration: BoxDecoration(
-                  color: const Color(0xffffffff),
-                  borderRadius: BorderRadius.circular(11),
-                  boxShadow: const <BoxShadow>[
-                    BoxShadow(
-                      color: Color(0x33000000),
-                      blurRadius: 4,
-                      offset: Offset(0, 1),
-                    ),
-                  ],
+            child: LiquidFill(
+              level: value ? 1 : 0,
+              sideways: true,
+              color: style.accent(theme),
+              base: theme.colors.textPrimary.withValues(alpha: 0.18),
+              radius: BorderRadius.circular(13),
+              child: Padding(
+                padding: const EdgeInsets.all(2),
+                child: Sprung(
+                  target: value ? 1 : -1,
+                  tuning: style.liquid
+                      ? const KitSpringTuning(520, 0.6)
+                      : const KitSpringTuning(620, 0.72),
+                  builder: (context, x, child) =>
+                      Align(alignment: Alignment(x, 0), child: child),
+                  child: style.liquid
+                      // Denial's knob is ink on the fill, not a white bead.
+                      ? Container(
+                          width: 22,
+                          height: 22,
+                          decoration: BoxDecoration(
+                            shape: BoxShape.circle,
+                            color: value
+                                ? style.onAccent(theme)
+                                : theme.colors.textPrimary.withValues(
+                                    alpha: 0.82,
+                                  ),
+                          ),
+                        )
+                      : Container(
+                          width: 28,
+                          height: 22,
+                          decoration: BoxDecoration(
+                            color: const Color(0xffffffff),
+                            borderRadius: BorderRadius.circular(11),
+                            boxShadow: const <BoxShadow>[
+                              BoxShadow(
+                                color: Color(0x33000000),
+                                blurRadius: 4,
+                                offset: Offset(0, 1),
+                              ),
+                            ],
+                          ),
+                        ),
                 ),
               ),
             ),
@@ -140,6 +162,7 @@ class MacDisc extends StatelessWidget {
     required this.on,
     this.size = 28,
     this.colour = macBlue,
+    this.meaning = false,
     this.child,
     super.key,
   });
@@ -148,27 +171,36 @@ class MacDisc extends StatelessWidget {
   final bool on;
   final double size;
   final Color colour;
+
+  /// Whether [colour] says something (a warning, a recording) and so stays
+  /// where the look would otherwise pour its one accent.
+  final bool meaning;
   final Widget? child;
 
   @override
   Widget build(BuildContext context) {
     final theme = context.shellTheme;
-    return AnimatedContainer(
-      duration: const Duration(milliseconds: 200),
+    final style = KitStyle.of(context);
+    return SizedBox(
       width: size,
       height: size,
-      alignment: Alignment.center,
-      decoration: BoxDecoration(
-        shape: BoxShape.circle,
-        color: on ? colour : theme.colors.textPrimary.withValues(alpha: 0.14),
+      child: LiquidFill(
+        level: on ? 1 : 0,
+        color: style.plate(theme, colour, meaning: meaning),
+        base: theme.colors.textPrimary.withValues(alpha: 0.14),
+        radius: BorderRadius.circular(size / 2),
+        child: Center(
+          child:
+              child ??
+              BarGlyph(
+                icon,
+                size: size * 0.5,
+                color: on
+                    ? style.onPlate(theme, meaning: meaning)
+                    : theme.colors.textPrimary,
+              ),
+        ),
       ),
-      child:
-          child ??
-          BarGlyph(
-            icon,
-            size: size * 0.5,
-            color: on ? const Color(0xffffffff) : theme.colors.textPrimary,
-          ),
     );
   }
 }
@@ -455,7 +487,7 @@ class _MacSliderState extends State<MacSlider> {
                         width: centre,
                         height: track,
                         decoration: BoxDecoration(
-                          color: macBlue,
+                          color: KitStyle.of(context).accent(theme),
                           borderRadius: BorderRadius.circular(track / 2),
                         ),
                       ),

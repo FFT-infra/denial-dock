@@ -1,6 +1,7 @@
 import 'dart:math' as math;
 
 import 'package:denial_flutter_sdk/theme.dart';
+import 'package:denial_shell_kit/kit_style.dart';
 import 'package:flutter/gestures.dart';
 import 'package:flutter/widgets.dart';
 
@@ -408,7 +409,7 @@ class TileEditButton extends StatelessWidget {
         alignment: Alignment.center,
         decoration: BoxDecoration(
           color: strong
-              ? macBlue
+              ? KitStyle.of(context).accent(context.shellTheme)
               : theme.colors.textPrimary.withValues(alpha: 0.10),
           borderRadius: BorderRadius.circular(14),
         ),
@@ -417,7 +418,9 @@ class TileEditButton extends StatelessWidget {
           style: BarType.caption.copyWith(
             fontSize: 12,
             fontWeight: FontWeight.w600,
-            color: strong ? const Color(0xffffffff) : theme.colors.textPrimary,
+            color: strong
+                ? KitStyle.of(context).onAccent(context.shellTheme)
+                : theme.colors.textPrimary,
           ),
         ),
       ),

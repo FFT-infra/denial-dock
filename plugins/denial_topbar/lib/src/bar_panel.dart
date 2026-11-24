@@ -12,7 +12,10 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import 'bar_button.dart';
 import 'bar_tokens.dart';
+
 import 'package:denial_shell_kit/glass_card.dart';
+import 'package:denial_shell_kit/kit_springs.dart';
+import 'package:denial_shell_kit/kit_style.dart';
 
 const String barPanelKey = 'denial_topbar.panel';
 const String barDialogKey = 'denial_topbar.dialog';
@@ -301,41 +304,84 @@ void showBarDialog({
   );
 }
 
-/// The enter/exit motion shared by popovers and windows: a small settle out
-/// of [alignment]. The fade belongs to [BarCard], because a backdrop blur has
+/// The enter/exit motion shared by popovers and windows: the card grows out
+/// of [alignment] on the look's spring and goes back the same way. A new
+/// direction keeps the velocity, so a popup closed while it opens turns round
+/// without a jump. The fade belongs to [BarCard], because a backdrop blur has
 /// to be faded by the blur itself.
-class BarSwell extends StatelessWidget {
+class BarSwell extends StatefulWidget {
   const BarSwell({
     required this.alignment,
     required this.child,
-    this.from = 0.96,
     this.fadeOnly = false,
     super.key,
   });
 
   final Alignment alignment;
-  final double from;
   final bool fadeOnly;
   final Widget child;
 
   @override
+  State<BarSwell> createState() => _BarSwellState();
+}
+
+class _BarSwellState extends State<BarSwell>
+    with SingleTickerProviderStateMixin {
+  late final KitSpring _grow = KitSpring(0, KitStyle.denial.panelGrow);
+  late final KitSprings _springs = KitSprings(this, <KitSpring>[_grow]);
+  Animation<double>? _layer;
+  bool _started = false;
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    final layer = BarLayer.of(context).animation;
+    if (layer != _layer) {
+      _layer?.removeStatusListener(_onStatus);
+      _layer = layer..addStatusListener(_onStatus);
+    }
+    if (!_started) {
+      _started = true;
+      _head(layer.status != AnimationStatus.reverse);
+    }
+  }
+
+  void _onStatus(AnimationStatus status) {
+    if (status == AnimationStatus.reverse) _head(false);
+    if (status == AnimationStatus.forward) _head(true);
+  }
+
+  void _head(bool open) {
+    final style = KitStyle.of(context);
+    _grow
+      ..tune(open ? style.panelGrow : style.panelShrink)
+      ..target = open ? 1 : 0;
+    _springs.kick(reduceMotion: _reduceMotion);
+  }
+
+  @override
+  void dispose() {
+    _layer?.removeStatusListener(_onStatus);
+    _springs.dispose();
+    super.dispose();
+  }
+
+  @override
   Widget build(BuildContext context) {
-    if (fadeOnly) return child;
-    final animation = BarLayer.of(context).animation;
+    if (widget.fadeOnly) return widget.child;
+    final bead = KitStyle.of(context).panelBead;
     return AnimatedBuilder(
-      animation: animation,
+      animation: _springs,
       builder: (context, child) {
-        final forward = animation.status != AnimationStatus.reverse;
-        final scale = forward
-            ? from + (1 - from) * Curves.easeOutCubic.transform(animation.value)
-            : 0.985 + 0.015 * animation.value;
+        final grown = _grow.value;
         return Transform.scale(
-          alignment: alignment,
-          scale: scale,
+          alignment: widget.alignment,
+          scaleX: bead.width + (1 - bead.width) * grown,
+          scaleY: bead.height + (1 - bead.height) * grown,
           child: child,
         );
       },
-      child: child,
+      child: widget.child,
     );
   }
 }
@@ -359,14 +405,42 @@ class BarCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final layer = context.dependOnInheritedWidgetOfExactType<BarLayer>();
+    final together =
+        context.dependOnInheritedWidgetOfExactType<_BarCardGroupMarker>() !=
+        null;
     return GlassCard(
       radius: radius,
       fill: fill,
       elevation: elevation,
-      fade: layer?.animation.drive(CurveTween(curve: Curves.easeOut)),
+      grouped: together,
+      fade: together
+          ? null
+          : layer?.animation.drive(CurveTween(curve: Curves.easeOut)),
       child: child,
     );
   }
+}
+
+/// Cards below move as one body, the way the notification column slides in.
+/// They share a single backdrop and skip their own fade: a column of cards
+/// that each read the screen back and fade on their own costs a frame's
+/// budget several times over.
+class BarCardGroup extends StatelessWidget {
+  const BarCardGroup({required this.child, super.key});
+
+  final Widget child;
+
+  @override
+  Widget build(BuildContext context) {
+    return BackdropGroup(child: _BarCardGroupMarker(child: child));
+  }
+}
+
+class _BarCardGroupMarker extends InheritedWidget {
+  const _BarCardGroupMarker({required super.child});
+
+  @override
+  bool updateShouldNotify(_BarCardGroupMarker old) => false;
 }
 
 /// A centred window. Drag it by a [BarWindowHandle], or anywhere while the
@@ -422,7 +496,6 @@ class BarWindowState extends State<BarWindow> {
         offset: _offset,
         child: BarSwell(
           alignment: Alignment.center,
-          from: 0.96,
           child: ConstrainedBox(
             constraints: BoxConstraints(
               maxWidth: math.min(widget.width, scene.width - 32),

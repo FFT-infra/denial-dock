@@ -1,6 +1,7 @@
 import 'dart:io';
 import 'dart:math' as math;
 
+import 'package:denial_shell_kit/kit_style.dart';
 import 'package:denial_flutter_sdk/theme.dart';
 import 'package:flutter/material.dart';
 
@@ -78,7 +79,7 @@ class DockStackIcon extends StatelessWidget {
         clipBehavior: Clip.none,
         children: [
           Positioned.fill(
-            child: CustomPaint(painter: _FolderPainter(theme.accent)),
+            child: CustomPaint(painter: _FolderPainter(theme.kitAccent)),
           ),
           // The oldest card is painted first so the newest sits on top, which
           // is the order the pile is read in.
@@ -185,7 +186,7 @@ class DockFolderIcon extends StatelessWidget {
   Widget build(BuildContext context) {
     return SizedBox.square(
       dimension: size,
-      child: CustomPaint(painter: _FolderPainter(context.shellTheme.accent)),
+      child: CustomPaint(painter: _FolderPainter(context.shellTheme.kitAccent)),
     );
   }
 }

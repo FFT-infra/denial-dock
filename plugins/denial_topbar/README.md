@@ -58,4 +58,5 @@ denial-plugins apply
 ## License
 
 GPL-3.0-or-later. The vendored Inter font is under the SIL Open Font License,
-see `assets/Inter-OFL.txt`.
+see `assets/Inter-OFL.txt`. The vendored CupertinoIcons glyphs are under the
+MIT license, see `assets/CupertinoIcons-LICENSE.txt`.

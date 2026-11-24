@@ -1,3 +1,4 @@
+import 'package:denial_shell_kit/kit_style.dart';
 import 'package:denial_flutter_sdk/services.dart';
 import 'package:denial_flutter_sdk/state.dart';
 import 'package:denial_flutter_sdk/theme.dart';
@@ -38,7 +39,7 @@ class _DialogButtonState extends State<DialogButton> {
     final enabled = widget.onTap != null;
     final ink = theme.colors.textPrimary;
     final fill = widget.primary
-        ? theme.accent.withValues(alpha: enabled ? 1 : 0.4)
+        ? theme.kitAccent.withValues(alpha: enabled ? 1 : 0.4)
         : ink.withValues(alpha: _hovered ? 0.16 : 0.10);
     return MouseRegion(
       cursor: enabled ? SystemMouseCursors.click : MouseCursor.defer,
@@ -253,7 +254,7 @@ class _ForceQuitDialogState extends ConsumerState<ForceQuitDialog> {
                         onTap: () => setState(() => _selected = id),
                         child: ColoredBox(
                           color: active
-                              ? theme.accent
+                              ? theme.kitAccent
                               : const Color(0x00000000),
                           child: Padding(
                             padding: const EdgeInsets.symmetric(horizontal: 10),
@@ -337,13 +338,13 @@ class WindowHeader extends StatelessWidget {
                 width: 30,
                 height: 30,
                 decoration: BoxDecoration(
-                  color: theme.accent.withValues(alpha: 0.18),
+                  color: theme.kitAccent.withValues(alpha: 0.18),
                   borderRadius: theme.borderRadius(8),
                   border: Border.all(
-                    color: theme.accent.withValues(alpha: 0.26),
+                    color: theme.kitAccent.withValues(alpha: 0.26),
                   ),
                 ),
-                child: BarGlyph(icon, size: 17, color: theme.accent),
+                child: BarGlyph(icon, size: 17, color: theme.kitAccent),
               ),
               const SizedBox(width: 10),
               Expanded(

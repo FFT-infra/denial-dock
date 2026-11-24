@@ -13,17 +13,14 @@ import 'dart:io';
 /// screen's password helper then has no exit status left to collect and the
 /// check fails. A detached child has no exit code here, so its end shows as
 /// the end of its stdout.
-Future<Process> startTethered(List<String> command) => Process.start(
-  'sh',
-  <String>[
-    '-c',
-    r'exec 3<&0; "$@" & pid=$!; '
-        r'{ cat <&3 >/dev/null; kill -KILL $pid 2>/dev/null; } & wait $pid',
-    'sh',
-    ...command,
-  ],
-  mode: ProcessStartMode.detachedWithStdio,
-);
+Future<Process> startTethered(List<String> command) =>
+    Process.start('sh', <String>[
+      '-c',
+      r'exec 3<&0; "$@" & pid=$!; '
+          r'{ cat <&3 >/dev/null; kill -KILL $pid 2>/dev/null; } & wait $pid',
+      'sh',
+      ...command,
+    ], mode: ProcessStartMode.detachedWithStdio);
 
 /// Stops a process started by [startTethered].
 void stopTethered(Process process) {

@@ -143,6 +143,7 @@ const Map<String, String> zh = <String, String>{
   'Show Desktop': '显示桌面',
   'Settings': '设置',
   'Appearance': '外观',
+  'Look': '风格',
   'Dynamic Island': '灵动岛',
   'Menu Bar Items': '菜单栏项目',
   'Clock & Notifications': '时钟与通知',
@@ -160,6 +161,7 @@ const Map<String, String> zh = <String, String>{
       '灵动岛位于屏幕顶部菜单栏的正中。点按可展开当前活动，也可以向下拖开。',
   'Show Dynamic Island': '显示灵动岛',
   'Open when the pointer rests on it': '指针停留时展开',
+  'Fade away under the pointer': '指针停在上面时淡出',
   'Live Activities': '实时活动',
   'Denial still shows its own volume and brightness display: a plugin cannot replace it.':
       'Denial 自带的音量和亮度提示仍会出现，插件无法替换它。',

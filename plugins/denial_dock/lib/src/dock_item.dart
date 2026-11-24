@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'dart:math' as math;
 
+import 'package:denial_shell_kit/kit_style.dart';
 import 'package:denial_flutter_sdk/input.dart';
 import 'package:denial_flutter_sdk/services.dart';
 import 'package:denial_flutter_sdk/surfaces.dart';
@@ -18,6 +19,7 @@ import 'package:flutter/scheduler.dart';
 import 'package:flutter/services.dart';
 
 import 'package:denial_shell_kit/glass_card.dart';
+
 import 'dock_click.dart';
 import 'dock_debug.dart';
 import 'dock_desktop_actions.dart';
@@ -984,7 +986,7 @@ class _DockItemWidgetState extends State<DockItemWidget>
         running && widget.indicatorStyle != DockIndicatorStyle.none
         ? _buildIndicator(
             color: active
-                ? theme.accent
+                ? theme.kitAccent
                 : colors.textPrimary.withValues(alpha: 0.55),
             count: widget.windows.length,
             style: widget.indicatorStyle,
@@ -1170,7 +1172,7 @@ class _DockItemWidgetState extends State<DockItemWidget>
                                   height: math.max(3, size * 0.075),
                                   track: const Color(0xFF000000)
                                       .withValues(alpha: 0.45),
-                                  fill: theme.accent,
+                                  fill: theme.kitAccent,
                                 ),
                               ),
                             ),
@@ -1610,7 +1612,7 @@ class _DockItemWidgetState extends State<DockItemWidget>
                                                 radius: theme.borderRadius(10),
                                                 hovered:
                                                     _hoverPreview == window.id,
-                                                accent: theme.accent,
+                                                accent: theme.kitAccent,
                                                 child: ColoredBox(
                                                   color: theme.cardColor(
                                                     theme
@@ -1857,7 +1859,7 @@ class _PreviewRow extends StatelessWidget {
                       child: _PreviewFrame(
                         radius: radius,
                         hovered: hovered,
-                        accent: theme.accent,
+                        accent: theme.kitAccent,
                         child: ColoredBox(
                           color: theme.cardColor(
                             theme.colors.surfaceContainerHigh,

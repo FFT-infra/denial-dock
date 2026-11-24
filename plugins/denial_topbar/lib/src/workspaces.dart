@@ -6,6 +6,7 @@ import 'package:denial_flutter_sdk/services.dart';
 import 'package:denial_flutter_sdk/settings.dart';
 import 'package:denial_flutter_sdk/state.dart';
 import 'package:denial_flutter_sdk/theme.dart';
+import 'package:denial_shell_kit/kit_style.dart';
 import 'package:flutter/gestures.dart';
 import 'package:flutter/widgets.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -371,7 +372,9 @@ class _SpacesStripState extends ConsumerState<SpacesStrip> {
                 color: ink.withValues(alpha: hot ? 0.16 : 0.07),
                 borderRadius: BorderRadius.circular(10),
                 border: Border.all(
-                  color: active || hot ? macBlue : ink.withValues(alpha: 0.10),
+                  color: active || hot
+                      ? KitStyle.of(context).accent(context.shellTheme)
+                      : ink.withValues(alpha: 0.10),
                   width: active || hot ? 2 : 1,
                 ),
               ),

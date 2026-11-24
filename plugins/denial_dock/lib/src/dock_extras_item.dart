@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:io';
 import 'dart:math' as math;
 
+import 'package:denial_shell_kit/kit_style.dart';
 import 'package:denial_flutter_sdk/input.dart';
 import 'package:denial_flutter_sdk/theme.dart';
 import 'package:flutter/gestures.dart' show PointerDeviceKind, kPrimaryButton;
@@ -206,7 +207,7 @@ class _DockAccessoryItemState extends State<DockAccessoryItem> {
                         widget.face?.call(_pressed) ??
                         DockTile(
                           size: widget.size,
-                          accent: theme.accent,
+                          accent: theme.kitAccent,
                           fill: widget.fill,
                           pressed: _pressed,
                           // A full-bleed picture is the item's face; drawing
@@ -218,7 +219,7 @@ class _DockAccessoryItemState extends State<DockAccessoryItem> {
                                     Icon(
                                       widget.icon,
                                       size: widget.size * 0.46,
-                                      color: theme.accent,
+                                      color: theme.kitAccent,
                                     ),
                         ),
                   ),
@@ -244,7 +245,7 @@ class _DockAccessoryItemState extends State<DockAccessoryItem> {
                         ),
                         decoration: BoxDecoration(
                           borderRadius: BorderRadius.circular(7),
-                          color: theme.accent,
+                          color: theme.kitAccent,
                         ),
                         child: Text(
                           widget.badge > 99 ? '99+' : '${widget.badge}',

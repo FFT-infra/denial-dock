@@ -1,6 +1,5 @@
-
-
 import 'package:denial_shell_kit/detached_run.dart';
+
 /// Screenshot and colour-pick helpers.
 ///
 /// Denial's own screenshot flow lives behind

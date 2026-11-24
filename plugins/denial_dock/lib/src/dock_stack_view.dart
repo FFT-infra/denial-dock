@@ -1,6 +1,7 @@
 import 'dart:io';
 import 'dart:math' as math;
 
+import 'package:denial_shell_kit/kit_style.dart';
 import 'package:denial_flutter_sdk/theme.dart';
 import 'package:flutter/gestures.dart'
     show PointerScrollEvent, PointerSignalEvent;
@@ -786,7 +787,7 @@ class _DockStackViewState extends State<DockStackView>
                         _layout = null;
                         _selected = -1;
                       }),
-                      cursorColor: theme.accent,
+                      cursorColor: theme.kitAccent,
                       style: theme.text.systemBarCaption.copyWith(
                         color: theme.colors.textPrimary,
                       ),
@@ -1154,7 +1155,7 @@ class _DockStackViewState extends State<DockStackView>
   /// drawing a second one, and it fades in only during a drag.
   Widget _buildTrashTarget(BuildContext context) {
     final rect = widget.trashRect!.inflate(6);
-    final accent = context.shellTheme.accent;
+    final accent = context.shellTheme.kitAccent;
     return Positioned.fromRect(
       rect: rect,
       child: IgnorePointer(
@@ -1405,9 +1406,9 @@ class _StackRowTile extends StatelessWidget {
   Widget _labelPill() {
     final plate = _plateFill(theme);
     final fill = dropTarget
-        ? Color.alphaBlend(theme.accent.withValues(alpha: 0.32), plate)
+        ? Color.alphaBlend(theme.kitAccent.withValues(alpha: 0.32), plate)
         : lit
-        ? Color.alphaBlend(theme.accent.withValues(alpha: 0.16), plate)
+        ? Color.alphaBlend(theme.kitAccent.withValues(alpha: 0.16), plate)
         : plate;
     // The pill hugs its text: a macOS name plate is a thin capsule beside the
     // preview, not a panel as tall as the card. A Row would stretch it to the
@@ -1432,7 +1433,7 @@ class _StackRowTile extends StatelessWidget {
                   DockStackFan.pillHeight / 2,
                 ),
                 border: Border.all(
-                  color: dropTarget ? theme.accent : theme.colors.hairline,
+                  color: dropTarget ? theme.kitAccent : theme.colors.hairline,
                 ),
                 boxShadow: _plateShadow(theme),
               ),
@@ -1473,7 +1474,7 @@ class _StackRowTile extends StatelessWidget {
           borderRadius: theme.borderRadius(8),
           border: Border.all(
             color: lit
-                ? theme.accent.withValues(alpha: 0.55)
+                ? theme.kitAccent.withValues(alpha: 0.55)
                 : theme.colors.hairline,
           ),
           boxShadow: _plateShadow(theme),
@@ -1514,12 +1515,12 @@ class _GridCellTile extends StatelessWidget {
       child: DecoratedBox(
         decoration: BoxDecoration(
           color: dropTarget
-              ? theme.accent.withValues(alpha: 0.28)
+              ? theme.kitAccent.withValues(alpha: 0.28)
               : lit
-              ? theme.accent.withValues(alpha: 0.16)
+              ? theme.kitAccent.withValues(alpha: 0.16)
               : null,
           borderRadius: theme.borderRadius(8),
-          border: dropTarget ? Border.all(color: theme.accent) : null,
+          border: dropTarget ? Border.all(color: theme.kitAccent) : null,
         ),
         child: Padding(
           padding: const EdgeInsets.all(4),
@@ -1571,7 +1572,11 @@ class _StackIcon extends StatelessWidget {
     final theme = context.shellTheme;
     final entry = this.entry;
     if (entry == null) {
-      return Icon(Icons.folder_rounded, size: size * 0.8, color: theme.accent);
+      return Icon(
+        Icons.folder_rounded,
+        size: size * 0.8,
+        color: theme.kitAccent,
+      );
     }
     if (entry.isDirectory) return DockFolderIcon(size: size);
     final path = thumbnail;

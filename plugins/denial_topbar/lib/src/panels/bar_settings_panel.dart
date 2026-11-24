@@ -3,6 +3,7 @@ import 'dart:math' as math;
 import 'package:denial_flutter_sdk/settings.dart';
 import 'package:denial_flutter_sdk/services.dart';
 import 'package:denial_flutter_sdk/theme.dart';
+import 'package:denial_shell_kit/kit_style.dart';
 import 'package:flutter/widgets.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
@@ -201,6 +202,17 @@ class _BarSettingsPanelState extends ConsumerState<BarSettingsPanel> {
         _Group(
           children: <Widget>[
             _Row(
+              label: context.tr('Look'),
+              trailing: _Segments<KitStyle>(
+                value: kitStyle.value,
+                options: const <(KitStyle, String)>[
+                  (KitStyle.denial, 'Denial'),
+                  (KitStyle.mac, 'macOS'),
+                ],
+                onChanged: kitStyle.choose,
+              ),
+            ),
+            _Row(
               label: context.tr('Layout'),
               trailing: _Segments<BarLayout>(
                 value: s.layout,
@@ -299,7 +311,23 @@ class _BarSettingsPanelState extends ConsumerState<BarSettingsPanel> {
           label: context.tr('Open when the pointer rests on it'),
           value: s.islandHoverPeek,
           enabled: s.islandEnabled,
-          onChanged: (v) => save((s) => s.copyWith(islandHoverPeek: v)),
+          onChanged: (v) => save(
+            (s) => s.copyWith(
+              islandHoverPeek: v,
+              islandHoverFade: v ? false : s.islandHoverFade,
+            ),
+          ),
+        ),
+        _Switch(
+          label: context.tr('Fade away under the pointer'),
+          value: s.islandHoverFade,
+          enabled: s.islandEnabled,
+          onChanged: (v) => save(
+            (s) => s.copyWith(
+              islandHoverFade: v,
+              islandHoverPeek: v ? false : s.islandHoverPeek,
+            ),
+          ),
         ),
       ],
     ),
@@ -754,7 +782,7 @@ class _SidebarItem extends StatelessWidget {
           padding: const EdgeInsets.symmetric(horizontal: 8),
           decoration: BoxDecoration(
             color: selected
-                ? macBlue
+                ? KitStyle.of(context).accent(context.shellTheme)
                 : theme.colors.textPrimary.withValues(
                     alpha: hovered ? 0.07 : 0,
                   ),

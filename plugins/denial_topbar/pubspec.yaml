@@ -47,3 +47,4 @@ flutter:
     - assets/distro-fedora.png
     # The OFL requires the licence to travel with the font.
     - assets/Inter-OFL.txt
+    - assets/CupertinoIcons-LICENSE.txt

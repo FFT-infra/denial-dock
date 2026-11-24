@@ -11,7 +11,9 @@ import 'dock_extras.dart';
 import 'dock_preferences.dart';
 import 'dock_stack_files.dart' show DockStackFiles;
 import 'dock_stack_view.dart' show stackFileColor, stackFileIcon;
+
 import 'package:denial_shell_kit/glass_card.dart';
+import 'package:denial_shell_kit/kit_style.dart';
 
 const double _rowHeight = 48;
 const double _cardRadius = 12;
@@ -196,13 +198,13 @@ class _DockSettingsPanelState extends ConsumerState<DockSettingsPanel> {
                           begin: Alignment.topCenter,
                           end: Alignment.bottomCenter,
                           colors: [
-                            theme.accent.withValues(alpha: 0.2),
-                            theme.accent.withValues(alpha: 0.1),
+                            theme.kitAccent.withValues(alpha: 0.2),
+                            theme.kitAccent.withValues(alpha: 0.1),
                           ],
                         ),
                         borderRadius: theme.borderRadius(8),
                         border: Border.all(
-                          color: theme.accent.withValues(alpha: 0.2),
+                          color: theme.kitAccent.withValues(alpha: 0.2),
                         ),
                       ),
                       child: SizedBox(
@@ -211,7 +213,7 @@ class _DockSettingsPanelState extends ConsumerState<DockSettingsPanel> {
                         child: Icon(
                           Icons.tune_rounded,
                           size: 16,
-                          color: theme.accent,
+                          color: theme.kitAccent,
                         ),
                       ),
                     ),
@@ -545,6 +547,21 @@ class _DockSettingsPanelState extends ConsumerState<DockSettingsPanel> {
         icon: Icons.palette_outlined,
         sections: [
           _SettingsSection(
+            title: _zh ? '风格' : 'Style',
+            children: [
+              _SegmentedField<KitStyle>(
+                label: _zh ? '与顶栏共用' : 'Shared with the top bar',
+                value: kitStyle.value,
+                options: const [
+                  (KitStyle.denial, 'Denial', Icons.water_drop_outlined),
+                  (KitStyle.mac, 'macOS', Icons.laptop_mac_outlined),
+                ],
+                onChanged: kitStyle.choose,
+              ),
+            ],
+          ),
+          gap,
+          _SettingsSection(
             title: _zh ? '大小' : 'Size',
             children: [
               _SliderRow(
@@ -644,7 +661,7 @@ class _DockSettingsPanelState extends ConsumerState<DockSettingsPanel> {
                 label: _zh ? '着色颜色' : 'Tint colour',
                 accentLabel: _zh ? '强调色' : 'Accent',
                 value: settings.tintColor,
-                accent: context.shellTheme.accent,
+                accent: context.shellTheme.kitAccent,
                 enabled: settings.iconMode == DockIconMode.tinted,
                 onChanged: (value) => _controller.setTintColor(value),
               ),
@@ -1356,7 +1373,7 @@ class _CategoryItemState extends State<_CategoryItem> {
               decoration: BoxDecoration(
                 borderRadius: theme.borderRadius(9),
                 color: selected
-                    ? theme.accent.withValues(alpha: 0.18)
+                    ? theme.kitAccent.withValues(alpha: 0.18)
                     : colors.textPrimary.withValues(alpha: _hovered ? 0.06 : 0),
               ),
               child: Row(
@@ -1364,7 +1381,7 @@ class _CategoryItemState extends State<_CategoryItem> {
                   Icon(
                     widget.icon,
                     size: 16,
-                    color: selected ? theme.accent : colors.textSecondary,
+                    color: selected ? theme.kitAccent : colors.textSecondary,
                   ),
                   const SizedBox(width: 10),
                   Expanded(
@@ -1660,18 +1677,18 @@ class _SlidingSegmentsState<T> extends State<_SlidingSegments<T>>
                               end: Alignment.bottomCenter,
                               colors: [
                                 Color.alphaBlend(
-                                  theme.accent.withValues(alpha: 0.24),
+                                  theme.kitAccent.withValues(alpha: 0.24),
                                   colors.surfaceContainerHigh,
                                 ),
                                 Color.alphaBlend(
-                                  theme.accent.withValues(alpha: 0.14),
+                                  theme.kitAccent.withValues(alpha: 0.14),
                                   colors.surfaceContainerHigh,
                                 ),
                               ],
                             ),
                             borderRadius: theme.borderRadius(8),
                             border: Border.all(
-                              color: theme.accent.withValues(alpha: 0.28),
+                              color: theme.kitAccent.withValues(alpha: 0.28),
                             ),
                             boxShadow: [
                               BoxShadow(
@@ -1742,7 +1759,7 @@ class _SegmentState extends State<_Segment> {
     final theme = context.shellTheme;
     final colors = theme.colors;
     final foreground = widget.selected
-        ? theme.accent
+        ? theme.kitAccent
         : _hovered
         ? colors.textPrimary
         : colors.textSecondary;
@@ -1963,10 +1980,10 @@ class _DockSwitchState extends State<_DockSwitch>
             final t = _slide.value.clamp(0.0, 1.0);
             final track = Color.lerp(
               colors.textPrimary.withValues(alpha: 0.16),
-              theme.accent,
+              theme.kitAccent,
               t,
             )!;
-            final border = Color.lerp(colors.hairlineSoft, theme.accent, t)!;
+            final border = Color.lerp(colors.hairlineSoft, theme.kitAccent, t)!;
             final thumbLeft = _inset + (_width - _inset * 2 - _thumb) * t;
             final scale = _pressed ? 1.12 : (_hovered ? 1.05 : 1.0);
             return SizedBox(
@@ -2439,10 +2456,10 @@ class _DockSliderState extends State<_DockSlider> {
                             decoration: BoxDecoration(
                               gradient: LinearGradient(
                                 colors: [
-                                  theme.accent.withValues(
+                                  theme.kitAccent.withValues(
                                     alpha: active ? 0.85 : 0.35,
                                   ),
-                                  theme.accent.withValues(
+                                  theme.kitAccent.withValues(
                                     alpha: active ? 1 : 0.4,
                                   ),
                                 ],
@@ -2466,7 +2483,7 @@ class _DockSliderState extends State<_DockSlider> {
                               child: DecoratedBox(
                                 decoration: BoxDecoration(
                                   shape: BoxShape.circle,
-                                  color: theme.accent.withValues(
+                                  color: theme.kitAccent.withValues(
                                     alpha: _pressed ? 0.2 : 0.14,
                                   ),
                                 ),
@@ -2636,7 +2653,7 @@ class _FolderRow extends StatelessWidget {
         padding: const EdgeInsets.fromLTRB(12, 0, 6, 0),
         child: Row(
           children: [
-            _Glyph(icon: Icons.folder_rounded, tint: theme.accent),
+            _Glyph(icon: Icons.folder_rounded, tint: theme.kitAccent),
             const SizedBox(width: 10),
             Expanded(
               child: Column(
@@ -2881,7 +2898,7 @@ class _PillButtonState extends State<_PillButton> {
   Widget build(BuildContext context) {
     final theme = context.shellTheme;
     final colors = theme.colors;
-    final accent = theme.accent;
+    final accent = theme.kitAccent;
     final fill = widget.primary
         ? (_pressed
               ? Color.alphaBlend(

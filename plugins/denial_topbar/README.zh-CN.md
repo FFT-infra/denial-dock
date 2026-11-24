@@ -37,4 +37,4 @@ denial-plugins apply
 
 ## 许可证
 
-GPL-3.0-or-later。内置的 Inter 字体使用 SIL Open Font License，见 `assets/Inter-OFL.txt`。
+GPL-3.0-or-later。内置的 Inter 字体使用 SIL Open Font License，见 `assets/Inter-OFL.txt`。内置的 CupertinoIcons 图标字形使用 MIT 许可证，见 `assets/CupertinoIcons-LICENSE.txt`。

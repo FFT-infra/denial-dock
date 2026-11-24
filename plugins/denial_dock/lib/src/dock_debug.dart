@@ -13,6 +13,5 @@ import 'package:denial_shell_kit/debug_file.dart';
 ///
 /// Without the file nothing is watched.
 abstract final class DockDebug {
-  static Stream<List<String>> get commands =>
-      debugFileCommands('denial_dock');
+  static Stream<List<String>> get commands => debugFileCommands('denial_dock');
 }

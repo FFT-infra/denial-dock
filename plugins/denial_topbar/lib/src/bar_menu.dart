@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'dart:math' as math;
 
+import 'package:denial_shell_kit/kit_style.dart';
 import 'package:denial_flutter_sdk/theme.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -543,14 +544,20 @@ class _Row extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final theme = context.shellTheme;
+    final style = KitStyle.of(context);
     final lit = active && item.selectable;
-    const white = Color(0xffffffff);
+    // A look either fills the hot row with its accent, or lays a quiet plate
+    // under it and leaves the ink alone.
+    final filled = lit && style.accentMenuRows;
+    final onFill = style.onAccent(theme);
     final ink = !item.enabled
         ? theme.colors.textTertiary
-        : lit
-        ? white
+        : filled
+        ? onFill
         : theme.colors.textPrimary;
-    final dim = lit ? white.withValues(alpha: 0.8) : theme.colors.textTertiary;
+    final dim = filled
+        ? onFill.withValues(alpha: 0.8)
+        : theme.colors.textTertiary;
 
     final report = reportRect;
     if (report != null) {
@@ -585,7 +592,11 @@ class _Row extends StatelessWidget {
           height: _M.rowHeight,
           padding: const EdgeInsets.symmetric(horizontal: 10),
           decoration: BoxDecoration(
-            color: lit ? theme.accent : const Color(0x00000000),
+            color: filled
+                ? theme.kitAccent
+                : lit
+                ? theme.colors.textPrimary.withValues(alpha: 0.10)
+                : const Color(0x00000000),
             borderRadius: BorderRadius.circular(_M.rowRadius),
           ),
           child: Row(

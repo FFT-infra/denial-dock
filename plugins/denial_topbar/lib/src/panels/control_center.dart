@@ -7,6 +7,7 @@ import 'package:denial_flutter_sdk/state.dart';
 import 'package:denial_flutter_sdk/system_services.dart'
     show PowerProfile, WifiNetwork, systemActionsServiceProvider;
 import 'package:denial_flutter_sdk/theme.dart';
+import 'package:denial_shell_kit/kit_style.dart';
 import 'package:flutter/widgets.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
@@ -713,7 +714,7 @@ class _Round extends StatelessWidget {
           decoration: BoxDecoration(
             shape: BoxShape.circle,
             color: on
-                ? colour
+                ? KitStyle.of(context).plate(theme, colour)
                 : theme.colors.textPrimary.withValues(alpha: 0.07),
             border: Border.all(
               color: theme.colors.textPrimary.withValues(alpha: on ? 0 : 0.08),
@@ -722,7 +723,9 @@ class _Round extends StatelessWidget {
           child: BarGlyph(
             icon,
             size: 24,
-            color: on ? const Color(0xffffffff) : theme.colors.textPrimary,
+            color: on
+                ? KitStyle.of(context).onPlate(theme)
+                : theme.colors.textPrimary,
           ),
         ),
       ),
@@ -993,7 +996,7 @@ class _TimerPage extends StatelessWidget {
                   style: BarType.display.copyWith(
                     fontSize: 40,
                     color: islandTimer.active && !islandTimer.paused
-                        ? macOrange
+                        ? KitStyle.of(context).plate(theme, macOrange)
                         : theme.colors.textSecondary,
                     fontFeatures: const <FontFeature>[
                       FontFeature.tabularFigures(),
@@ -1016,8 +1019,8 @@ class _TimerPage extends StatelessWidget {
                     chip(
                       context.tr(islandTimer.paused ? 'Resume' : 'Pause'),
                       () => islandTimer.toggle(now),
-                      fill: macOrange,
-                      text: const Color(0xffffffff),
+                      fill: KitStyle.of(context).plate(theme, macOrange),
+                      text: KitStyle.of(context).onPlate(theme),
                     ),
                     chip(context.tr('Cancel'), islandTimer.cancel),
                   ],

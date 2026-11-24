@@ -1,14 +1,14 @@
+import 'package:denial_shell_kit/kit_style.dart';
 import 'package:flutter/widgets.dart';
 
 /// Type for the menu bar and its panels.
 ///
-/// shell27 draws the bar in Inter at 14 pt (menu titles, clock) and the
-/// dropdown at 13 pt with a 12 pt shortcut column. Inter is vendored under
-/// `assets/` so the bar keeps those proportions without shipping SF Pro.
-/// The SDK's own `systemBarValue` is JetBrains Mono, which is why the bar
-/// cannot use it.
+/// shell27 draws the bar at 14 pt (menu titles, clock) and the dropdown at
+/// 13 pt with a 12 pt shortcut column. The family comes from the look: the
+/// shell's own, or Inter, vendored under `assets/` so the macOS look keeps
+/// its proportions without shipping SF Pro. The SDK's `systemBarValue` is
+/// JetBrains Mono, which is why the bar does not use it.
 abstract final class BarType {
-  static const String _family = 'Inter';
   static const String _package = 'denial_topbar';
   static const List<String> _fallback = <String>[
     'Source Han Sans CN',
@@ -20,8 +20,10 @@ abstract final class BarType {
     FontWeight weight, {
     double spacing = 0,
   }) => TextStyle(
-    fontFamily: _family,
-    package: _package,
+    // Without a family the text takes the shell's own, from the default
+    // text style it is built under.
+    fontFamily: kitStyle.value.fontFamily,
+    package: kitStyle.value.fontFamily == null ? null : _package,
     fontFamilyFallback: _fallback,
     fontSize: size,
     fontWeight: weight,
