@@ -241,6 +241,39 @@ enum DockPosition {
   };
 }
 
+/// What resting the pointer on a window preview does. A click always
+/// switches to the window.
+enum DockPreviewHover {
+  /// Fades the other windows so this one can be seen, and changes nothing:
+  /// the peek Windows and Plasma give a taskbar thumbnail.
+  highlight,
+
+  /// Switches to the window without a click.
+  focus,
+
+  /// Only marks the preview under the pointer.
+  nothing;
+
+  String get key => switch (this) {
+    DockPreviewHover.highlight => 'highlight',
+    DockPreviewHover.focus => 'focus',
+    DockPreviewHover.nothing => 'nothing',
+  };
+
+  /// [legacy] is the older `hoverFocusPreview` boolean. Its `true` was only
+  /// ever the default, so it reads as the new default; `false` was a choice.
+  static DockPreviewHover parse(Object? value, {Object? legacy}) =>
+      switch (value) {
+        'highlight' => DockPreviewHover.highlight,
+        'focus' => DockPreviewHover.focus,
+        'nothing' => DockPreviewHover.nothing,
+        _ =>
+          legacy == false
+              ? DockPreviewHover.nothing
+              : DockPreviewHover.highlight,
+      };
+}
+
 /// How application icons are painted.
 enum DockIconMode {
   color,
@@ -487,7 +520,7 @@ class DockSettings {
     this.indicatorStyle = DockIndicatorStyle.dot,
     this.previewStyle = DockPreviewStyle.cards,
     this.dimInactivePinned = false,
-    this.hoverFocusPreview = true,
+    this.previewHover = DockPreviewHover.highlight,
     this.showBadges = true,
     this.showSuggestions = true,
     this.scrollAction = DockScrollAction.nothing,
@@ -591,7 +624,7 @@ class DockSettings {
   /// Focuses a window as the pointer reaches its preview, in either preview
   /// style. On by default, as in Omarchy's dock; turning it off keeps the
   /// pointer from moving focus while the previews are open.
-  final bool hoverFocusPreview;
+  final DockPreviewHover previewHover;
 
   /// Counts unread notifications on the application's icon.
   final bool showBadges;
@@ -709,7 +742,7 @@ class DockSettings {
     DockIndicatorStyle? indicatorStyle,
     DockPreviewStyle? previewStyle,
     bool? dimInactivePinned,
-    bool? hoverFocusPreview,
+    DockPreviewHover? previewHover,
     bool? showBadges,
     bool? showSuggestions,
     DockScrollAction? scrollAction,
@@ -755,7 +788,7 @@ class DockSettings {
     indicatorStyle: indicatorStyle ?? this.indicatorStyle,
     previewStyle: previewStyle ?? this.previewStyle,
     dimInactivePinned: dimInactivePinned ?? this.dimInactivePinned,
-    hoverFocusPreview: hoverFocusPreview ?? this.hoverFocusPreview,
+    previewHover: previewHover ?? this.previewHover,
     showBadges: showBadges ?? this.showBadges,
     showSuggestions: showSuggestions ?? this.showSuggestions,
     scrollAction: scrollAction ?? this.scrollAction,
@@ -986,9 +1019,10 @@ class DockSettings {
       dimInactivePinned: json['dimInactivePinned'] is bool
           ? json['dimInactivePinned'] as bool
           : false,
-      hoverFocusPreview: json['hoverFocusPreview'] is bool
-          ? json['hoverFocusPreview'] as bool
-          : true,
+      previewHover: DockPreviewHover.parse(
+        json['previewHover'],
+        legacy: json['hoverFocusPreview'],
+      ),
       showBadges: json['showBadges'] is bool
           ? json['showBadges'] as bool
           : true,
@@ -1120,7 +1154,8 @@ class DockPreferencesStore {
     json['indicatorStyle'] = settings.indicatorStyle.key;
     json['previewStyle'] = settings.previewStyle.key;
     json['dimInactivePinned'] = settings.dimInactivePinned;
-    json['hoverFocusPreview'] = settings.hoverFocusPreview;
+    json['previewHover'] = settings.previewHover.key;
+    json.remove('hoverFocusPreview');
     json.remove('bounceOnLaunch');
     json.remove('showIndicators');
     json['showBadges'] = settings.showBadges;

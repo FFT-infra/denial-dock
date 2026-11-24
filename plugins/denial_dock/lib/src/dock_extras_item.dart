@@ -8,6 +8,7 @@ import 'package:flutter/gestures.dart' show PointerDeviceKind, kPrimaryButton;
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
+import 'dock_debug.dart';
 import 'dock_extras.dart';
 import 'dock_icon.dart';
 import 'dock_mac_icons.dart';
@@ -89,8 +90,25 @@ class _DockAccessoryItemState extends State<DockAccessoryItem> {
   Timer? _longPressTimer;
   Offset? _downPosition;
 
+  StreamSubscription<List<String>>? _debug;
+
+  @override
+  void initState() {
+    super.initState();
+    _debug = DockDebug.commands.listen((words) {
+      if (!mounted) return;
+      if (words.first == 'close') return _closeMenu();
+      if (words.first == 'menu' &&
+          words.length > 1 &&
+          widget.label.toLowerCase().contains(words[1])) {
+        _openMenu();
+      }
+    });
+  }
+
   @override
   void dispose() {
+    unawaited(_debug?.cancel());
     _longPressTimer?.cancel();
     if (_menuOpen) widget.onOverlayChanged(false);
     _focus.dispose();
@@ -794,10 +812,29 @@ class _DockFolderItemState extends State<DockFolderItem> {
   Timer? _downloadPoll;
   DockStackWatch? _watch;
 
+  StreamSubscription<List<String>>? _debug;
+
+  /// A view asked for by a debug command, for this opening only.
+  DockStackMode? _debugView;
+
   @override
   void initState() {
     super.initState();
     _scheduleRefresh();
+    _debug = DockDebug.commands.listen((words) {
+      if (!mounted) return;
+      if (words.first == 'close') return _closeFan();
+      if (words.first != 'folder' ||
+          words.length < 2 ||
+          !widget.folder.label.toLowerCase().contains(words[1])) {
+        return;
+      }
+      _closeFan();
+      _debugView = words.length > 2
+          ? DockStackMode.values.asNameMap()[words[2]]
+          : null;
+      _toggleFan();
+    });
   }
 
   @override
@@ -830,6 +867,7 @@ class _DockFolderItemState extends State<DockFolderItem> {
   @override
   void dispose() {
     _downloadPoll?.cancel();
+    unawaited(_debug?.cancel());
     _watch?.stop();
     if (_fanOpen) widget.onOverlayChanged(false);
     super.dispose();
@@ -970,7 +1008,10 @@ class _DockFolderItemState extends State<DockFolderItem> {
     if (!_fanOpen) return;
     _watch?.stop();
     _watch = null;
-    setState(() => _fanOpen = false);
+    setState(() {
+      _fanOpen = false;
+      _debugView = null;
+    });
     _fan.hide();
     widget.onOverlayChanged(false);
   }
@@ -1043,7 +1084,7 @@ class _DockFolderItemState extends State<DockFolderItem> {
             bounds: bounds,
             workArea: work == null || work.isEmpty ? null : work,
             position: widget.position,
-            mode: widget.folder.view,
+            mode: _debugView ?? widget.folder.view,
             title: widget.folder.label,
             zh: widget.zh,
             onDismiss: _closeFan,

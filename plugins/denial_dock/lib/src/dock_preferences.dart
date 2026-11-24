@@ -102,8 +102,8 @@ class DockSettingsController extends AsyncNotifier<DockSettings> {
   Future<void> setDimInactivePinned({required bool dim}) =>
       _update((current) => current.copyWith(dimInactivePinned: dim));
 
-  Future<void> setHoverFocusPreview({required bool focus}) =>
-      _update((current) => current.copyWith(hoverFocusPreview: focus));
+  Future<void> setPreviewHover(DockPreviewHover hover) =>
+      _update((current) => current.copyWith(previewHover: hover));
 
   Future<void> setScrollReversed({required bool reversed}) =>
       _update((current) => current.copyWith(scrollReversed: reversed));

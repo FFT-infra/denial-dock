@@ -180,7 +180,7 @@ void main() {
     indicatorStyle: DockIndicatorStyle.line,
     previewStyle: DockPreviewStyle.stack,
     dimInactivePinned: true,
-    hoverFocusPreview: true,
+    previewHover: DockPreviewHover.focus,
     scrollReversed: true,
     scrollWraps: true,
     folders: const [DockFolder(path: '/home/me/Documents', label: 'Documents')],
@@ -207,7 +207,7 @@ void main() {
     'indicatorStyle': settings.indicatorStyle.key,
     'previewStyle': settings.previewStyle.key,
     'dimInactivePinned': settings.dimInactivePinned,
-    'hoverFocusPreview': settings.hoverFocusPreview,
+    'previewHover': settings.previewHover.key,
     'scrollReversed': settings.scrollReversed,
     'scrollWraps': settings.scrollWraps,
     'folders': settings.folders.map((folder) => folder.toJson()).toList(),
@@ -244,7 +244,24 @@ void main() {
     'round trip preview style',
   );
   _expect(decoded.dimInactivePinned, 'round trip inactive dim');
-  _expect(decoded.hoverFocusPreview, 'round trip hover focus');
+  _expect(
+    decoded.previewHover == DockPreviewHover.focus,
+    'round trip preview hover',
+  );
+  // The older boolean: its default reads as the new default, its "off" stays.
+  _expect(
+    DockSettings.fromJson(const {'hoverFocusPreview': true}).previewHover ==
+            DockPreviewHover.highlight &&
+        DockSettings.fromJson(const {'hoverFocusPreview': false})
+                .previewHover ==
+            DockPreviewHover.nothing &&
+        DockSettings.fromJson(const {
+              'hoverFocusPreview': false,
+              'previewHover': 'focus',
+            }).previewHover ==
+            DockPreviewHover.focus,
+    'legacy hover focus',
+  );
   _expect(decoded.scrollReversed, 'round trip scroll reversed');
   _expect(decoded.scrollWraps, 'round trip scroll wraps');
 
@@ -305,7 +322,7 @@ void main() {
         DockSettings.defaults.previewStyle == DockPreviewStyle.cards &&
         DockSettings.defaults.launchFeedback == DockLaunchFeedback.hop &&
         !DockSettings.defaults.dimInactivePinned &&
-        DockSettings.defaults.hoverFocusPreview &&
+        DockSettings.defaults.previewHover == DockPreviewHover.highlight &&
         !DockSettings.defaults.scrollReversed &&
         !DockSettings.defaults.scrollWraps,
     'new defaults',
@@ -496,7 +513,11 @@ Future<void> _storeRoundTrip(DockSettings settings) async {
   try {
     final file = File('${directory.path}/denial_dock.json');
     await file.writeAsString(
-      jsonEncode({'unrelated': 'keep me', 'visibility': 'always'}),
+      jsonEncode({
+        'unrelated': 'keep me',
+        'visibility': 'always',
+        'hoverFocusPreview': true,
+      }),
     );
     final store = DockPreferencesStore(file);
     final loaded = await store.read();
@@ -509,6 +530,11 @@ Future<void> _storeRoundTrip(DockSettings settings) async {
     _expect(written['iconSize'] == 56, 'written size');
     _expect(written['magnification'] == false, 'written magnification');
     _expect(written['showBadges'] == false, 'written badges');
+    _expect(
+      written['previewHover'] == 'focus' &&
+          !written.containsKey('hoverFocusPreview'),
+      'the older hover key is replaced',
+    );
     await store.write(
       settings.copyWith(
         middleClickAction: DockMiddleClickAction.close,

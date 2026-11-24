@@ -248,6 +248,10 @@ class _DockContainerState extends ConsumerState<DockContainer>
         _openSettings(page: number);
       case 'click':
         _onHotkey((slot: number, monitorId: widget.monitorId));
+      case 'dockmenu':
+        _openDockMenu((_vertical ? _surfaceHeight : _surfaceWidth) / 2);
+      case 'close':
+        _closeDockMenu();
     }
   }
 
@@ -2066,7 +2070,7 @@ class _DockContainerState extends ConsumerState<DockContainer>
               launchFeedback: settings.launchFeedback,
               indicatorStyle: settings.indicatorStyle,
               previewStyle: settings.previewStyle,
-              hoverFocusPreview: settings.hoverFocusPreview,
+              previewHover: settings.previewHover,
               dimInactivePinned: settings.dimInactivePinned,
               badge: publishedCount > 0
                   ? publishedCount

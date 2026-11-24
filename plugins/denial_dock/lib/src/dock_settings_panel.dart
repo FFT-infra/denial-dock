@@ -777,11 +777,27 @@ class _DockSettingsPanelState extends ConsumerState<DockSettingsPanel> {
                 ],
                 onChanged: (value) => _controller.setPreviewStyle(value),
               ),
-              _ToggleRow(
-                label: _zh ? '悬停预览即切换窗口' : 'Switch to a window on hover',
-                value: settings.hoverFocusPreview,
-                onChanged: (value) =>
-                    _controller.setHoverFocusPreview(focus: value),
+              _SegmentedField<DockPreviewHover>(
+                label: _zh ? '指针停在预览上' : 'Resting on a preview',
+                value: settings.previewHover,
+                options: [
+                  (
+                    DockPreviewHover.highlight,
+                    _zh ? '突出显示' : 'Highlight',
+                    Icons.visibility_outlined,
+                  ),
+                  (
+                    DockPreviewHover.focus,
+                    _zh ? '切换窗口' : 'Switch',
+                    Icons.flip_to_front,
+                  ),
+                  (
+                    DockPreviewHover.nothing,
+                    _zh ? '不操作' : 'Nothing',
+                    Icons.block,
+                  ),
+                ],
+                onChanged: (value) => _controller.setPreviewHover(value),
               ),
               _ToggleRow(
                 label: _zh ? '中键点预览关闭窗口' : 'Middle-click a preview to close it',

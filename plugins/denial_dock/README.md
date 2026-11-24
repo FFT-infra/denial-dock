@@ -152,7 +152,7 @@ Most settings live in the settings sheet. The same values are stored in
   "launchFeedback": "hop",
   "indicatorStyle": "dot",
   "previewStyle": "cards",
-  "hoverFocusPreview": true,
+  "previewHover": "highlight",
   "dimInactivePinned": false,
   "showBadges": true,
   "showSuggestions": true,
@@ -215,9 +215,10 @@ Most settings live in the settings sheet. The same values are stored in
 - `previewStyle` is `"cards"` (default, a horizontal row of thumbnails above
   the dock) or `"stack"` (a narrow column anchored to the icon, opening for a
   single window too, with a close button on each row).
-- `hoverFocusPreview` (default `true`) focuses a window as the pointer moves
-  onto its row in the previews. Turn it off to keep the pointer from moving
-  focus while the panel is open.
+- `previewHover` says what resting the pointer on a preview does:
+  `"highlight"` (default) fades the other windows without changing focus,
+  `"focus"` switches to the window, `"nothing"` only marks the preview. The
+  older `hoverFocusPreview` boolean still reads.
 - `dimInactivePinned` (default `false`) fades a pinned application that has no
   window to 62%.
 - `showBadges` (default `true`) counts unread notifications on an icon. A

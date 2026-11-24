@@ -59,7 +59,7 @@ denial-plugins apply
   "launchFeedback": "hop",
   "indicatorStyle": "dot",
   "previewStyle": "cards",
-  "hoverFocusPreview": true,
+  "previewHover": "highlight",
   "dimInactivePinned": false,
   "showBadges": true,
   "showSuggestions": true,
@@ -100,7 +100,7 @@ denial-plugins apply
 - `launchFeedback` 是 `"hop"`（默认，跳一下）、`"pulse"`（呼吸）或 `"none"`。旧的 `bounceOnLaunch` 布尔值仍然能读，对应 `"hop"` 和 `"none"`。
 - `indicatorStyle` 是 `"dot"`（默认，每个窗口一个点，最多三个）、`"line"`（一条横条）、`"dashes"`（短线）、`"segments"`（横条按窗口分段）或 `"none"`。旧的 `showIndicators` 布尔值仍然能读。
 - `previewStyle` 是 `"cards"`（默认，Dock 上方一排缩略图卡片）或 `"stack"`（贴着图标的竖排列表，单窗口也弹，每行带关闭按钮）。
-- `hoverFocusPreview` 默认 `true`，指针移到某一行预览就聚焦那个窗口。关掉后指针在面板上移动不会改变焦点。
+- `previewHover` 决定指针停在预览上做什么：`"highlight"`（默认）淡化其他窗口、不改焦点，`"focus"` 直接切到那个窗口，`"nothing"` 只标出指针所在的预览。旧的 `hoverFocusPreview` 布尔值仍然能读。
 - `dimInactivePinned` 默认 `false`，打开后没在运行的固定 App 淡化到 62%。
 - `showBadges` 默认 `true`，在图标上显示未读通知数。通知用 `desktop-entry` 提示对到图标身份上，没带提示的发送方按应用名匹配。
 - `showSuggestions` 默认 `true`，在分隔线后面加一段没固定的应用。它是一份成员表，旧的在前：app 开始运行时加入，退出后留在原位，只有新开一个超过 `recentCount` 才挤掉最旧的已关闭成员。运行中的永不挤掉，所以开着的 app 多时这一段会比设定的数量长。

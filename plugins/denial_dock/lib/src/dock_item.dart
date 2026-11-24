@@ -19,6 +19,7 @@ import 'package:flutter/services.dart';
 
 import 'dock_card.dart';
 import 'dock_click.dart';
+import 'dock_debug.dart';
 import 'dock_desktop_actions.dart';
 import 'dock_icon.dart';
 import 'dock_launch.dart';
@@ -63,7 +64,7 @@ class DockItemWidget extends StatefulWidget {
     required this.launchFeedback,
     required this.indicatorStyle,
     required this.previewStyle,
-    required this.hoverFocusPreview,
+    required this.previewHover,
     required this.dimInactivePinned,
     required this.badge,
     required this.progress,
@@ -136,7 +137,7 @@ class DockItemWidget extends StatefulWidget {
   final DockPreviewStyle previewStyle;
 
   /// Focuses a previewed window when the pointer moves onto its row.
-  final bool hoverFocusPreview;
+  final DockPreviewHover previewHover;
 
   /// Fades a pinned icon that has no window.
   final bool dimInactivePinned;
@@ -282,6 +283,23 @@ class _DockItemWidgetState extends State<DockItemWidget>
     );
     if (widget.attention) unawaited(_attention.repeat());
     widget.activation.addListener(_onActivation);
+    _debug = DockDebug.commands.listen(_onDebug);
+  }
+
+  StreamSubscription<List<String>>? _debug;
+
+  void _onDebug(List<String> words) {
+    if (!mounted) return;
+    if (words.first == 'close') return _closeOverlay();
+    if (words.length < 2 || !appIdentity(widget.appId).contains(words[1])) {
+      return;
+    }
+    switch (words.first) {
+      case 'preview':
+        _showPreviews();
+      case 'menu':
+        _openMenu();
+    }
   }
 
   void _onActivation() {
@@ -358,6 +376,7 @@ class _DockItemWidgetState extends State<DockItemWidget>
     _hoverSwitchTimer?.cancel();
     _clearEmphasis();
     widget.activation.removeListener(_onActivation);
+    unawaited(_debug?.cancel());
     _attention.dispose();
     // Give the counted hold back, or the dock never retracts again.
     if (_overlayOpen) widget.onOverlayChanged(false);
@@ -788,16 +807,19 @@ class _DockItemWidgetState extends State<DockItemWidget>
   /// says where the pointer is, which is useful whether or not the window
   /// takes focus.
   ///
-  /// [DockSettings.hoverFocusPreview] decides whether the window takes focus;
-  /// the dimming of the other windows is part of the same gesture, so it
-  /// follows the same switch. A disabled toggle that still faded the
-  /// neighbours would read as focus by another name.
+  /// [DockSettings.previewHover] decides the rest. Highlighting fades the
+  /// other windows and leaves focus and stacking alone, so moving away puts
+  /// everything back; focusing switches for good.
   void _previewHover(int id, {required bool inside}) {
     _hoverSwitchTimer?.cancel();
     _hoverSwitchTimer = null;
     if (inside) {
       if (_hoverPreview != id) setState(() => _hoverPreview = id);
-      if (!widget.hoverFocusPreview) return;
+      if (widget.previewHover == DockPreviewHover.nothing) return;
+      if (widget.previewHover == DockPreviewHover.highlight) {
+        _emphasisEnter(id);
+        return;
+      }
       // Windows and macOS never raise a window just because the pointer
       // crossed its thumbnail; a pointer sweeping the panel would otherwise
       // raise every window it passed. The ring follows at once, the switch
