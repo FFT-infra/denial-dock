@@ -13,7 +13,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import 'bar_button.dart';
 import 'bar_tokens.dart';
-import 'continuous_corners.dart';
+import 'package:denial_shell_kit/continuous_corners.dart';
 
 const String barPanelKey = 'denial_topbar.panel';
 const String barDialogKey = 'denial_topbar.dialog';

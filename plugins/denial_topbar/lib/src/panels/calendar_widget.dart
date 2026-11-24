@@ -5,7 +5,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../bar_icons.dart';
-import '../continuous_corners.dart';
+import 'package:denial_shell_kit/continuous_corners.dart';
 
 /// Apple system red for the calendar widget.
 const Color calendarRed = Color(0xffff453a);

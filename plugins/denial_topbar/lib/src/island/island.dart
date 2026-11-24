@@ -16,7 +16,7 @@ import '../bar_panel.dart';
 import '../bar_settings.dart';
 import '../bar_tokens.dart';
 import '../bar_type.dart';
-import '../continuous_corners.dart';
+import 'package:denial_shell_kit/continuous_corners.dart';
 import '../debug_remote.dart';
 import '../l10n.dart';
 import '../mic_watch.dart';
