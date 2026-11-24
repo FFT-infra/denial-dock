@@ -41,9 +41,16 @@ turning it on.
 - **Notification badges.** An icon with unread notifications carries a red
   count on its top corner, capped at `99+`, and loses it once the notification
   centre marks them read.
-- **Click behaviour.** Clicking an icon with windows either minimizes the
-  active window (default) or cycles to the next one; the choice is in the
-  settings sheet. Clicking an application with no windows launches it.
+- **Click behaviour.** Clicking an icon with windows minimizes the active
+  window (default), cycles to the next one, opens the previews, or only raises
+  it. The middle button opens a new window (default), closes or minimizes one,
+  or does nothing. Clicking an application with no windows launches it.
+- **What applications report.** Progress, a count and a request for attention
+  sent over the Unity `LauncherEntry` D-Bus signals show as a bar, a badge and
+  a hop. The menu lists the actions of the application's desktop file. A
+  speaker on icons that play sound is available and off by default.
+- **Shortcuts.** The plugin offers nine actions, *Activate Dock application
+  1–9*, to bind in Denial's shortcut settings.
 - **Context menu.** Right-click an icon for its windows by title, then an
   *Options* submenu (keep or remove from the dock, minimize, close), then open
   or new window last, which is the macOS order. Escape closes the menu, and
@@ -70,14 +77,22 @@ turning it on.
   other window, so a tiling layout retracts too. The other two modes are
   *always show* and *auto-hide*, which retracts as soon as the pointer leaves
   and comes back from the same edge strip.
-- **Folder shortcuts, pinned files and Trash.** Add any folder or single file
+- **Folder stacks, pinned files and Trash.** Add any folder or single file
   from the settings sheet through a built-in directory browser, with hidden
-  entries behind a toggle. Clicking a shortcut opens the folder with the system
-  handler (`xdg-open`, falling back to `gio open`); a pinned file opens with the
-  handler for its type and offers *Show in Files* and *Remove from Dock*. The
-  trash can opens `trash:///` through `gio` first, because `xdg-open` treats the
-  scheme as a web address, shows a count badge, and offers *Empty Trash*;
-  emptying needs a second press, because it cannot be undone.
+  entries behind a toggle. Clicking a folder fans its contents out of the icon
+  as a stack, and clicking it again folds them back. The stack opens as a fan,
+  a grid or a list, sorts by name, date added, date modified, kind or a dragged
+  order, and re-reads the folder while it is open, so a file that lands shows
+  up. A row
+  opens its file or folder; a row dragged within the stack saves a custom
+  order, and one dragged out onto the trash icon moves it there. The folder's
+  own menu opens it in the file manager (`xdg-open`,
+  falling back to `gio open`) and holds the sort, display and view choices. A
+  pinned file opens with the handler for its type and offers *Show in Files*
+  and *Remove from Dock*. The trash can opens `trash:///` through `gio` first,
+  because `xdg-open` treats the scheme as a web address, shows a count badge,
+  and offers *Empty Trash*; emptying needs a second press, because it cannot
+  be undone.
 - **Dock menu and settings sheet.** Right-clicking the capsule background or the
   launcher opens a small dock menu, modelled on the macOS Dock menu: turn hiding
   on or off, turn magnification on or off, then *Position on Screen* with a
@@ -90,7 +105,9 @@ turning it on.
   sit on, the trash toggle and the folder list.
 - **Shell-native looks.** The capsule and the settings sheet use Denial's
   `ShellTheme` panel colour, backdrop blur, hairline border and corner radii,
-  so they match the top bar.
+  so they match the top bar. An *Icon style* setting switches the launcher,
+  folder and trash tiles between the Denial accent tile and macOS rounded
+  squares, and draws a pinned file as its own artwork.
 
 ## Requirements
 
@@ -135,7 +152,7 @@ Most settings live in the settings sheet. The same values are stored in
   "launchFeedback": "hop",
   "indicatorStyle": "dot",
   "previewStyle": "cards",
-  "hoverFocusPreview": true,
+  "previewHover": "highlight",
   "dimInactivePinned": false,
   "showBadges": true,
   "showSuggestions": true,
@@ -145,11 +162,19 @@ Most settings live in the settings sheet. The same values are stored in
   "iconMode": "color",
   "iconOpacity": 1,
   "tintColor": "#a855f7",
+  "appearance": "macos",
   "revealIndicator": true,
   "launcherSide": "left",
   "extrasSide": "right",
   "showTrash": true,
-  "folders": [{ "path": "/home/me/Documents", "label": "Documents" }],
+  "folders": [
+    {
+      "path": "/home/me/Documents",
+      "label": "Documents",
+      "view": "auto",
+      "sort": "added"
+    }
+  ],
   "files": [{ "path": "/home/me/report.pdf", "label": "report.pdf" }]
 }
 ```
@@ -159,10 +184,18 @@ Most settings live in the settings sheet. The same values are stored in
 - `visibility` is `"smart"` (auto-hide while windows float, default),
   `"always"` (never retract) or `"persistent"` (retract whenever the pointer
   leaves, whatever is on screen).
-- `clickAction` is `"minimize"` (default) or `"cycle"`. Cycling visits
-  restored windows first and minimized ones last. A middle click on a running
-  application opens another window, and falls back to the normal click when the
-  entry has nothing to launch.
+- `clickAction` is `"minimize"` (default), `"cycle"`, `"previews"` or
+  `"raise"`. Cycling visits restored windows first and minimized ones last.
+- `middleClickAction` is `"new-window"` (default), `"close"`, `"minimize"` or
+  `"nothing"`.
+- `hideScope` says which windows make a smart-hiding dock retract: `"all"`
+  (default), `"active"` or `"maximized"`. `revealDelayMs` (default 90) and
+  `hideDelayMs` (default 200) time the slide.
+- `avoidReservedEdge` (default `true`) moves the dock inside a bar that
+  reserves the same edge.
+- `showProgress`, `showAttention` and `showDesktopActions` default to `true`;
+  `showAudioIndicator`, `lockItems`, `currentWorkspaceOnly` and
+  `previewMiddleClose` default to `false`.
 - `iconSize` is in logical pixels, clamped to 32–72 in steps of 4; the default
   is 48.
 - `magnification` (default `true`) makes icons grow under the pointer. Off keeps
@@ -176,14 +209,16 @@ Most settings live in the settings sheet. The same values are stored in
   does while its application starts. The older `bounceOnLaunch` boolean still
   reads, mapping to `"hop"` and `"none"`.
 - `indicatorStyle` is `"dot"` (default, one dot per window up to three),
-  `"line"` (a single bar) or `"none"`. The older `showIndicators` boolean still
+  `"line"` (a single bar), `"dashes"`, `"segments"` (the bar cut per window)
+  or `"none"`. The older `showIndicators` boolean still
   reads.
 - `previewStyle` is `"cards"` (default, a horizontal row of thumbnails above
   the dock) or `"stack"` (a narrow column anchored to the icon, opening for a
   single window too, with a close button on each row).
-- `hoverFocusPreview` (default `true`) focuses a window as the pointer moves
-  onto its row in the previews. Turn it off to keep the pointer from moving
-  focus while the panel is open.
+- `previewHover` says what resting the pointer on a preview does:
+  `"highlight"` (default) fades the other windows without changing focus,
+  `"focus"` switches to the window, `"nothing"` only marks the preview. The
+  older `hoverFocusPreview` boolean still reads.
 - `dimInactivePinned` (default `false`) fades a pinned application that has no
   window to 62%.
 - `showBadges` (default `true`) counts unread notifications on an icon. A
@@ -215,6 +250,8 @@ Most settings live in the settings sheet. The same values are stored in
   icons always draw opaque.
 - `tintColor` is a `#rrggbb` colour for the tinted mode; absent means the shell
   accent.
+- `appearance` is `"macos"` (default, rounded tiles and a pinned file's own
+  artwork) or `"denial"` (the accent tile with a glyph inside).
 - `revealIndicator` (default `true`) draws a short bar on the screen edge while
   the dock is retracted.
 - `launcherSide` and `extrasSide` are `"left"`, `"right"` or `"hidden"`.
@@ -222,7 +259,10 @@ Most settings live in the settings sheet. The same values are stored in
   to the left. Trash stays the last item inside the accessory group.
 - `showTrash` turns the trash can off without touching the folder list.
 - `folders` holds absolute paths; a missing `label` falls back to the
-  directory's basename. Duplicate paths are collapsed.
+  directory's basename. Duplicate paths are collapsed. Each entry also takes
+  `view` (`"auto"`, `"fan"`, `"grid"` or `"list"`), `sort` (`"added"`,
+  `"modified"`, `"name"`, `"kind"` or `"manual"`), `stacked` (`false` draws a
+  plain folder instead of a pile) and `order` (file names for the manual sort).
 - `files` holds pinned single files the same way. They sit after the folders
   and before the trash, open with the system handler, and keep the folder's
   icon size in a stack so either can cover the other.

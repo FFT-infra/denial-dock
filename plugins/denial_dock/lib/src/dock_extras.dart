@@ -215,6 +215,39 @@ abstract final class DockExtras {
     return _run(openFallback(target));
   }
 
+  /// The freedesktop call that opens a folder with one file selected, which
+  /// Nautilus, Dolphin and Thunar export on the session bus.
+  static List<String> revealCommand(String path) => [
+    'dbus-send',
+    '--session',
+    '--print-reply',
+    '--dest=$fileManagerService',
+    '--type=method_call',
+    fileManagerPath,
+    '$fileManagerService.ShowItems',
+    'array:string:${Uri.file(path)}',
+    'string:',
+  ];
+
+  static const String fileManagerService = 'org.freedesktop.FileManager1';
+  static const String fileManagerPath = '/org/freedesktop/FileManager1';
+
+  /// Shows [path] selected in the file manager, falling back to opening its
+  /// folder. Returns false when nothing could be started.
+  ///
+  /// The D-Bus call is waited on rather than detached: a file manager that is
+  /// not running leaves the name unowned, and only the exit status says so.
+  static Future<bool> revealPath(String path) async {
+    final command = revealCommand(path);
+    try {
+      final result = await Process.run(command.first, command.sublist(1));
+      if (result.exitCode == 0) return true;
+    } on ProcessException {
+      // dbus-send is missing; fall through to the folder.
+    }
+    return openPath(File(path).parent.path);
+  }
+
   /// Opens the trash in the file manager.
   ///
   /// The order is reversed for the `trash:///` URI: `xdg-open` does not know
@@ -278,15 +311,16 @@ abstract final class DockExtras {
     }
   }
 
-  /// Files in [path] a user might pin to the dock: real files, sorted, hidden
-  /// entries skipped the way a file picker skips them by default.
-  static List<String> listFiles(String path) {
+  /// Files in [path] a user might pin to the dock: real files, sorted. Hidden
+  /// entries are skipped the way a file picker skips them by default, unless
+  /// [hidden] includes them.
+  static List<String> listFiles(String path, {bool hidden = false}) {
     try {
       final entries = Directory(path)
           .listSync(followLinks: false)
           .whereType<File>()
           .map((file) => file.path)
-          .where((file) => !_basename(file).startsWith('.'))
+          .where((file) => hidden || !_basename(file).startsWith('.'))
           .toList();
       entries.sort();
       return entries;

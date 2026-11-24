@@ -938,8 +938,9 @@ class _DockStackViewState extends State<DockStackView>
             child: DecoratedBox(
               decoration: BoxDecoration(
                 shape: BoxShape.circle,
-                color: theme.panelColor(theme.colors.surfaceContainerHigh),
+                color: _plateFill(theme),
                 border: Border.all(color: theme.colors.hairline),
+                boxShadow: _plateShadow(theme),
               ),
               child: Icon(
                 Icons.arrow_outward_rounded,
@@ -1330,6 +1331,21 @@ class _StackLayout {
 
 /// One fan row: the file's icon or thumbnail on the right and its name in a
 /// pill, which is the shape the reference docks draw.
+/// Fan rows float over whatever window is behind them with no blur of their
+/// own, so their fill keeps a floor.
+Color _plateFill(ShellThemeData theme) {
+  final fill = theme.panelColor(theme.colors.surfaceContainerHigh);
+  return fill.a < 0.9 ? fill.withValues(alpha: 0.9) : fill;
+}
+
+List<BoxShadow> _plateShadow(ShellThemeData theme) => [
+  BoxShadow(
+    color: theme.colors.shadow.withValues(alpha: 0.22),
+    blurRadius: 10,
+    offset: const Offset(0, 3),
+  ),
+];
+
 class _StackRowTile extends StatelessWidget {
   const _StackRowTile({
     required this.row,
@@ -1387,17 +1403,12 @@ class _StackRowTile extends StatelessWidget {
   /// The name on its own pill: a macOS stack separates the label from the
   /// preview, so the two read as a list of names with pictures beside them.
   Widget _labelPill() {
+    final plate = _plateFill(theme);
     final fill = dropTarget
-        ? Color.alphaBlend(
-            theme.accent.withValues(alpha: 0.32),
-            theme.panelColor(theme.colors.surfaceContainerHigh),
-          )
+        ? Color.alphaBlend(theme.accent.withValues(alpha: 0.32), plate)
         : lit
-        ? Color.alphaBlend(
-            theme.accent.withValues(alpha: 0.16),
-            theme.panelColor(theme.colors.surfaceContainerHigh),
-          )
-        : theme.panelColor(theme.colors.surfaceContainerHigh);
+        ? Color.alphaBlend(theme.accent.withValues(alpha: 0.16), plate)
+        : plate;
     // The pill hugs its text: a macOS name plate is a thin capsule beside the
     // preview, not a panel as tall as the card. A Row would stretch it to the
     // card's height, so the height is set and the pill centred. It stays at
@@ -1423,6 +1434,7 @@ class _StackRowTile extends StatelessWidget {
                 border: Border.all(
                   color: dropTarget ? theme.accent : theme.colors.hairline,
                 ),
+                boxShadow: _plateShadow(theme),
               ),
               child: Padding(
                 padding: const EdgeInsets.symmetric(
@@ -1457,13 +1469,14 @@ class _StackRowTile extends StatelessWidget {
       height: DockStackFan.thumbSize,
       child: DecoratedBox(
         decoration: BoxDecoration(
-          color: theme.panelColor(theme.colors.surfaceContainerHigh),
+          color: _plateFill(theme),
           borderRadius: theme.borderRadius(8),
           border: Border.all(
             color: lit
                 ? theme.accent.withValues(alpha: 0.55)
                 : theme.colors.hairline,
           ),
+          boxShadow: _plateShadow(theme),
         ),
         child: Padding(
           padding: const EdgeInsets.all(3),

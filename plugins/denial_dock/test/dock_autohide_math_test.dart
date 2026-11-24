@@ -1,7 +1,64 @@
 import 'package:denial_dock/src/dock_autohide_math.dart';
-import 'package:denial_dock/src/dock_settings.dart' show DockPosition;
+import 'package:denial_dock/src/dock_settings.dart'
+    show DockHideScope, DockPosition;
 
 void main() {
+  // Which windows a smart-hiding dock reacts to.
+  _expect(
+    countsForHide(DockHideScope.all, active: false, maximized: false),
+    'every window counts by default',
+  );
+  _expect(
+    countsForHide(DockHideScope.active, active: true, maximized: false) &&
+        !countsForHide(DockHideScope.active, active: false, maximized: true),
+    'only the focused window',
+  );
+  _expect(
+    countsForHide(DockHideScope.maximized, active: false, maximized: true) &&
+        !countsForHide(DockHideScope.maximized, active: true, maximized: false),
+    'only a maximized window',
+  );
+
+  // A bar on the dock's own edge pushes it inward; one elsewhere does not.
+  const screen = (left: 0.0, top: 0.0, width: 1524.0, height: 1016.0);
+  const topBar = (left: 0.0, top: 32.0, width: 1524.0, height: 984.0);
+  const bottomBar = (left: 0.0, top: 0.0, width: 1524.0, height: 980.0);
+  double reserved(Box area, DockPosition position) =>
+      reservedEdge(output: screen, workArea: area, position: position);
+  _expect(reserved(topBar, DockPosition.bottom) == 0, 'bar on the far edge');
+  _expect(reserved(bottomBar, DockPosition.bottom) == 36, 'bar under the dock');
+  _expect(reserved(bottomBar, DockPosition.left) == 0, 'side dock, bottom bar');
+  _expect(
+    reserved((
+          left: 40.0,
+          top: 0.0,
+          width: 1484.0,
+          height: 1016.0,
+        ), DockPosition.left) ==
+        40,
+    'bar beside a side dock',
+  );
+  _expect(
+    reserved((
+          left: 0.0,
+          top: 0.0,
+          width: 0.0,
+          height: 0.0,
+        ), DockPosition.bottom) ==
+        0,
+    'empty work area',
+  );
+  _expect(
+    reserved((
+          left: 0.0,
+          top: 0.0,
+          width: 1524.0,
+          height: 100.0,
+        ), DockPosition.bottom) ==
+        0,
+    'an implausible reservation is ignored',
+  );
+
   // A 1280x800 output at the origin.
   const output = (left: 0.0, top: 0.0, width: 1280.0, height: 800.0);
 

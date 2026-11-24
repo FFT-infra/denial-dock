@@ -110,11 +110,13 @@ void main() {
   final bLand = DockMath.launchBounce(0.82);
   final bPost = DockMath.launchBounce(0.95);
   if (b0.abs() > 1e-5) throw StateError('b0 should be 0, got $b0');
-  if ((bApex - 1.0).abs() > 0.01)
+  if ((bApex - 1.0).abs() > 0.01) {
     throw StateError('bApex should be near 1.0, got $bApex');
+  }
   if (bLand.abs() > 1e-5) throw StateError('bLand should be 0, got $bLand');
-  if (bPost.abs() > 1e-5)
+  if (bPost.abs() > 1e-5) {
     throw StateError('bPost should remain 0 after flight, got $bPost');
+  }
 
   // 5. Name owner midpoint tests
   final centers = [50.0, 110.0, 170.0];

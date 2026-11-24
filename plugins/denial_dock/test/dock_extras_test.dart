@@ -79,12 +79,29 @@ Future<void> main() async {
       DockExtras.listDirectories('${sandbox.path}/nope').isEmpty,
       'missing dir',
     );
+
+    // Pinnable files: hidden entries stay out unless asked for.
+    File('${sandbox.path}/.secret').writeAsStringSync('');
+    final visibleFiles = DockExtras.listFiles(sandbox.path);
+    _expect(
+      _same(visibleFiles, ['${sandbox.path}/file']),
+      'list visible files $visibleFiles',
+    );
+    final allFiles = DockExtras.listFiles(sandbox.path, hidden: true);
+    _expect(
+      _same(allFiles, ['${sandbox.path}/.secret', '${sandbox.path}/file']),
+      'list hidden files $allFiles',
+    );
+    _expect(
+      DockExtras.listFiles('${sandbox.path}/nope').isEmpty,
+      'missing dir files',
+    );
   } finally {
     sandbox.deleteSync(recursive: true);
   }
 
   // Mount parsing tolerates the octal escapes the kernel writes.
-  final mounts = File('${Directory.systemTemp.path}/dock_mounts_${pid}.txt');
+  final mounts = File('${Directory.systemTemp.path}/dock_mounts_$pid.txt');
   try {
     mounts.writeAsStringSync(
       'proc /proc proc rw 0 0\n'
@@ -183,6 +200,15 @@ Future<void> main() async {
   _expect(
     _same(trashCommands.first, ['gio', 'open', 'trash:///']),
     'trash command prefers gio',
+  );
+  // Revealing a file selects it in the running file manager over D-Bus, with
+  // the path escaped as a file URI.
+  final reveal = DockExtras.revealCommand('/home/me/a b.pdf');
+  _expect(
+    reveal.contains('org.freedesktop.FileManager1.ShowItems') &&
+        reveal.contains('array:string:file:///home/me/a%20b.pdf') &&
+        reveal.first == 'dbus-send',
+    'reveal command $reveal',
   );
 
   stdout.writeln('All dock extras tests passed.');

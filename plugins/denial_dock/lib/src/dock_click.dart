@@ -1,5 +1,7 @@
 import 'dock_settings.dart';
 
+enum DockClickKind { activate, minimize, previews, nothing }
+
 /// What a click on a running application should do, decided from the windows
 /// the dock already knows about. Kept free of Flutter so the rule can be tested
 /// directly.
@@ -18,6 +20,35 @@ abstract final class DockClick {
       (isMinimized ? hidden : restored).add(index);
     }
     return [...restored, ...hidden];
+  }
+
+  /// What a click on a running application does. `index` is the window to
+  /// bring forward or to minimize, and -1 where the outcome names no window.
+  static ({DockClickKind kind, int index}) resolve({
+    required DockClickAction action,
+    required int count,
+    required int activeIndex,
+    Iterable<bool> minimized = const [],
+  }) {
+    if (count <= 0) return (kind: DockClickKind.nothing, index: -1);
+    if (action == DockClickAction.previews && count > 1) {
+      return (kind: DockClickKind.previews, index: -1);
+    }
+    final next = nextIndex(
+      action: action == DockClickAction.cycle
+          ? DockClickAction.cycle
+          : DockClickAction.minimize,
+      count: count,
+      activeIndex: activeIndex,
+      minimized: minimized,
+    );
+    if (next != null) return (kind: DockClickKind.activate, index: next);
+    if (action == DockClickAction.raise ||
+        activeIndex < 0 ||
+        activeIndex >= count) {
+      return (kind: DockClickKind.nothing, index: -1);
+    }
+    return (kind: DockClickKind.minimize, index: activeIndex);
   }
 
   /// Index of the window to bring forward, or null when the click should

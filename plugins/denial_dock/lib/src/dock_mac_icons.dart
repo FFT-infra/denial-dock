@@ -95,7 +95,11 @@ class DockStackIcon extends StatelessWidget {
                     child: SizedBox.square(
                       dimension: size * DockPile.edge(i),
                       child: ClipRRect(
-                        borderRadius: radius,
+                        // A card's corner is a share of its own edge. Scaling
+                        // the tile's radius made the smallest card a circle.
+                        borderRadius: BorderRadius.circular(
+                          size * DockPile.edge(i) * 0.16,
+                        ),
                         child: DecoratedBox(
                           decoration: BoxDecoration(
                             color: theme.panelColor(
@@ -126,22 +130,17 @@ class DockStackIcon extends StatelessWidget {
   }
 }
 
-/// The tile a stack shows while it is open: the pile dimmed under a
-/// translucent plate with a chevron pointing at the rows it just dealt out.
-///
-/// macOS does this so the icon still says "this is the open one" after its
-/// cards have flown off it — without it the pile sits there unchanged and
-/// reads as a second, unopened stack.
+/// The tile a stack shows while it is open: a plate with a chevron pointing
+/// at the rows it just dealt out. The cards have left the icon, so none are
+/// drawn here.
 class DockStackOpenIcon extends StatelessWidget {
   const DockStackOpenIcon({
     required this.size,
-    required this.previews,
     this.quarterTurns = 0,
     super.key,
   });
 
   final double size;
-  final List<DockStackPreview> previews;
 
   /// Which way the chevron points, in quarter turns clockwise from down, so
   /// it points at the rows the stack just opened into.
@@ -149,40 +148,26 @@ class DockStackOpenIcon extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final radius = BorderRadius.circular(size * 0.24);
+    final ink = context.shellTheme.colors.textPrimary;
     return SizedBox.square(
       dimension: size,
-      child: Stack(
-        children: [
-          // The pile stays underneath, so the tile is visibly the same stack.
-          Positioned.fill(
-            child: Opacity(
-              opacity: 0.45,
-              child: DockStackIcon(size: size, previews: previews),
+      child: Padding(
+        padding: EdgeInsets.all(size * 0.06),
+        child: DecoratedBox(
+          decoration: BoxDecoration(
+            borderRadius: BorderRadius.circular(size * 0.24),
+            color: ink.withValues(alpha: 0.10),
+            border: Border.all(color: ink.withValues(alpha: 0.14)),
+          ),
+          child: RotatedBox(
+            quarterTurns: quarterTurns,
+            child: Icon(
+              Icons.keyboard_arrow_down_rounded,
+              size: size * 0.58,
+              color: ink.withValues(alpha: 0.78),
             ),
           ),
-          Positioned.fill(
-            child: DecoratedBox(
-              decoration: BoxDecoration(
-                borderRadius: radius,
-                gradient: const LinearGradient(
-                  begin: Alignment.topCenter,
-                  end: Alignment.bottomCenter,
-                  colors: [Color(0x40FFFFFF), Color(0x14FFFFFF)],
-                ),
-                border: Border.all(color: const Color(0x2E000000)),
-              ),
-              child: RotatedBox(
-                quarterTurns: quarterTurns,
-                child: Icon(
-                  Icons.keyboard_arrow_down_rounded,
-                  size: size * 0.62,
-                  color: const Color(0xCC000000),
-                ),
-              ),
-            ),
-          ),
-        ],
+        ),
       ),
     );
   }

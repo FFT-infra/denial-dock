@@ -6,6 +6,7 @@ import 'package:denial_flutter_sdk/theme.dart';
 import 'package:flutter/material.dart';
 
 import 'dock_settings.dart' show DockPosition;
+import 'dock_card.dart';
 
 /// Which side of a menu panel carries the pointer tail, mirroring the dock's
 /// edge. Menus open away from the screen edge, so the tail points back at it.
@@ -182,19 +183,20 @@ class DockMenuPanel extends StatelessWidget {
     // The outline is stroked over the panel and its tail as one shape, so the
     // hairline never crosses the tail's base the way a bottom border did.
     final outlined = tail != DockMenuTail.none;
-    final panel = ShellBackdropBlur(
-      blur: theme.effectivePanelOpacity < 1,
-      separateChild: true,
-      borderRadius: radius,
-      child: DecoratedBox(
-        decoration: BoxDecoration(
-          color: theme.panelColor(theme.colors.surfaceContainer),
-          borderRadius: radius,
-          border: outlined ? null : Border.all(color: theme.colors.hairline),
-        ),
-        child: child,
-      ),
-    );
+    final fill = DockCard.fillOf(theme);
+    // A tail has to be stroked as one outline with its panel, so only a
+    // tail-less panel takes the card's continuous corners and shadow.
+    final panel = !outlined
+        ? DockCard(radius: radius.topLeft.x, child: child)
+        : ShellBackdropBlur(
+            blur: theme.effectivePanelOpacity < 1,
+            separateChild: true,
+            borderRadius: radius,
+            child: DecoratedBox(
+              decoration: BoxDecoration(color: fill, borderRadius: radius),
+              child: child,
+            ),
+          );
     final height = maxHeight;
     final sized = height == null
         ? panel
@@ -203,7 +205,6 @@ class DockMenuPanel extends StatelessWidget {
             child: panel,
           );
     if (tail == DockMenuTail.none) return sized;
-    final fill = theme.panelColor(theme.colors.surfaceContainer);
     final aligned = Align(
       alignment: switch (tail) {
         DockMenuTail.down => Alignment(tailAlignment * 2 - 1, 0),
@@ -417,7 +418,7 @@ class _DockMenuSubmenuRowState extends State<DockMenuSubmenuRow> {
     _closeTimer?.cancel();
     _closeTimer = null;
     if (_open || _openTimer != null) return;
-    _openTimer = Timer(const Duration(milliseconds: 140), () {
+    _openTimer = Timer(const Duration(milliseconds: 90), () {
       _openTimer = null;
       if (!mounted) return;
       setState(() => _open = true);
@@ -452,7 +453,7 @@ class _DockMenuSubmenuRowState extends State<DockMenuSubmenuRow> {
           behavior: HitTestBehavior.opaque,
           onTap: _scheduleOpen,
           child: Container(
-            height: 34,
+            height: 30,
             margin: const EdgeInsets.symmetric(horizontal: 6),
             padding: const EdgeInsets.symmetric(horizontal: 10),
             decoration: BoxDecoration(
@@ -508,7 +509,7 @@ class _DockMenuSubmenuRowState extends State<DockMenuSubmenuRow> {
         },
         onExit: (_) => _scheduleClose(),
         child: DockMenuPanel(
-          radius: theme.borderRadius(12),
+          radius: theme.borderRadius(13),
           child: Padding(
             padding: const EdgeInsets.symmetric(vertical: 4),
             child: Column(
@@ -590,7 +591,7 @@ class _DockMenuRowState extends State<DockMenuRow> {
           behavior: HitTestBehavior.opaque,
           onTap: widget.onTap,
           child: Container(
-            height: 34,
+            height: 30,
             margin: const EdgeInsets.symmetric(horizontal: 6),
             padding: const EdgeInsets.symmetric(horizontal: 10),
             decoration: BoxDecoration(

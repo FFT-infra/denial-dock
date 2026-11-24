@@ -1,5 +1,4 @@
 import 'dart:async';
-import 'dart:io' show File;
 import 'dart:math' as math;
 
 import 'package:denial_flutter_sdk/applications.dart'
@@ -10,7 +9,10 @@ import 'package:denial_flutter_sdk/popups.dart';
 import 'package:denial_flutter_sdk/services.dart';
 import 'package:denial_flutter_sdk/shell.dart';
 import 'package:denial_flutter_sdk/state.dart'
-    show desktopNotificationsProvider, shellControllerProvider;
+    show
+        appAudioProvider,
+        desktopNotificationsProvider,
+        shellControllerProvider;
 import 'package:denial_flutter_sdk/surfaces.dart';
 import 'package:denial_flutter_sdk/theme.dart';
 import 'package:flutter/gestures.dart'
@@ -28,7 +30,11 @@ import 'dock_extras.dart';
 import 'dock_extras_item.dart';
 import 'dock_icon.dart';
 import 'dock_mac_icons.dart';
+import 'dock_debug.dart';
+import 'dock_hotkeys.dart';
 import 'dock_item.dart';
+import 'dock_launcher_entry.dart';
+import 'dock_launcher_entry_bus.dart';
 import 'dock_layout.dart';
 import 'dock_math.dart';
 import 'dock_menu.dart';
@@ -37,6 +43,7 @@ import 'dock_scroll.dart';
 import 'dock_sections.dart';
 import 'dock_settings_panel.dart';
 import 'dock_stack_thumbs.dart';
+import 'dock_windows.dart';
 
 /// The floating dock. Icons are laid out by [DockLayout] along the dock's main
 /// axis, so the same kernel serves a bottom dock and a side dock.
@@ -66,7 +73,12 @@ class _DockContainerState extends ConsumerState<DockContainer>
   /// One gate for the whole dock: icons and the capsule share it, so a swipe
   /// that crosses icons still steps once.
   final DockScrollGate _scrollGate = DockScrollGate();
-  static const double _edgeInset = 10;
+  static const double _baseInset = 10;
+
+  /// Distance from the screen edge to the capsule. A bar that reserves the
+  /// dock's own edge adds its thickness, so the two never share pixels.
+  double _reserved = 0;
+  double get _edgeInset => _baseInset + _reserved;
 
   late final Ticker _ticker;
   Duration _lastTick = Duration.zero;
@@ -125,8 +137,8 @@ class _DockContainerState extends ConsumerState<DockContainer>
   Map<int, int> _entrySlots = const {};
   List<_LabelTarget?> _labels = const [];
   double _capsuleStart = 0;
-  double _capsuleCross = _edgeInset;
-  double _capsuleFar = _edgeInset;
+  double _capsuleCross = _baseInset;
+  double _capsuleFar = _baseInset;
   double _surfaceWidth = 0;
   double _surfaceHeight = 0;
 
@@ -222,6 +234,68 @@ class _DockContainerState extends ConsumerState<DockContainer>
     // generated previews are dropped so the cache cannot grow without bound.
     DockStackThumbs.warm();
     DockStackThumbs.sweepCache();
+    _hotkeys = DockHotkeys.requests.listen(_onHotkey);
+    _debug = DockDebug.commands.listen(_onDebug);
+  }
+
+  StreamSubscription<List<String>>? _debug;
+
+  void _onDebug(List<String> words) {
+    if (!mounted || !widget.environment.isMainOutput) return;
+    final number = words.length > 1 ? int.tryParse(words[1]) ?? 0 : 0;
+    switch (words.first) {
+      case 'settings':
+        _openSettings(page: number);
+      case 'click':
+        _onHotkey((slot: number, monitorId: widget.monitorId));
+      case 'dockmenu':
+        _openDockMenu((_vertical ? _surfaceHeight : _surfaceWidth) / 2);
+      case 'close':
+        _closeDockMenu();
+    }
+  }
+
+  StreamSubscription<DockHotkey>? _hotkeys;
+
+  /// The application a shortcut asked for, with a serial so the same slot can
+  /// be asked for twice in a row.
+  final ValueNotifier<({String key, int serial})?> _activation = ValueNotifier(
+    null,
+  );
+
+  void _onHotkey(DockHotkey request) {
+    final monitor = request.monitorId;
+    if (monitor == null
+        ? !widget.environment.isMainOutput
+        : monitor != widget.monitorId) {
+      return;
+    }
+    final entries = _builtEntries;
+    if (request.slot < 1 || request.slot > entries.length) return;
+    _activation.value = (
+      key: appIdentity(entries[request.slot - 1].appId),
+      serial: (_activation.value?.serial ?? 0) + 1,
+    );
+  }
+
+  Timer? _audioTimer;
+
+  /// The mixer answers a request and never pushes, so the speaker badge asks
+  /// again every few seconds for as long as it is switched on.
+  void _syncAudioPolling(bool enabled) {
+    if (!enabled) {
+      _audioTimer?.cancel();
+      _audioTimer = null;
+      return;
+    }
+    if (_audioTimer != null) return;
+    void ask() {
+      if (mounted) ref.read(appAudioProvider.notifier).refresh();
+    }
+
+    _audioTimer = Timer.periodic(const Duration(seconds: 3), (_) => ask());
+    // Asking changes the provider, which a build may not do.
+    SchedulerBinding.instance.addPostFrameCallback((_) => ask());
   }
 
   @override
@@ -230,6 +304,10 @@ class _DockContainerState extends ConsumerState<DockContainer>
     _revealTimer?.cancel();
     _labelTimer?.cancel();
     _edgeTapTimer?.cancel();
+    _audioTimer?.cancel();
+    unawaited(_hotkeys?.cancel());
+    unawaited(_debug?.cancel());
+    _activation.dispose();
     _ticker.dispose();
     super.dispose();
   }
@@ -354,12 +432,15 @@ class _DockContainerState extends ConsumerState<DockContainer>
       // short pause (reference: smartHideHoverShowDelay), so brushing past the
       // edge does not flash the capsule.
       if (_conflict && _edgeHover && !_insideCapsule && _revealTarget < 0.5) {
-        _revealTimer ??= Timer(const Duration(milliseconds: 90), () {
-          _revealTimer = null;
-          if (!mounted) return;
-          _requestReveal(1);
-          _evaluateHide();
-        });
+        _revealTimer ??= Timer(
+          Duration(milliseconds: _settings.revealDelayMs),
+          () {
+            _revealTimer = null;
+            if (!mounted) return;
+            _requestReveal(1);
+            _evaluateHide();
+          },
+        );
         return;
       }
       _revealTimer?.cancel();
@@ -367,7 +448,7 @@ class _DockContainerState extends ConsumerState<DockContainer>
       _requestReveal(1);
       return;
     }
-    _hideTimer = Timer(const Duration(milliseconds: 200), () {
+    _hideTimer = Timer(Duration(milliseconds: _settings.hideDelayMs), () {
       if (!mounted) return;
       if (_conflict && !_held) {
         _revealTarget = 0;
@@ -520,7 +601,7 @@ class _DockContainerState extends ConsumerState<DockContainer>
   /// The settings sheet is a managed shell popup, not an OverlayPortal menu, so
   /// it keeps its own hold: without it the capsule retracts behind the sheet
   /// when a window is parked on the dock strip.
-  void _openSettings() {
+  void _openSettings({int page = 0}) {
     if (_settingsOpen) return;
     _closeDockMenu();
     _settingsOpen = true;
@@ -532,7 +613,7 @@ class _DockContainerState extends ConsumerState<DockContainer>
           debugLabel: 'Dock settings',
           dismissPolicy: ShellDismissPolicy.outsideTapAndEscape,
           builder: (context, handle) =>
-              DockSettingsPanel(onClose: handle.close),
+              DockSettingsPanel(onClose: handle.close, initialPage: page),
         );
     // The handle has no completion callback; poll the popup list so the hold is
     // released once the sheet has finished its closing transition.
@@ -954,8 +1035,42 @@ class _DockContainerState extends ConsumerState<DockContainer>
       _dragIconSize = null;
     }
     final catalog = ref.watch(widget.services.applications);
-    final windows = ref.watch(widget.services.windows(widget.monitorId));
+    final allWindows = ref.watch(widget.services.windows(widget.monitorId));
     final denialWindows = ref.watch(userAppWindowsProvider);
+    final windows = settings.currentWorkspaceOnly
+        ? DockWindows.onWorkspace(
+            allWindows,
+            idOf: (window) => window.id,
+            workspaceById: {
+              for (final window in denialWindows)
+                window.objectId: window.workspaceId,
+            },
+            workspace: widget.environment.workspaceId,
+          )
+        : allWindows;
+    _reserved = settings.avoidReservedEdge
+        ? DockAutoHide.reservedEdge(
+            output: _output,
+            workArea: widget.environment.workArea,
+            position: settings.position,
+          )
+        : 0;
+    final launcherEntries =
+        settings.showBadges || settings.showProgress || settings.showAttention
+        ? ref.watch(launcherEntriesProvider)
+        : const <String, LauncherEntry>{};
+    _syncAudioPolling(settings.showAudioIndicator);
+    // A line per stream, so a poll that changes nothing rebuilds nothing.
+    final audio = settings.showAudioIndicator
+        ? ref.watch(
+            appAudioProvider.select(
+              (state) => [
+                for (final stream in state.streams)
+                  '${stream.muted || stream.level <= 0 ? 1 : 0}${stream.name}',
+              ].join('\n'),
+            ),
+          )
+        : '';
     final recents = ref.watch(applicationRecentsProvider);
     _workspaceStatus = ref.watch(widget.services.workspace(widget.monitorId));
     final environment = widget.environment;
@@ -1012,14 +1127,13 @@ class _DockContainerState extends ConsumerState<DockContainer>
         _frame = frame;
         _capsuleStart = frame.capsuleStart;
         _entrySlots = {
-          for (var i = 0; i < specs.length; i++)
-            if (specs[i].entry case final entry?) entry: i,
+          for (var i = 0; i < specs.length; i++) ?specs[i].entry: i,
         };
         _labels = [
           for (var i = 0; i < specs.length; i++)
             _labelForSlot(specs, i, entries, launcherLabel, chinese),
         ];
-        final hideOffset = (1 - _reveal) * (_capsuleHeight + 24);
+        final hideOffset = (1 - _reveal) * (_capsuleHeight + 14 + _edgeInset);
         _capsuleCross = _edgeInset - hideOffset;
         _capsuleFar = _capsuleCross + _capsuleHeight;
         _trashRect = _trashSlotRect(specs, frame);
@@ -1046,6 +1160,11 @@ class _DockContainerState extends ConsumerState<DockContainer>
           workspaceId: environment.workspaceId,
           output: environment.output,
           desktopVisible: environment.desktopVisible,
+          scope: settings.hideScope,
+          activeIds: {
+            for (final window in allWindows)
+              if (window.active) window.id,
+          },
         );
         _syncConflict(
           DockVisibility.wantsHidden(
@@ -1206,6 +1325,8 @@ class _DockContainerState extends ConsumerState<DockContainer>
                                   slot: frame.slots[i],
                                   entries: entries,
                                   badges: badges,
+                                  launcherEntries: launcherEntries,
+                                  audio: audio,
                                   dragging: _dragKey != null,
                                   launcherLabel: launcherLabel,
                                   settings: settings,
@@ -1289,12 +1410,17 @@ class _DockContainerState extends ConsumerState<DockContainer>
                     ),
                   ),
                 ),
-              if (nameLabel != null) nameLabel,
+              ?nameLabel,
               _placeInSurface(
                 main: 0,
-                cross: 0,
+                cross: _reserved,
                 mainExtent: surfaceMain,
-                crossExtent: math.max(4, _capsuleCross),
+                // Beside a bar the pointer cannot rest on the screen edge, so
+                // the strip is thick enough to stop on.
+                crossExtent: math.max(
+                  _reserved > 0 ? 10 : 4,
+                  _capsuleCross - _reserved,
+                ),
                 child: ShellInputRegion(
                   debugLabel: 'Dock reveal edge',
                   child: MouseRegion(
@@ -1448,7 +1574,7 @@ class _DockContainerState extends ConsumerState<DockContainer>
                 anchor: placement,
                 overlaySize: layout.overlaySize,
                 child: DockMenuPanel(
-                  radius: theme.borderRadius(14),
+                  radius: theme.borderRadius(13),
                   maxHeight: maxHeight,
                   tail: placement.tail,
                   tailAlignment: placement.tailAlignment,
@@ -1642,7 +1768,7 @@ class _DockContainerState extends ConsumerState<DockContainer>
       child: Listener(
         behavior: HitTestBehavior.opaque,
         onPointerDown: (event) {
-          if (event.buttons != kPrimaryButton) return;
+          if (event.buttons != kPrimaryButton || _settings.lockItems) return;
           _resizing = true;
           _dragIconSize = _iconSize;
         },
@@ -1690,6 +1816,8 @@ class _DockContainerState extends ConsumerState<DockContainer>
     required DockSlotLayout slot,
     required List<_DockEntry> entries,
     required Map<String, int> badges,
+    required Map<String, LauncherEntry> launcherEntries,
+    required String audio,
     required bool dragging,
     required String launcherLabel,
     required DockSettings settings,
@@ -1854,8 +1982,7 @@ class _DockContainerState extends ConsumerState<DockContainer>
             appearance: _settings.appearance,
             monitorBounds: _output,
             onOpen: () => unawaited(DockExtras.openPath(file.path)),
-            onReveal: () =>
-                unawaited(DockExtras.openPath(File(file.path).parent.path)),
+            onReveal: () => unawaited(DockExtras.revealPath(file.path)),
             onRemove: () => unawaited(
               ref.read(dockSettingsProvider.notifier).removeFile(file.path),
             ),
@@ -1890,6 +2017,30 @@ class _DockContainerState extends ConsumerState<DockContainer>
             .take(entryIndex)
             .where((candidate) => candidate.pinned)
             .length;
+        final identity = appIdentity(entry.appId);
+        final launchIdentity = entry.launchId == null
+            ? identity
+            : appIdentity(entry.launchId!);
+        final published =
+            launcherEntries[identity] ?? launcherEntries[launchIdentity];
+        final publishedCount = settings.showBadges
+            ? published?.shownCount ?? 0
+            : 0;
+        bool? muted;
+        if (audio.isNotEmpty && entry.windows.isNotEmpty) {
+          for (final line in audio.split('\n')) {
+            if (line.length < 2) continue;
+            if (!DockWindows.ownsStream(
+              line.substring(1),
+              appId: entry.appId,
+              name: entry.name,
+            )) {
+              continue;
+            }
+            // One audible stream is enough to call the application audible.
+            muted = (muted ?? true) && line.startsWith('1');
+          }
+        }
         return slotAt(
           key: ValueKey('dock-${entry.appId}'),
           cross: DockSettings.padding,
@@ -1919,9 +2070,18 @@ class _DockContainerState extends ConsumerState<DockContainer>
               launchFeedback: settings.launchFeedback,
               indicatorStyle: settings.indicatorStyle,
               previewStyle: settings.previewStyle,
-              hoverFocusPreview: settings.hoverFocusPreview,
+              previewHover: settings.previewHover,
               dimInactivePinned: settings.dimInactivePinned,
-              badge: badges[appIdentity(entry.appId)] ?? 0,
+              badge: publishedCount > 0
+                  ? publishedCount
+                  : badges[identity] ?? 0,
+              progress: settings.showProgress ? published?.shownProgress : null,
+              attention: settings.showAttention && (published?.urgent ?? false),
+              audioMuted: muted,
+              middleClickAction: settings.middleClickAction,
+              showDesktopActions: settings.showDesktopActions,
+              previewMiddleClose: settings.previewMiddleClose,
+              activation: _activation,
               iconMode: settings.iconMode,
               iconOpacity: settings.iconOpacity,
               tintColor: tintColor,
@@ -1930,10 +2090,12 @@ class _DockContainerState extends ConsumerState<DockContainer>
               onOverlayChanged: _setOverlayHold,
               previewOwner: _previewOwner,
               onPreviewOwnerChanged: _setPreviewOwner,
-              onDragStart: (pointer) =>
-                  _startDrag(entry, entryIndex, pinIndex, pointer),
-              onDragUpdate: _updateDrag,
-              onDragEnd: _endDrag,
+              onDragStart: settings.lockItems
+                  ? null
+                  : (pointer) =>
+                        _startDrag(entry, entryIndex, pinIndex, pointer),
+              onDragUpdate: settings.lockItems ? null : _updateDrag,
+              onDragEnd: settings.lockItems ? null : _endDrag,
             ),
           ),
         );

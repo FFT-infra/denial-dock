@@ -180,7 +180,7 @@ void main() {
     indicatorStyle: DockIndicatorStyle.line,
     previewStyle: DockPreviewStyle.stack,
     dimInactivePinned: true,
-    hoverFocusPreview: true,
+    previewHover: DockPreviewHover.focus,
     scrollReversed: true,
     scrollWraps: true,
     folders: const [DockFolder(path: '/home/me/Documents', label: 'Documents')],
@@ -207,7 +207,7 @@ void main() {
     'indicatorStyle': settings.indicatorStyle.key,
     'previewStyle': settings.previewStyle.key,
     'dimInactivePinned': settings.dimInactivePinned,
-    'hoverFocusPreview': settings.hoverFocusPreview,
+    'previewHover': settings.previewHover.key,
     'scrollReversed': settings.scrollReversed,
     'scrollWraps': settings.scrollWraps,
     'folders': settings.folders.map((folder) => folder.toJson()).toList(),
@@ -244,7 +244,24 @@ void main() {
     'round trip preview style',
   );
   _expect(decoded.dimInactivePinned, 'round trip inactive dim');
-  _expect(decoded.hoverFocusPreview, 'round trip hover focus');
+  _expect(
+    decoded.previewHover == DockPreviewHover.focus,
+    'round trip preview hover',
+  );
+  // The older boolean: its default reads as the new default, its "off" stays.
+  _expect(
+    DockSettings.fromJson(const {'hoverFocusPreview': true}).previewHover ==
+            DockPreviewHover.highlight &&
+        DockSettings.fromJson(const {'hoverFocusPreview': false})
+                .previewHover ==
+            DockPreviewHover.nothing &&
+        DockSettings.fromJson(const {
+              'hoverFocusPreview': false,
+              'previewHover': 'focus',
+            }).previewHover ==
+            DockPreviewHover.focus,
+    'legacy hover focus',
+  );
   _expect(decoded.scrollReversed, 'round trip scroll reversed');
   _expect(decoded.scrollWraps, 'round trip scroll wraps');
 
@@ -305,7 +322,7 @@ void main() {
         DockSettings.defaults.previewStyle == DockPreviewStyle.cards &&
         DockSettings.defaults.launchFeedback == DockLaunchFeedback.hop &&
         !DockSettings.defaults.dimInactivePinned &&
-        DockSettings.defaults.hoverFocusPreview &&
+        DockSettings.defaults.previewHover == DockPreviewHover.highlight &&
         !DockSettings.defaults.scrollReversed &&
         !DockSettings.defaults.scrollWraps,
     'new defaults',
@@ -425,6 +442,68 @@ void main() {
     'launch prefix and case strip',
   );
 
+  // A file written before these settings existed reads as the old behaviour.
+  final old = DockSettings.fromJson(const {'visibility': 'smart'});
+  _expect(
+    old.middleClickAction == DockMiddleClickAction.newWindow &&
+        old.hideScope == DockHideScope.all &&
+        old.revealDelayMs == 90 &&
+        old.hideDelayMs == 200 &&
+        !old.lockItems &&
+        !old.currentWorkspaceOnly &&
+        !old.previewMiddleClose &&
+        !old.showAudioIndicator &&
+        old.showProgress &&
+        old.showAttention &&
+        old.showDesktopActions &&
+        old.avoidReservedEdge,
+    'defaults of the newer settings',
+  );
+  final newer = DockSettings.fromJson(const {
+    'clickAction': 'previews',
+    'middleClickAction': 'close',
+    'hideScope': 'maximized',
+    'indicatorStyle': 'segments',
+    'revealDelayMs': 5000,
+    'hideDelayMs': -3,
+    'showProgress': false,
+    'showAttention': false,
+    'showDesktopActions': false,
+    'showAudioIndicator': true,
+    'lockItems': true,
+    'currentWorkspaceOnly': true,
+    'previewMiddleClose': true,
+    'avoidReservedEdge': false,
+  });
+  _expect(
+    newer.clickAction == DockClickAction.previews &&
+        newer.middleClickAction == DockMiddleClickAction.close &&
+        newer.hideScope == DockHideScope.maximized &&
+        newer.indicatorStyle == DockIndicatorStyle.segments &&
+        newer.revealDelayMs == DockSettings.maxRevealDelayMs &&
+        newer.hideDelayMs == 0 &&
+        !newer.showProgress &&
+        !newer.showAttention &&
+        !newer.showDesktopActions &&
+        newer.showAudioIndicator &&
+        newer.lockItems &&
+        newer.currentWorkspaceOnly &&
+        newer.previewMiddleClose &&
+        !newer.avoidReservedEdge,
+    'newer settings parse and clamp',
+  );
+  final copied = DockSettings.fromJson(const {}).copyWith(
+    middleClickAction: DockMiddleClickAction.minimize,
+    hideScope: DockHideScope.active,
+    lockItems: true,
+  );
+  _expect(
+    copied.middleClickAction == DockMiddleClickAction.minimize &&
+        copied.hideScope == DockHideScope.active &&
+        copied.lockItems,
+    'newer settings copy',
+  );
+
   _storeRoundTrip(settings);
 }
 
@@ -434,7 +513,11 @@ Future<void> _storeRoundTrip(DockSettings settings) async {
   try {
     final file = File('${directory.path}/denial_dock.json');
     await file.writeAsString(
-      jsonEncode({'unrelated': 'keep me', 'visibility': 'always'}),
+      jsonEncode({
+        'unrelated': 'keep me',
+        'visibility': 'always',
+        'hoverFocusPreview': true,
+      }),
     );
     final store = DockPreferencesStore(file);
     final loaded = await store.read();
@@ -447,6 +530,29 @@ Future<void> _storeRoundTrip(DockSettings settings) async {
     _expect(written['iconSize'] == 56, 'written size');
     _expect(written['magnification'] == false, 'written magnification');
     _expect(written['showBadges'] == false, 'written badges');
+    _expect(
+      written['previewHover'] == 'focus' &&
+          !written.containsKey('hoverFocusPreview'),
+      'the older hover key is replaced',
+    );
+    await store.write(
+      settings.copyWith(
+        middleClickAction: DockMiddleClickAction.close,
+        hideScope: DockHideScope.active,
+        revealDelayMs: 300,
+        lockItems: true,
+      ),
+    );
+    final again = await store.read();
+    _expect(
+      again.middleClickAction == DockMiddleClickAction.close &&
+          again.hideScope == DockHideScope.active &&
+          again.revealDelayMs == 300 &&
+          again.lockItems &&
+          again.clickAction == settings.clickAction,
+      'newer settings survive the store',
+    );
+    await store.write(settings);
     _expect(written['iconOpacity'] == 0.5, 'written icon opacity');
     _expect(written['tintColor'] == '#a855f7', 'written tint');
     _expect(

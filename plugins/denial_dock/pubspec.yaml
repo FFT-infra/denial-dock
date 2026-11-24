@@ -6,6 +6,7 @@ environment:
   sdk: ^3.13.0
   flutter: 3.47.5
 dependencies:
+  dbus: ^0.7.14
   denial_sdk: '0.0.0'
   denial_flutter_sdk: '0.0.0'
   flutter:
@@ -19,3 +20,4 @@ denial_plugin:
   name: Dock
   provides:
     - contract: package:denial_flutter_sdk/surfaces.dart#ShellSurface
+    - contract: package:denial_flutter_sdk/actions.dart#ShellAction

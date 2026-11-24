@@ -8,6 +8,7 @@ import 'package:flutter/gestures.dart' show PointerDeviceKind, kPrimaryButton;
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
+import 'dock_debug.dart';
 import 'dock_extras.dart';
 import 'dock_icon.dart';
 import 'dock_mac_icons.dart';
@@ -89,8 +90,25 @@ class _DockAccessoryItemState extends State<DockAccessoryItem> {
   Timer? _longPressTimer;
   Offset? _downPosition;
 
+  StreamSubscription<List<String>>? _debug;
+
+  @override
+  void initState() {
+    super.initState();
+    _debug = DockDebug.commands.listen((words) {
+      if (!mounted) return;
+      if (words.first == 'close') return _closeMenu();
+      if (words.first == 'menu' &&
+          words.length > 1 &&
+          widget.label.toLowerCase().contains(words[1])) {
+        _openMenu();
+      }
+    });
+  }
+
   @override
   void dispose() {
+    unawaited(_debug?.cancel());
     _longPressTimer?.cancel();
     if (_menuOpen) widget.onOverlayChanged(false);
     _focus.dispose();
@@ -291,7 +309,7 @@ class _DockAccessoryItemState extends State<DockAccessoryItem> {
                 anchor: placement,
                 overlaySize: layout.overlaySize,
                 child: DockMenuPanel(
-                  radius: theme.borderRadius(14),
+                  radius: theme.borderRadius(13),
                   maxHeight: maxHeight,
                   tail: placement.tail,
                   tailAlignment: placement.tailAlignment,
@@ -794,10 +812,29 @@ class _DockFolderItemState extends State<DockFolderItem> {
   Timer? _downloadPoll;
   DockStackWatch? _watch;
 
+  StreamSubscription<List<String>>? _debug;
+
+  /// A view asked for by a debug command, for this opening only.
+  DockStackMode? _debugView;
+
   @override
   void initState() {
     super.initState();
     _scheduleRefresh();
+    _debug = DockDebug.commands.listen((words) {
+      if (!mounted) return;
+      if (words.first == 'close') return _closeFan();
+      if (words.first != 'folder' ||
+          words.length < 2 ||
+          !widget.folder.label.toLowerCase().contains(words[1])) {
+        return;
+      }
+      _closeFan();
+      _debugView = words.length > 2
+          ? DockStackMode.values.asNameMap()[words[2]]
+          : null;
+      _toggleFan();
+    });
   }
 
   @override
@@ -810,16 +847,27 @@ class _DockFolderItemState extends State<DockFolderItem> {
       _scheduleRefresh();
       return;
     }
-    // A sort change re-reads the listing; the preview then follows the new
-    // newest entry instead of staying on the old one.
-    if (oldWidget.folder.sort != widget.folder.sort && _fanOpen) {
+    // A sort or order change re-reads the listing whether or not the fan is
+    // open: the icon's pile is drawn from the same list, and the sort menu
+    // can be reached from the icon without ever opening the fan.
+    if (oldWidget.folder.sort != widget.folder.sort ||
+        !_sameOrder(oldWidget.folder.order, widget.folder.order)) {
       _reloadEntries();
     }
+  }
+
+  static bool _sameOrder(List<String> first, List<String> second) {
+    if (first.length != second.length) return false;
+    for (var i = 0; i < first.length; i++) {
+      if (first[i] != second[i]) return false;
+    }
+    return true;
   }
 
   @override
   void dispose() {
     _downloadPoll?.cancel();
+    unawaited(_debug?.cancel());
     _watch?.stop();
     if (_fanOpen) widget.onOverlayChanged(false);
     super.dispose();
@@ -846,12 +894,12 @@ class _DockFolderItemState extends State<DockFolderItem> {
         : DockStackThumbs.preview(entries.first.path);
     final download = DockStackFiles.progress(entries);
     // The stacked icon draws the newest few entries, so the list has to be
-    // kept here too, not only when the fan opens.
+    // kept here too, not only when the fan opens. A card in the pile can
+    // change while the first and last names stay put.
+    final shown = math.min(DockPile.count, entries.length);
     final sameEntries =
         _entries.length == entries.length &&
-        (_entries.isEmpty ||
-            (_entries.first.path == entries.first.path &&
-                _entries.last.path == entries.last.path));
+        _samePaths(_entries, entries, shown);
     if (preview == _preview &&
         _sameDownload(download, _download) &&
         sameEntries) {
@@ -863,6 +911,18 @@ class _DockFolderItemState extends State<DockFolderItem> {
       _download = download;
     });
     _watchDownloads(download);
+  }
+
+  /// Whether the first [count] entries of both listings name the same files.
+  static bool _samePaths(
+    List<DockStackEntry> first,
+    List<DockStackEntry> second,
+    int count,
+  ) {
+    for (var i = 0; i < count; i++) {
+      if (first[i].path != second[i].path) return false;
+    }
+    return true;
   }
 
   static bool _sameDownload(
@@ -948,7 +1008,10 @@ class _DockFolderItemState extends State<DockFolderItem> {
     if (!_fanOpen) return;
     _watch?.stop();
     _watch = null;
-    setState(() => _fanOpen = false);
+    setState(() {
+      _fanOpen = false;
+      _debugView = null;
+    });
     _fan.hide();
     widget.onOverlayChanged(false);
   }
@@ -1021,7 +1084,7 @@ class _DockFolderItemState extends State<DockFolderItem> {
             bounds: bounds,
             workArea: work == null || work.isEmpty ? null : work,
             position: widget.position,
-            mode: widget.folder.view,
+            mode: _debugView ?? widget.folder.view,
             title: widget.folder.label,
             zh: widget.zh,
             onDismiss: _closeFan,
@@ -1067,12 +1130,11 @@ class _DockFolderItemState extends State<DockFolderItem> {
                           ),
                       ]
                     : const <DockStackPreview>[];
-                // While the stack is out, the icon says so: the pile dims
-                // under a plate with a chevron pointing at the rows.
+                // While the stack is out its cards are in the rows, so the
+                // icon is a plate with a chevron pointing at them.
                 if (_fanOpen) {
                   return DockStackOpenIcon(
                     size: widget.size,
-                    previews: previews,
                     quarterTurns: switch (widget.position) {
                       DockPosition.bottom => 0,
                       DockPosition.left => 3,
@@ -1098,11 +1160,16 @@ class _DockFolderItemState extends State<DockFolderItem> {
           // The same flat sections macOS puts on a stack's menu, in its order:
           // sort, then how the icon looks, then how the stack opens.
           DockMenuSectionLabel(widget.zh ? '排序方式' : 'Sort by'),
-          for (final sort in const [
+          for (final sort in [
             DockStackSortMode.name,
             DockStackSortMode.added,
             DockStackSortMode.modified,
             DockStackSortMode.kind,
+            // A dragged order is a sort of its own; the four Finder orders
+            // would otherwise all read unchecked after a drag.
+            if (widget.folder.sort == DockStackSortMode.manual ||
+                widget.folder.order.isNotEmpty)
+              DockStackSortMode.manual,
           ])
             DockMenuRow(
               label: switch (sort) {
