@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 
+import 'package:denial_shell_kit/detached_run.dart';
 import 'package:flutter/foundation.dart';
 
 import 'clipboard_history.dart';
@@ -71,13 +72,7 @@ class ClipboardWatch extends ValueNotifier<List<String>> {
 
   /// Puts [text] back on the clipboard.
   Future<void> copy(String text) async {
-    try {
-      final process = await Process.start('wl-copy', const <String>[]);
-      process.stdin.add(utf8.encode(text));
-      await process.stdin.close();
-    } on ProcessException {
-      return;
-    }
+    await runDetached('wl-copy', const <String>[], input: text);
   }
 
   void remove(String text) {

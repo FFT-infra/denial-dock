@@ -1,5 +1,6 @@
 import 'dart:io';
 
+import 'package:denial_shell_kit/detached_run.dart';
 import 'package:flutter/foundation.dart';
 
 /// Night light, done with the compositor's desktop LUT. A LUT the user had
@@ -23,8 +24,8 @@ abstract final class NightLight {
   static File get _previous => File('$_dir/denial_topbar-night.previous');
 
   static Future<String?> _currentLut() async {
-    final result = await Process.run('denialctl', const <String>['color']);
-    for (final line in '${result.stdout}'.split('\n')) {
+    final result = await runDetached('denialctl', const <String>['color']);
+    for (final line in result.stdout.split('\n')) {
       const prefix = 'desktop LUT:';
       if (!line.startsWith(prefix)) continue;
       final value = line.substring(prefix.length).trim();
@@ -34,7 +35,7 @@ abstract final class NightLight {
   }
 
   static Future<bool> _run(List<String> arguments) async =>
-      (await Process.run('denialctl', arguments)).exitCode == 0;
+      (await runDetached('denialctl', arguments)).exitCode == 0;
 
   static Future<void> sync() async {
     if (_synced) return;

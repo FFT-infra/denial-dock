@@ -1,6 +1,8 @@
 import 'dart:convert';
 import 'dart:io';
 
+import 'package:denial_shell_kit/detached_run.dart';
+
 /// Trash and folder-shortcut helpers. Denial exposes no trash or file-manager
 /// service to plugins, so the dock works with the freedesktop trash layout and
 /// hands paths to `xdg-open`.
@@ -235,16 +237,13 @@ abstract final class DockExtras {
   /// Shows [path] selected in the file manager, falling back to opening its
   /// folder. Returns false when nothing could be started.
   ///
-  /// The D-Bus call is waited on rather than detached: a file manager that is
+  /// The D-Bus call is waited on rather than fired off: a file manager that is
   /// not running leaves the name unowned, and only the exit status says so.
   static Future<bool> revealPath(String path) async {
     final command = revealCommand(path);
-    try {
-      final result = await Process.run(command.first, command.sublist(1));
-      if (result.exitCode == 0) return true;
-    } on ProcessException {
-      // dbus-send is missing; fall through to the folder.
-    }
+    final result = await runDetached(command.first, command.sublist(1));
+    // A missing dbus-send falls through to the folder as a refusal does.
+    if (result.exitCode == 0) return true;
     return openPath(File(path).parent.path);
   }
 
@@ -287,12 +286,7 @@ abstract final class DockExtras {
   /// `.trashinfo` sidecar that the dock's own trash count reads. Returns false
   /// when gio is missing or refuses the file.
   static Future<bool> trashPath(String path) async {
-    try {
-      final result = await Process.run('gio', ['trash', path]);
-      return result.exitCode == 0;
-    } on ProcessException {
-      return false;
-    }
+    return (await runDetached('gio', ['trash', path])).exitCode == 0;
   }
 
   /// Immediate subdirectories of [path], sorted, hidden entries included so

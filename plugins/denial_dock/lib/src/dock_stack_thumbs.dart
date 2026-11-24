@@ -2,6 +2,8 @@ import 'dart:async';
 import 'dart:io';
 import 'dart:typed_data';
 
+import 'package:denial_shell_kit/detached_run.dart';
+
 /// A thumbnail found for a file: where the image is and what version of the
 /// file it shows.
 class DockThumbnail {
@@ -261,7 +263,7 @@ abstract final class DockStackThumbs {
   static Future<bool> _runFfmpeg(String input, String output) async {
     final temporary = '$output.tmp.png';
     try {
-      final process = await Process.run('ffmpeg', [
+      final process = await runDetached('ffmpeg', [
         '-nostdin',
         '-loglevel',
         'error',
@@ -275,14 +277,12 @@ abstract final class DockStackThumbs {
         '-vf',
         'scale=256:-1',
         temporary,
-      ], runInShell: false);
+      ]);
       if (process.exitCode != 0) return false;
       final file = File(temporary);
       if (!file.existsSync() || file.lengthSync() == 0) return false;
       file.renameSync(output);
       return true;
-    } on ProcessException {
-      return false;
     } on FileSystemException {
       return false;
     }

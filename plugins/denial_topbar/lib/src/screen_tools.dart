@@ -1,5 +1,6 @@
-import 'dart:io';
 
+
+import 'package:denial_shell_kit/detached_run.dart';
 /// Screenshot and colour-pick helpers.
 ///
 /// Denial's own screenshot flow lives behind
@@ -19,11 +20,8 @@ abstract final class ScreenTools {
   }
 
   static Future<void> _run(String script) async {
-    try {
-      await Process.run('sh', <String>['-c', script]);
-    } on ProcessException {
-      // A host without grim/slurp simply gets no pick; the menu row stays
-      // available so a missing tool is not mistaken for a dead command.
-    }
+    // A host without grim/slurp simply gets no pick; the menu row stays
+    // available so a missing tool is not mistaken for a dead command.
+    await runDetached('sh', <String>['-c', script]);
   }
 }

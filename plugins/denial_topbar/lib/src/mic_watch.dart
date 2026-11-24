@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 
+import 'package:denial_shell_kit/detached_run.dart';
 import 'package:flutter/foundation.dart';
 
 import 'mic_users.dart';
@@ -33,16 +34,15 @@ class MicWatch extends ValueNotifier<List<String>> {
       ]);
       unawaited(process.stderr.drain<void>());
       unawaited(_refresh());
-      process.stdout
+      await process.stdout
           .transform(utf8.decoder)
           .transform(const LineSplitter())
           .where((line) => line.contains('source-output'))
-          .listen((_) {
+          .forEach((_) {
             _failures = 0;
             _debounce?.cancel();
             _debounce = Timer(const Duration(milliseconds: 250), _refresh);
           });
-      await process.exitCode;
     } on ProcessException {
       return;
     }
@@ -52,20 +52,16 @@ class MicWatch extends ValueNotifier<List<String>> {
   }
 
   Future<void> _refresh() async {
-    try {
-      final result = await Process.run('pactl', const <String>[
-        '-f',
-        'json',
-        'list',
-        'source-outputs',
-      ]);
-      final next = result.exitCode == 0
-          ? parseMicUsers('${result.stdout}')
-          : const <String>[];
-      if (!listEquals(next, value)) value = next;
-    } on ProcessException {
-      return;
-    }
+    final result = await runDetached('pactl', const <String>[
+      '-f',
+      'json',
+      'list',
+      'source-outputs',
+    ]);
+    final next = result.exitCode == 0
+        ? parseMicUsers(result.stdout)
+        : const <String>[];
+    if (!listEquals(next, value)) value = next;
   }
 }
 
