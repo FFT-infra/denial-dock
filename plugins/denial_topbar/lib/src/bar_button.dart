@@ -156,7 +156,7 @@ class _BarButtonState extends State<BarButton> {
       height: widget.height,
       child: Center(
         child: AnimatedContainer(
-          duration: KitMotion.duration(context, KitMotion.tap),
+          duration: KitMotion.duration(context, Motion.pill),
           curve: KitMotion.out,
           width: widget.width == null
               ? null
