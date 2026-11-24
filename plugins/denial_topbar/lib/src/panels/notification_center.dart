@@ -76,6 +76,7 @@ class _Column extends ConsumerStatefulWidget {
 
 class _ColumnState extends ConsumerState<_Column> {
   bool _editing = false;
+  bool _readScheduled = false;
 
   @override
   void initState() {
@@ -232,6 +233,15 @@ class _ColumnState extends ConsumerState<_Column> {
     final groups = notifications
         ? state.groups
         : const <DesktopNotificationGroup>[];
+    // Whatever is listed here has been seen, including what arrives while
+    // the column is open. The state may not change during a build.
+    if (notifications && state.unreadCount > 0 && !_readScheduled) {
+      _readScheduled = true;
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        _readScheduled = false;
+        if (mounted) controller.markAllRead();
+      });
+    }
     final width = math.min(notificationCenterWidth, scene.width - 20);
     final onLeft = side == PanelEdge.left;
     final theme = context.shellTheme;
