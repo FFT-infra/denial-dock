@@ -17,6 +17,7 @@ import '../bar_settings.dart';
 import '../bar_tokens.dart';
 import '../bar_type.dart';
 import 'package:denial_shell_kit/continuous_corners.dart';
+import 'package:denial_shell_kit/launcher_entry_bus.dart';
 import '../debug_remote.dart';
 import '../l10n.dart';
 import '../mic_watch.dart';
@@ -25,7 +26,6 @@ import 'island_cards.dart';
 import 'island_engine.dart';
 import 'island_parts.dart';
 import 'island_timer.dart';
-import 'launcher_progress.dart';
 
 /// How far below the bar the island may grow; the bar's surface reserves it.
 const double islandReach = 220;
@@ -147,9 +147,6 @@ class _IslandState extends ConsumerState<Island>
     barOpenPanel.addListener(_onPanel);
     _timerSeen = islandTimer.finishedAt;
     islandTimer.addListener(_onTimer);
-    launcherProgress
-      ..start()
-      ..addListener(_onSource);
     micWatch.addListener(_onMic);
     debugCommand.addListener(_debug);
     _outside = ref
@@ -163,7 +160,6 @@ class _IslandState extends ConsumerState<Island>
   void dispose() {
     barOpenPanel.removeListener(_onPanel);
     islandTimer.removeListener(_onTimer);
-    launcherProgress.removeListener(_onSource);
     micWatch.removeListener(_onMic);
     debugCommand.removeListener(_debug);
     _clock?.cancel();
@@ -183,10 +179,6 @@ class _IslandState extends ConsumerState<Island>
 
   void _onPanel() {
     if (barOpenPanel.value != null) _setOpen(false);
-  }
-
-  void _onSource() {
-    if (mounted) setState(() {});
   }
 
   void _debug() {
@@ -609,7 +601,7 @@ class _IslandState extends ConsumerState<Island>
       screenRecordingProvider.select((state) => state.recording),
     );
     _recordingSince = recording ? (_recordingSince ?? _now) : null;
-    final progress = launcherProgress.value;
+    final progress = _launcherProgress();
     _engine
       ..setLive(IslandKind.home, settings.islandHome)
       ..setMedia(settings.activityMedia && (playback?.playing ?? false))
@@ -923,6 +915,15 @@ class _IslandState extends ConsumerState<Island>
   bool _hasCover(IslandKind? kind) =>
       kind == IslandKind.media || kind == IslandKind.track;
 
+  /// Applications publishing a progress, by desktop id as they spell it.
+  Map<String, double> _launcherProgress() {
+    final bus = ref.read(launcherEntriesProvider.notifier);
+    return <String, double>{
+      for (final entry in ref.watch(launcherEntriesProvider).entries)
+        bus.desktopId(entry.key): ?entry.value.shownProgress,
+    };
+  }
+
   Widget _progressIcon(Map<String, double> progress) => progress.isEmpty
       ? const BarGlyph(BarIcons.arrowDown, size: 12, color: _I.ink)
       : _services.buildApplicationIcon(context, progress.keys.first);
@@ -1077,7 +1078,7 @@ class _IslandState extends ConsumerState<Island>
           ),
         );
       case IslandKind.progress:
-        final progress = launcherProgress.value;
+        final progress = _launcherProgress();
         return Padding(
           padding: const EdgeInsets.symmetric(horizontal: 9),
           child: Row(

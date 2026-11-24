@@ -1,6 +1,6 @@
 import 'dart:io';
 
-import 'package:denial_dock/src/dock_launcher_entry.dart';
+import 'package:denial_shell_kit/launcher_entry.dart';
 
 void main() {
   // The URI names a desktop file; the scheme, case and suffix all go.
@@ -95,7 +95,19 @@ void main() {
   _expect(entries.entry('chrome') == null && entries.isEmpty, 'all gone');
   _expect(entries.active.isEmpty, 'nothing active');
 
-  stdout.writeln('All dock launcher entry tests passed.');
+  // The sender's own spelling is kept for exact lookups.
+  entries.update(':1.30', 'application://org.gnome.Nautilus.desktop', {
+    'progress-visible': true,
+  });
+  _expect(
+    entries.active.keys.single == 'org.gnome.nautilus' &&
+        entries.spelling('org.gnome.nautilus') == 'org.gnome.Nautilus',
+    'spelling',
+  );
+  entries.removeSender(':1.30');
+  _expect(entries.spelling('org.gnome.nautilus') == 'org.gnome.nautilus', 'forgotten');
+
+  stdout.writeln('All launcher entry tests passed.');
 }
 
 void _expect(bool condition, String message) {

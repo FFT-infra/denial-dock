@@ -2,7 +2,6 @@ import 'dart:io';
 
 import 'package:denial_topbar/src/clipboard_history.dart';
 import 'package:denial_topbar/src/island/island_timer.dart';
-import 'package:denial_topbar/src/island/launcher_entry.dart';
 import 'package:denial_topbar/src/mic_users.dart';
 import 'package:denial_topbar/src/tray_address.dart';
 
@@ -23,33 +22,6 @@ void main() {
   _expect(clipboardPreview(' x\n  y ') == 'x y', 'a preview is one line');
 
   final t0 = DateTime(2026);
-  final entries = LauncherEntries();
-  _expect(
-    LauncherEntries.appId('application://org.gnome.Nautilus.desktop') ==
-        'org.gnome.Nautilus',
-    'the desktop id comes out of the uri',
-  );
-  entries.update('application://a.desktop', {'progress': 0.4}, t0);
-  _expect(entries.progress.isEmpty, 'a progress nobody shows is not listed');
-  entries.update('application://a.desktop', {'progress-visible': true}, t0);
-  _expect(entries.progress['a'] == 0.4, 'a later flag keeps the value');
-  entries.update('application://a.desktop', {'progress': 7}, t0);
-  _expect(entries.progress['a'] == 1.0, 'values are clamped');
-  entries.update('nonsense', {'progress-visible': true}, t0);
-  entries.update('application://b.desktop', {
-    'progress-visible': true,
-    'progress': 'half',
-    'count': 3,
-  }, t0.add(const Duration(seconds: 50)));
-  _expect(entries.progress.length == 2, 'malformed senders are ignored');
-  _expect(entries.progress['b'] == 0, 'and so are malformed values');
-  entries.dropOlderThan(t0.add(const Duration(seconds: 10)));
-  _expect(entries.progress.keys.single == 'b', 'silent entries are dropped');
-  entries.update('application://b.desktop', {
-    'progress-visible': false,
-  }, t0.add(const Duration(seconds: 60)));
-  _expect(entries.progress.isEmpty, 'hiding the progress ends it');
-
   _expect(clockSpan(const Duration(seconds: 65)) == '1:05', 'minutes');
   _expect(clockSpan(const Duration(milliseconds: 400)) == '0:01', 'rounds up');
   _expect(clockSpan(const Duration(seconds: 3725)) == '1:02:05', 'hours');

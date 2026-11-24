@@ -92,6 +92,9 @@ class LauncherEntries {
   /// application → senders, the most recent last.
   final Map<String, List<String>> _order = {};
 
+  /// application → the desktop id as its sender last spelled it.
+  final Map<String, String> _spelling = {};
+
   /// The application an `application://foo.desktop` URI names: lower case,
   /// without the scheme or the `.desktop` suffix. Null when nothing is left.
   static String? applicationId(String uri) {
@@ -104,6 +107,21 @@ class LauncherEntries {
     }
     return text.isEmpty ? null : text;
   }
+
+  /// The desktop id an `application://Foo.desktop` URI names, case kept, for
+  /// looking the application up where ids are compared exactly.
+  static String? desktopId(String uri) {
+    var text = uri.trim();
+    final scheme = RegExp(r'^\w+://').firstMatch(text);
+    if (scheme != null) text = text.substring(scheme.end);
+    if (text.toLowerCase().endsWith('.desktop')) {
+      text = text.substring(0, text.length - '.desktop'.length);
+    }
+    return text.isEmpty ? null : text;
+  }
+
+  /// The desktop id for [id] as its sender spelled it, or [id] itself.
+  String spelling(String id) => _spelling[id] ?? id;
 
   /// Applies one `Update` signal. Returns the application whose entry
   /// changed, or null when the signal changed nothing that is shown.
@@ -118,6 +136,7 @@ class LauncherEntries {
     order
       ..remove(sender)
       ..add(sender);
+    _spelling[id] = desktopId(uri) ?? id;
     return entry(id) == before ? null : id;
   }
 
@@ -132,7 +151,10 @@ class LauncherEntries {
       final order = _order[id];
       final wasTop = order != null && order.isNotEmpty && order.last == sender;
       order?.remove(sender);
-      if (order != null && order.isEmpty) _order.remove(id);
+      if (order != null && order.isEmpty) {
+        _order.remove(id);
+        _spelling.remove(id);
+      }
       if (wasTop && entry(id) != before) changed.add(id);
     }
     return changed;

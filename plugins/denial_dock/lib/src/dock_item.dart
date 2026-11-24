@@ -17,7 +17,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/scheduler.dart';
 import 'package:flutter/services.dart';
 
-import 'dock_card.dart';
+import 'package:denial_shell_kit/glass_card.dart';
 import 'dock_click.dart';
 import 'dock_debug.dart';
 import 'dock_desktop_actions.dart';
@@ -1568,7 +1568,7 @@ class _DockItemWidgetState extends State<DockItemWidget>
               child: MouseRegion(
                 onEnter: (_) => _setPreviewsHovered(true),
                 onExit: (_) => _setPreviewsHovered(false),
-                child: DockCard(
+                child: GlassCard(
                   radius: 16,
                   blurStrength: 0.65,
                   child: Padding(
@@ -1762,7 +1762,7 @@ class _DockItemWidgetState extends State<DockItemWidget>
               child: MouseRegion(
                 onEnter: (_) => _setPreviewsHovered(true),
                 onExit: (_) => _setPreviewsHovered(false),
-                child: DockCard(
+                child: GlassCard(
                   radius: 16,
                   blurStrength: 0.65,
                   child: Padding(

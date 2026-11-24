@@ -1,6 +1,4 @@
-import 'dart:async';
-import 'dart:io';
-
+import 'package:denial_shell_kit/debug_file.dart';
 import 'package:flutter/foundation.dart';
 
 /// Lets a developer drive the bar without a pointer: when the file
@@ -14,23 +12,10 @@ bool _started = false;
 void startDebugRemote() {
   if (_started) return;
   _started = true;
-  final home = Platform.environment['HOME'];
-  if (home == null) return;
-  final file = File('$home/.config/denial/plugins/denial_topbar.debug');
-  if (!file.existsSync()) return;
   var count = 0;
-  Timer? settle;
-  file.parent.watch().where((event) => event.path == file.path).listen((_) {
-    settle?.cancel();
-    settle = Timer(const Duration(milliseconds: 60), () {
-      try {
-        final text = file.readAsStringSync().trim();
-        if (text.isNotEmpty) debugCommand.value = '$text #${count++}';
-      } on FileSystemException {
-        return;
-      }
-    });
-  }, onError: (_) {});
+  debugFileCommands('denial_topbar').listen((words) {
+    debugCommand.value = '${words.join(' ')} #${count++}';
+  });
 }
 
 /// The command without its sequence number, split into words.

@@ -1,7 +1,6 @@
 import 'dart:async';
 import 'dart:math' as math;
 
-import 'package:denial_flutter_sdk/effects.dart';
 import 'package:denial_flutter_sdk/input.dart';
 import 'package:denial_flutter_sdk/panels.dart';
 import 'package:denial_flutter_sdk/popups.dart';
@@ -13,7 +12,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import 'bar_button.dart';
 import 'bar_tokens.dart';
-import 'package:denial_shell_kit/continuous_corners.dart';
+import 'package:denial_shell_kit/glass_card.dart';
 
 const String barPanelKey = 'denial_topbar.panel';
 const String barDialogKey = 'denial_topbar.dialog';
@@ -359,44 +358,13 @@ class BarCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final theme = context.shellTheme;
     final layer = context.dependOnInheritedWidgetOfExactType<BarLayer>();
-    final fade = layer?.animation.drive(CurveTween(curve: Curves.easeOut));
-    final Widget shadow = DecoratedBox(
-      decoration: ShapeDecoration(
-        shape: ContinuousCorners(radius: radius),
-        shadows: <BoxShadow>[
-          BoxShadow(
-            color: theme.colors.shadow.withValues(alpha: 0.30),
-            blurRadius: 36 * elevation,
-            offset: Offset(0, 14 * elevation),
-          ),
-        ],
-      ),
-    );
-    return Stack(
-      fit: StackFit.passthrough,
-      children: <Widget>[
-        Positioned.fill(
-          child: fade == null
-              ? shadow
-              : FadeTransition(opacity: fade, child: shadow),
-        ),
-        ClipPath(
-          clipper: ContinuousCornersClipper(radius: radius),
-          child: ShellBackdropBlur(
-            opacity: fade,
-            child: CustomPaint(
-              painter: _ContinuousCardPainter(
-                radius: radius,
-                fill: fill ?? theme.panelColor(theme.colors.panelBackground),
-                hairline: theme.colors.hairline,
-              ),
-              child: child,
-            ),
-          ),
-        ),
-      ],
+    return GlassCard(
+      radius: radius,
+      fill: fill,
+      elevation: elevation,
+      fade: layer?.animation.drive(CurveTween(curve: Curves.easeOut)),
+      child: child,
     );
   }
 }
@@ -629,36 +597,4 @@ class BarPanelFrame extends StatelessWidget {
       ],
     );
   }
-}
-
-class _ContinuousCardPainter extends CustomPainter {
-  const _ContinuousCardPainter({
-    required this.radius,
-    required this.fill,
-    required this.hairline,
-  });
-
-  final double radius;
-  final Color fill;
-  final Color hairline;
-
-  @override
-  void paint(Canvas canvas, Size size) {
-    final rect = Offset.zero & size;
-    canvas.drawPath(
-      continuousRoundedRectPath(rect, radius),
-      Paint()..color = fill,
-    );
-    canvas.drawPath(
-      continuousRoundedRectPath(rect.deflate(0.5), radius - 0.5),
-      Paint()
-        ..style = PaintingStyle.stroke
-        ..strokeWidth = 1
-        ..color = hairline,
-    );
-  }
-
-  @override
-  bool shouldRepaint(_ContinuousCardPainter old) =>
-      old.radius != radius || old.fill != fill || old.hairline != hairline;
 }

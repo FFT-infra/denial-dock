@@ -11,7 +11,7 @@ import 'dock_extras.dart';
 import 'dock_preferences.dart';
 import 'dock_stack_files.dart' show DockStackFiles;
 import 'dock_stack_view.dart' show stackFileColor, stackFileIcon;
-import 'dock_card.dart';
+import 'package:denial_shell_kit/glass_card.dart';
 
 const double _rowHeight = 48;
 const double _cardRadius = 12;
@@ -116,7 +116,7 @@ class _DockSettingsPanelState extends ConsumerState<DockSettingsPanel> {
   Widget _buildShell(BuildContext context, DockSettings settings) {
     final theme = context.shellTheme;
     final browsing = _browsePath != null;
-    return DockCard(
+    return GlassCard(
       radius: _sheetRadius,
       minOpacity: 0.9,
       child: Column(

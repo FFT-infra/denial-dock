@@ -4,27 +4,36 @@ import 'package:denial_flutter_sdk/effects.dart';
 import 'package:denial_flutter_sdk/theme.dart';
 import 'package:flutter/widgets.dart';
 
-import 'dock_corners.dart';
+import 'continuous_corners.dart';
 
-/// The card every dock popup draws on, matching the top bar's: continuous
+/// The card every popup of the dock and the top bar draws on: continuous
 /// corners, backdrop blur, a hairline and one soft shadow.
-class DockCard extends StatelessWidget {
-  const DockCard({
+class GlassCard extends StatelessWidget {
+  const GlassCard({
     required this.radius,
     required this.child,
+    this.fill,
     this.elevation = 1,
     this.minOpacity = 0,
     this.blurStrength = 1,
+    this.fade,
     super.key,
   });
 
   final double radius;
+
+  /// The panel colour unless given.
+  final Color? fill;
   final double elevation;
 
   /// Floor for the fill's opacity. A window of settings sits over other
   /// windows and needs more than a menu does to keep its text readable.
   final double minOpacity;
   final double blurStrength;
+
+  /// Fades the shadow, the backdrop and the content together, for a card
+  /// that appears with its layer.
+  final Animation<double>? fade;
   final Widget child;
 
   static Color fillOf(ShellThemeData theme, {double minOpacity = 0}) {
@@ -35,36 +44,43 @@ class DockCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final theme = context.shellTheme;
+    final fade = this.fade;
+    final fill = this.fill ?? fillOf(theme, minOpacity: minOpacity);
+    final Widget shadow = DecoratedBox(
+      decoration: ShapeDecoration(
+        shape: ContinuousCorners(radius: radius),
+        shadows: [
+          BoxShadow(
+            color: theme.colors.shadow.withValues(alpha: 0.30),
+            blurRadius: 36 * elevation,
+            offset: Offset(0, 14 * elevation),
+          ),
+        ],
+      ),
+    );
     return Stack(
       fit: StackFit.passthrough,
       children: [
         Positioned.fill(
           child: IgnorePointer(
-            child: DecoratedBox(
-              decoration: ShapeDecoration(
-                shape: ContinuousCorners(radius: radius),
-                shadows: [
-                  BoxShadow(
-                    color: theme.colors.shadow.withValues(alpha: 0.30),
-                    blurRadius: 36 * elevation,
-                    offset: Offset(0, 14 * elevation),
-                  ),
-                ],
-              ),
-            ),
+            child: fade == null
+                ? shadow
+                : FadeTransition(opacity: fade, child: shadow),
           ),
         ),
         ClipPath(
           clipper: ContinuousCornersClipper(radius: radius),
           child: ShellBackdropBlur(
-            blur: theme.effectivePanelOpacity < 1,
+            blur: fill.a < 1,
             strength: blurStrength,
-            separateChild: true,
+            // A fading backdrop carries its content through the fade.
+            separateChild: fade == null,
             borderRadius: BorderRadius.circular(radius),
+            opacity: fade,
             child: CustomPaint(
               painter: _CardPainter(
                 radius: radius,
-                fill: fillOf(theme, minOpacity: minOpacity),
+                fill: fill,
                 hairline: theme.colors.hairline,
               ),
               child: child,

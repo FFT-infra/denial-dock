@@ -3,7 +3,7 @@ import 'dart:async';
 import 'package:dbus/dbus.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
-import 'dock_launcher_entry.dart';
+import 'launcher_entry.dart';
 
 /// What applications publish through the Unity launcher API, keyed by
 /// application id as [LauncherEntries.applicationId] spells it. Only entries
@@ -57,6 +57,9 @@ class LauncherEntryBus extends Notifier<Map<String, LauncherEntry>> {
     }
     if (_disposed) _close();
   }
+
+  /// The desktop id for [id] as its sender spelled it.
+  String desktopId(String id) => _entries.spelling(id);
 
   void _onUpdate(DBusSignal signal) {
     final sender = signal.sender;

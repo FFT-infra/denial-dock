@@ -6,7 +6,7 @@ import 'package:denial_flutter_sdk/theme.dart';
 import 'package:flutter/material.dart';
 
 import 'dock_settings.dart' show DockPosition;
-import 'dock_card.dart';
+import 'package:denial_shell_kit/glass_card.dart';
 
 /// Which side of a menu panel carries the pointer tail, mirroring the dock's
 /// edge. Menus open away from the screen edge, so the tail points back at it.
@@ -183,11 +183,11 @@ class DockMenuPanel extends StatelessWidget {
     // The outline is stroked over the panel and its tail as one shape, so the
     // hairline never crosses the tail's base the way a bottom border did.
     final outlined = tail != DockMenuTail.none;
-    final fill = DockCard.fillOf(theme);
+    final fill = GlassCard.fillOf(theme);
     // A tail has to be stroked as one outline with its panel, so only a
     // tail-less panel takes the card's continuous corners and shadow.
     final panel = !outlined
-        ? DockCard(radius: radius.topLeft.x, child: child)
+        ? GlassCard(radius: radius.topLeft.x, child: child)
         : ShellBackdropBlur(
             blur: theme.effectivePanelOpacity < 1,
             separateChild: true,

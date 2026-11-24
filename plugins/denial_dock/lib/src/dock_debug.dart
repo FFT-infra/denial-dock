@@ -1,5 +1,4 @@
-import 'dart:async';
-import 'dart:io';
+import 'package:denial_shell_kit/debug_file.dart';
 
 /// Lets a developer drive the dock without a pointer. When the file
 /// `denial_dock.debug` exists beside the preferences at start, each write to
@@ -14,34 +13,6 @@ import 'dart:io';
 ///
 /// Without the file nothing is watched.
 abstract final class DockDebug {
-  static final StreamController<List<String>> _controller =
-      StreamController<List<String>>.broadcast();
-  static bool _started = false;
-
-  static Stream<List<String>> get commands {
-    _start();
-    return _controller.stream;
-  }
-
-  static void _start() {
-    if (_started) return;
-    _started = true;
-    final home = Platform.environment['HOME'];
-    if (home == null) return;
-    final file = File('$home/.config/denial/plugins/denial_dock.debug');
-    if (!file.existsSync()) return;
-    Timer? settle;
-    file.parent.watch().where((event) => event.path == file.path).listen((_) {
-      settle?.cancel();
-      settle = Timer(const Duration(milliseconds: 60), () {
-        try {
-          final words = file.readAsStringSync().trim().split(RegExp(r'\s+'))
-            ..removeWhere((word) => word.isEmpty);
-          if (words.isNotEmpty) _controller.add(words);
-        } on FileSystemException {
-          return;
-        }
-      });
-    }, onError: (Object _) {});
-  }
+  static Stream<List<String>> get commands =>
+      debugFileCommands('denial_dock');
 }
