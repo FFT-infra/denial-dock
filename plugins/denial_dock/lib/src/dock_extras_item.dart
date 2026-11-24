@@ -1130,12 +1130,11 @@ class _DockFolderItemState extends State<DockFolderItem> {
                           ),
                       ]
                     : const <DockStackPreview>[];
-                // While the stack is out, the icon says so: the pile dims
-                // under a plate with a chevron pointing at the rows.
+                // While the stack is out its cards are in the rows, so the
+                // icon is a plate with a chevron pointing at them.
                 if (_fanOpen) {
                   return DockStackOpenIcon(
                     size: widget.size,
-                    previews: previews,
                     quarterTurns: switch (widget.position) {
                       DockPosition.bottom => 0,
                       DockPosition.left => 3,

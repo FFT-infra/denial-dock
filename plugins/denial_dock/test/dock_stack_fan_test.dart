@@ -20,13 +20,15 @@ void main() {
   final lastGap = rows[3].right - rows[2].right;
   _expect(lastGap > firstGap, 'the drift widens with the slot');
 
-  // Every row's icon sits on the right edge, so the icon column traces the arc.
+  // Every row's card sits on the right edge, so the card column traces the
+  // arc, and the column starts straight above the anchor.
   for (final row in rows) {
     _expect(
-      (row.iconX - (row.right - DockStackFan.iconSize / 2)).abs() < 0.01,
-      'row ${row.index} right-aligns its icon',
+      (row.iconX - (row.right - DockStackFan.thumbSize / 2)).abs() < 0.01,
+      'row ${row.index} right-aligns its card',
     );
   }
+  _expect(rows[0].iconX == 500, 'the first card is centred on the anchor');
 
   // A macOS stack turns its rows with the arc. A right lean lifts the end
   // nearest the previews, so the row turns counter-clockwise: the first row
@@ -94,10 +96,12 @@ void main() {
     'a left lean drifts the other way',
   );
   _expect(mirrored[2].angle < 0, 'a left lean tilts the other way');
+  _expect(mirrored[0].iconX == 500, 'a left lean starts above the anchor too');
   _expect(
-    (mirrored[1].left - (500 - DockStackFan.shift - DockStackFan.padX)).abs() <
+    (mirrored[1].left - (500 - DockStackFan.shift - DockStackFan.thumbSize / 2))
+            .abs() <
         0.01,
-    'the left lean keeps the row edge on the anchor',
+    'the left lean keeps the card column on the anchor',
   );
 
   // The bounds cover the turned rows, which reach past their unrotated boxes.

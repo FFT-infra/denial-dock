@@ -25,7 +25,8 @@ class DockFanRow {
   /// Clockwise tilt in radians, one step per row.
   final double angle;
 
-  /// Where the row's icon sits, which is the pivot the rows fan out from.
+  /// Centre of the row's preview card, which is the column the rows fan out
+  /// from.
   final double iconX;
   final double iconY;
 
@@ -84,9 +85,6 @@ abstract final class DockStackFan {
 
   /// Row corner radius.
   static const double radius = 10;
-
-  /// Icon edge inside a row.
-  static const double iconSize = 40;
 
   /// The preview card beside a label. A macOS stack draws it as its own
   /// rounded card, not as an icon inside the label pill.
@@ -161,17 +159,17 @@ abstract final class DockStackFan {
     final rows = <DockFanRow>[];
     final step = rowStep * scale;
     final height = rowHeight * scale;
-    final icon = iconSize * scale;
-    final pad = padX * scale;
+    final half = thumbSize * scale / 2;
     for (var i = 0; i < widths.length; i++) {
       final rowWidth = widths[i];
       final drift =
           math.min(shiftMax, shift * math.pow(i, shiftPower)) * scale * sign;
       final centreY = bottom - step * (i + 1) + height / 2;
-      // The row's edge nearest the icon column sits on the anchor plus the
-      // drift, so the icon column traces the arc and the labels rag out to the
-      // far side, which is the shape the reference draws.
-      final edge = anchorX + drift + pad * sign;
+      // The preview card is centred on the anchor plus the drift, so the
+      // column starts straight above the dock icon and traces the arc from
+      // there, the labels ragging out to the far side.
+      final column = anchorX + drift;
+      final edge = column + half * sign;
       final leading = sign < 0;
       rows.add(
         DockFanRow(
@@ -184,7 +182,7 @@ abstract final class DockStackFan {
           // the reference's plates hang off the column: a right lean turns
           // clockwise.
           angle: tilt * i * sign * math.pi / 180,
-          iconX: leading ? edge + icon / 2 : edge - icon / 2,
+          iconX: column,
           iconY: centreY,
         ),
       );
@@ -206,8 +204,7 @@ abstract final class DockStackFan {
   }) {
     final step = rowStep * scale;
     final height = rowHeight * scale;
-    final icon = iconSize * scale;
-    final pad = padX * scale;
+    final half = thumbSize * scale / 2;
     final total = step * widths.length;
     final first = anchorY - total / 2 + (step - height) / 2;
     final rows = <DockFanRow>[];
@@ -222,9 +219,9 @@ abstract final class DockStackFan {
           width: rowWidth,
           height: height,
           angle: 0,
-          // The icon sits on the edge nearest the dock, so the labels always
+          // The card sits on the edge nearest the dock, so the labels always
           // read away from it.
-          iconX: toRight ? edgeX + pad + icon / 2 : edgeX - pad - icon / 2,
+          iconX: toRight ? edgeX + half : edgeX - half,
           iconY: top + height / 2,
         ),
       );
