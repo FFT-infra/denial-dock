@@ -36,7 +36,7 @@ class ClipboardWatch extends ValueNotifier<List<String>> {
       return;
     }
     try {
-      final process = await startTethered('clipboard', const <String>[
+      final process = await startTethered(const <String>[
         'wl-paste',
         '--watch',
         'sh',

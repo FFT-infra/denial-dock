@@ -25,7 +25,7 @@ class MicWatch extends ValueNotifier<List<String>> {
   Future<void> _subscribe() async {
     try {
       // The event names are translated; match them in the C locale.
-      final process = await startTethered('mic', const <String>[
+      final process = await startTethered(const <String>[
         'env',
         'LC_ALL=C',
         'pactl',
