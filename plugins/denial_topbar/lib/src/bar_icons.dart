@@ -16,18 +16,8 @@ abstract final class BarIcons {
     fontFamily: _family,
     fontPackage: _package,
   );
-  static const IconData battery25 = IconData(
-    0xf115,
-    fontFamily: _family,
-    fontPackage: _package,
-  );
   static const IconData batteryEmpty = IconData(
     0xf112,
-    fontFamily: _family,
-    fontPackage: _package,
-  );
-  static const IconData batteryCharging = IconData(
-    0xf111,
     fontFamily: _family,
     fontPackage: _package,
   );

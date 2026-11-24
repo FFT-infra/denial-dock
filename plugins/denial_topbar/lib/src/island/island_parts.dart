@@ -204,6 +204,9 @@ class _BatteryPainter extends CustomPainter {
 
   @override
   void paint(Canvas canvas, Size size) {
+    // The bolt is cut out of the charge with dstOut, which would otherwise
+    // eat into whatever the battery is drawn over.
+    if (charging) canvas.saveLayer(Offset.zero & size, Paint());
     final cap = size.width * 0.07;
     final body = Rect.fromLTWH(
       0.5,
@@ -264,6 +267,7 @@ class _BatteryPainter extends CustomPainter {
         ..blendMode = BlendMode.dstOut,
     );
     canvas.drawPath(bolt, Paint()..color = colour);
+    canvas.restore();
   }
 
   @override

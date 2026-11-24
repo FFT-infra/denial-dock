@@ -2,7 +2,6 @@ import 'dart:async';
 
 import 'package:denial_flutter_sdk/services.dart';
 import 'package:denial_flutter_sdk/state.dart';
-import 'package:denial_sdk/system.dart' show BatteryStatus;
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
@@ -12,6 +11,7 @@ import 'bar_icons.dart';
 import 'bar_settings.dart';
 import 'bar_tokens.dart';
 import 'bar_type.dart';
+import 'island/island_parts.dart' show BatteryGlyph;
 import 'l10n.dart';
 import 'clipboard_watch.dart';
 import 'mic_watch.dart';
@@ -280,10 +280,10 @@ class BarStatusCluster extends ConsumerWidget {
                     style: BarType.batteryPercent.copyWith(color: ink),
                   ),
                 ),
-              BarGlyph(
-                batteryIconFor(battery, plugged: plugged),
-                size: 22,
-                color: ink,
+              BatteryGlyph(
+                level: (battery.capacity ?? 0) / 100,
+                colour: ink,
+                charging: battery.charging || plugged,
               ),
             ],
           ),
@@ -490,16 +490,6 @@ List<double> _templateMatrix(Color ink) {
   ];
 }
 
-/// NextKDE `Battery.qml` picks a level icon and overlays the bolt while
-/// charging; the thresholds follow the vendored icon set (full, 75, 25, empty).
-IconData batteryIconFor(BatteryStatus battery, {bool plugged = false}) {
-  if (battery.charging || plugged) return BarIcons.batteryCharging;
-  final capacity = battery.capacity ?? 0;
-  if (capacity >= 88) return BarIcons.batteryFull;
-  if (capacity >= 50) return BarIcons.battery75;
-  if (capacity >= 13) return BarIcons.battery25;
-  return BarIcons.batteryEmpty;
-}
 
 /// Folds the tray behind a chevron: one press slides the icons out, another
 /// (or the timer) slides them back.
