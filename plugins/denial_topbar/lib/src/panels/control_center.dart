@@ -109,7 +109,7 @@ class _ControlCenterPanelState extends ConsumerState<ControlCenterPanel> {
     return SizedBox(
       width: controlCenterWidth,
       child: AnimatedSize(
-        duration: KitMotion.duration(context, KitMotion.travel),
+        duration: KitMotion.loop(context, KitMotion.travel),
         curve: KitMotion.outCubic,
         alignment: Alignment.topCenter,
         child: AnimatedSwitcher(

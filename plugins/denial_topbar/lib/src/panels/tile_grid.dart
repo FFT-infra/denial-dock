@@ -253,7 +253,7 @@ class _TileGridState extends State<TileGrid>
 
     final dragIndex = tiles.indexWhere((t) => t.id == _dragId);
     return AnimatedSize(
-      duration: KitMotion.duration(context, KitMotion.travel),
+      duration: KitMotion.loop(context, KitMotion.travel),
       curve: KitMotion.outCubic,
       alignment: Alignment.topCenter,
       child: SizedBox(

@@ -433,7 +433,7 @@ class _GroupStackState extends State<_GroupStack> {
     final newest = group.newest.notification;
 
     return AnimatedSize(
-      duration: KitMotion.duration(context, KitMotion.unfold),
+      duration: KitMotion.loop(context, KitMotion.unfold),
       curve: KitMotion.spring,
       alignment: Alignment.topCenter,
       child: Column(

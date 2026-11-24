@@ -11,7 +11,7 @@ export 'kit_motion_pace.dart';
 /// Every name here is the value at normal speed with reduced motion off;
 /// [duration] applies the user's speed, and reduced motion zeroes a
 /// transition. A loop keeps its length under reduced motion, because a still
-/// frame is not the same as a zero-length repeat.
+/// frame is not the same as a zero-length repeat; [loop] is for those.
 abstract final class KitMotion {
   // ── Curves ───────────────────────────────────────────────────────────────
   /// The default for something that moves: quick away, soft into place.
@@ -135,7 +135,9 @@ abstract final class KitMotion {
   static Duration duration(BuildContext context, Duration nominal) =>
       pace(context).duration(nominal);
 
-  /// [nominal] with only the speed applied, for a repeating animation.
+  /// [nominal] with only the speed applied: for a repeating animation, and
+  /// for an AnimatedSize, which re-dirties itself during layout when its
+  /// duration is zero and so keeps its length under reduced motion, as before.
   static Duration loop(BuildContext context, Duration nominal) =>
       pace(context).scaled(nominal);
 }
