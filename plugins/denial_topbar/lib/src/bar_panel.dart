@@ -14,6 +14,7 @@ import 'bar_button.dart';
 import 'bar_tokens.dart';
 
 import 'package:denial_shell_kit/glass_card.dart';
+import 'package:denial_shell_kit/kit_motion.dart';
 import 'package:denial_shell_kit/kit_springs.dart';
 import 'package:denial_shell_kit/kit_style.dart';
 
@@ -54,12 +55,6 @@ class BarLayer extends InheritedWidget {
       animation != oldWidget.animation;
 }
 
-bool get _reduceMotion => WidgetsBinding
-    .instance
-    .platformDispatcher
-    .accessibilityFeatures
-    .disableAnimations;
-
 /// Shows [builder] on its own full-scene layer. The layer runs its own enter
 /// and exit animation, so the host's fade is switched off.
 void showBarLayer({
@@ -67,8 +62,8 @@ void showBarLayer({
   required String keyName,
   required Widget Function(BuildContext context, VoidCallback close) builder,
   String? panelId,
-  Duration open = const Duration(milliseconds: 320),
-  Duration close = const Duration(milliseconds: 170),
+  Duration open = KitMotion.travel,
+  Duration close = KitMotion.layerExit,
   bool dismissOnOutsideTap = true,
   bool passthrough = false,
   Color? scrim,
@@ -137,10 +132,14 @@ class _BarLayerHost extends StatefulWidget {
 
 class _BarLayerState extends State<_BarLayerHost>
     with SingleTickerProviderStateMixin {
+  // The first values apply to the forward() below, before any build. The
+  // build method refreshes them from the pace, and the speed setting rebuilds
+  // the tree, so a later forward or reverse uses the new multiplier without
+  // this state being recreated.
   late final AnimationController _controller = AnimationController(
     vsync: this,
-    duration: _reduceMotion ? Duration.zero : widget.open,
-    reverseDuration: _reduceMotion ? Duration.zero : widget.close,
+    duration: KitMotion.now.duration(widget.open),
+    reverseDuration: KitMotion.now.duration(widget.close),
   );
   bool _closing = false;
   StreamSubscription<Object?>? _outsideSub;
@@ -194,6 +193,10 @@ class _BarLayerState extends State<_BarLayerHost>
 
   @override
   Widget build(BuildContext context) {
+    final pace = KitMotion.pace(context);
+    _controller
+      ..duration = pace.duration(widget.open)
+      ..reverseDuration = pace.duration(widget.close);
     if (widget.outside != null) {
       return BarLayer(
         animation: _controller,
@@ -265,8 +268,8 @@ void showBarPanel({
     ref: ref,
     keyName: barPanelKey,
     panelId: panelId,
-    open: Duration(milliseconds: menu ? 90 : 200),
-    close: Duration(milliseconds: menu ? 140 : 160),
+    open: menu ? KitMotion.tap : KitMotion.enter,
+    close: menu ? KitMotion.ease : KitMotion.fill,
     builder: (context, close) => BarPanelFrame(
       anchor: rect,
       side: side,
@@ -296,8 +299,8 @@ void showBarDialog({
   showBarLayer(
     ref: ref,
     keyName: keyName,
-    open: const Duration(milliseconds: 240),
-    close: const Duration(milliseconds: 160),
+    open: KitMotion.enterLarge,
+    close: KitMotion.fill,
     dismissOnOutsideTap: dismissOnOutsideTap,
     builder: (context, close) =>
         BarWindow(width: width, child: builder(context, close)),
@@ -356,7 +359,7 @@ class _BarSwellState extends State<BarSwell>
     _grow
       ..tune(open ? style.panelGrow : style.panelShrink)
       ..target = open ? 1 : 0;
-    _springs.kick(reduceMotion: _reduceMotion);
+    _springs.kick(reduceMotion: KitMotion.reduced(context));
   }
 
   @override
@@ -415,7 +418,7 @@ class BarCard extends StatelessWidget {
       grouped: together,
       fade: together
           ? null
-          : layer?.animation.drive(CurveTween(curve: Curves.easeOut)),
+          : layer?.animation.drive(CurveTween(curve: KitMotion.out)),
       child: child,
     );
   }

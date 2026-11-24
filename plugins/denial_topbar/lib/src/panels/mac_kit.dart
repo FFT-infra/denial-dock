@@ -1,4 +1,5 @@
 import 'package:denial_flutter_sdk/theme.dart';
+import 'package:denial_shell_kit/kit_motion.dart';
 import 'package:denial_shell_kit/kit_springs.dart';
 import 'package:denial_shell_kit/kit_style.dart';
 import 'package:flutter/widgets.dart';
@@ -321,7 +322,7 @@ class MacRow extends StatelessWidget {
       scale: 0.985,
       child: const SizedBox.shrink(),
       builder: (context, hovered, pressed) => AnimatedContainer(
-        duration: const Duration(milliseconds: 110),
+        duration: KitMotion.duration(context, KitMotion.wash),
         height: height,
         padding: const EdgeInsets.symmetric(horizontal: 8),
         decoration: BoxDecoration(
@@ -494,11 +495,17 @@ class _MacSliderState extends State<MacSlider> {
                       Positioned(
                         left: centre - knob / 2,
                         child: AnimatedScale(
-                          duration: Duration(milliseconds: _held ? 140 : 320),
-                          curve: _held ? Curves.easeOut : Curves.easeOutBack,
+                          duration: KitMotion.duration(
+                            context,
+                            _held ? KitMotion.ease : KitMotion.travel,
+                          ),
+                          curve: _held ? KitMotion.out : KitMotion.outBack,
                           scale: _held ? 1.3 : 1,
                           child: AnimatedContainer(
-                            duration: const Duration(milliseconds: 160),
+                            duration: KitMotion.duration(
+                              context,
+                              KitMotion.fill,
+                            ),
                             width: knob,
                             height: h,
                             decoration: BoxDecoration(
@@ -548,12 +555,12 @@ class Reveal extends StatelessWidget {
   Widget build(BuildContext context) {
     return ClipRect(
       child: AnimatedAlign(
-        duration: const Duration(milliseconds: 300),
-        curve: Curves.easeOutCubic,
+        duration: KitMotion.duration(context, KitMotion.reveal),
+        curve: KitMotion.outCubic,
         alignment: Alignment.topCenter,
         heightFactor: open ? 1 : 0,
         child: AnimatedOpacity(
-          duration: const Duration(milliseconds: 200),
+          duration: KitMotion.duration(context, KitMotion.enter),
           opacity: open ? 1 : 0,
           child: child,
         ),

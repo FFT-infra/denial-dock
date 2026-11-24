@@ -1,6 +1,7 @@
 import 'dart:math' as math;
 
 import 'package:denial_flutter_sdk/theme.dart';
+import 'package:denial_shell_kit/kit_motion.dart';
 import 'package:denial_shell_kit/kit_style.dart';
 import 'package:flutter/gestures.dart';
 import 'package:flutter/widgets.dart';
@@ -58,7 +59,7 @@ class _TileGridState extends State<TileGrid>
     with SingleTickerProviderStateMixin {
   late final AnimationController _jiggle = AnimationController(
     vsync: this,
-    duration: const Duration(milliseconds: 260),
+    duration: KitMotion.now.scaled(KitMotion.wobble),
   );
 
   String? _dragId;
@@ -66,9 +67,17 @@ class _TileGridState extends State<TileGrid>
   List<String>? _order;
   DateTime _swapped = DateTime(0);
 
+  /// A repeat keeps the period it started with, so a speed change re-arms the
+  /// running wobble from its current value instead of restarting it.
+  void _repace() {
+    _jiggle.duration = KitMotion.now.scaled(KitMotion.wobble);
+    if (_jiggle.isAnimating) _jiggle.repeat(reverse: true);
+  }
+
   @override
   void initState() {
     super.initState();
+    kitSpeed.addListener(_repace);
     _syncJiggle();
   }
 
@@ -91,6 +100,7 @@ class _TileGridState extends State<TileGrid>
 
   @override
   void dispose() {
+    kitSpeed.removeListener(_repace);
     _jiggle.dispose();
     super.dispose();
   }
@@ -198,7 +208,7 @@ class _TileGridState extends State<TileGrid>
               child: child,
             ),
             child: AnimatedScale(
-              duration: const Duration(milliseconds: 160),
+              duration: KitMotion.duration(context, KitMotion.fill),
               scale: dragging ? 1.05 : 1,
               child: body,
             ),
@@ -229,8 +239,10 @@ class _TileGridState extends State<TileGrid>
       final at = dragging ? _dragAt : rect.topLeft;
       return AnimatedPositioned(
         key: ValueKey<String>(tile.id),
-        duration: Duration(milliseconds: dragging ? 0 : 320),
-        curve: Curves.easeOutCubic,
+        duration: dragging
+            ? Duration.zero
+            : KitMotion.duration(context, KitMotion.travel),
+        curve: KitMotion.outCubic,
         left: at.dx,
         top: at.dy,
         width: rect.width,
@@ -241,8 +253,8 @@ class _TileGridState extends State<TileGrid>
 
     final dragIndex = tiles.indexWhere((t) => t.id == _dragId);
     return AnimatedSize(
-      duration: const Duration(milliseconds: 320),
-      curve: Curves.easeOutCubic,
+      duration: KitMotion.duration(context, KitMotion.travel),
+      curve: KitMotion.outCubic,
       alignment: Alignment.topCenter,
       child: SizedBox(
         width: _span(widget.columns, widget.cell.width),

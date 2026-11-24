@@ -5,6 +5,7 @@ import 'package:denial_flutter_sdk/localization.dart';
 import 'package:denial_flutter_sdk/services.dart';
 import 'package:denial_flutter_sdk/state.dart';
 import 'package:denial_flutter_sdk/theme.dart';
+import 'package:denial_shell_kit/kit_motion.dart';
 import 'package:denial_shell_kit/kit_style.dart';
 import 'package:flutter/widgets.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -265,8 +266,8 @@ class _Ring extends StatelessWidget {
   Widget build(BuildContext context) {
     return TweenAnimationBuilder<double>(
       tween: Tween<double>(end: level.clamp(0.0, 1.0)),
-      duration: const Duration(milliseconds: 500),
-      curve: Curves.easeOutCubic,
+      duration: KitMotion.duration(context, KitMotion.fillSlow),
+      curve: KitMotion.outCubic,
       builder: (context, value, child) => CustomPaint(
         painter: _RingPainter(
           level: value,

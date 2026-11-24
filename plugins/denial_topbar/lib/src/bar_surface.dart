@@ -11,6 +11,7 @@ import 'package:denial_flutter_sdk/surfaces.dart';
 import 'package:denial_flutter_sdk/system_services.dart' show WifiNetwork;
 import 'package:denial_flutter_sdk/theme.dart';
 import 'package:denial_flutter_sdk/wallpaper.dart';
+import 'package:denial_shell_kit/kit_motion.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
@@ -601,8 +602,8 @@ class _TopBarSurfaceState extends ConsumerState<TopBarSurface> {
           : ValueListenableBuilder<double>(
               valueListenable: _islandReserved,
               builder: (context, width, _) => AnimatedContainer(
-                duration: const Duration(milliseconds: 420),
-                curve: BarTokens.spring,
+                duration: KitMotion.duration(context, KitMotion.rebound),
+                curve: KitMotion.spring,
                 width: width,
               ),
             ),
@@ -779,8 +780,8 @@ class _TopBarSurfaceState extends ConsumerState<TopBarSurface> {
         Positioned.fill(
           child: TweenAnimationBuilder<double>(
             tween: Tween<double>(end: hidden ? 1 : 0),
-            duration: const Duration(milliseconds: 340),
-            curve: Curves.easeOutCubic,
+            duration: KitMotion.duration(context, KitMotion.slide),
+            curve: KitMotion.outCubic,
             builder: (context, t, child) => Transform.translate(
               offset: direction * (away * t),
               child: Opacity(opacity: 1 - t * 0.6, child: child),

@@ -3,6 +3,8 @@ import 'dart:math' as math;
 import 'package:denial_flutter_sdk/services.dart';
 import 'package:denial_flutter_sdk/system_services.dart'
     show MprisPlaybackState;
+import 'package:denial_shell_kit/kit_motion.dart';
+import 'package:denial_shell_kit/kit_style.dart';
 import 'package:flutter/widgets.dart';
 
 import '../bar_icons.dart';
@@ -68,16 +70,31 @@ class _IslandEqualizerState extends State<IslandEqualizer>
     with SingleTickerProviderStateMixin {
   late final AnimationController _controller = AnimationController(
     vsync: this,
-    duration: const Duration(milliseconds: 2400),
+    duration: KitMotion.now.scaled(KitMotion.wave),
   );
 
   static const List<double> _rates = <double>[3, 5, 2, 4, 3, 5];
   static const List<double> _phases = <double>[0, 1.7, 0.9, 2.6, 0.4, 2.1];
 
+  /// A repeat keeps the period it started with, so a speed change re-arms the
+  /// running controller from its current value instead of restarting it.
+  void _repace() {
+    _controller.duration = KitMotion.now.scaled(KitMotion.wave);
+    if (_controller.isAnimating) _controller.repeat();
+  }
+
   @override
   void initState() {
     super.initState();
+    kitSpeed.addListener(_repace);
     if (widget.playing) _controller.repeat();
+  }
+
+  @override
+  void dispose() {
+    kitSpeed.removeListener(_repace);
+    _controller.dispose();
+    super.dispose();
   }
 
   @override
@@ -85,12 +102,6 @@ class _IslandEqualizerState extends State<IslandEqualizer>
     super.didUpdateWidget(oldWidget);
     if (widget.playing == oldWidget.playing) return;
     widget.playing ? _controller.repeat() : _controller.stop();
-  }
-
-  @override
-  void dispose() {
-    _controller.dispose();
-    super.dispose();
   }
 
   @override
@@ -107,7 +118,7 @@ class _IslandEqualizerState extends State<IslandEqualizer>
           children: <Widget>[
             for (var index = 0; index < widget.bars; index++)
               AnimatedContainer(
-                duration: const Duration(milliseconds: 120),
+                duration: KitMotion.loop(context, KitMotion.fade),
                 width: bar,
                 height: widget.playing
                     ? widget.height *
@@ -152,8 +163,8 @@ class IslandLevel extends StatelessWidget {
           borderRadius: BorderRadius.circular(height / 2),
         ),
         child: AnimatedContainer(
-          duration: const Duration(milliseconds: 140),
-          curve: Curves.easeOut,
+          duration: KitMotion.duration(context, KitMotion.ease),
+          curve: KitMotion.out,
           width: math.max(height, constraints.maxWidth * level.clamp(0.0, 1.0)),
           height: height,
           decoration: BoxDecoration(

@@ -4,6 +4,7 @@ import 'package:denial_flutter_sdk/models.dart';
 import 'package:denial_flutter_sdk/services.dart';
 import 'package:denial_flutter_sdk/state.dart';
 import 'package:denial_flutter_sdk/theme.dart';
+import 'package:denial_shell_kit/kit_motion.dart';
 import 'package:flutter/widgets.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
@@ -11,7 +12,6 @@ import '../bar_icons.dart';
 import '../bar_panel.dart';
 import '../bar_preferences.dart';
 import '../bar_settings.dart';
-import '../bar_tokens.dart';
 import '../bar_type.dart';
 import '../debug_remote.dart';
 import '../l10n.dart';
@@ -40,8 +40,8 @@ void showNotificationCenter({
     ref: ref,
     keyName: barPanelKey,
     panelId: panelId,
-    open: const Duration(milliseconds: 360),
-    close: const Duration(milliseconds: 200),
+    open: KitMotion.settle,
+    close: KitMotion.enter,
     builder: (context, close) => _Column(
       services: services,
       side: side,
@@ -262,8 +262,8 @@ class _ColumnState extends ConsumerState<_Column> {
             builder: (context, child) {
               final forward = animation.status != AnimationStatus.reverse;
               final t = forward
-                  ? Curves.easeOutCubic.transform(animation.value)
-                  : Curves.easeInCubic.transform(animation.value);
+                  ? KitMotion.outCubic.transform(animation.value)
+                  : KitMotion.inCubic.transform(animation.value);
               return Transform.translate(
                 offset: Offset((onLeft ? -1 : 1) * (width + 24) * (1 - t), 0),
                 child: child,
@@ -433,8 +433,8 @@ class _GroupStackState extends State<_GroupStack> {
     final newest = group.newest.notification;
 
     return AnimatedSize(
-      duration: const Duration(milliseconds: 380),
-      curve: BarTokens.spring,
+      duration: KitMotion.duration(context, KitMotion.unfold),
+      curve: KitMotion.spring,
       alignment: Alignment.topCenter,
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -585,15 +585,15 @@ class _CardState extends State<_Card> with SingleTickerProviderStateMixin {
       _slide
           .animateTo(
             target * 1.2,
-            duration: const Duration(milliseconds: 200),
-            curve: Curves.easeOut,
+            duration: KitMotion.duration(context, KitMotion.enter),
+            curve: KitMotion.out,
           )
           .whenComplete(widget.onDismiss);
     } else {
       _slide.animateTo(
         0,
-        duration: const Duration(milliseconds: 420),
-        curve: BarTokens.spring,
+        duration: KitMotion.duration(context, KitMotion.rebound),
+        curve: KitMotion.spring,
       );
     }
   }
@@ -721,7 +721,7 @@ class _CardState extends State<_Card> with SingleTickerProviderStateMixin {
                     left: -6,
                     top: -6,
                     child: AnimatedOpacity(
-                      duration: const Duration(milliseconds: 140),
+                      duration: KitMotion.duration(context, KitMotion.ease),
                       opacity: _hovered ? 1 : 0,
                       child: IgnorePointer(
                         ignoring: !_hovered,

@@ -18,8 +18,6 @@ library;
 
 import 'dart:math' as math;
 
-import 'package:flutter/animation.dart' show Cubic;
-
 abstract final class BarTokens {
   // ── Strip ────────────────────────────────────────────────────────────────
   /// Bar height. shell27 ships `barHeight: 28`; MacShell matches. The HIG's
@@ -258,10 +256,6 @@ abstract final class BarTokens {
   static const double islandHudWidth = 168;
   static const double islandChargeCompactWidth = 150;
   static const Duration islandHudHold = Duration(seconds: 2);
-
-  /// The damped spring every panel and the island settle on: about 4% past
-  /// the target, then home.
-  static const Cubic spring = Cubic(0.18, 1.04, 0.22, 1.0);
 
   /// Expanded card. macOS 27 measures 32 pt continuous corners, identical on
   /// all four sides, with 16 pt of content padding [S27]. meniscus

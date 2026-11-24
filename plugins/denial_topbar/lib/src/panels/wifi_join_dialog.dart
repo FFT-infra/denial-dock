@@ -1,6 +1,7 @@
 import 'package:denial_flutter_sdk/state.dart';
 import 'package:denial_flutter_sdk/system_services.dart' show WifiNetwork;
 import 'package:denial_flutter_sdk/theme.dart';
+import 'package:denial_shell_kit/kit_motion.dart';
 import 'package:denial_shell_kit/kit_style.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -318,8 +319,8 @@ class _RingButtonState extends State<_RingButton> {
         onTap: widget.onTap,
         child: AnimatedScale(
           scale: _pressed ? 0.92 : 1,
-          duration: const Duration(milliseconds: 90),
-          curve: Curves.easeOut,
+          duration: KitMotion.duration(context, KitMotion.tap),
+          curve: KitMotion.out,
           child: Opacity(
             opacity: widget.busy ? 0.55 : 1,
             child: Container(

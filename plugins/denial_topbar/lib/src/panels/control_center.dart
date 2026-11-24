@@ -7,6 +7,7 @@ import 'package:denial_flutter_sdk/state.dart';
 import 'package:denial_flutter_sdk/system_services.dart'
     show PowerProfile, WifiNetwork, systemActionsServiceProvider;
 import 'package:denial_flutter_sdk/theme.dart';
+import 'package:denial_shell_kit/kit_motion.dart';
 import 'package:denial_shell_kit/kit_style.dart';
 import 'package:flutter/widgets.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -108,11 +109,11 @@ class _ControlCenterPanelState extends ConsumerState<ControlCenterPanel> {
     return SizedBox(
       width: controlCenterWidth,
       child: AnimatedSize(
-        duration: const Duration(milliseconds: 320),
-        curve: Curves.easeOutCubic,
+        duration: KitMotion.duration(context, KitMotion.travel),
+        curve: KitMotion.outCubic,
         alignment: Alignment.topCenter,
         child: AnimatedSwitcher(
-          duration: const Duration(milliseconds: 200),
+          duration: KitMotion.duration(context, KitMotion.enter),
           layoutBuilder: (current, previous) => Stack(
             alignment: Alignment.topCenter,
             children: <Widget>[
@@ -710,7 +711,7 @@ class _Round extends StatelessWidget {
         onTap: onTap,
         scale: 0.9,
         child: AnimatedContainer(
-          duration: const Duration(milliseconds: 200),
+          duration: KitMotion.duration(context, KitMotion.enter),
           decoration: BoxDecoration(
             shape: BoxShape.circle,
             color: on

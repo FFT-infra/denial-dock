@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'dart:math' as math;
 
+import 'package:denial_shell_kit/kit_motion.dart';
 import 'package:denial_shell_kit/kit_style.dart';
 import 'package:denial_flutter_sdk/theme.dart';
 import 'package:flutter/material.dart';
@@ -87,8 +88,8 @@ void showBarMenu({
     ref: ref,
     keyName: barPanelKey,
     panelId: panelId,
-    open: const Duration(milliseconds: 60),
-    close: const Duration(milliseconds: 150),
+    open: KitMotion.menuOpen,
+    close: KitMotion.menuExit,
     builder: (context, close) => _MenuTree(
       anchor: rect,
       vertical: vertical,
@@ -480,7 +481,7 @@ class _MenuCard extends StatelessWidget {
     if (appear) {
       card = TweenAnimationBuilder<double>(
         tween: Tween<double>(begin: 0, end: 1),
-        duration: const Duration(milliseconds: 90),
+        duration: KitMotion.duration(context, KitMotion.tap),
         builder: (context, t, child) => Opacity(opacity: t, child: child),
         child: card,
       );

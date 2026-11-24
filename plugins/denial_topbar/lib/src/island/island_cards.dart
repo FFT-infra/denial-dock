@@ -1,5 +1,7 @@
 import 'dart:math' as math;
 
+import 'package:denial_shell_kit/kit_motion.dart';
+import 'package:denial_shell_kit/kit_style.dart';
 import 'package:flutter/widgets.dart';
 
 import '../bar_icons.dart';
@@ -70,11 +72,26 @@ class _IslandPulseState extends State<IslandPulse>
     with SingleTickerProviderStateMixin {
   late final AnimationController _controller = AnimationController(
     vsync: this,
-    duration: const Duration(milliseconds: 900),
+    duration: KitMotion.now.scaled(KitMotion.pulse),
   )..repeat(reverse: true);
+
+  // A repeat keeps the period it started with. The speed setting rebuilds
+  // the tree, and this re-arms the same controller from its current value,
+  // so the new pace applies without the widget being recreated.
+  void _repace() =>
+      _controller
+        ..duration = KitMotion.now.scaled(KitMotion.pulse)
+        ..repeat(reverse: true);
+
+  @override
+  void initState() {
+    super.initState();
+    kitSpeed.addListener(_repace);
+  }
 
   @override
   void dispose() {
+    kitSpeed.removeListener(_repace);
     _controller.dispose();
     super.dispose();
   }
@@ -85,7 +102,7 @@ class _IslandPulseState extends State<IslandPulse>
       opacity: Tween<double>(
         begin: 1,
         end: 0.35,
-      ).animate(CurvedAnimation(parent: _controller, curve: Curves.easeInOut)),
+      ).animate(CurvedAnimation(parent: _controller, curve: KitMotion.inOut)),
       child: Container(
         width: widget.size,
         height: widget.size,
@@ -116,8 +133,8 @@ class IslandRing extends StatelessWidget {
   Widget build(BuildContext context) {
     return TweenAnimationBuilder<double>(
       tween: Tween<double>(end: value.clamp(0.0, 1.0)),
-      duration: const Duration(milliseconds: 300),
-      curve: Curves.easeOutCubic,
+      duration: KitMotion.duration(context, KitMotion.reveal),
+      curve: KitMotion.outCubic,
       builder: (context, shown, _) => CustomPaint(
         painter: _RingPainter(shown, colour, stroke),
         child: SizedBox.square(
@@ -357,8 +374,11 @@ class IslandProgressCard extends StatelessWidget {
                         const Positioned.fill(child: ColoredBox(color: _track)),
                         TweenAnimationBuilder<double>(
                           tween: Tween<double>(end: value.clamp(0.0, 1.0)),
-                          duration: const Duration(milliseconds: 300),
-                          curve: Curves.easeOutCubic,
+                          duration: KitMotion.duration(
+                            context,
+                            KitMotion.reveal,
+                          ),
+                          curve: KitMotion.outCubic,
                           builder: (context, shown, _) => FractionallySizedBox(
                             widthFactor: shown,
                             heightFactor: 1,

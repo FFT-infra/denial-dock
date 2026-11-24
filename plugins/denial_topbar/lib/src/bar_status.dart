@@ -2,6 +2,7 @@ import 'dart:async';
 
 import 'package:denial_flutter_sdk/services.dart';
 import 'package:denial_flutter_sdk/state.dart';
+import 'package:denial_shell_kit/kit_motion.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
@@ -548,15 +549,15 @@ class _TrayFoldState extends State<_TrayFold> {
       children: <Widget>[
         ClipRect(
           child: AnimatedAlign(
-            duration: const Duration(milliseconds: 320),
-            curve: Curves.easeOutCubic,
+            duration: KitMotion.duration(context, KitMotion.travel),
+            curve: KitMotion.outCubic,
             alignment: horizontal
                 ? Alignment.centerRight
                 : Alignment.bottomCenter,
             widthFactor: horizontal ? (_open ? 1 : 0) : null,
             heightFactor: horizontal ? null : (_open ? 1 : 0),
             child: AnimatedOpacity(
-              duration: const Duration(milliseconds: 200),
+              duration: KitMotion.duration(context, KitMotion.enter),
               opacity: _open ? 1 : 0,
               child: Listener(
                 onPointerDown: (_) => _arm(),
@@ -575,8 +576,8 @@ class _TrayFoldState extends State<_TrayFold> {
           width: horizontal ? 22 : widget.crossExtent,
           onTap: _toggle,
           child: AnimatedRotation(
-            duration: const Duration(milliseconds: 320),
-            curve: Curves.easeOutCubic,
+            duration: KitMotion.duration(context, KitMotion.travel),
+            curve: KitMotion.outCubic,
             turns: (horizontal ? 0 : 0.25) + (_open ? 0.5 : 0),
             child: BarGlyph(
               BarIcons.chevronLeft,

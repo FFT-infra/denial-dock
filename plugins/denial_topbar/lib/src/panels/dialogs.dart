@@ -1,3 +1,4 @@
+import 'package:denial_shell_kit/kit_motion.dart';
 import 'package:denial_shell_kit/kit_style.dart';
 import 'package:denial_flutter_sdk/services.dart';
 import 'package:denial_flutter_sdk/state.dart';
@@ -52,10 +53,10 @@ class _DialogButtonState extends State<DialogButton> {
         onTapCancel: () => setState(() => _pressed = false),
         onTap: widget.onTap,
         child: AnimatedScale(
-          duration: const Duration(milliseconds: 120),
+          duration: KitMotion.duration(context, KitMotion.fade),
           scale: _pressed && enabled ? 0.96 : 1,
           child: AnimatedContainer(
-            duration: const Duration(milliseconds: 120),
+            duration: KitMotion.duration(context, KitMotion.fade),
             height: 32,
             constraints: const BoxConstraints(minWidth: 84),
             padding: const EdgeInsets.symmetric(horizontal: 18),

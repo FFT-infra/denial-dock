@@ -3,6 +3,7 @@ import 'package:denial_flutter_sdk/state.dart';
 import 'package:denial_flutter_sdk/system_services.dart'
     show AudioOutputDevice, BluetoothDeviceInfo, WifiNetwork;
 import 'package:denial_flutter_sdk/theme.dart';
+import 'package:denial_shell_kit/kit_motion.dart';
 import 'package:flutter/widgets.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
@@ -173,8 +174,8 @@ class _WifiPopoverState extends ConsumerState<WifiPopover> {
                 height: 32,
                 onTap: () => setState(() => _others = !_others),
                 trailing: AnimatedRotation(
-                  duration: const Duration(milliseconds: 240),
-                  curve: Curves.easeOutCubic,
+                  duration: KitMotion.duration(context, KitMotion.enterLarge),
+                  curve: KitMotion.outCubic,
                   turns: _others ? 0.25 : 0,
                   child: BarGlyph(
                     BarIcons.chevronRight,

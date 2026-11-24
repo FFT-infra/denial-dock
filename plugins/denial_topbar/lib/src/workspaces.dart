@@ -6,6 +6,7 @@ import 'package:denial_flutter_sdk/services.dart';
 import 'package:denial_flutter_sdk/settings.dart';
 import 'package:denial_flutter_sdk/state.dart';
 import 'package:denial_flutter_sdk/theme.dart';
+import 'package:denial_shell_kit/kit_motion.dart';
 import 'package:denial_shell_kit/kit_style.dart';
 import 'package:flutter/gestures.dart';
 import 'package:flutter/widgets.dart';
@@ -148,8 +149,8 @@ class _BarWorkspacesState extends ConsumerState<BarWorkspaces> {
       final Widget mark;
       if (numbers) {
         mark = AnimatedContainer(
-          duration: const Duration(milliseconds: 220),
-          curve: Curves.easeOutCubic,
+          duration: KitMotion.duration(context, KitMotion.swap),
+          curve: KitMotion.outCubic,
           width: _W.number - 3,
           height: _W.number - 3,
           alignment: Alignment.center,
@@ -169,8 +170,8 @@ class _BarWorkspacesState extends ConsumerState<BarWorkspaces> {
       } else {
         final long = active ? _W.active : _W.dot;
         mark = AnimatedContainer(
-          duration: const Duration(milliseconds: 380),
-          curve: const Cubic(0.18, 1.04, 0.22, 1.0),
+          duration: KitMotion.duration(context, KitMotion.unfold),
+          curve: KitMotion.spring,
           width: widget.vertical ? _W.dot : long,
           height: widget.vertical ? long : _W.dot,
           decoration: BoxDecoration(
@@ -365,7 +366,7 @@ class _SpacesStripState extends ConsumerState<SpacesStrip> {
           children: <Widget>[
             AnimatedContainer(
               key: _cards.putIfAbsent(space, GlobalKey.new),
-              duration: const Duration(milliseconds: 160),
+              duration: KitMotion.duration(context, KitMotion.fill),
               width: _W.thumb,
               height: thumbH,
               decoration: BoxDecoration(

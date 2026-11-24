@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:math' as math;
 
 import 'package:denial_flutter_sdk/theme.dart';
+import 'package:denial_shell_kit/kit_motion.dart';
 import 'package:flutter/material.dart';
 
 import 'bar_ground.dart';
@@ -155,8 +156,8 @@ class _BarButtonState extends State<BarButton> {
       height: widget.height,
       child: Center(
         child: AnimatedContainer(
-          duration: Motion.pill,
-          curve: Curves.easeOut,
+          duration: KitMotion.duration(context, KitMotion.tap),
+          curve: KitMotion.out,
           width: widget.width == null
               ? null
               : widget.width! - BarTokens.itemInsetX * 2,
@@ -221,7 +222,7 @@ class _Tip extends StatelessWidget {
   Widget build(BuildContext context) {
     return TweenAnimationBuilder<double>(
       tween: Tween<double>(begin: 0, end: 1),
-      duration: const Duration(milliseconds: 140),
+      duration: KitMotion.duration(context, KitMotion.ease),
       builder: (context, shown, child) => Opacity(opacity: shown, child: child),
       child: Container(
         padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 5),
