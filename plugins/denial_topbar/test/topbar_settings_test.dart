@@ -10,7 +10,6 @@ Future<void> main() async {
   _expect(defaults.ground == BarGround.none, 'default ground');
   _expect(defaults.groundOpacity == 0.55, 'default opacity');
   _expect(defaults.islandEnabled, 'default island');
-  _expect(defaults.islandShowsClock, 'default island clock');
   _expect(
     defaults.workspacePlacement == BarWorkspacePlacement.island,
     'default workspace placement',
@@ -94,6 +93,28 @@ Future<void> main() async {
     _expect(
       reread.workspacePlacement == BarWorkspacePlacement.trailing,
       'read back workspace placement',
+    );
+    _expect(reread.islandSplit && !reread.islandHome, 'new island defaults');
+    _expect(reread.trayHidden.isEmpty && reread.showMic, 'new item defaults');
+    await BarPreferencesStore(file).write(
+      reread.copyWith(
+        islandHome: true,
+        activityTimer: false,
+        trayHidden: const <String>['nm-applet'],
+        trayNever: const <String>['magpie'],
+        tileSizes: const <String>['cc.wifi:1x1'],
+      ),
+    );
+    final again = await BarPreferencesStore(file).read();
+    _expect(
+      again.islandHome && !again.activityTimer,
+      'island switches persist',
+    );
+    _expect(
+      again.trayHidden.single == 'nm-applet' &&
+          again.trayNever.single == 'magpie' &&
+          again.tileSizes.single == 'cc.wifi:1x1',
+      'tray sections and tile sizes persist',
     );
     stdout.writeln('All top bar settings tests passed.');
   } finally {

@@ -15,11 +15,14 @@ class BarTitle extends StatelessWidget {
     required this.label,
     required this.ink,
     this.bold = false,
+    this.icon,
     this.onTap,
     this.open = false,
     super.key,
   });
 
+  /// Stands in for the label on a vertical bar, which has no room for text.
+  final Widget? icon;
   final String label;
   final Color ink;
   final bool bold;
@@ -28,6 +31,18 @@ class BarTitle extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final icon = this.icon;
+    if (icon != null) {
+      return BarButton(
+        onTap: onTap,
+        open: open,
+        ink: ink,
+        width: 30,
+        height: 30,
+        padding: EdgeInsets.zero,
+        child: SizedBox.square(dimension: 18, child: icon),
+      );
+    }
     return BarButton(
       onTap: onTap,
       open: open,
@@ -42,60 +57,6 @@ class BarTitle extends StatelessWidget {
   }
 }
 
-/// The focused window's name, drawn where macOS puts the application menu.
-///
-/// The HIG requires the active app's name in bold so people can find it at a
-/// glance; shell27 sets it DemiBold at 14. Wayland has no global-menu protocol
-/// and most toolkits export nothing, so the name is followed by the window
-/// title and the row opens the window actions instead of a menu tree.
-class BarAppMenu extends StatelessWidget {
-  const BarAppMenu({
-    required this.appName,
-    required this.title,
-    required this.showTitle,
-    required this.ink,
-    this.onTap,
-    this.open = false,
-    super.key,
-  });
-
-  final String appName;
-
-  /// Active window title, or empty when no user window is focused.
-  final String title;
-  final bool showTitle;
-  final Color ink;
-  final VoidCallback? onTap;
-  final bool open;
-
-  @override
-  Widget build(BuildContext context) {
-    final label = appName.isEmpty ? 'Desktop' : appName;
-    final hasTitle = showTitle && title.isNotEmpty && title != label;
-    return Row(
-      mainAxisSize: MainAxisSize.min,
-      children: <Widget>[
-        BarTitle(label: label, ink: ink, bold: true, onTap: onTap, open: open),
-        if (hasTitle)
-          ConstrainedBox(
-            constraints: const BoxConstraints(maxWidth: 260),
-            child: Padding(
-              padding: const EdgeInsets.only(left: 4),
-              child: Text(
-                title,
-                maxLines: 1,
-                overflow: TextOverflow.ellipsis,
-                style: BarType.item.copyWith(
-                  color: ink.withValues(alpha: 0.65),
-                ),
-              ),
-            ),
-          ),
-      ],
-    );
-  }
-}
-
 /// The clock at the trailing edge.
 ///
 /// shell27 `clockText`: `ddd d MMM` then two spaces then the time, in 14 pt
@@ -106,11 +67,15 @@ class BarClock extends StatelessWidget {
     required this.date,
     required this.showDate,
     required this.ink,
+    this.vertical = false,
+    this.crossExtent = BarTokens.height,
     this.onTap,
     this.open = false,
     super.key,
   });
 
+  final bool vertical;
+  final double crossExtent;
   final String time;
   final String date;
   final bool showDate;
@@ -121,6 +86,23 @@ class BarClock extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final style = BarType.clock.copyWith(color: ink);
+    if (vertical) {
+      final parts = RegExp(r'(\d{1,2})\D(\d{2})').firstMatch(time);
+      return BarButton(
+        onTap: onTap,
+        open: open,
+        ink: ink,
+        width: crossExtent,
+        height: 42,
+        padding: EdgeInsets.zero,
+        child: Text(
+          parts == null ? time : '${parts[1]}\n${parts[2]}',
+          textAlign: TextAlign.center,
+          maxLines: 2,
+          style: style.copyWith(fontSize: 12.5, height: 1.15),
+        ),
+      );
+    }
     return BarButton(
       onTap: onTap,
       open: open,

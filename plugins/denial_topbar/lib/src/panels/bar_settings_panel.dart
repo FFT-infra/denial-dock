@@ -1,64 +1,39 @@
 import 'dart:math' as math;
 
+import 'package:denial_flutter_sdk/settings.dart';
+import 'package:denial_flutter_sdk/services.dart';
 import 'package:denial_flutter_sdk/theme.dart';
-import 'package:flutter/gestures.dart';
-import 'package:flutter/material.dart';
+import 'package:flutter/widgets.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../bar_icons.dart';
+import '../bar_panel.dart';
 import '../bar_preferences.dart';
 import '../bar_settings.dart';
 import '../bar_tokens.dart';
 import '../bar_type.dart';
+import '../tray_names.dart';
+import '../l10n.dart';
+import 'mac_kit.dart';
 
-/// The dock's settings sheet geometry, copied so the two panels read as one
-/// product: 48-high rows inside 12-radius cards and a 140 ms quick transition.
-/// The sheet itself carries no radius: `BarPanelFrame` already draws the card
-/// at its own 26 pt radius, and a second rounded layer inside it only stacked a
-/// second blur and left a visible rim.
-const double _rowHeight = 48;
-const double _cardRadius = 12;
-const Duration _quick = Duration(milliseconds: 140);
+const double barSettingsWidth = 700;
 
-Duration _motion(BuildContext context, Duration duration) =>
-    MediaQuery.disableAnimationsOf(context) ? Duration.zero : duration;
+typedef _Save = void Function(BarSettings Function(BarSettings) change);
 
-TextStyle _labelStyle(ShellThemeData theme) => BarType.value.copyWith(
-  color: theme.colors.textPrimary,
-  fontWeight: FontWeight.w500,
-);
-
-TextStyle _captionStyle(ShellThemeData theme, [Color? color]) =>
-  BarType.caption.copyWith(
-    color: color ?? theme.colors.textTertiary,
-    height: 1.45,
-    letterSpacing: 0.1,
-  );
-
-TextStyle _sectionStyle(ShellThemeData theme) => BarType.caption.copyWith(
-  color: theme.colors.textTertiary,
-  fontWeight: FontWeight.w700,
-  letterSpacing: 0.8,
-  height: 1.2,
-);
-
-/// The bar's settings.
-///
-/// Denial gives plugins no settings page, so this is a managed shell popup, the
-/// same shape the dock's sheet takes: a header with a badge, a title and a
-/// close button, a hairline, then a scrolling column of grouped cards. Each
-/// card is an uppercase section label over a rounded, hairline-separated list,
-/// with an optional footer explaining the choice.
+/// The bar's settings: a sidebar of pages on the left, the page on the right.
 class BarSettingsPanel extends ConsumerStatefulWidget {
   const BarSettingsPanel({
     required this.onClose,
-    required this.width,
     required this.maxHeight,
+    this.services,
+    this.initialPage = 0,
     super.key,
   });
 
+  /// Lists the tray's items when given.
+  final ShellServices? services;
+  final int initialPage;
   final VoidCallback onClose;
-  final double width;
   final double maxHeight;
 
   @override
@@ -66,1036 +41,750 @@ class BarSettingsPanel extends ConsumerStatefulWidget {
 }
 
 class _BarSettingsPanelState extends ConsumerState<BarSettingsPanel> {
-  final ScrollController _scroll = ScrollController();
+  static const List<(String, IconData, Color)> _pages =
+      <(String, IconData, Color)>[
+        ('Appearance', BarIcons.paintbrushFill, macBlue),
+        ('Dynamic Island', BarIcons.capsuleFill, Color(0xff1c1c1e)),
+        ('Workspaces', BarIcons.squareGrid, macPurple),
+        ('Menu Bar Items', BarIcons.rectangle3, Color(0xff8e8e93)),
+        ('Clock & Notifications', BarIcons.clock, macRed),
+      ];
 
-  @override
-  void dispose() {
-    _scroll.dispose();
-    super.dispose();
-  }
+  late int _page = widget.initialPage.clamp(0, _pages.length - 1);
 
-  @override
-  Widget build(BuildContext context) {
-    final theme = context.shellTheme;
-    final stored = ref.watch(barSettingsProvider).value;
-    final settings = stored ?? BarSettings.defaults;
-    final controller = ref.read(barSettingsProvider.notifier);
-    final enabled = stored != null;
-
-    void save(BarSettings Function(BarSettings current) change) {
-      if (enabled) controller.save(change);
-    }
-
-    // `BarPanelFrame` already blurs and clips this content; the sheet adds only
-    // the sections, so it must not draw a second surface of its own.
-    return SizedBox(
-      width: widget.width,
-      child: ConstrainedBox(
-        constraints: BoxConstraints(maxHeight: widget.maxHeight),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.stretch,
-          children: <Widget>[
-            _Header(onClose: widget.onClose),
-            SizedBox(
-              height: 1,
-              child: ColoredBox(color: theme.colors.hairline),
-            ),
-            Flexible(
-              child: ListView(
-                controller: _scroll,
-                padding: const EdgeInsets.fromLTRB(16, 16, 16, 24),
-                children: <Widget>[
-                        _SettingsSection(
-                          title: 'Layout',
-                          footer:
-                              'Attached spans the screen edge to edge; '
-                              'floating is the inset capsule.',
-                          children: <Widget>[
-                            _SegmentedRow<BarLayout>(
-                              value: settings.layout,
-                              options: const <(BarLayout, String, IconData)>[
-                                (
-                                  BarLayout.attached,
-                                  'Attached',
-                                  Icons.horizontal_rule,
-                                ),
-                                (
-                                  BarLayout.floating,
-                                  'Floating',
-                                  Icons.crop_16_9,
-                                ),
-                              ],
-                              onChanged: (value) =>
-                                  save((s) => s.copyWith(layout: value)),
-                            ),
-                            _SegmentedRow<BarGround>(
-                              label: 'Ground',
-                              value: settings.ground,
-                              options: const <(BarGround, String, IconData)>[
-                                (BarGround.none, 'None', Icons.block),
-                                (
-                                  BarGround.plate,
-                                  'Plate',
-                                  Icons.rectangle_outlined,
-                                ),
-                                (
-                                  BarGround.glass,
-                                  'Glass',
-                                  Icons.blur_on,
-                                ),
-                              ],
-                              onChanged: (value) =>
-                                  save((s) => s.copyWith(ground: value)),
-                            ),
-                            _SliderRow(
-                              label: 'Ground opacity',
-                              value: settings.groundOpacity,
-                              min: BarTokens.plateOpacityMin,
-                              max: BarTokens.plateOpacityMax,
-                              enabled: settings.ground != BarGround.none,
-                              onChanged: (value) =>
-                                  save((s) => s.copyWith(groundOpacity: value)),
-                            ),
-                            _ToggleRow(
-                              label: 'Hairline',
-                              value: settings.hairline,
-                              onChanged: (value) =>
-                                  save((s) => s.copyWith(hairline: value)),
-                            ),
-                          ],
-                        ),
-                        const SizedBox(height: 22),
-                        _SettingsSection(
-                          title: 'Island',
-                          footer: settings.islandEnabled
-                              ? 'The capsule sits in the middle of the bar and '
-                                    'expands for a notice or a track change.'
-                              : null,
-                          children: <Widget>[
-                            _ToggleRow(
-                              label: 'Show island',
-                              value: settings.islandEnabled,
-                              onChanged: (value) =>
-                                  save((s) => s.copyWith(islandEnabled: value)),
-                            ),
-                            _ToggleRow(
-                              label: 'Clock in island',
-                              value: settings.islandShowsClock,
-                              enabled: settings.islandEnabled,
-                              onChanged: (value) => save(
-                                (s) => s.copyWith(islandShowsClock: value),
-                              ),
-                            ),
-                            _ToggleRow(
-                              label: 'Hover to peek',
-                              value: settings.islandHoverPeek,
-                              enabled: settings.islandEnabled,
-                              onChanged: (value) => save(
-                                (s) => s.copyWith(islandHoverPeek: value),
-                              ),
-                            ),
-                            _ToggleRow(
-                              label: 'Media activity',
-                              value: settings.activityMedia,
-                              enabled: settings.islandEnabled,
-                              onChanged: (value) =>
-                                  save((s) => s.copyWith(activityMedia: value)),
-                            ),
-                            _ToggleRow(
-                              label: 'Charging activity',
-                              value: settings.activityCharging,
-                              enabled: settings.islandEnabled,
-                              onChanged: (value) => save(
-                                (s) => s.copyWith(activityCharging: value),
-                              ),
-                            ),
-                            _ToggleRow(
-                              label: 'Notification activity',
-                              value: settings.activityNotifications,
-                              enabled: settings.islandEnabled,
-                              onChanged: (value) => save(
-                                (s) => s.copyWith(activityNotifications: value),
-                              ),
-                            ),
-                          ],
-                        ),
-                        const SizedBox(height: 22),
-                        _SettingsSection(
-                          title: 'Workspaces',
-                          footer:
-                              'macOS has no workspace switcher, so this is an '
-                              'addition; the island keeps the bar\'s edges '
-                              'clear.',
-                          children: <Widget>[
-                            _SegmentedRow<BarWorkspacePlacement>(
-                              value: settings.workspacePlacement,
-                              options: const <
-                                (BarWorkspacePlacement, String, IconData)
-                              >[
-                                (
-                                  BarWorkspacePlacement.island,
-                                  'Island',
-                                  Icons.radio_button_checked,
-                                ),
-                                (
-                                  BarWorkspacePlacement.leading,
-                                  'Left',
-                                  Icons.align_horizontal_left,
-                                ),
-                                (
-                                  BarWorkspacePlacement.trailing,
-                                  'Right',
-                                  Icons.align_horizontal_right,
-                                ),
-                                (
-                                  BarWorkspacePlacement.hidden,
-                                  'Hidden',
-                                  Icons.block,
-                                ),
-                              ],
-                              onChanged: (value) => save(
-                                (s) => s.copyWith(workspacePlacement: value),
-                              ),
-                            ),
-                          ],
-                        ),
-                        const SizedBox(height: 22),
-                        _SettingsSection(
-                          title: 'Menu bar items',
-                          children: <Widget>[
-                            _ToggleRow(
-                              label: 'Application menus',
-                              value: settings.showAppMenu,
-                              onChanged: (value) =>
-                                  save((s) => s.copyWith(showAppMenu: value)),
-                            ),
-                            _ToggleRow(
-                              label: 'Window title',
-                              value: settings.showWindowTitle,
-                              enabled: settings.showAppMenu,
-                              onChanged: (value) => save(
-                                (s) => s.copyWith(showWindowTitle: value),
-                              ),
-                            ),
-                            _ToggleRow(
-                              label: 'Date beside the clock',
-                              value: settings.showClockDate,
-                              onChanged: (value) =>
-                                  save((s) => s.copyWith(showClockDate: value)),
-                            ),
-                            _ToggleRow(
-                              label: 'System tray',
-                              value: settings.showTray,
-                              onChanged: (value) =>
-                                  save((s) => s.copyWith(showTray: value)),
-                            ),
-                            _ToggleRow(
-                              label: 'Wi-Fi',
-                              value: settings.showWifi,
-                              onChanged: (value) =>
-                                  save((s) => s.copyWith(showWifi: value)),
-                            ),
-                            _ToggleRow(
-                              label: 'Sound',
-                              value: settings.showVolume,
-                              onChanged: (value) =>
-                                  save((s) => s.copyWith(showVolume: value)),
-                            ),
-                            _ToggleRow(
-                              label: 'Battery',
-                              value: settings.showBattery,
-                              onChanged: (value) =>
-                                  save((s) => s.copyWith(showBattery: value)),
-                            ),
-                            _ToggleRow(
-                              label: 'Battery percentage',
-                              value: settings.showBatteryPercent,
-                              enabled: settings.showBattery,
-                              onChanged: (value) => save(
-                                (s) => s.copyWith(showBatteryPercent: value),
-                              ),
-                            ),
-                            _ToggleRow(
-                              label: 'Notifications',
-                              value: settings.showNotifications,
-                              onChanged: (value) => save(
-                                (s) => s.copyWith(showNotifications: value),
-                              ),
-                            ),
-                            _ToggleRow(
-                              label: 'Control Centre',
-                              value: settings.showControlCenter,
-                              onChanged: (value) => save(
-                                (s) => s.copyWith(showControlCenter: value),
-                              ),
-                            ),
-                            _ToggleRow(
-                              label: 'Settings button',
-                              value: settings.showSettingsButton,
-                              onChanged: (value) => save(
-                                (s) => s.copyWith(showSettingsButton: value),
-                              ),
-                            ),
-                          ],
-                        ),
-                      ],
-                    ),
-                  ),
-                ],
-              ),
-            ),
-          );
-  }
-}
-
-/// The sheet header: a small bar badge, the title, and a close button, on the
-/// dock sheet's 56 pt header.
-class _Header extends StatelessWidget {
-  const _Header({required this.onClose});
-
-  final VoidCallback onClose;
-
-  @override
-  Widget build(BuildContext context) {
-    final theme = context.shellTheme;
-    final colors = theme.colors;
-    return Padding(
-      padding: const EdgeInsets.fromLTRB(14, 0, 10, 0),
-      child: SizedBox(
-        height: 56,
-        child: Row(
-          children: <Widget>[
-            DecoratedBox(
-              decoration: BoxDecoration(
-                color: theme.accent.withValues(alpha: 0.18),
-                borderRadius: theme.borderRadius(8),
-                border: Border.all(
-                  color: theme.accent.withValues(alpha: 0.26),
-                ),
-              ),
-              child: SizedBox(
-                width: 30,
-                height: 30,
-                child: Center(
-                  child: BarGlyph(
-                    BarIcons.sliderHorizontal3,
-                    size: 17,
-                    color: theme.accent,
-                  ),
-                ),
-              ),
-            ),
-            const SizedBox(width: 10),
-            Expanded(
-              child: Text(
-                'Menu Bar',
-                maxLines: 1,
-                overflow: TextOverflow.ellipsis,
-                style: BarType.title.copyWith(
-                  fontSize: 15,
-                  fontWeight: FontWeight.w700,
-                  letterSpacing: -0.1,
-                  color: colors.textPrimary,
-                ),
-              ),
-            ),
-            _IconButton(
-              icon: Icons.close_rounded,
-              tooltip: 'Close',
-              onPressed: onClose,
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-}
-
-class _IconButton extends StatefulWidget {
-  const _IconButton({
-    required this.icon,
-    required this.tooltip,
-    required this.onPressed,
-  });
-
-  final IconData icon;
-  final String tooltip;
-  final VoidCallback onPressed;
-
-  @override
-  State<_IconButton> createState() => _IconButtonState();
-}
-
-class _IconButtonState extends State<_IconButton> {
-  bool _hovered = false;
-
-  @override
-  Widget build(BuildContext context) {
-    final theme = context.shellTheme;
-    return Tooltip(
-      message: widget.tooltip,
-      child: MouseRegion(
-        cursor: SystemMouseCursors.click,
-        onEnter: (_) => setState(() => _hovered = true),
-        onExit: (_) => setState(() => _hovered = false),
-        child: GestureDetector(
-          behavior: HitTestBehavior.opaque,
-          onTap: widget.onPressed,
-          child: AnimatedContainer(
-            duration: _motion(context, _quick),
-            width: 28,
-            height: 28,
-            decoration: BoxDecoration(
-              color: theme.colors.textPrimary.withValues(
-                alpha: _hovered ? 0.10 : 0,
-              ),
-              borderRadius: theme.borderRadius(7),
-            ),
-            child: Icon(
-              widget.icon,
-              size: 16,
-              color: theme.colors.textSecondary,
-            ),
-          ),
-        ),
-      ),
-    );
-  }
-}
-
-/// One group: an uppercase label, a hairline-separated card, and an optional
-/// footer note. Copied from the dock sheet's `_SettingsSection`.
-class _SettingsSection extends StatelessWidget {
-  const _SettingsSection({
-    required this.title,
-    required this.children,
-    this.footer,
-  });
-
-  final String title;
-  final List<Widget> children;
-  final String? footer;
-
-  @override
-  Widget build(BuildContext context) {
-    final theme = context.shellTheme;
-    final colors = theme.colors;
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.stretch,
-      children: <Widget>[
-        Padding(
-          padding: const EdgeInsets.fromLTRB(4, 0, 4, 8),
-          child: Semantics(
-            header: true,
-            child: Text(title.toUpperCase(), style: _sectionStyle(theme)),
-          ),
-        ),
-        DecoratedBox(
-          decoration: BoxDecoration(
-            gradient: LinearGradient(
-              begin: Alignment.topCenter,
-              end: Alignment.bottomCenter,
-              colors: <Color>[
-                colors.textPrimary.withValues(alpha: 0.055),
-                colors.textPrimary.withValues(alpha: 0.035),
-              ],
-            ),
-            borderRadius: theme.borderRadius(_cardRadius),
-            border: Border.all(color: colors.hairlineSoft),
-          ),
-          child: ClipRRect(
-            borderRadius: theme.borderRadius(_cardRadius),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.stretch,
-              children: <Widget>[
-                for (var index = 0; index < children.length; index++) ...<Widget>[
-                  if (index > 0)
-                    Padding(
-                      padding: const EdgeInsets.only(left: 12),
-                      child: SizedBox(
-                        height: 1,
-                        child: ColoredBox(color: colors.hairlineSoft),
-                      ),
-                    ),
-                  children[index],
-                ],
-              ],
-            ),
-          ),
-        ),
-        if (footer != null)
-          Padding(
-            padding: const EdgeInsets.fromLTRB(4, 8, 4, 0),
-            child: Text(footer!, style: _captionStyle(theme)),
-          ),
-      ],
-    );
-  }
-}
-
-/// A row with a hover wash, which every interactive row in the sheet uses.
-class _HoverSurface extends StatefulWidget {
-  const _HoverSurface({
-    required this.height,
-    required this.onTap,
-    required this.child,
-    this.enabled = true,
-  });
-
-  final double height;
-  final VoidCallback? onTap;
-  final Widget child;
-  final bool enabled;
-
-  @override
-  State<_HoverSurface> createState() => _HoverSurfaceState();
-}
-
-class _HoverSurfaceState extends State<_HoverSurface> {
-  bool _hovered = false;
-
-  @override
-  Widget build(BuildContext context) {
-    final theme = context.shellTheme;
-    return MouseRegion(
-      cursor: widget.enabled && widget.onTap != null
-          ? SystemMouseCursors.click
-          : MouseCursor.defer,
-      onEnter: (_) => setState(() => _hovered = true),
-      onExit: (_) => setState(() => _hovered = false),
-      child: GestureDetector(
-        behavior: HitTestBehavior.opaque,
-        onTap: widget.onTap,
-        child: AnimatedContainer(
-          duration: _motion(context, _quick),
-          height: widget.height,
-          padding: const EdgeInsets.symmetric(horizontal: 12),
-          decoration: BoxDecoration(
-            color: _hovered && widget.enabled
-                ? theme.colors.textPrimary.withValues(alpha: 0.045)
-                : const Color(0x00000000),
-          ),
-          child: widget.child,
-        ),
-      ),
-    );
-  }
-}
-
-class _ToggleRow extends StatelessWidget {
-  const _ToggleRow({
-    required this.label,
-    required this.value,
-    required this.onChanged,
-    this.enabled = true,
-  });
-
-  final String label;
-  final bool value;
-  final ValueChanged<bool> onChanged;
-
-  /// A row whose setting only matters under another choice stays visible but
-  /// inert, so the panel does not reflow as options change.
-  final bool enabled;
-
-  @override
-  Widget build(BuildContext context) {
-    final theme = context.shellTheme;
-    void toggle() {
-      if (enabled) onChanged(!value);
-    }
-
-    return Semantics(
-      container: true,
-      button: true,
-      toggled: value,
-      enabled: enabled,
-      label: label,
-      onTap: toggle,
-      child: ExcludeSemantics(
-        child: Opacity(
-          opacity: enabled ? 1 : 0.45,
-          child: _HoverSurface(
-            height: _rowHeight,
-            enabled: enabled,
-            onTap: toggle,
-            child: Row(
-              children: <Widget>[
-                Expanded(
-                  child: Text(
-                    label,
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                    style: _labelStyle(theme),
-                  ),
-                ),
-                const SizedBox(width: 12),
-                _Switch(value: value),
-              ],
-            ),
-          ),
-        ),
-      ),
-    );
-  }
-}
-
-/// The dock sheet's switch: a 44 × 26 track that lerps to the accent and a
-/// thumb that springs across.
-class _Switch extends StatefulWidget {
-  const _Switch({required this.value});
-
-  final bool value;
-
-  @override
-  State<_Switch> createState() => _SwitchState();
-}
-
-class _SwitchState extends State<_Switch> with SingleTickerProviderStateMixin {
-  static const double _width = 44;
-  static const double _height = 26;
-  static const double _inset = 3;
-  static const double _thumb = _height - _inset * 2;
-
-  late final AnimationController _slide;
-  bool _hovered = false;
-  bool _pressed = false;
+  void _namesChanged() => setState(() {});
 
   @override
   void initState() {
     super.initState();
-    _slide = AnimationController(
-      vsync: this,
-      duration: const Duration(milliseconds: 260),
-      value: widget.value ? 1 : 0,
-    );
+    trayNames.addListener(_namesChanged);
   }
 
   @override
   void dispose() {
-    _slide.dispose();
+    trayNames.removeListener(_namesChanged);
     super.dispose();
   }
 
   @override
-  void didUpdateWidget(covariant _Switch oldWidget) {
-    super.didUpdateWidget(oldWidget);
-    if (oldWidget.value == widget.value) return;
-    final target = widget.value ? 1.0 : 0.0;
-    if (MediaQuery.disableAnimationsOf(context)) {
-      _slide.value = target;
-    } else {
-      _slide.animateTo(
-        target,
-        duration: const Duration(milliseconds: 260),
-        curve: Curves.easeOutCubic,
-      );
-    }
-  }
-
-  @override
   Widget build(BuildContext context) {
     final theme = context.shellTheme;
-    final colors = theme.colors;
-    final quick = _motion(context, _quick);
-    return Listener(
-      onPointerDown: (_) => setState(() => _pressed = true),
-      onPointerUp: (_) => setState(() => _pressed = false),
-      onPointerCancel: (_) => setState(() => _pressed = false),
-      child: MouseRegion(
-        cursor: SystemMouseCursors.click,
-        onEnter: (_) => setState(() => _hovered = true),
-        onExit: (_) => setState(() {
-          _hovered = false;
-          _pressed = false;
-        }),
-        child: AnimatedBuilder(
-          animation: _slide,
-          builder: (context, _) {
-            final t = _slide.value.clamp(0.0, 1.0);
-            final track = Color.lerp(
-              colors.textPrimary.withValues(alpha: 0.16),
-              theme.accent,
-              t,
-            )!;
-            final border = Color.lerp(colors.hairlineSoft, theme.accent, t)!;
-            final thumbLeft = _inset + (_width - _inset * 2 - _thumb) * t;
-            final scale = _pressed ? 1.12 : (_hovered ? 1.05 : 1.0);
-            return SizedBox(
-              width: _width,
-              height: _height,
-              child: Stack(
-                children: <Widget>[
-                  Positioned.fill(
-                    child: DecoratedBox(
-                      decoration: BoxDecoration(
-                        color: Color.alphaBlend(
-                          colors.textPrimary.withValues(
-                            alpha: _hovered ? 0.04 : 0,
-                          ),
-                          track,
-                        ),
-                        borderRadius: BorderRadius.circular(_height / 2),
-                        border: Border.all(color: border),
-                        boxShadow: <BoxShadow>[
-                          BoxShadow(
-                            color: colors.shadow,
-                            blurRadius: 2,
-                            offset: const Offset(0, 1),
-                          ),
-                        ],
-                      ),
-                    ),
-                  ),
-                  Positioned(
-                    left: thumbLeft,
-                    top: _inset,
-                    width: _thumb,
-                    height: _thumb,
-                    child: AnimatedScale(
-                      scale: scale,
-                      duration: quick,
-                      curve: Curves.easeOut,
-                      child: DecoratedBox(
-                        decoration: BoxDecoration(
-                          shape: BoxShape.circle,
-                          color: colors.sliderThumb,
-                          border: Border.all(
-                            color: colors.textPrimary.withValues(alpha: 0.08),
-                          ),
-                          boxShadow: <BoxShadow>[
-                            BoxShadow(
-                              color: colors.shadow,
-                              blurRadius: 3,
-                              offset: const Offset(0, 1),
-                            ),
-                          ],
-                        ),
-                      ),
-                    ),
-                  ),
-                ],
-              ),
-            );
-          },
-        ),
-      ),
-    );
-  }
-}
+    final settings =
+        ref.watch(barSettingsProvider).value ?? BarSettings.defaults;
+    void save(BarSettings Function(BarSettings) change) =>
+        ref.read(barSettingsProvider.notifier).save(change);
 
-/// A label over the dock sheet's sliding segmented control.
-class _SegmentedRow<T> extends StatelessWidget {
-  const _SegmentedRow({
-    required this.value,
-    required this.options,
-    required this.onChanged,
-    this.label,
-  });
+    final body = switch (_page) {
+      0 => _appearance(context, settings, save),
+      1 => _island(context, settings, save),
+      2 => _workspaces(context, settings, save),
+      3 => _items(context, settings, save),
+      _ => _clock(context, settings, save),
+    };
 
-  final T value;
-  final List<(T, String, IconData)> options;
-  final ValueChanged<T> onChanged;
-  final String? label;
-
-  @override
-  Widget build(BuildContext context) {
-    final theme = context.shellTheme;
-    return Padding(
-      padding: const EdgeInsets.fromLTRB(12, 10, 12, 10),
-      child: Column(
+    return SizedBox(
+      width: barSettingsWidth,
+      height: math.min(560, widget.maxHeight),
+      child: Row(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: <Widget>[
-          if (label != null)
-            Padding(
-              padding: const EdgeInsets.fromLTRB(1, 0, 1, 9),
-              child: Text(
-                label!,
-                maxLines: 1,
-                overflow: TextOverflow.ellipsis,
-                style: _labelStyle(theme),
-              ),
+          Container(
+            width: 204,
+            color: theme.colors.textPrimary.withValues(alpha: 0.04),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: <Widget>[
+                BarWindowHandle(
+                  child: Padding(
+                    padding: const EdgeInsets.fromLTRB(18, 18, 12, 12),
+                    child: Text(
+                      context.tr('Menu Bar'),
+                      style: BarType.title.copyWith(
+                        fontSize: 17,
+                        fontWeight: FontWeight.w700,
+                        color: theme.colors.textPrimary,
+                      ),
+                    ),
+                  ),
+                ),
+                for (var i = 0; i < _pages.length; i++)
+                  _SidebarItem(
+                    label: context.tr(_pages[i].$1),
+                    icon: _pages[i].$2,
+                    colour: _pages[i].$3,
+                    selected: i == _page,
+                    onTap: () => setState(() => _page = i),
+                  ),
+                const Spacer(),
+                Padding(
+                  padding: const EdgeInsets.all(12),
+                  child: _TextButton(
+                    label: context.tr('Restore Defaults'),
+                    onTap: () => save(
+                      (s) => BarSettings(recentsClearedAt: s.recentsClearedAt),
+                    ),
+                  ),
+                ),
+              ],
             ),
-          _SlidingSegments<T>(
-            value: value,
-            options: options,
-            onChanged: onChanged,
+          ),
+          SizedBox(width: 1, child: ColoredBox(color: theme.colors.hairline)),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: <Widget>[
+                BarWindowHandle(
+                  child: Padding(
+                    padding: const EdgeInsets.fromLTRB(22, 14, 12, 8),
+                    child: Row(
+                      children: <Widget>[
+                        Expanded(
+                          child: Text(
+                            context.tr(_pages[_page].$1),
+                            style: BarType.title.copyWith(
+                              fontSize: 15,
+                              fontWeight: FontWeight.w700,
+                              color: theme.colors.textPrimary,
+                            ),
+                          ),
+                        ),
+                        Pressable(
+                          onTap: widget.onClose,
+                          scale: 0.85,
+                          child: Container(
+                            width: 26,
+                            height: 26,
+                            decoration: BoxDecoration(
+                              shape: BoxShape.circle,
+                              color: theme.colors.textPrimary.withValues(
+                                alpha: 0.10,
+                              ),
+                            ),
+                            child: BarGlyph(
+                              BarIcons.xmark,
+                              size: 11,
+                              color: theme.colors.textSecondary,
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+                Expanded(
+                  child: AnimatedSwitcher(
+                    duration: const Duration(milliseconds: 180),
+                    layoutBuilder: (current, previous) => Stack(
+                      alignment: Alignment.topCenter,
+                      children: <Widget>[...previous, ?current],
+                    ),
+                    child: SingleChildScrollView(
+                      key: ValueKey<int>(_page),
+                      padding: const EdgeInsets.fromLTRB(20, 6, 20, 22),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.stretch,
+                        children: body,
+                      ),
+                    ),
+                  ),
+                ),
+              ],
+            ),
           ),
         ],
       ),
     );
   }
-}
 
-class _SlidingSegments<T> extends StatefulWidget {
-  const _SlidingSegments({
-    required this.value,
-    required this.options,
-    required this.onChanged,
-  });
-
-  final T value;
-  final List<(T, String, IconData)> options;
-  final ValueChanged<T> onChanged;
-
-  @override
-  State<_SlidingSegments<T>> createState() => _SlidingSegmentsState<T>();
-}
-
-class _SlidingSegmentsState<T> extends State<_SlidingSegments<T>>
-    with SingleTickerProviderStateMixin {
-  static const double _inset = 3;
-
-  late final AnimationController _slide;
-  int _pressedIndex = -1;
-
-  double get _target => _positionFor(_selectedIndex);
-
-  int get _selectedIndex {
-    final index = widget.options.indexWhere(
-      (option) => option.$1 == widget.value,
-    );
-    return index < 0 ? 0 : index;
-  }
-
-  double _positionFor(int index) {
-    final count = widget.options.length;
-    return count < 2 ? 0 : index / (count - 1);
-  }
-
-  @override
-  void initState() {
-    super.initState();
-    _slide = AnimationController(
-      vsync: this,
-      duration: const Duration(milliseconds: 360),
-      value: _target,
-    );
-  }
-
-  @override
-  void dispose() {
-    _slide.dispose();
-    super.dispose();
-  }
-
-  @override
-  void didUpdateWidget(covariant _SlidingSegments<T> oldWidget) {
-    super.didUpdateWidget(oldWidget);
-    if (oldWidget.options.length != widget.options.length) {
-      _slide.value = _target;
-      return;
-    }
-    if (oldWidget.value != widget.value) _settle();
-  }
-
-  void _settle() {
-    if (MediaQuery.disableAnimationsOf(context)) {
-      _slide.value = _target;
-      return;
-    }
-    _slide.animateTo(
-      _target,
-      duration: const Duration(milliseconds: 360),
-      curve: Curves.easeOutBack,
-    );
-  }
-
-  int _indexAt(double dx, double width) {
-    final count = widget.options.length;
-    final inner = math.max(1.0, width - _inset * 2);
-    final t = ((dx - _inset) / inner).clamp(0.0, 1.0);
-    return (t * count).floor().clamp(0, count - 1);
-  }
-
-  void _select(int index) {
-    if (index < 0 || index >= widget.options.length) return;
-    final next = widget.options[index].$1;
-    if (next == widget.value) return;
-    widget.onChanged(next);
-  }
-
-  void _clearPress() {
-    if (_pressedIndex < 0) return;
-    setState(() => _pressedIndex = -1);
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    final theme = context.shellTheme;
-    final colors = theme.colors;
-    final count = widget.options.length;
-    return LayoutBuilder(
-      builder: (context, constraints) {
-        final width = constraints.maxWidth;
-        return GestureDetector(
-          behavior: HitTestBehavior.opaque,
-          dragStartBehavior: DragStartBehavior.down,
-          onTapDown: (details) => setState(
-            () => _pressedIndex = _indexAt(details.localPosition.dx, width),
-          ),
-          onTapUp: (details) {
-            _select(_indexAt(details.localPosition.dx, width));
-            _clearPress();
-          },
-          onTapCancel: _clearPress,
-          onHorizontalDragStart: (details) =>
-              _select(_indexAt(details.localPosition.dx, width)),
-          onHorizontalDragUpdate: (details) =>
-              _select(_indexAt(details.localPosition.dx, width)),
-          onHorizontalDragEnd: (_) => _clearPress(),
-          onHorizontalDragCancel: _clearPress,
-          child: Container(
-            height: 36,
-            padding: const EdgeInsets.all(_inset),
-            decoration: BoxDecoration(
-              color: colors.textPrimary.withValues(alpha: 0.05),
-              borderRadius: theme.borderRadius(11),
-              border: Border.all(color: colors.hairlineSoft),
+  List<Widget> _appearance(BuildContext context, BarSettings s, _Save save) =>
+      <Widget>[
+        _Group(
+          children: <Widget>[
+            _Row(
+              label: context.tr('Layout'),
+              trailing: _Segments<BarLayout>(
+                value: s.layout,
+                options: <(BarLayout, String)>[
+                  (BarLayout.attached, context.tr('Attached')),
+                  (BarLayout.floating, context.tr('Floating')),
+                ],
+                onChanged: (v) => save((s) => s.copyWith(layout: v)),
+              ),
             ),
-            child: Stack(
-              clipBehavior: Clip.none,
-              children: <Widget>[
-                Positioned.fill(
-                  child: AnimatedScale(
-                    scale: _pressedIndex >= 0 ? 0.985 : 1,
-                    duration: _motion(context, _quick),
-                    curve: Curves.easeOut,
-                    child: AnimatedBuilder(
-                      animation: _slide,
-                      builder: (context, child) => Align(
-                        alignment: Alignment(
-                          -1 + 2 * _slide.value.clamp(0.0, 1.0),
-                          0,
-                        ),
-                        child: FractionallySizedBox(
-                          widthFactor: 1 / count,
-                          heightFactor: 1,
-                          child: child,
-                        ),
-                      ),
-                      child: DecoratedBox(
-                        decoration: BoxDecoration(
-                          gradient: LinearGradient(
-                            begin: Alignment.topCenter,
-                            end: Alignment.bottomCenter,
-                            colors: <Color>[
-                              Color.alphaBlend(
-                                theme.accent.withValues(alpha: 0.24),
-                                colors.surfaceContainerHigh,
-                              ),
-                              Color.alphaBlend(
-                                theme.accent.withValues(alpha: 0.14),
-                                colors.surfaceContainerHigh,
-                              ),
-                            ],
-                          ),
-                          borderRadius: theme.borderRadius(8),
-                          border: Border.all(
-                            color: theme.accent.withValues(alpha: 0.28),
-                          ),
-                          boxShadow: <BoxShadow>[
-                            BoxShadow(
-                              color: colors.shadow,
-                              blurRadius: 6,
-                              offset: const Offset(0, 1.5),
-                            ),
-                          ],
-                        ),
-                      ),
+            _Row(
+              label: context.tr('Background'),
+              trailing: _Segments<BarGround>(
+                value: s.ground,
+                options: <(BarGround, String)>[
+                  (BarGround.none, context.tr('None')),
+                  (BarGround.plate, context.tr('Plate')),
+                  (BarGround.glass, context.tr('Glass')),
+                ],
+                onChanged: (v) => save((s) => s.copyWith(ground: v)),
+              ),
+            ),
+            _Row(
+              label: context.tr('Background opacity'),
+              enabled: s.ground != BarGround.none,
+              trailing: SizedBox(
+                width: 190,
+                child: MacSlider(
+                  value:
+                      (s.groundOpacity - BarTokens.plateOpacityMin) /
+                      (BarTokens.plateOpacityMax - BarTokens.plateOpacityMin),
+                  onChanged: (v) => save(
+                    (s) => s.copyWith(
+                      groundOpacity:
+                          BarTokens.plateOpacityMin +
+                          v *
+                              (BarTokens.plateOpacityMax -
+                                  BarTokens.plateOpacityMin),
                     ),
                   ),
                 ),
-                Positioned.fill(
-                  child: Row(
-                    crossAxisAlignment: CrossAxisAlignment.stretch,
-                    children: <Widget>[
-                      for (var index = 0; index < count; index++)
-                        Expanded(
-                          child: _Segment(
-                            label: widget.options[index].$2,
-                            icon: widget.options[index].$3,
-                            selected: index == _selectedIndex,
-                            showIcon: width >= 300,
-                            onSelect: () => _select(index),
-                          ),
-                        ),
-                    ],
-                  ),
-                ),
+              ),
+            ),
+            _Switch(
+              label: context.tr('Hairline under the bar'),
+              value: s.hairline,
+              onChanged: (v) => save((s) => s.copyWith(hairline: v)),
+            ),
+          ],
+        ),
+        _Group(
+          note: context.tr(
+            'The bar slides away and returns when the pointer or a finger touches its strip at the screen edge. Windows keep that strip free.',
+          ),
+          children: <Widget>[
+            _Switch(
+              label: context.tr('Automatically hide and show the menu bar'),
+              value: s.autoHide,
+              onChanged: (v) => save((s) => s.copyWith(autoHide: v)),
+            ),
+            _Row(
+              label: context.tr('Reveal delay'),
+              enabled: s.autoHide,
+              trailing: _Segments<int>(
+                value: s.autoHideDelayMs <= 60
+                    ? 0
+                    : (s.autoHideDelayMs <= 250 ? 120 : 400),
+                options: <(int, String)>[
+                  (0, context.tr('None')),
+                  (120, context.tr('Short')),
+                  (400, context.tr('Long')),
+                ],
+                onChanged: (v) => save((s) => s.copyWith(autoHideDelayMs: v)),
+              ),
+            ),
+          ],
+        ),
+      ];
+
+  List<Widget> _island(
+    BuildContext context,
+    BarSettings s,
+    _Save save,
+  ) => <Widget>[
+    _Group(
+      note: context.tr(
+        'The island sits in the middle of a bar at the top of the screen. Click or tap it to open the activity; drag down to pull it open.',
+      ),
+      children: <Widget>[
+        _Switch(
+          label: context.tr('Show Dynamic Island'),
+          value: s.islandEnabled,
+          onChanged: (v) => save((s) => s.copyWith(islandEnabled: v)),
+        ),
+        _Switch(
+          label: context.tr('Open when the pointer rests on it'),
+          value: s.islandHoverPeek,
+          enabled: s.islandEnabled,
+          onChanged: (v) => save((s) => s.copyWith(islandHoverPeek: v)),
+        ),
+      ],
+    ),
+    _Group(
+      title: context.tr('Live Activities'),
+      note: context.tr(
+        'Denial still shows its own volume and brightness display: a plugin cannot replace it.',
+      ),
+      children: <Widget>[
+        _Switch(
+          label: context.tr('Now Playing'),
+          value: s.activityMedia,
+          enabled: s.islandEnabled,
+          onChanged: (v) => save((s) => s.copyWith(activityMedia: v)),
+        ),
+        _Switch(
+          label: context.tr('Notifications'),
+          value: s.activityNotifications,
+          enabled: s.islandEnabled,
+          onChanged: (v) => save((s) => s.copyWith(activityNotifications: v)),
+        ),
+        _Switch(
+          label: context.tr('Charging'),
+          value: s.activityCharging,
+          enabled: s.islandEnabled,
+          onChanged: (v) => save((s) => s.copyWith(activityCharging: v)),
+        ),
+        _Switch(
+          label: context.tr('Volume and brightness'),
+          value: s.activityHud,
+          enabled: s.islandEnabled,
+          onChanged: (v) => save((s) => s.copyWith(activityHud: v)),
+        ),
+        _Switch(
+          label: context.tr('Screen recording'),
+          value: s.activityRecording,
+          enabled: s.islandEnabled,
+          onChanged: (v) => save((s) => s.copyWith(activityRecording: v)),
+        ),
+        _Switch(
+          label: context.tr('Timer'),
+          value: s.activityTimer,
+          enabled: s.islandEnabled,
+          onChanged: (v) => save((s) => s.copyWith(activityTimer: v)),
+        ),
+        _Switch(
+          label: context.tr('Downloads and file copies'),
+          value: s.activityProgress,
+          enabled: s.islandEnabled,
+          onChanged: (v) => save((s) => s.copyWith(activityProgress: v)),
+        ),
+        _Switch(
+          label: context.tr('Bluetooth, Wi-Fi and Focus changes'),
+          value: s.activityStatus,
+          enabled: s.islandEnabled,
+          onChanged: (v) => save((s) => s.copyWith(activityStatus: v)),
+        ),
+        _Row(
+          label: context.tr('Keep a notification for'),
+          enabled: s.islandEnabled && s.activityNotifications,
+          trailing: _Segments<int>(
+            value: s.islandNoticeSeconds <= 3
+                ? 3
+                : (s.islandNoticeSeconds <= 5 ? 5 : 8),
+            options: <(int, String)>[
+              for (final n in const <int>[3, 5, 8]) (n, context.tr('{} s', n)),
+            ],
+            onChanged: (v) => save((s) => s.copyWith(islandNoticeSeconds: v)),
+          ),
+        ),
+      ],
+    ),
+    _Group(
+      title: context.tr('Several Activities'),
+      note: context.tr(
+        'Downloads and file copies come from applications that report progress to docks. Timers start from the Timer control in Control Centre or from the home card.',
+      ),
+      children: <Widget>[
+        _Switch(
+          label: context.tr('Show a second activity beside the island'),
+          value: s.islandSplit,
+          enabled: s.islandEnabled,
+          onChanged: (v) => save((s) => s.copyWith(islandSplit: v)),
+        ),
+        _Switch(
+          label: context.tr('Swipe sideways to switch activities'),
+          value: s.islandSwipe,
+          enabled: s.islandEnabled,
+          onChanged: (v) => save((s) => s.copyWith(islandSwipe: v)),
+        ),
+        _Switch(
+          label: context.tr('Open a home card from the resting island'),
+          value: s.islandHome,
+          enabled: s.islandEnabled,
+          onChanged: (v) => save((s) => s.copyWith(islandHome: v)),
+        ),
+      ],
+    ),
+  ];
+
+  List<Widget> _workspaces(BuildContext context, BarSettings s, _Save save) {
+    final layout = ref.watch(shellSettingsProvider.select((v) => v.layout));
+    final shell = ref.read(shellSettingsProvider.notifier);
+    final shown = s.workspacePlacement != BarWorkspacePlacement.hidden;
+    return <Widget>[
+      _Group(
+        children: <Widget>[
+          _Row(
+            label: context.tr('Show in'),
+            trailing: _Segments<BarWorkspacePlacement>(
+              value: s.workspacePlacement,
+              options: <(BarWorkspacePlacement, String)>[
+                (BarWorkspacePlacement.island, context.tr('Island')),
+                (BarWorkspacePlacement.leading, context.tr('Left')),
+                (BarWorkspacePlacement.trailing, context.tr('Right')),
+                (BarWorkspacePlacement.hidden, context.tr('Hidden')),
               ],
+              onChanged: (v) => save((s) => s.copyWith(workspacePlacement: v)),
             ),
           ),
-        );
-      },
-    );
+          _Row(
+            label: context.tr('Style'),
+            enabled: shown,
+            trailing: _Segments<BarWorkspaceStyle>(
+              value: s.workspaceStyle,
+              options: <(BarWorkspaceStyle, String)>[
+                (BarWorkspaceStyle.dots, context.tr('Dots')),
+                (BarWorkspaceStyle.numbers, context.tr('Numbers')),
+              ],
+              onChanged: (v) => save((s) => s.copyWith(workspaceStyle: v)),
+            ),
+          ),
+        ],
+      ),
+      _Group(
+        note: context.tr(
+          'In the overview, tap a desktop to go there, or drag a window onto another desktop to move it. Hold or right-click the indicator to open it at any time.',
+        ),
+        children: <Widget>[
+          _Switch(
+            label: context.tr('Scroll or swipe on the indicator to switch'),
+            value: s.workspaceScroll,
+            enabled: shown,
+            onChanged: (v) => save((s) => s.copyWith(workspaceScroll: v)),
+          ),
+          _Switch(
+            label: context.tr('Show the overview when the pointer rests'),
+            value: s.workspacePreview,
+            enabled: shown,
+            onChanged: (v) => save((s) => s.copyWith(workspacePreview: v)),
+          ),
+        ],
+      ),
+      _Group(
+        title: context.tr('System'),
+        children: <Widget>[
+          _Switch(
+            label: context.tr('Use workspaces'),
+            value: layout.workspacesEnabled,
+            onChanged: shell.setWorkspacesEnabled,
+          ),
+          _Row(
+            label: context.tr('Number of desktops'),
+            enabled: layout.workspacesEnabled,
+            trailing: _Stepper(
+              value: layout.workspaceCount,
+              min: minimumWorkspaceCount,
+              max: maximumWorkspaceCount,
+              onChanged: (v) => shell.setWorkspaceCount(v.toDouble()),
+            ),
+          ),
+        ],
+      ),
+    ];
   }
+
+  static const Map<String, (String, IconData)> _statusItems =
+      <String, (String, IconData)>{
+        'tray': ('System tray', BarIcons.squareGrid),
+        'wifi': ('Wi-Fi', BarIcons.wifi),
+        'bluetooth': ('Bluetooth', BarIcons.bluetooth),
+        'volume': ('Sound', BarIcons.speaker3Fill),
+        'battery': ('Battery', BarIcons.batteryFull),
+        'search': ('Search', BarIcons.search),
+        'clipboard': ('Clipboard History', BarIcons.clipboard),
+        'notifications': ('Notifications', BarIcons.bellFill),
+        'controlcenter': ('Control Centre', BarIcons.sliderHorizontal3),
+        'settings': ('Menu Bar Settings', BarIcons.gear),
+      };
+
+  static bool _shown(BarSettings s, String id) => switch (id) {
+    'tray' => s.showTray,
+    'wifi' => s.showWifi,
+    'bluetooth' => s.showBluetooth,
+    'volume' => s.showVolume,
+    'battery' => s.showBattery,
+    'search' => s.showSearch,
+    'clipboard' => s.showClipboard,
+    'notifications' => s.showNotifications,
+    'controlcenter' => s.showControlCenter,
+    _ => s.showSettingsButton,
+  };
+
+  static BarSettings _show(BarSettings s, String id, bool v) => switch (id) {
+    'tray' => s.copyWith(showTray: v),
+    'wifi' => s.copyWith(showWifi: v),
+    'bluetooth' => s.copyWith(showBluetooth: v),
+    'volume' => s.copyWith(showVolume: v),
+    'battery' => s.copyWith(showBattery: v),
+    'search' => s.copyWith(showSearch: v),
+    'clipboard' => s.copyWith(showClipboard: v),
+    'notifications' => s.copyWith(showNotifications: v),
+    'controlcenter' => s.copyWith(showControlCenter: v),
+    _ => s.copyWith(showSettingsButton: v),
+  };
+
+  List<Widget> _items(BuildContext context, BarSettings s, _Save save) {
+    final services = widget.services;
+    final trayIds = services == null
+        ? const <String>[]
+        : ref.watch(services.trayItemIds);
+    trayNames.resolve(trayIds);
+    bool listed(List<String> keys, String id) =>
+        keys.contains(trayNames.of(id).key) || keys.contains(id);
+    void place(String id, int section) {
+      final key = trayNames.of(id).key;
+      bool other(String entry) => entry != key && entry != id;
+      save(
+        (s) => s.copyWith(
+          trayHidden: <String>[
+            ...s.trayHidden.where(other),
+            if (section == 1) key,
+          ],
+          trayNever: <String>[
+            ...s.trayNever.where(other),
+            if (section == 2) key,
+          ],
+        ),
+      );
+    }
+
+    final order = <String>[
+      ...<String>{...s.statusOrder, ..._statusItems.keys},
+    ].where(_statusItems.containsKey).toList();
+    return <Widget>[
+      _Group(
+        title: context.tr('Left side'),
+        children: <Widget>[
+          _Switch(
+            label: context.tr('System menu'),
+            value: s.showSystemMenu,
+            onChanged: (v) => save((s) => s.copyWith(showSystemMenu: v)),
+          ),
+          _Switch(
+            label: context.tr('Application name'),
+            value: s.showAppMenu,
+            onChanged: (v) => save((s) => s.copyWith(showAppMenu: v)),
+          ),
+        ],
+      ),
+      _Group(
+        title: context.tr('Right side'),
+        note: context.tr(
+          'Drag the handle to change the order in the menu bar.',
+        ),
+        children: <Widget>[
+          _OrderList(
+            ids: order,
+            onReorder: (ids) => save((s) => s.copyWith(statusOrder: ids)),
+            rowBuilder: (id) => (
+              icon: _statusItems[id]!.$2,
+              label: context.tr(_statusItems[id]!.$1),
+              value: _shown(s, id),
+              onChanged: (v) => save((s) => _show(s, id, v)),
+            ),
+          ),
+        ],
+      ),
+      _Group(
+        children: <Widget>[
+          _Switch(
+            label: context.tr('Show a stop button while recording the screen'),
+            value: s.showRecording,
+            onChanged: (v) => save((s) => s.copyWith(showRecording: v)),
+          ),
+          _Switch(
+            label: context.tr('Show a dot while the microphone is in use'),
+            value: s.showMic,
+            onChanged: (v) => save((s) => s.copyWith(showMic: v)),
+          ),
+          _Switch(
+            label: context.tr('Show places and servers in Recent Items'),
+            value: s.recentPlaces,
+            onChanged: (v) => save((s) => s.copyWith(recentPlaces: v)),
+          ),
+          _Switch(
+            label: context.tr('Show names when the pointer rests on an item'),
+            value: s.tooltips,
+            onChanged: (v) => save((s) => s.copyWith(tooltips: v)),
+          ),
+        ],
+      ),
+      _Group(
+        title: context.tr('System tray'),
+        children: <Widget>[
+          _Switch(
+            label: context.tr('Icons in colour'),
+            value: s.trayColour,
+            enabled: s.showTray,
+            onChanged: (v) => save((s) => s.copyWith(trayColour: v)),
+          ),
+          _Switch(
+            label: context.tr('Fold icons behind an arrow'),
+            value: s.collapseItems,
+            enabled: s.showTray,
+            onChanged: (v) => save((s) => s.copyWith(collapseItems: v)),
+          ),
+          _Row(
+            label: context.tr('Fold again after'),
+            enabled: s.showTray && (s.collapseItems || s.trayHidden.isNotEmpty),
+            trailing: _Segments<int>(
+              value: const <int>[0, 5, 15, 30].contains(s.collapseAutoSeconds)
+                  ? s.collapseAutoSeconds
+                  : 15,
+              options: <(int, String)>[
+                for (final n in const <int>[5, 15, 30])
+                  (n, context.tr('{} s', n)),
+                (0, context.tr('Never')),
+              ],
+              onChanged: (v) => save((s) => s.copyWith(collapseAutoSeconds: v)),
+            ),
+          ),
+        ],
+      ),
+      if (trayIds.isNotEmpty)
+        _Group(
+          title: context.tr('Tray items'),
+          note: context.tr(
+            'Hidden items wait behind the arrow; items set to Never are not drawn at all. The list shows what is in the tray right now.',
+          ),
+          children: <Widget>[
+            for (final id in trayIds)
+              _Row(
+                label: trayNames.of(id).title,
+                enabled: s.showTray,
+                trailing: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: <Widget>[
+                    IgnorePointer(
+                      child: services!.buildSystemTray(
+                        context,
+                        horizontal: true,
+                        itemIds: <String>[id],
+                      ),
+                    ),
+                    const SizedBox(width: 10),
+                    _Segments<int>(
+                      value: listed(s.trayNever, id)
+                          ? 2
+                          : (listed(s.trayHidden, id) ? 1 : 0),
+                      options: <(int, String)>[
+                        (0, context.tr('Shown')),
+                        (1, context.tr('Hidden')),
+                        (2, context.tr('Never')),
+                      ],
+                      onChanged: (v) => place(id, v),
+                    ),
+                  ],
+                ),
+              ),
+          ],
+        ),
+      _Group(
+        title: context.tr('Battery'),
+        children: <Widget>[
+          _Switch(
+            label: context.tr('Show percentage'),
+            value: s.showBatteryPercent,
+            enabled: s.showBattery,
+            onChanged: (v) => save((s) => s.copyWith(showBatteryPercent: v)),
+          ),
+        ],
+      ),
+    ];
+  }
+
+  List<Widget> _clock(
+    BuildContext context,
+    BarSettings s,
+    _Save save,
+  ) => <Widget>[
+    _Group(
+      title: context.tr('Clock'),
+      children: <Widget>[
+        _Switch(
+          label: context.tr('Show the date'),
+          value: s.showClockDate,
+          onChanged: (v) => save((s) => s.copyWith(showClockDate: v)),
+        ),
+        _Switch(
+          label: context.tr('Show the day of the week'),
+          value: s.clockWeekday,
+          enabled: s.showClockDate,
+          onChanged: (v) => save((s) => s.copyWith(clockWeekday: v)),
+        ),
+      ],
+    ),
+    _Group(
+      title: context.tr('Notification Center'),
+      note: context.tr(
+        'Widgets are arranged from the Edit Widgets button at the bottom of the column; Control Centre has its own Edit Controls button.',
+      ),
+      children: <Widget>[
+        _Switch(
+          label: context.tr('Open notifications and widgets from the clock'),
+          value: s.mergedNotificationCenter,
+          onChanged: (v) =>
+              save((s) => s.copyWith(mergedNotificationCenter: v)),
+        ),
+      ],
+    ),
+  ];
 }
 
-class _Segment extends StatefulWidget {
-  const _Segment({
+class _SidebarItem extends StatelessWidget {
+  const _SidebarItem({
     required this.label,
     required this.icon,
+    required this.colour,
     required this.selected,
-    required this.showIcon,
-    required this.onSelect,
+    required this.onTap,
   });
 
   final String label;
   final IconData icon;
+  final Color colour;
   final bool selected;
-  final bool showIcon;
-  final VoidCallback onSelect;
-
-  @override
-  State<_Segment> createState() => _SegmentState();
-}
-
-class _SegmentState extends State<_Segment> {
-  bool _hovered = false;
+  final VoidCallback onTap;
 
   @override
   Widget build(BuildContext context) {
     final theme = context.shellTheme;
-    final color = widget.selected
-        ? theme.colors.textPrimary
-        : theme.colors.textSecondary;
-    return MouseRegion(
-      cursor: SystemMouseCursors.click,
-      onEnter: (_) => setState(() => _hovered = true),
-      onExit: (_) => setState(() => _hovered = false),
-      child: GestureDetector(
-        behavior: HitTestBehavior.opaque,
-        onTap: widget.onSelect,
-        child: AnimatedContainer(
-          duration: _motion(context, _quick),
-          alignment: Alignment.center,
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 1),
+      child: Pressable(
+        onTap: onTap,
+        scale: 0.98,
+        child: const SizedBox.shrink(),
+        builder: (context, hovered, _) => AnimatedContainer(
+          duration: const Duration(milliseconds: 120),
+          height: 34,
+          padding: const EdgeInsets.symmetric(horizontal: 8),
           decoration: BoxDecoration(
-            color: !widget.selected && _hovered
-                ? theme.colors.textPrimary.withValues(alpha: 0.06)
-                : const Color(0x00000000),
-            borderRadius: theme.borderRadius(8),
+            color: selected
+                ? macBlue
+                : theme.colors.textPrimary.withValues(
+                    alpha: hovered ? 0.07 : 0,
+                  ),
+            borderRadius: BorderRadius.circular(8),
           ),
-          padding: const EdgeInsets.symmetric(horizontal: 6),
           child: Row(
-            mainAxisAlignment: MainAxisAlignment.center,
             children: <Widget>[
-              if (widget.showIcon) ...<Widget>[
-                Icon(widget.icon, size: 14, color: color),
-                const SizedBox(width: 6),
-              ],
-              Flexible(
+              Container(
+                width: 22,
+                height: 22,
+                decoration: BoxDecoration(
+                  color: colour,
+                  borderRadius: BorderRadius.circular(6),
+                  border: Border.all(
+                    color: const Color(0x33ffffff),
+                    width: 0.5,
+                  ),
+                ),
+                child: BarGlyph(icon, size: 13, color: const Color(0xffffffff)),
+              ),
+              const SizedBox(width: 9),
+              Expanded(
                 child: Text(
-                  widget.label,
+                  label,
                   maxLines: 1,
                   overflow: TextOverflow.ellipsis,
-                  style: BarType.value.copyWith(
-                    color: color,
-                    fontWeight: widget.selected
-                        ? FontWeight.w600
-                        : FontWeight.w400,
-                    fontSize: 12,
+                  style: BarType.menuRow.copyWith(
+                    color: selected
+                        ? const Color(0xffffffff)
+                        : theme.colors.textPrimary,
                   ),
                 ),
               ),
@@ -1107,186 +796,453 @@ class _SegmentState extends State<_Segment> {
   }
 }
 
-/// A labelled slider row. The dock sheet's `_SliderRow` is the same shape.
-class _SliderRow extends StatelessWidget {
-  const _SliderRow({
+class _Group extends StatelessWidget {
+  const _Group({required this.children, this.title, this.note});
+
+  final String? title;
+  final String? note;
+  final List<Widget> children;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = context.shellTheme;
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 18),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: <Widget>[
+          if (title != null)
+            Padding(
+              padding: const EdgeInsets.fromLTRB(4, 0, 4, 7),
+              child: Text(
+                title!,
+                style: BarType.section.copyWith(
+                  color: theme.colors.textSecondary,
+                ),
+              ),
+            ),
+          Container(
+            decoration: BoxDecoration(
+              color: theme.colors.textPrimary.withValues(alpha: 0.05),
+              borderRadius: BorderRadius.circular(11),
+              border: Border.all(
+                color: theme.colors.textPrimary.withValues(alpha: 0.07),
+              ),
+            ),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: <Widget>[
+                for (var i = 0; i < children.length; i++) ...<Widget>[
+                  if (i > 0)
+                    Padding(
+                      padding: const EdgeInsets.symmetric(horizontal: 12),
+                      child: SizedBox(
+                        height: 1,
+                        child: ColoredBox(
+                          color: theme.colors.textPrimary.withValues(
+                            alpha: 0.07,
+                          ),
+                        ),
+                      ),
+                    ),
+                  children[i],
+                ],
+              ],
+            ),
+          ),
+          if (note != null)
+            Padding(
+              padding: const EdgeInsets.fromLTRB(4, 7, 4, 0),
+              child: Text(
+                note!,
+                style: BarType.caption.copyWith(
+                  height: 1.35,
+                  color: theme.colors.textTertiary,
+                ),
+              ),
+            ),
+        ],
+      ),
+    );
+  }
+}
+
+class _Row extends StatelessWidget {
+  const _Row({
     required this.label,
-    required this.value,
-    required this.min,
-    required this.max,
-    required this.onChanged,
+    required this.trailing,
     this.enabled = true,
   });
 
   final String label;
-  final double value;
-  final double min;
-  final double max;
-  final ValueChanged<double> onChanged;
+  final Widget trailing;
   final bool enabled;
 
   @override
   Widget build(BuildContext context) {
     final theme = context.shellTheme;
-    final t = max > min ? ((value - min) / (max - min)).clamp(0.0, 1.0) : 0.0;
-    return Opacity(
-      opacity: enabled ? 1 : 0.45,
-      child: Padding(
-        padding: const EdgeInsets.fromLTRB(12, 8, 12, 12),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.stretch,
-          children: <Widget>[
-            Row(
+    return IgnorePointer(
+      ignoring: !enabled,
+      child: AnimatedOpacity(
+        duration: const Duration(milliseconds: 160),
+        opacity: enabled ? 1 : 0.4,
+        child: ConstrainedBox(
+          constraints: const BoxConstraints(minHeight: 42),
+          child: Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+            child: Row(
               children: <Widget>[
                 Expanded(
                   child: Text(
                     label,
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                    style: _labelStyle(theme),
+                    style: BarType.menuRow.copyWith(
+                      color: theme.colors.textPrimary,
+                    ),
                   ),
                 ),
-                Text(
-                  '${(t * 100).round()}%',
-                  style: BarType.caption.copyWith(
-                    color: theme.colors.textSecondary,
-                  ),
-                ),
+                const SizedBox(width: 12),
+                trailing,
               ],
             ),
-            const SizedBox(height: 8),
-            _Slider(
-              value: t,
-              enabled: enabled,
-              onChanged: (next) => onChanged(min + next * (max - min)),
-            ),
-          ],
+          ),
         ),
       ),
     );
   }
 }
 
-class _Slider extends StatefulWidget {
-  const _Slider({
+class _Switch extends StatelessWidget {
+  const _Switch({
+    required this.label,
     required this.value,
     required this.onChanged,
     this.enabled = true,
   });
 
-  final double value;
-  final ValueChanged<double> onChanged;
+  final String label;
+  final bool value;
+  final ValueChanged<bool> onChanged;
   final bool enabled;
 
   @override
-  State<_Slider> createState() => _SliderState();
+  Widget build(BuildContext context) {
+    return _Row(
+      label: label,
+      enabled: enabled,
+      trailing: Transform.scale(
+        scale: 0.86,
+        alignment: Alignment.centerRight,
+        child: MacSwitch(value: value, onChanged: onChanged),
+      ),
+    );
+  }
 }
 
-class _SliderState extends State<_Slider> {
-  bool _hovered = false;
-  bool _dragging = false;
+class _Segments<T> extends StatelessWidget {
+  const _Segments({
+    required this.value,
+    required this.options,
+    required this.onChanged,
+  });
 
-  void _update(Offset position, double width) {
-    if (!widget.enabled || width <= 0) return;
-    widget.onChanged((position.dx / width).clamp(0.0, 1.0).toDouble());
+  final T value;
+  final List<(T, String)> options;
+  final ValueChanged<T> onChanged;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = context.shellTheme;
+    final ink = theme.colors.textPrimary;
+    return Container(
+      height: 28,
+      padding: const EdgeInsets.all(2),
+      decoration: BoxDecoration(
+        color: ink.withValues(alpha: 0.08),
+        borderRadius: BorderRadius.circular(8),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: <Widget>[
+          for (final (option, label) in options)
+            Pressable(
+              onTap: option == value ? null : () => onChanged(option),
+              scale: 0.95,
+              child: AnimatedContainer(
+                duration: const Duration(milliseconds: 180),
+                curve: Curves.easeOutCubic,
+                height: 24,
+                constraints: const BoxConstraints(minWidth: 46),
+                padding: const EdgeInsets.symmetric(horizontal: 11),
+                alignment: Alignment.center,
+                decoration: BoxDecoration(
+                  color: option == value
+                      ? ink.withValues(alpha: 0.20)
+                      : ink.withValues(alpha: 0),
+                  borderRadius: BorderRadius.circular(6),
+                ),
+                child: Text(
+                  label,
+                  style: BarType.caption.copyWith(
+                    fontSize: 12,
+                    fontWeight: option == value
+                        ? FontWeight.w600
+                        : FontWeight.w400,
+                    color: ink,
+                  ),
+                ),
+              ),
+            ),
+        ],
+      ),
+    );
+  }
+}
+
+class _Stepper extends StatelessWidget {
+  const _Stepper({
+    required this.value,
+    required this.min,
+    required this.max,
+    required this.onChanged,
+  });
+
+  final int value;
+  final int min;
+  final int max;
+  final ValueChanged<int> onChanged;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = context.shellTheme;
+    final ink = theme.colors.textPrimary;
+    Widget button(IconData icon, int next) {
+      final enabled = next >= min && next <= max;
+      return Pressable(
+        onTap: enabled ? () => onChanged(next) : null,
+        scale: 0.85,
+        child: SizedBox(
+          width: 30,
+          height: 24,
+          child: BarGlyph(
+            icon,
+            size: 11,
+            color: ink.withValues(alpha: enabled ? 1 : 0.3),
+          ),
+        ),
+      );
+    }
+
+    return Row(
+      mainAxisSize: MainAxisSize.min,
+      children: <Widget>[
+        Text(
+          '$value',
+          style: BarType.menuRow.copyWith(
+            color: ink,
+            fontFeatures: const <FontFeature>[FontFeature.tabularFigures()],
+          ),
+        ),
+        const SizedBox(width: 10),
+        Container(
+          height: 28,
+          padding: const EdgeInsets.all(2),
+          decoration: BoxDecoration(
+            color: ink.withValues(alpha: 0.08),
+            borderRadius: BorderRadius.circular(8),
+          ),
+          child: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: <Widget>[
+              button(BarIcons.minus, value - 1),
+              SizedBox(
+                width: 1,
+                height: 14,
+                child: ColoredBox(color: ink.withValues(alpha: 0.15)),
+              ),
+              button(BarIcons.plus, value + 1),
+            ],
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+class _TextButton extends StatelessWidget {
+  const _TextButton({required this.label, required this.onTap});
+
+  final String label;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = context.shellTheme;
+    return Pressable(
+      onTap: onTap,
+      scale: 0.96,
+      child: Container(
+        height: 28,
+        alignment: Alignment.center,
+        decoration: BoxDecoration(
+          color: theme.colors.textPrimary.withValues(alpha: 0.08),
+          borderRadius: BorderRadius.circular(8),
+        ),
+        child: Text(
+          label,
+          style: BarType.caption.copyWith(
+            fontSize: 12,
+            color: theme.colors.textPrimary,
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+typedef _OrderRow = ({
+  IconData icon,
+  String label,
+  bool value,
+  ValueChanged<bool> onChanged,
+});
+
+/// Rows that are reordered by dragging the handle at their end.
+class _OrderList extends StatefulWidget {
+  const _OrderList({
+    required this.ids,
+    required this.onReorder,
+    required this.rowBuilder,
+  });
+
+  final List<String> ids;
+  final ValueChanged<List<String>> onReorder;
+  final _OrderRow Function(String id) rowBuilder;
+
+  @override
+  State<_OrderList> createState() => _OrderListState();
+}
+
+class _OrderListState extends State<_OrderList> {
+  static const double _h = 42;
+  List<String>? _order;
+  String? _dragId;
+  double _dragTop = 0;
+
+  void _move(double dy) {
+    final order = _order!;
+    _dragTop = (_dragTop + dy).clamp(0.0, (order.length - 1) * _h);
+    final from = order.indexOf(_dragId!);
+    final to = ((_dragTop + _h / 2) / _h).floor().clamp(0, order.length - 1);
+    if (to != from) {
+      order
+        ..removeAt(from)
+        ..insert(to, _dragId!);
+    }
+    setState(() {});
+  }
+
+  void _end() {
+    final order = _order;
+    setState(() {
+      _order = null;
+      _dragId = null;
+    });
+    if (order != null) widget.onReorder(order);
   }
 
   @override
   Widget build(BuildContext context) {
     final theme = context.shellTheme;
-    final colors = theme.colors;
-    return LayoutBuilder(
-      builder: (context, constraints) {
-        final width = constraints.maxWidth;
-        final t = widget.value.clamp(0.0, 1.0);
-        return MouseRegion(
-          cursor: widget.enabled
-              ? SystemMouseCursors.click
-              : MouseCursor.defer,
-          onEnter: (_) => setState(() => _hovered = true),
-          onExit: (_) => setState(() => _hovered = false),
-          child: GestureDetector(
-            behavior: HitTestBehavior.opaque,
-            onTapDown: (details) => _update(details.localPosition, width),
-            onHorizontalDragStart: (details) {
-              setState(() => _dragging = true);
-              _update(details.localPosition, width);
-            },
-            onHorizontalDragUpdate: (details) =>
-                _update(details.localPosition, width),
-            onHorizontalDragEnd: (_) => setState(() => _dragging = false),
-            onHorizontalDragCancel: () =>
-                setState(() => _dragging = false),
-            child: SizedBox(
-              height: 20,
-              child: Stack(
-                clipBehavior: Clip.none,
-                children: <Widget>[
-                  Positioned(
-                    left: 0,
-                    right: 0,
-                    top: 0,
-                    bottom: 0,
-                    child: Center(
-                      child: Container(
-                        height: 4,
-                        decoration: BoxDecoration(
-                          color: colors.textPrimary.withValues(alpha: 0.14),
-                          borderRadius: BorderRadius.circular(2),
-                        ),
-                      ),
-                    ),
-                  ),
-                  Positioned(
-                    left: 0,
-                    width: width * t,
-                    top: 0,
-                    bottom: 0,
-                    child: Center(
-                      child: Container(
-                        height: 4,
-                        decoration: BoxDecoration(
-                          color: theme.accent,
-                          borderRadius: BorderRadius.circular(2),
-                        ),
-                      ),
-                    ),
-                  ),
-                  Positioned(
-                    left: (width * t - 9).clamp(-9.0, width - 9),
-                    top: 0,
-                    bottom: 0,
-                    child: Center(
-                      child: AnimatedScale(
-                        scale: _dragging ? 1.15 : (_hovered ? 1.06 : 1.0),
-                        duration: _motion(context, _quick),
-                        child: Container(
-                          width: 18,
-                          height: 18,
-                          decoration: BoxDecoration(
-                            shape: BoxShape.circle,
-                            color: colors.sliderThumb,
-                            border: Border.all(
-                              color: colors.textPrimary.withValues(alpha: 0.08),
-                            ),
-                            boxShadow: <BoxShadow>[
-                              BoxShadow(
-                                color: colors.shadow,
-                                blurRadius: 4,
-                                offset: const Offset(0, 1.5),
-                              ),
-                            ],
-                          ),
-                        ),
-                      ),
-                    ),
-                  ),
-                ],
-              ),
-            ),
+    final ink = theme.colors.textPrimary;
+    final order = _order ?? widget.ids;
+
+    Widget row(String id) {
+      final data = widget.rowBuilder(id);
+      final dragging = id == _dragId;
+      return AnimatedPositioned(
+        key: ValueKey<String>(id),
+        duration: Duration(milliseconds: dragging ? 0 : 240),
+        curve: Curves.easeOutCubic,
+        left: 0,
+        right: 0,
+        top: dragging ? _dragTop : order.indexOf(id) * _h,
+        height: _h,
+        child: AnimatedContainer(
+          duration: const Duration(milliseconds: 140),
+          decoration: BoxDecoration(
+            color: dragging
+                ? Color.alphaBlend(
+                    ink.withValues(alpha: 0.12),
+                    theme.colors.surfaceContainer,
+                  )
+                : ink.withValues(alpha: 0),
+            borderRadius: BorderRadius.circular(9),
+            boxShadow: dragging
+                ? const <BoxShadow>[
+                    BoxShadow(color: Color(0x44000000), blurRadius: 12),
+                  ]
+                : null,
           ),
-        );
-      },
+          padding: const EdgeInsets.only(left: 12, right: 4),
+          child: Row(
+            children: <Widget>[
+              SizedBox(
+                width: 20,
+                child: BarGlyph(data.icon, size: 14, color: ink),
+              ),
+              const SizedBox(width: 10),
+              Expanded(
+                child: Text(
+                  data.label,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: BarType.menuRow.copyWith(color: ink),
+                ),
+              ),
+              Transform.scale(
+                scale: 0.86,
+                alignment: Alignment.centerRight,
+                child: MacSwitch(value: data.value, onChanged: data.onChanged),
+              ),
+              MouseRegion(
+                cursor: SystemMouseCursors.grab,
+                child: GestureDetector(
+                  behavior: HitTestBehavior.opaque,
+                  onVerticalDragStart: (_) => setState(() {
+                    _order = List<String>.of(widget.ids);
+                    _dragId = id;
+                    _dragTop = widget.ids.indexOf(id) * _h;
+                  }),
+                  onVerticalDragUpdate: (d) => _move(d.delta.dy),
+                  onVerticalDragEnd: (_) => _end(),
+                  onVerticalDragCancel: _end,
+                  child: SizedBox(
+                    width: 36,
+                    height: _h,
+                    child: BarGlyph(
+                      BarIcons.lineHorizontal3,
+                      size: 14,
+                      color: theme.colors.textTertiary,
+                    ),
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ),
+      );
+    }
+
+    return SizedBox(
+      height: order.length * _h,
+      child: Stack(
+        clipBehavior: Clip.none,
+        children: <Widget>[
+          for (final id in order)
+            if (id != _dragId) row(id),
+          if (_dragId != null) row(_dragId!),
+        ],
+      ),
     );
   }
 }

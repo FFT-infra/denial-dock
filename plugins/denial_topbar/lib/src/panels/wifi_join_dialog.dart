@@ -6,7 +6,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../bar_icons.dart';
 import '../bar_type.dart';
-import 'cc_card.dart';
+import 'mac_kit.dart';
 
 /// The "Join “SSID”" dialog.
 ///
@@ -71,11 +71,10 @@ class _WifiJoinDialogState extends ConsumerState<WifiJoinDialog> {
     super.dispose();
   }
 
-  bool get _busy =>
-      ref
-          .watch(networkConnectivityProvider)
-          .busyNetworks
-          .contains(widget.network.identity);
+  bool get _busy => ref
+      .watch(networkConnectivityProvider)
+      .busyNetworks
+      .contains(widget.network.identity);
 
   Future<void> _join() async {
     if (_busy) return;
@@ -186,7 +185,7 @@ class _WifiJoinDialogState extends ConsumerState<WifiJoinDialog> {
             left: 0,
             right: 0,
             child: Center(
-              child: BarGlyph(BarIcons.wifi, size: 44, color: ccBlue),
+              child: BarGlyph(BarIcons.wifi, size: 44, color: macBlue),
             ),
           ),
           Positioned(
@@ -334,8 +333,12 @@ class _RingButtonState extends State<_RingButton> {
               ),
               child: Center(
                 child: widget.busy
-                    ? CcBusyArc(color: widget.ink, size: 17)
-                    : BarGlyph(widget.glyph!, size: widget.glyphSize, color: widget.ink),
+                    ? BarGlyph(BarIcons.ellipsis, size: 15, color: widget.ink)
+                    : BarGlyph(
+                        widget.glyph!,
+                        size: widget.glyphSize,
+                        color: widget.ink,
+                      ),
               ),
             ),
           ),
@@ -397,7 +400,9 @@ class _PasswordPillState extends State<_PasswordPill> {
             : Colors.black.withValues(alpha: 0.05),
         borderRadius: BorderRadius.circular(14),
         border: Border.all(
-          color: _focused ? ccBlue.withValues(alpha: 0.80) : Colors.transparent,
+          color: _focused
+              ? macBlue.withValues(alpha: 0.80)
+              : Colors.transparent,
         ),
       ),
       child: Padding(
@@ -407,7 +412,7 @@ class _PasswordPillState extends State<_PasswordPill> {
           focusNode: widget.focusNode,
           obscureText: true,
           style: BarType.caption.copyWith(fontSize: 14, color: widget.ink),
-          cursorColor: ccBlue,
+          cursorColor: macBlue,
           onSubmitted: (_) => widget.onSubmitted(),
           decoration: InputDecoration(
             isDense: true,
@@ -448,9 +453,9 @@ class _SavedStrip extends StatelessWidget {
     return Container(
       height: 38,
       decoration: BoxDecoration(
-        color: ccBlue.withValues(alpha: 0.16),
+        color: macBlue.withValues(alpha: 0.16),
         borderRadius: BorderRadius.circular(14),
-        border: Border.all(color: ccBlue.withValues(alpha: 0.36)),
+        border: Border.all(color: macBlue.withValues(alpha: 0.36)),
       ),
       child: Row(
         children: <Widget>[

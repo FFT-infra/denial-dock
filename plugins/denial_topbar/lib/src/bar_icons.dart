@@ -214,6 +214,131 @@ abstract final class BarIcons {
     fontPackage: _package,
   );
 
+  static const IconData folder = IconData(
+    0xf434,
+    fontFamily: _family,
+    fontPackage: _package,
+  );
+
+  static const IconData clipboard = IconData(
+    0xf632,
+    fontFamily: _family,
+    fontPackage: _package,
+  );
+  static const IconData doc = IconData(
+    0xf62d,
+    fontFamily: _family,
+    fontPackage: _package,
+  );
+
+  static const IconData chevronLeft2 = IconData(
+    0xf5da,
+    fontFamily: _family,
+    fontPackage: _package,
+  );
+
+  static const IconData chevronRight2 = IconData(
+    0xf5e0,
+    fontFamily: _family,
+    fontPackage: _package,
+  );
+
+  static const IconData trash = IconData(
+    0xf4c4,
+    fontFamily: _family,
+    fontPackage: _package,
+  );
+
+  static const IconData speaker1Fill = IconData(
+    0xf3b7,
+    fontFamily: _family,
+    fontPackage: _package,
+  );
+
+  static const IconData speaker3Fill = IconData(
+    0xf3ba,
+    fontFamily: _family,
+    fontPackage: _package,
+  );
+
+  static const IconData headphones = IconData(
+    0xf6bb,
+    fontFamily: _family,
+    fontPackage: _package,
+  );
+
+  static const IconData lockFill = IconData(
+    0xf4c9,
+    fontFamily: _family,
+    fontPackage: _package,
+  );
+
+  static const IconData desktopcomputer = IconData(
+    0xf625,
+    fontFamily: _family,
+    fontPackage: _package,
+  );
+
+  static const IconData circleHalf = IconData(
+    0xf5f0,
+    fontFamily: _family,
+    fontPackage: _package,
+  );
+
+  static const IconData rectangleStack = IconData(
+    0xf7b0,
+    fontFamily: _family,
+    fontPackage: _package,
+  );
+
+  static const IconData tv = IconData(
+    0xf881,
+    fontFamily: _family,
+    fontPackage: _package,
+  );
+
+  static const IconData xmarkCircleFill = IconData(
+    0xf36e,
+    fontFamily: _family,
+    fontPackage: _package,
+  );
+
+  static const IconData resize = IconData(
+    0xf386,
+    fontFamily: _family,
+    fontPackage: _package,
+  );
+
+  static const IconData stopFill = IconData(
+    0xf82b,
+    fontFamily: _family,
+    fontPackage: _package,
+  );
+
+  static const IconData eyeSlash = IconData(
+    0xf662,
+    fontFamily: _family,
+    fontPackage: _package,
+  );
+
+  static const IconData timer = IconData(
+    0xf868,
+    fontFamily: _family,
+    fontPackage: _package,
+  );
+
+  static const IconData speakerSlashFill = IconData(
+    0xf3b9,
+    fontFamily: _family,
+    fontPackage: _package,
+  );
+
+  static const IconData camera = IconData(
+    0xf3f5,
+    fontFamily: _family,
+    fontPackage: _package,
+  );
+
   static const IconData bolt = IconData(
     0xf593,
     fontFamily: _family,
@@ -272,6 +397,61 @@ abstract final class BarIcons {
 
   static const String _family = 'CupertinoIcons';
   static const String _package = 'denial_topbar';
+  static const IconData calendar = IconData(
+    0xf5b0,
+    fontFamily: _family,
+    fontPackage: _package,
+  );
+  static const IconData globe = IconData(
+    0xf68d,
+    fontFamily: _family,
+    fontPackage: _package,
+  );
+  static const IconData clock = IconData(
+    0xf4be,
+    fontFamily: _family,
+    fontPackage: _package,
+  );
+  static const IconData paintbrushFill = IconData(
+    0xf72f,
+    fontFamily: _family,
+    fontPackage: _package,
+  );
+  static const IconData capsuleFill = IconData(
+    0xf5bd,
+    fontFamily: _family,
+    fontPackage: _package,
+  );
+  static const IconData squareGrid = IconData(
+    0xf805,
+    fontFamily: _family,
+    fontPackage: _package,
+  );
+  static const IconData appBadgeFill = IconData(
+    0xf4df,
+    fontFamily: _family,
+    fontPackage: _package,
+  );
+  static const IconData rectangle3 = IconData(
+    0xf79d,
+    fontFamily: _family,
+    fontPackage: _package,
+  );
+  static const IconData lineHorizontal3 = IconData(
+    0xf6e1,
+    fontFamily: _family,
+    fontPackage: _package,
+  );
+  static const IconData macwindow = IconData(
+    0xf702,
+    fontFamily: _family,
+    fontPackage: _package,
+  );
+  static const IconData cpu = IconData(
+    0xf7f5,
+    fontFamily: _family,
+    fontPackage: _package,
+  );
 }
 
 /// A glyph sized for the bar's status cluster.

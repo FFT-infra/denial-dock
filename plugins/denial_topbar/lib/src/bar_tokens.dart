@@ -18,6 +18,8 @@ library;
 
 import 'dart:math' as math;
 
+import 'package:flutter/animation.dart' show Cubic;
+
 abstract final class BarTokens {
   // ── Strip ────────────────────────────────────────────────────────────────
   /// Bar height. shell27 ships `barHeight: 28`; MacShell matches. The HIG's
@@ -142,7 +144,8 @@ abstract final class BarTokens {
   static const double controlCenterMargin = 20;
 
   /// Content width the card grid is laid out against.
-  static const double ccContentWidth = controlCenterWidth - controlCenterMargin * 2;
+  static const double ccContentWidth =
+      controlCenterWidth - controlCenterMargin * 2;
 
   /// Connectivity pill width: `round((content - 8) * 137 / 288)`.
   static const double ccConnectivityWidth = 137;
@@ -216,7 +219,7 @@ abstract final class BarTokens {
   /// macOS 27: resting capsule 58 × 31 at 8.5 pt from the edge, expanded
   /// radius 32 with 16 pt padding [S27]. A 28 pt strip cannot hold 31, so the
   /// pill takes what the strip can take and keeps the expanded geometry.
-  static const double islandHeight = 31;
+  static const double islandHeight = 28;
   static const double islandMinHeight = 20;
   static const double islandIdleWidth = 58;
   static const double islandEdgeInset = 8.5;
@@ -251,6 +254,15 @@ abstract final class BarTokens {
   static const double islandCompactCover = 20;
   static const double islandCompactMediaWidth = 133;
 
+  /// The level HUD and the compact charge face.
+  static const double islandHudWidth = 168;
+  static const double islandChargeCompactWidth = 150;
+  static const Duration islandHudHold = Duration(seconds: 2);
+
+  /// The damped spring every panel and the island settle on: about 4% past
+  /// the target, then home.
+  static const Cubic spring = Cubic(0.18, 1.04, 0.22, 1.0);
+
   /// Expanded card. macOS 27 measures 32 pt continuous corners, identical on
   /// all four sides, with 16 pt of content padding [S27]. meniscus
   /// `IslandMetrics` puts its player cover at 44 [S36]. The media card takes
@@ -260,13 +272,13 @@ abstract final class BarTokens {
   static const double islandPopupRadius = 32;
   static const double islandPopupPadding = 16;
   static const double islandPlayerCover = 44;
-  static const double islandMediaWidth = 470;
+  static const double islandMediaWidth = 400;
 
   /// darkshadow fixes each card's size so the shape can morph to a known
   /// rect: the player is 470 × 184, a notification 440 × 96, the charge face
   /// 340 wide. meniscus caps the content height at 132 [S36]; the media card
   /// spends its extra height on the transport row at `y: 134`.
-  static const double islandMediaHeight = 184;
+  static const double islandMediaHeight = 176;
   static const double islandBannerWidth = 360;
   static const double islandBannerHeight = 96;
 

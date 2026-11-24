@@ -6,6 +6,7 @@ import 'package:denial_sdk/composition.dart';
 import 'package:flutter/widgets.dart';
 
 import 'src/bar_surface.dart';
+import 'src/island/island.dart' show islandReach;
 
 /// A macOS 27 menu bar with an optional Dynamic Island.
 ///
@@ -33,7 +34,9 @@ final class TopBarPlugin implements ShellSurface {
       bounds: ShellSurfacePlacement.edgeBounds(
         environment.output.logicalRect,
         side,
-        layout.systemBarThickness + barShadowExtent,
+        layout.systemBarThickness +
+            barShadowExtent +
+            (side == PanelEdge.top ? islandReach : 0),
       ),
       visible:
           !environment.locked &&

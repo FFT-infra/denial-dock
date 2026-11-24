@@ -5,6 +5,7 @@ import 'package:denial_flutter_sdk/theme.dart';
 import 'package:flutter/widgets.dart';
 
 import '../bar_type.dart';
+import '../l10n.dart';
 
 /// One city's local time, read through the host's own zoneinfo.
 ///
@@ -105,16 +106,9 @@ class _WorldClockCardState extends State<WorldClockCard> {
   Widget build(BuildContext context) {
     if (_clocks.isEmpty) return const SizedBox.shrink();
     final theme = context.shellTheme;
-    return DecoratedBox(
-      decoration: BoxDecoration(
-        color: theme.colors.textPrimary.withValues(alpha: 0.06),
-        borderRadius: theme.borderRadius(12),
-        border: Border.all(
-          color: theme.colors.hairlineSoft.withValues(alpha: 0.4),
-        ),
-      ),
+    return SizedBox(
       child: Padding(
-        padding: const EdgeInsets.fromLTRB(12, 8, 12, 8),
+        padding: const EdgeInsets.fromLTRB(16, 12, 16, 10),
         child: Column(
           mainAxisSize: MainAxisSize.min,
           crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -122,7 +116,7 @@ class _WorldClockCardState extends State<WorldClockCard> {
             Padding(
               padding: const EdgeInsets.only(bottom: 4),
               child: Text(
-                'World Clock',
+                context.tr('World Clock'),
                 style: BarType.caption.copyWith(
                   fontWeight: FontWeight.w600,
                   color: theme.colors.textSecondary,
@@ -131,7 +125,7 @@ class _WorldClockCardState extends State<WorldClockCard> {
             ),
             for (final clock in _clocks)
               SizedBox(
-                height: 24,
+                height: 28,
                 child: Row(
                   children: <Widget>[
                     Expanded(
@@ -148,7 +142,9 @@ class _WorldClockCardState extends State<WorldClockCard> {
                       Padding(
                         padding: const EdgeInsets.only(right: 6),
                         child: Text(
-                          clock.dayDelta < 0 ? 'Yesterday' : 'Tomorrow',
+                          context.tr(
+                            clock.dayDelta < 0 ? 'Yesterday' : 'Tomorrow',
+                          ),
                           style: BarType.caption.copyWith(
                             fontSize: 10,
                             color: theme.colors.textTertiary,

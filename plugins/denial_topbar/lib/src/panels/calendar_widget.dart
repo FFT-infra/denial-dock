@@ -85,7 +85,10 @@ class _CalendarWidgetState extends ConsumerState<CalendarWidget> {
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: <Widget>[
                       Text(
-                        localizedWeekday(context.l10n, now.weekday).toUpperCase(),
+                        localizedWeekday(
+                          context.l10n,
+                          now.weekday,
+                        ).toUpperCase(),
                         style: TextStyle(
                           fontSize: 13,
                           fontWeight: FontWeight.w700,
@@ -95,12 +98,13 @@ class _CalendarWidgetState extends ConsumerState<CalendarWidget> {
                         maxLines: 1,
                         overflow: TextOverflow.ellipsis,
                       ),
-                      const SizedBox(height: 2),
+                      const SizedBox(height: 6),
                       Text(
                         '${now.day}',
                         style: TextStyle(
                           fontSize: 52,
-                          fontWeight: FontWeight.w300,
+                          fontWeight: FontWeight.w700,
+                          letterSpacing: -1.5,
                           height: 1.0,
                           color: theme.colors.textPrimary,
                         ),
@@ -121,7 +125,10 @@ class _CalendarWidgetState extends ConsumerState<CalendarWidget> {
                 // ── Vertical Hairline Divider ──
                 Container(
                   width: 1,
-                  margin: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                  margin: const EdgeInsets.symmetric(
+                    horizontal: 10,
+                    vertical: 4,
+                  ),
                   color: theme.colors.hairlineSoft.withValues(alpha: 0.6),
                 ),
 
@@ -168,7 +175,9 @@ class _CalendarWidgetState extends ConsumerState<CalendarWidget> {
                                   style: TextStyle(
                                     fontSize: 10.5,
                                     fontWeight: FontWeight.w600,
-                                    color: theme.colors.textPrimary.withValues(alpha: 0.5),
+                                    color: theme.colors.textPrimary.withValues(
+                                      alpha: 0.5,
+                                    ),
                                   ),
                                 ),
                               ),
@@ -178,24 +187,34 @@ class _CalendarWidgetState extends ConsumerState<CalendarWidget> {
                       const SizedBox(height: 2),
                       // Day rows (up to 6 rows)
                       Expanded(
-                        child: Column(
-                          mainAxisAlignment: MainAxisAlignment.spaceEvenly,
-                          children: <Widget>[
-                            for (var r = 0; r < cells.length ~/ 7; r++)
-                              Row(
-                                children: <Widget>[
-                                  for (var c = 0; c < 7; c++)
-                                    Expanded(
-                                      child: Center(
-                                        child: _CompactDay(
-                                          date: cells[r * 7 + c],
-                                          today: now,
+                        child: LayoutBuilder(
+                          builder: (context, box) {
+                            final rows = cells.length ~/ 7;
+                            final size = (box.maxHeight / rows).clamp(
+                              10.0,
+                              18.0,
+                            );
+                            return Column(
+                              mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+                              children: <Widget>[
+                                for (var r = 0; r < rows; r++)
+                                  Row(
+                                    children: <Widget>[
+                                      for (var c = 0; c < 7; c++)
+                                        Expanded(
+                                          child: Center(
+                                            child: _CompactDay(
+                                              date: cells[r * 7 + c],
+                                              today: now,
+                                              size: size,
+                                            ),
+                                          ),
                                         ),
-                                      ),
-                                    ),
-                                ],
-                              ),
-                          ],
+                                    ],
+                                  ),
+                              ],
+                            );
+                          },
                         ),
                       ),
                     ],
@@ -249,11 +268,7 @@ class _ChevronBtnState extends State<_ChevronBtn> {
                 ? theme.colors.textPrimary.withValues(alpha: 0.1)
                 : Colors.transparent,
           ),
-          child: Icon(
-            widget.icon,
-            size: 11,
-            color: theme.colors.textPrimary,
-          ),
+          child: Icon(widget.icon, size: 11, color: theme.colors.textPrimary),
         ),
       ),
     );
@@ -261,24 +276,25 @@ class _ChevronBtnState extends State<_ChevronBtn> {
 }
 
 class _CompactDay extends StatelessWidget {
-  const _CompactDay({required this.date, required this.today});
+  const _CompactDay({required this.date, required this.today, this.size = 18});
 
   final DateTime? date;
   final DateTime today;
+  final double size;
 
   @override
   Widget build(BuildContext context) {
     final theme = context.shellTheme;
     final value = date;
-    if (value == null) return const SizedBox(width: 18, height: 18);
+    if (value == null) return SizedBox(width: size, height: size);
     final isToday =
         value.year == today.year &&
         value.month == today.month &&
         value.day == today.day;
 
     return Container(
-      width: 18,
-      height: 18,
+      width: size,
+      height: size,
       alignment: Alignment.center,
       decoration: BoxDecoration(
         shape: BoxShape.circle,
@@ -287,7 +303,8 @@ class _CompactDay extends StatelessWidget {
       child: Text(
         '${value.day}',
         style: TextStyle(
-          fontSize: 11,
+          fontSize: size < 16 ? 10 : 11,
+          height: 1,
           fontWeight: isToday ? FontWeight.w700 : FontWeight.w400,
           color: isToday ? const Color(0xffffffff) : theme.colors.textPrimary,
         ),

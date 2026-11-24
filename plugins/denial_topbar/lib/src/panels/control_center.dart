@@ -1,907 +1,903 @@
+import 'dart:async';
+
 import 'package:denial_flutter_sdk/models.dart';
 import 'package:denial_flutter_sdk/services.dart';
 import 'package:denial_flutter_sdk/settings.dart';
 import 'package:denial_flutter_sdk/state.dart';
-import 'package:denial_flutter_sdk/system_services.dart' show WifiNetwork;
+import 'package:denial_flutter_sdk/system_services.dart'
+    show PowerProfile, WifiNetwork, systemActionsServiceProvider;
 import 'package:denial_flutter_sdk/theme.dart';
-import 'package:flutter/material.dart';
+import 'package:flutter/widgets.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../bar_icons.dart';
-import '../bar_tokens.dart';
+import '../bar_preferences.dart';
+import '../bar_settings.dart';
 import '../bar_type.dart';
-import '../island.dart' show IslandExpandedBody, IslandMode;
+import '../debug_remote.dart';
+import '../island/island_timer.dart';
+import '../l10n.dart';
 import '../media_art.dart';
-import 'cc_card.dart';
-import 'network_panels.dart';
+import '../night_light.dart';
+import 'mac_kit.dart';
+import 'popovers.dart';
+import 'tile_grid.dart';
 
-/// Control Centre.
-///
-/// Ports NextKDE `ControlCenterPanel.qml`: a `max(296, min(336, screenW - 24))`
-/// slab with 20 pt of inset, holding a fixed card grid — the Wi-Fi and
-/// Bluetooth pills down the left, the media card beside them, five 52 pt
-/// squares under that, and the brightness and sound sliders across the bottom.
-/// Each card is a `CcCard`, which carries the reference's fill, rim, hover wash
-/// and press scale.
+const double controlCenterWidth = 320;
+
+abstract final class _C {
+  static const double inset = 14;
+  static const double gap = 12;
+  static const double row = 64;
+}
+
+/// Control Centre: connectivity capsules beside Now Playing, the round
+/// switches, then the display and sound sliders. A capsule's disc toggles;
+/// the rest of it opens the detail page in place.
 class ControlCenterPanel extends ConsumerStatefulWidget {
   const ControlCenterPanel({
     required this.services,
-    required this.monitorId,
     required this.output,
-    required this.onOpenSettings,
-    required this.onOpenNotifications,
-    required this.onOpenIsland,
-    required this.onOpenDisplaySettings,
-    required this.onOpenNowPlaying,
+    required this.onSettings,
     required this.onJoinNetwork,
+    required this.onClose,
     super.key,
   });
 
   final ShellServices services;
-  final int monitorId;
   final DisplayOutput output;
-  final VoidCallback onOpenSettings;
-  final VoidCallback onOpenNotifications;
-  final VoidCallback onOpenIsland;
-  final VoidCallback onOpenDisplaySettings;
-
-  /// Opens the Wi-Fi join dialog for a secured network with no saved profile.
+  final VoidCallback onSettings;
   final ValueChanged<WifiNetwork> onJoinNetwork;
-
-  /// Opens the Now Playing card. shell27's media tile is not clickable; macOS
-  /// opens the full card from it, so the tile's body does that here.
-  final VoidCallback onOpenNowPlaying;
+  final VoidCallback onClose;
 
   @override
   ConsumerState<ControlCenterPanel> createState() => _ControlCenterPanelState();
 }
 
 class _ControlCenterPanelState extends ConsumerState<ControlCenterPanel> {
-  /// The open sub-page: `''` is the grid, then `wifi`, `bt`, `display` or
-  /// `sound`. NextKDE keeps one `activeSubmenu` string for the same reason.
   String _page = '';
+  bool _editing = false;
 
   ShellServices get services => widget.services;
-  DisplayOutput get output => widget.output;
-  VoidCallback get onOpenSettings => widget.onOpenSettings;
-  VoidCallback get onOpenNotifications => widget.onOpenNotifications;
-  VoidCallback get onOpenIsland => widget.onOpenIsland;
-  VoidCallback get onOpenDisplaySettings => widget.onOpenDisplaySettings;
-  VoidCallback get onOpenNowPlaying => widget.onOpenNowPlaying;
+
+  @override
+  void initState() {
+    super.initState();
+    NightLight.sync();
+    debugCommand.addListener(_debug);
+  }
+
+  @override
+  void dispose() {
+    debugCommand.removeListener(_debug);
+    super.dispose();
+  }
+
+  void _debug() {
+    final words = debugWords();
+    if (words.length < 2 || words.first != 'ccpage') return;
+    setState(() {
+      _editing = words[1] == 'edit';
+      _page = _editing || words[1] == 'home' ? '' : words[1];
+    });
+  }
+
+  void _go(String page) => setState(() => _page = page);
 
   @override
   Widget build(BuildContext context) {
-    final width = BarTokens.controlCenterWidthFor(
-      MediaQuery.sizeOf(context).width,
-    );
-    if (_page.isNotEmpty) {
-      return AnimatedSize(
-        duration: Motion.cardSettle,
-        curve: Curves.easeOut,
+    final Widget body = switch (_page) {
+      'wifi' => WifiPopover(
+        onBack: () => _go(''),
+        onJoin: widget.onJoinNetwork,
+        onSettings: widget.onSettings,
+      ),
+      'bluetooth' => BluetoothPopover(
+        onBack: () => _go(''),
+        onSettings: widget.onSettings,
+      ),
+      'sound' => SoundPopover(
+        services: services,
+        onBack: () => _go(''),
+        onSettings: widget.onSettings,
+      ),
+      'timer' => _TimerPage(onBack: () => _go('')),
+      _ => _grid(context),
+    };
+    return SizedBox(
+      width: controlCenterWidth,
+      child: AnimatedSize(
+        duration: const Duration(milliseconds: 320),
+        curve: Curves.easeOutCubic,
         alignment: Alignment.topCenter,
-        child: SizedBox(
-          width: width,
-          height: _pageHeight,
-          child: _submenu(width),
+        child: AnimatedSwitcher(
+          duration: const Duration(milliseconds: 200),
+          layoutBuilder: (current, previous) => Stack(
+            alignment: Alignment.topCenter,
+            children: <Widget>[
+              for (final child in previous)
+                Positioned(left: 0, right: 0, top: 0, child: child),
+              ?current,
+            ],
+          ),
+          child: KeyedSubtree(key: ValueKey<String>(_page), child: body),
         ),
+      ),
+    );
+  }
+
+  static const List<TileChoice> _library = <TileChoice>[
+    TileChoice(id: 'wifi', icon: BarIcons.wifi, label: 'Wi-Fi'),
+    TileChoice(id: 'bluetooth', icon: BarIcons.bluetooth, label: 'Bluetooth'),
+    TileChoice(id: 'media', icon: BarIcons.playFill, label: 'Now Playing'),
+    TileChoice(id: 'focus', icon: BarIcons.moonFill, label: 'Focus'),
+    TileChoice(id: 'dark', icon: BarIcons.circleHalf, label: 'Dark Mode'),
+    TileChoice(id: 'night', icon: BarIcons.sunMax, label: 'Night Light'),
+    TileChoice(id: 'screenshot', icon: BarIcons.camera, label: 'Screenshot'),
+    TileChoice(id: 'power', icon: BarIcons.bolt, label: 'Power Mode'),
+    TileChoice(
+      id: 'recording',
+      icon: BarIcons.circleFill,
+      label: 'Screen Recording',
+    ),
+    TileChoice(id: 'display', icon: BarIcons.sunMaxFill, label: 'Display'),
+    TileChoice(id: 'sound', icon: BarIcons.speaker3Fill, label: 'Sound'),
+    TileChoice(id: 'battery', icon: BarIcons.batteryFull, label: 'Battery'),
+    TileChoice(id: 'lock', icon: BarIcons.lockFill, label: 'Lock Screen'),
+    TileChoice(
+      id: 'desktop',
+      icon: BarIcons.desktopcomputer,
+      label: 'Show Desktop',
+    ),
+    TileChoice(id: 'search', icon: BarIcons.search, label: 'Search'),
+    TileChoice(id: 'settings', icon: BarIcons.gear, label: 'Settings'),
+    TileChoice(id: 'timer', icon: BarIcons.timer, label: 'Timer'),
+  ];
+
+  void _saveControls(List<String> controls) => ref
+      .read(barSettingsProvider.notifier)
+      .save((s) => s.copyWith(controls: controls));
+
+  Tile? _tile(BuildContext context, String id) {
+    final sizes = parseTileSizes(
+      ref.watch(
+        barSettingsProvider.select(
+          (state) => state.value?.tileSizes ?? const <String>[],
+        ),
+      ),
+    );
+    final key = 'cc.$id';
+    // A toggle is either a capsule with its name or a bare disc; the user
+    // picks, and each kind knows how to draw itself as the other.
+    Tile sized(TileSize natural, Widget child) {
+      final wide = (sizes[key] ?? natural).w > 1;
+      return Tile(
+        id: id,
+        size: TileSize(wide ? 2 : 1, 1),
+        child: child,
+        onResize: () => ref
+            .read(barSettingsProvider.notifier)
+            .save(
+              (s) => s.copyWith(
+                tileSizes: writeTileSizes(<String, TileSize>{
+                  ...parseTileSizes(s.tileSizes),
+                  key: TileSize(wide ? 1 : 2, 1),
+                }),
+              ),
+            ),
       );
     }
-    return SizedBox(
-      width: width,
-      height: BarTokens.ccPanelHeight,
-      child: _grid(width),
+
+    final label = context.tr(
+      _library.where((choice) => choice.id == id).firstOrNull?.label ?? id,
     );
+    Widget fit(Widget control, TileSize natural) {
+      final wide = (sizes[key] ?? natural).w > 1;
+      if (control is _Capsule && !wide) {
+        return _Round(
+          icon: control.icon,
+          on: control.on,
+          colour: control.colour,
+          onTap: control.onToggle,
+        );
+      }
+      if (control is _Round && wide) {
+        return _Capsule(
+          icon: control.icon,
+          on: control.on,
+          colour: control.colour,
+          title: label,
+          detail: control.stateless
+              ? ''
+              : context.tr(control.on ? 'On' : 'Off'),
+          onToggle: control.onTap,
+        );
+      }
+      return control;
+    }
+
+    Tile capsule(Widget child) =>
+        sized(const TileSize(2, 1), fit(child, const TileSize(2, 1)));
+    Tile round(Widget child) =>
+        sized(const TileSize(1, 1), fit(child, const TileSize(1, 1)));
+    void act(VoidCallback action) {
+      widget.onClose();
+      action();
+    }
+
+    switch (id) {
+      case 'wifi':
+        final on = ref.watch(
+          networkConnectivityProvider.select(
+            (state) => state.snapshot.wirelessEnabled,
+          ),
+        );
+        final wifi = ref.watch(services.connectedWifi);
+        return capsule(
+          _Capsule(
+            icon: on ? BarIcons.wifi : BarIcons.wifiSlash,
+            on: on,
+            title: 'Wi-Fi',
+            detail: !on
+                ? context.tr('Off')
+                : (wifi?.ssid ?? context.tr('Not Connected')),
+            onToggle: () => ref
+                .read(networkConnectivityProvider.notifier)
+                .setWirelessEnabled(!on),
+            onOpen: () => _go('wifi'),
+          ),
+        );
+      case 'bluetooth':
+        final bluetooth = ref.watch(bluetoothProvider);
+        final on = bluetooth.available && bluetooth.powered;
+        final connected = <String>[
+          for (final device in bluetooth.devices)
+            if (device.connected) device.name,
+        ];
+        return capsule(
+          _Capsule(
+            icon: BarIcons.bluetooth,
+            on: on,
+            title: context.tr('Bluetooth'),
+            detail: !bluetooth.available
+                ? context.tr('Unavailable')
+                : !on
+                ? context.tr('Off')
+                : connected.isEmpty
+                ? context.tr('On')
+                : connected.join(', '),
+            onToggle: bluetooth.available
+                ? () => ref.read(bluetoothProvider.notifier).togglePower()
+                : null,
+            onOpen: () => _go('bluetooth'),
+          ),
+        );
+      case 'media':
+        return Tile(
+          id: id,
+          size: const TileSize(2, 2),
+          child: _MediaTile(services: services),
+        );
+      case 'focus':
+        final focus = ref.watch(
+          desktopNotificationsProvider.select((state) => state.doNotDisturb),
+        );
+        return capsule(
+          _Capsule(
+            icon: BarIcons.moonFill,
+            on: focus,
+            colour: macPurple,
+            title: context.tr('Focus'),
+            detail: context.tr(focus ? 'On' : 'Off'),
+            onToggle: () => ref
+                .read(desktopNotificationsProvider.notifier)
+                .toggleDoNotDisturb(),
+          ),
+        );
+      case 'dark':
+        final dark = ref.watch(
+          shellSettingsProvider.select(
+            (state) =>
+                state.appearance.colorSchemePreference.effectiveBrightness ==
+                Brightness.dark,
+          ),
+        );
+        return round(
+          _Round(
+            icon: BarIcons.circleHalf,
+            on: dark,
+            colour: const Color(0xff636366),
+            onTap: () => ref
+                .read(shellSettingsProvider.notifier)
+                .setColorSchemePreference(
+                  dark
+                      ? DesktopColorSchemePreference.preferLight
+                      : DesktopColorSchemePreference.preferDark,
+                ),
+          ),
+        );
+      case 'night':
+        return round(
+          ValueListenableBuilder<bool>(
+            valueListenable: NightLight.enabled,
+            builder: (context, night, _) => fit(
+              _Round(
+                icon: night ? BarIcons.sunMaxFill : BarIcons.sunMax,
+                on: night,
+                colour: macOrange,
+                onTap: NightLight.toggle,
+              ),
+              const TileSize(1, 1),
+            ),
+          ),
+        );
+      case 'screenshot':
+        return round(
+          _Round(
+            icon: BarIcons.camera,
+            on: false,
+            stateless: true,
+            onTap: () => act(
+              () => ref.read(systemActionsServiceProvider).takeScreenshot(),
+            ),
+          ),
+        );
+      case 'power':
+        final power = ref.watch(desktopPowerModesProvider);
+        final saving = power.systemProfile == PowerProfile.powerSave;
+        final fast = power.systemProfile == PowerProfile.performance;
+        return round(
+          _Round(
+            icon: fast ? BarIcons.boltFill : BarIcons.bolt,
+            on: power.systemAvailable && (saving || fast),
+            colour: saving ? macYellow : macBlue,
+            onTap: power.systemAvailable
+                ? () => ref
+                      .read(desktopPowerModesProvider.notifier)
+                      .selectSystemProfile(
+                        PowerProfile.next(power.systemProfile),
+                      )
+                : null,
+          ),
+        );
+      case 'recording':
+        final recording = ref.watch(screenRecordingProvider);
+        return capsule(
+          _Capsule(
+            icon: BarIcons.circleFill,
+            on: recording.recording,
+            colour: macRed,
+            title: context.tr('Screen Recording'),
+            detail: context.tr(recording.recording ? 'On' : 'Off'),
+            onToggle: recording.available
+                ? () => act(
+                    () => ref.read(screenRecordingProvider.notifier).toggle(),
+                  )
+                : null,
+          ),
+        );
+      case 'display':
+        final level = ref.watch(
+          displayBrightnessProvider.select(
+            (state) => state.levels[widget.output.monitorId] ?? 1.0,
+          ),
+        );
+        final brightness = ref.read(displayBrightnessProvider.notifier);
+        return Tile(
+          id: id,
+          size: const TileSize(4, 1),
+          child: _SliderTile(
+            label: context.tr('Display'),
+            value: level,
+            leading: BarIcons.sunMax,
+            trailing: BarIcons.sunMaxFill,
+            onChanged: (value) => brightness.setLevel(widget.output, value),
+            onChangeEnd: (value) =>
+                brightness.commitLevel(widget.output, value),
+          ),
+        );
+      case 'sound':
+        final volume = ref.watch(services.volume);
+        return Tile(
+          id: id,
+          size: const TileSize(4, 1),
+          child: _SliderTile(
+            label: context.tr('Sound'),
+            value: volume,
+            leading: volume <= 0.001
+                ? BarIcons.speakerSlashFill
+                : BarIcons.speaker1Fill,
+            trailing: BarIcons.speaker3Fill,
+            onOpen: () => _go('sound'),
+            onChangeStart: services.beginVolumeInteraction,
+            onChanged: services.setVolume,
+            onChangeEnd: services.commitVolume,
+          ),
+        );
+      case 'battery':
+        final battery = ref.watch(services.battery);
+        if (battery.capacity == null) return null;
+        final plugged =
+            battery.charging ||
+            ref.watch(
+              upowerProvider.select(
+                (state) => state.snapshot?.onBattery == false,
+              ),
+            );
+        return capsule(
+          _Capsule(
+            icon: plugged ? BarIcons.boltFill : BarIcons.batteryFull,
+            on: plugged,
+            colour: macGreen,
+            title: context.tr('Battery'),
+            detail: plugged
+                ? '${battery.capacity}% · ${context.tr('Charging')}'
+                : '${battery.capacity}%',
+            onToggle: widget.onSettings,
+          ),
+        );
+      case 'timer':
+        return capsule(
+          _TimerWatch(
+            builder: (context, now) => fit(
+              _Capsule(
+                icon: BarIcons.timer,
+                on: islandTimer.active,
+                colour: macOrange,
+                title: context.tr('Timer'),
+                detail: islandTimer.active
+                    ? clockSpan(islandTimer.remaining(now))
+                    : context.tr('Off'),
+                onToggle: () => islandTimer.active
+                    ? islandTimer.cancel()
+                    : islandTimer.start(const Duration(minutes: 5), now),
+                onOpen: () => _go('timer'),
+              ),
+              const TileSize(2, 1),
+            ),
+          ),
+        );
+      case 'lock':
+        return round(
+          _Round(
+            icon: BarIcons.lockFill,
+            on: false,
+            stateless: true,
+            onTap: () => act(
+              () => ref
+                  .read(sessionPowerProvider.notifier)
+                  .request(SessionPowerAction.lock),
+            ),
+          ),
+        );
+      case 'desktop':
+        return round(
+          _Round(
+            icon: BarIcons.desktopcomputer,
+            on: ref.watch(services.desktopVisible),
+            onTap: () => act(services.toggleDesktop),
+          ),
+        );
+      case 'search':
+        return round(
+          _Round(
+            icon: BarIcons.search,
+            on: false,
+            stateless: true,
+            onTap: () => act(services.toggleLauncher),
+          ),
+        );
+      case 'settings':
+        return round(
+          _Round(
+            icon: BarIcons.gear,
+            on: false,
+            stateless: true,
+            onTap: widget.onSettings,
+          ),
+        );
+    }
+    return null;
   }
 
-  /// NextKDE gives each sub-page card a fixed height (Wi-Fi 360, Bluetooth 340,
-  /// brightness 280, sound 420); the 20 pt inset this panel draws around it is
-  /// added on top so the card itself keeps the reference's size.
-  double get _pageHeight =>
-      switch (_page) {
-        'wifi' => BarTokens.ccWifiPageHeight,
-        'bt' => BarTokens.ccBluetoothPageHeight,
-        'display' => BarTokens.ccBrightnessPageHeight,
-        'sound' => BarTokens.ccSoundPageHeight,
-        _ => BarTokens.ccPanelHeight - BarTokens.controlCenterMargin,
-      } +
-      BarTokens.controlCenterMargin * 2;
-
-  Widget _submenu(double width) {
-    final network = ref.watch(networkConnectivityProvider);
-    final bluetooth = ref.watch(bluetoothProvider);
-    final (title, toggle) = switch (_page) {
-      'wifi' => (
-        'Wi‑Fi',
-        CcSwitch(
-          value: network.snapshot.wirelessEnabled,
-          busy: network.radioChanging,
-          onChanged: () => ref
-              .read(networkConnectivityProvider.notifier)
-              .setWirelessEnabled(!network.snapshot.wirelessEnabled),
-        ),
+  Widget _grid(BuildContext context) {
+    final theme = context.shellTheme;
+    final order = ref.watch(
+      barSettingsProvider.select(
+        (state) => state.value?.controls ?? defaultControls,
       ),
-      'bt' => (
-        'Bluetooth',
-        CcSwitch(
-          value: bluetooth.available && bluetooth.powered,
-          busy: bluetooth.powerChanging,
-          onChanged: bluetooth.available
-              ? () => ref.read(bluetoothProvider.notifier).togglePower()
-              : null,
-        ),
-      ),
-      'display' => ('Display Brightness', null),
-      'sound' => ('Sound', null),
-      _ => ('', null),
-    };
-
+    );
+    final tiles = <Tile>[for (final id in order) ?_tile(context, id)];
+    final spare = <TileChoice>[
+      for (final choice in _library)
+        if (!order.contains(choice.id))
+          TileChoice(
+            id: choice.id,
+            icon: choice.icon,
+            label: context.tr(choice.label),
+          ),
+    ];
     return Padding(
-      padding: const EdgeInsets.all(BarTokens.controlCenterMargin),
+      padding: const EdgeInsets.all(_C.inset),
       child: Column(
+        mainAxisSize: MainAxisSize.min,
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: <Widget>[
-          CcSubmenuHeader(
-            title: title,
-            onBack: () => setState(() => _page = ''),
-            trailing: toggle,
+          TileGrid(
+            tiles: tiles,
+            columns: 4,
+            cell: const Size.square(_C.row),
+            gap: _C.gap,
+            editing: _editing,
+            onReorder: _saveControls,
+            onRemove: (id) => _saveControls(<String>[
+              for (final other in order)
+                if (other != id) other,
+            ]),
           ),
-          Expanded(
+          Reveal(
+            open: _editing,
             child: Padding(
-              padding: const EdgeInsets.only(top: 6),
-              child: switch (_page) {
-                'wifi' => WifiContent(
-                  onOpenSettings: onOpenSettings,
-                  onJoinNetwork: widget.onJoinNetwork,
-                  onClose: () => setState(() => _page = ''),
-                ),
-                'bt' => BluetoothContent(
-                  onOpenSettings: onOpenSettings,
-                  onClose: () => setState(() => _page = ''),
-                ),
-                'display' => _BrightnessPage(
-                  monitorId: widget.monitorId,
-                  output: output,
-                  onOpenSettings: onOpenDisplaySettings,
-                  onClose: () => setState(() => _page = ''),
-                ),
-                'sound' => _SoundPage(
-                  services: services,
-                  onOpenSettings: onOpenSettings,
-                  onClose: () => setState(() => _page = ''),
-                ),
-                _ => const SizedBox.shrink(),
-              },
+              padding: const EdgeInsets.only(top: 14),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: <Widget>[
+                  Padding(
+                    padding: const EdgeInsets.fromLTRB(2, 0, 0, 8),
+                    child: Text(
+                      context.tr('Add Controls'),
+                      style: BarType.section.copyWith(
+                        color: theme.colors.textSecondary,
+                      ),
+                    ),
+                  ),
+                  TileLibrary(
+                    choices: spare,
+                    empty: context.tr('Everything is already here.'),
+                    onAdd: (id) => _saveControls(<String>[...order, id]),
+                  ),
+                ],
+              ),
             ),
+          ),
+          const SizedBox(height: 12),
+          Row(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: <Widget>[
+              if (_editing) ...<Widget>[
+                TileEditButton(
+                  label: context.tr('Reset'),
+                  onTap: () => _saveControls(defaultControls),
+                ),
+                const SizedBox(width: 8),
+              ],
+              TileEditButton(
+                label: context.tr(_editing ? 'Done' : 'Edit Controls'),
+                strong: _editing,
+                onTap: () => setState(() => _editing = !_editing),
+              ),
+            ],
           ),
         ],
       ),
     );
-  }
-
-  Widget _grid(double width) {
-    final network = ref.watch(networkConnectivityProvider);
-    final wifi = ref.watch(services.connectedWifi);
-    final bluetooth = ref.watch(bluetoothProvider);
-    final brightness = ref.watch(displayBrightnessProvider);
-    final level = brightness.levels[output.monitorId] ?? 1;
-    final volume = ref.watch(services.volume);
-    final unread = ref.watch(
-      desktopNotificationsProvider.select((state) => state.unreadCount),
-    );
-    final focus = ref.watch(
-      desktopNotificationsProvider.select((state) => state.doNotDisturb),
-    );
-    final dark = ref.watch(
-      shellSettingsProvider.select(
-        (state) =>
-            state.appearance.colorSchemePreference ==
-            DesktopColorSchemePreference.preferDark,
-      ),
-    );
-    final playing = ref.watch(
-      services.media.select((media) => media.value?.playing ?? false),
-    );
-
-    // The grid is authored against a 296 pt content width; a narrower screen
-    // shrinks every card by the same factor so the layout never reflows.
-    final content = width - BarTokens.controlCenterMargin * 2;
-    final scale = content / BarTokens.ccContentWidth;
-    final pill = BarTokens.ccConnectivityWidth * scale;
-    final media = content - pill - 8;
-    final square = (content - 36) / 5;
-    final wifiOn = network.snapshot.wirelessEnabled;
-    final btOn = bluetooth.available && bluetooth.powered;
-    final strings = services.strings(context);
-
-    Widget at(double left, double top, double w, double h, Widget child) =>
-        Positioned(left: left, top: top, width: w, height: h, child: child);
-
-    return Padding(
-      padding: const EdgeInsets.all(BarTokens.controlCenterMargin),
-      child: Stack(
-        children: <Widget>[
-          at(
-            0,
-            0,
-            pill,
-            BarTokens.ccPillHeight,
-            _CcPill(
-              icon: wifiOn ? BarIcons.wifi : BarIcons.wifiSlash,
-              on: wifiOn,
-              busy: network.radioChanging,
-              title: strings.wifiTitle,
-              detail: !wifiOn
-                  ? 'Off'
-                  : (wifi?.ssid ?? strings.notConnected),
-              onToggle: () => ref
-                  .read(networkConnectivityProvider.notifier)
-                  .setWirelessEnabled(!wifiOn),
-              onOpen: () => setState(() => _page = 'wifi'),
-            ),
-          ),
-          at(
-            0,
-            BarTokens.ccPillSecondTop - BarTokens.ccPillTop,
-            pill,
-            BarTokens.ccPillHeight,
-            _CcPill(
-              icon: BarIcons.bluetooth,
-              on: btOn,
-              busy: bluetooth.powerChanging,
-              title: 'Bluetooth',
-              detail: !bluetooth.available
-                  ? 'Unavailable'
-                  : btOn
-                  ? 'On'
-                  : 'Off',
-              onToggle: bluetooth.available
-                  ? () => ref.read(bluetoothProvider.notifier).togglePower()
-                  : null,
-              onOpen: () => setState(() => _page = 'bt'),
-            ),
-          ),
-          at(
-            pill + 8,
-            0,
-            media,
-            BarTokens.ccMediaHeight,
-            _CcMediaCard(services: services, onOpen: onOpenNowPlaying),
-          ),
-          for (var index = 0; index < 5; index++)
-            at(
-              index * (square + BarTokens.ccSquareGap),
-              BarTokens.ccSquareTop - BarTokens.ccPillTop,
-              square,
-              square,
-              _square(index, square, unread: unread, focus: focus, dark: dark, playing: playing),
-            ),
-          at(
-            0,
-            BarTokens.ccBrightnessTop - BarTokens.ccPillTop,
-            content,
-            BarTokens.ccSliderHeight,
-            _CcSliderCard(
-              label: 'Display',
-              percent: (level * 100).round(),
-              value: level,
-              icon: BarIcons.sunMax,
-              trackLeft: BarTokens.ccBrightnessTrackLeft,
-              trackRight: BarTokens.ccBrightnessTrackRight,
-              iconBottom: 12,
-              iconSize: 13,
-              onOpen: () => setState(() => _page = 'display'),
-              onChanged: (value) => ref
-                  .read(displayBrightnessProvider.notifier)
-                  .setLevel(output, value),
-              onChangeEnd: (value) => ref
-                  .read(displayBrightnessProvider.notifier)
-                  .commitLevel(output, value),
-            ),
-          ),
-          at(
-            0,
-            BarTokens.ccSoundTop - BarTokens.ccPillTop,
-            content,
-            BarTokens.ccSliderHeight,
-            _CcSliderCard(
-              label: 'Sound',
-              percent: (volume * 100).round(),
-              value: volume,
-              icon: volume <= 0.001 ? BarIcons.volumeMute : BarIcons.volumeUp,
-              trackLeft: BarTokens.ccSoundTrackLeft,
-              trackRight: BarTokens.ccSoundTrackRight,
-              iconBottom: 15,
-              iconSize: 16,
-              onOpen: () => setState(() => _page = 'sound'),
-              onChangeStart: services.beginVolumeInteraction,
-              onChanged: services.setVolume,
-              onChangeEnd: services.commitVolume,
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-
-  Widget _square(
-    int index,
-    double size, {
-    required int unread,
-    required bool focus,
-    required bool dark,
-    required bool playing,
-  }) {
-    final blue = ccBlue.withValues(alpha: 0.28);
-    return switch (index) {
-      0 => _CcSquare(
-        icon: focus ? BarIcons.moonFill : BarIcons.moon,
-        active: focus,
-        activeFill: blue,
-        activeInk: ccBlue,
-        onTap: () => ref
-            .read(desktopNotificationsProvider.notifier)
-            .toggleDoNotDisturb(),
-      ),
-      1 => _CcSquare(
-        icon: dark ? BarIcons.moonFill : BarIcons.sunMax,
-        active: dark,
-        activeFill: const Color(0xffffffff),
-        activeInk: const Color(0xff000000),
-        onTap: () => ref
-            .read(shellSettingsProvider.notifier)
-            .setColorSchemePreference(
-              dark
-                  ? DesktopColorSchemePreference.preferLight
-                  : DesktopColorSchemePreference.preferDark,
-            ),
-      ),
-      2 => _CcSquare(
-        icon: unread > 0 ? BarIcons.bellFill : BarIcons.bell,
-        active: unread > 0,
-        activeFill: blue,
-        activeInk: ccBlue,
-        onTap: onOpenNotifications,
-      ),
-      3 => _CcSquare(
-        icon: playing ? BarIcons.playFill : BarIcons.play,
-        active: false,
-        onTap: onOpenIsland,
-      ),
-      _ => _CcSquare(
-        icon: BarIcons.gear,
-        active: false,
-        onTap: onOpenSettings,
-      ),
-    };
   }
 }
 
-/// A connectivity pill: a 39 pt disc that toggles the radio, the title and its
-/// state beside it, and a chevron that opens the sub-page.
-///
-/// NextKDE `WifiCard.qml` splits the two targets exactly this way — the disc's
-/// own `MouseArea` sets the radio, the rest of the pill opens the page.
-class _CcPill extends StatelessWidget {
-  const _CcPill({
-    required this.icon,
-    required this.on,
-    required this.busy,
-    required this.title,
-    required this.detail,
-    required this.onToggle,
-    required this.onOpen,
-  });
+class _Tile extends StatelessWidget {
+  const _Tile({required this.radius, required this.child});
 
-  final IconData icon;
-  final bool on;
-  final bool busy;
-  final String title;
-  final String detail;
-  final VoidCallback? onToggle;
-  final VoidCallback onOpen;
+  final double radius;
+  final Widget child;
 
   @override
   Widget build(BuildContext context) {
     final theme = context.shellTheme;
-    return CcCard(
-      radius: BarTokens.ccPillRadius,
-      onTap: onOpen,
-      child: Stack(
+    return Container(
+      decoration: BoxDecoration(
+        color: theme.colors.textPrimary.withValues(alpha: 0.07),
+        borderRadius: BorderRadius.circular(radius),
+        border: Border.all(
+          color: theme.colors.textPrimary.withValues(alpha: 0.08),
+        ),
+      ),
+      child: child,
+    );
+  }
+}
+
+class _Capsule extends StatelessWidget {
+  const _Capsule({
+    required this.icon,
+    required this.on,
+    required this.title,
+    required this.detail,
+    required this.onToggle,
+    this.onOpen,
+    this.colour = macBlue,
+  });
+
+  final IconData icon;
+  final bool on;
+  final String title;
+  final String detail;
+  final VoidCallback? onToggle;
+  final VoidCallback? onOpen;
+  final Color colour;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = context.shellTheme;
+    return _Tile(
+      radius: _C.row / 2,
+      child: Row(
         children: <Widget>[
-          Positioned(
-            left: BarTokens.ccDiscInset,
-            top: 0,
-            bottom: 0,
-            child: Center(
-              child: _CcDisc(
-                icon: icon,
-                on: on,
-                busy: busy,
-                onTap: onToggle,
+          const SizedBox(width: 11),
+          Opacity(
+            opacity: onToggle == null ? 0.45 : 1,
+            child: Pressable(
+              onTap: onToggle,
+              scale: 0.88,
+              child: MacDisc(icon: icon, on: on, size: 42, colour: colour),
+            ),
+          ),
+          Expanded(
+            child: Pressable(
+              onTap: onOpen ?? onToggle,
+              scale: 0.97,
+              child: Padding(
+                padding: const EdgeInsets.fromLTRB(9, 0, 10, 0),
+                child: SizedBox(
+                  height: _C.row,
+                  child: Column(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: <Widget>[
+                      Text(
+                        title,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: BarType.title.copyWith(
+                          color: theme.colors.textPrimary,
+                        ),
+                      ),
+                      if (detail.isNotEmpty)
+                        Text(
+                          detail,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: BarType.caption.copyWith(
+                            fontSize: 12,
+                            color: theme.colors.textSecondary,
+                          ),
+                        ),
+                    ],
+                  ),
+                ),
               ),
             ),
           ),
-          Positioned(
-            left: BarTokens.ccPillTextLeft,
-            right: BarTokens.ccPillTextRight,
-            top: 0,
-            bottom: 0,
-            child: Column(
-              mainAxisAlignment: MainAxisAlignment.center,
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: <Widget>[
-                Text(
-                  title,
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                  style: BarType.caption.copyWith(
-                    fontSize: 12,
-                    fontWeight: FontWeight.w700,
-                    color: theme.colors.textPrimary,
-                  ),
-                ),
-                const SizedBox(height: 1),
-                Text(
-                  detail,
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                  style: BarType.caption.copyWith(
-                    fontSize: 10,
-                    color: theme.colors.textSecondary,
-                  ),
-                ),
-              ],
+        ],
+      ),
+    );
+  }
+}
+
+class _Round extends StatelessWidget {
+  const _Round({
+    required this.icon,
+    required this.on,
+    required this.onTap,
+    this.colour = macBlue,
+    this.stateless = false,
+  });
+
+  final IconData icon;
+  final bool on;
+  final VoidCallback? onTap;
+  final Color colour;
+
+  /// An action rather than a switch: it has no On or Off to report.
+  final bool stateless;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = context.shellTheme;
+    return Opacity(
+      opacity: onTap == null ? 0.45 : 1,
+      child: Pressable(
+        onTap: onTap,
+        scale: 0.9,
+        child: AnimatedContainer(
+          duration: const Duration(milliseconds: 200),
+          decoration: BoxDecoration(
+            shape: BoxShape.circle,
+            color: on
+                ? colour
+                : theme.colors.textPrimary.withValues(alpha: 0.07),
+            border: Border.all(
+              color: theme.colors.textPrimary.withValues(alpha: on ? 0 : 0.08),
             ),
           ),
-          Positioned(
-            right: BarTokens.ccChevronInset,
-            top: 0,
-            bottom: 0,
-            child: Center(
-              child: Opacity(
-                opacity: 0.6,
+          child: BarGlyph(
+            icon,
+            size: 24,
+            color: on ? const Color(0xffffffff) : theme.colors.textPrimary,
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _MediaTile extends ConsumerWidget {
+  const _MediaTile({required this.services});
+
+  final ShellServices services;
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final theme = context.shellTheme;
+    final playback = ref.watch(services.media).value;
+    final commands = ref.watch(services.mediaCommands);
+    final has = playback != null && playback.title.isNotEmpty;
+    final ink = theme.colors.textPrimary;
+
+    Widget control(IconData icon, bool enabled, VoidCallback onTap, double s) =>
+        Pressable(
+          onTap: enabled ? onTap : null,
+          scale: 0.82,
+          child: SizedBox(
+            width: 36,
+            height: 32,
+            child: BarGlyph(
+              icon,
+              size: s,
+              color: ink.withValues(alpha: enabled ? 1 : 0.3),
+            ),
+          ),
+        );
+
+    return _Tile(
+      radius: 26,
+      child: Padding(
+        padding: const EdgeInsets.fromLTRB(13, 13, 13, 8),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: <Widget>[
+            MediaArtwork(
+              url: playback?.artUrl ?? '',
+              size: 42,
+              radius: 10,
+              fallback: Container(
+                width: 42,
+                height: 42,
+                decoration: BoxDecoration(
+                  color: ink.withValues(alpha: 0.10),
+                  borderRadius: BorderRadius.circular(10),
+                ),
                 child: BarGlyph(
-                  BarIcons.chevronRight,
-                  size: BarTokens.ccChevronSize,
+                  BarIcons.playFill,
+                  size: 18,
                   color: theme.colors.textSecondary,
                 ),
               ),
             ),
-          ),
-        ],
-      ),
-    );
-  }
-}
-
-/// The 39 pt disc inside a pill. Blue while the radio is on, a faint wash
-/// while off, and a 21 pt arc while the toggle is in flight.
-class _CcDisc extends StatefulWidget {
-  const _CcDisc({
-    required this.icon,
-    required this.on,
-    required this.busy,
-    required this.onTap,
-  });
-
-  final IconData icon;
-  final bool on;
-  final bool busy;
-  final VoidCallback? onTap;
-
-  @override
-  State<_CcDisc> createState() => _CcDiscState();
-}
-
-class _CcDiscState extends State<_CcDisc> {
-  bool _hovered = false;
-  bool _pressed = false;
-
-  @override
-  Widget build(BuildContext context) {
-    final theme = context.shellTheme;
-    final dark = theme.colors.brightness == Brightness.dark;
-    final ink = widget.on ? const Color(0xffffffff) : theme.colors.textPrimary;
-    final scale = _pressed ? 0.92 : (_hovered ? 1.04 : 1.0);
-    return MouseRegion(
-      cursor: widget.onTap == null
-          ? MouseCursor.defer
-          : SystemMouseCursors.click,
-      onEnter: (_) => setState(() => _hovered = true),
-      onExit: (_) => setState(() {
-        _hovered = false;
-        _pressed = false;
-      }),
-      child: GestureDetector(
-        behavior: HitTestBehavior.opaque,
-        onTapDown: widget.onTap == null
-            ? null
-            : (_) => setState(() => _pressed = true),
-        onTapUp: widget.onTap == null
-            ? null
-            : (_) => setState(() => _pressed = false),
-        onTapCancel: () => setState(() => _pressed = false),
-        onTap: widget.busy ? null : widget.onTap,
-        child: AnimatedScale(
-          scale: scale,
-          duration: const Duration(milliseconds: 120),
-          curve: Curves.easeOut,
-          child: AnimatedOpacity(
-            duration: Motion.cardSettle,
-            opacity: widget.busy ? 0.55 : 1,
-            child: AnimatedContainer(
-              duration: Motion.cardSettle,
-              curve: Curves.easeOut,
-              width: BarTokens.ccDisc,
-              height: BarTokens.ccDisc,
-              decoration: BoxDecoration(
-                shape: BoxShape.circle,
-                color: widget.on
-                    ? ccBlue
-                    : Colors.white.withValues(alpha: dark ? 0.22 : 0.05),
-              ),
-              child: Stack(
-                children: <Widget>[
-                  Center(
-                    child: AnimatedOpacity(
-                      duration: Motion.cardSettle,
-                      opacity: widget.busy ? 0 : 1,
-                      child: BarGlyph(
-                        widget.icon,
-                        size: BarTokens.ccDiscGlyph,
-                        color: ink,
-                      ),
-                    ),
-                  ),
-                  if (widget.busy)
-                    Center(child: CcBusyArc(color: ink)),
-                ],
+            const SizedBox(height: 8),
+            Text(
+              has ? playback.title : context.tr('Not Playing'),
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: BarType.title.copyWith(
+                color: has ? ink : theme.colors.textSecondary,
               ),
             ),
-          ),
+            if (has && playback.artistLabel.isNotEmpty)
+              Text(
+                playback.artistLabel,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: BarType.caption.copyWith(
+                  color: theme.colors.textSecondary,
+                ),
+              ),
+            const Spacer(),
+            Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              children: <Widget>[
+                control(
+                  BarIcons.backward,
+                  playback?.canGoPrevious ?? false,
+                  commands.previous,
+                  18,
+                ),
+                control(
+                  playback?.playing == true
+                      ? BarIcons.pauseFill
+                      : BarIcons.playFill,
+                  playback?.available ?? false,
+                  commands.playPause,
+                  24,
+                ),
+                control(
+                  BarIcons.forward,
+                  playback?.canGoNext ?? false,
+                  commands.next,
+                  18,
+                ),
+              ],
+            ),
+          ],
         ),
       ),
     );
   }
 }
 
-/// A 52 pt square: one 22 pt glyph, a hover wash, and an optional status fill.
-class _CcSquare extends StatelessWidget {
-  const _CcSquare({
-    required this.icon,
-    required this.active,
-    required this.onTap,
-    this.activeFill,
-    this.activeInk,
+class _SliderTile extends StatelessWidget {
+  const _SliderTile({
+    required this.label,
+    required this.value,
+    required this.leading,
+    required this.trailing,
+    required this.onChanged,
+    required this.onChangeEnd,
+    this.onChangeStart,
+    this.onOpen,
   });
 
-  final IconData icon;
-  final bool active;
-  final VoidCallback onTap;
-  final Color? activeFill;
-  final Color? activeInk;
+  final String label;
+  final double value;
+  final IconData leading;
+  final IconData trailing;
+  final ValueChanged<double> onChanged;
+  final ValueChanged<double> onChangeEnd;
+  final VoidCallback? onChangeStart;
+  final VoidCallback? onOpen;
 
   @override
   Widget build(BuildContext context) {
     final theme = context.shellTheme;
-    return CcCard(
-      radius: BarTokens.ccSquareRadius,
-      onTap: onTap,
-      active: active,
-      activeFill: active ? activeFill : null,
-      child: Center(
-        child: BarGlyph(
-          icon,
-          size: BarTokens.ccSquareGlyph,
-          color: active ? (activeInk ?? theme.colors.textPrimary) : theme.colors.textPrimary,
-        ),
-      ),
-    );
-  }
-}
-
-/// The media card: a 43 pt cover at (13, 13), the title and artist beside it,
-/// and the transport row 15 from the bottom.
-class _CcMediaCard extends ConsumerWidget {
-  const _CcMediaCard({required this.services, required this.onOpen});
-
-  final ShellServices services;
-  final VoidCallback onOpen;
-
-  @override
-  Widget build(BuildContext context, WidgetRef ref) {
-    final theme = context.shellTheme;
-    final dark = theme.colors.brightness == Brightness.dark;
-    final playback = ref.watch(services.media).value;
-    final commands = ref.watch(services.mediaCommands);
-    final available = playback?.available ?? false;
-    return CcCard(
-      radius: BarTokens.ccMediaRadius,
-      child: Stack(
-        children: <Widget>[
-          Positioned(
-            left: 13,
-            top: 13,
-            child: GestureDetector(
-              behavior: HitTestBehavior.opaque,
+    return _Tile(
+      radius: 22,
+      child: Padding(
+        padding: const EdgeInsets.fromLTRB(8, 7, 8, 1),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: <Widget>[
+            Pressable(
               onTap: onOpen,
-              child: MouseRegion(
-                cursor: SystemMouseCursors.click,
-                child: MediaArtwork(
-                  url: playback?.artUrl ?? '',
-                  size: 43,
-                  radius: 13,
-                  fallback: Container(
-                    width: 43,
-                    height: 43,
-                    decoration: BoxDecoration(
-                      color: Colors.white.withValues(alpha: dark ? 0.18 : 0.08),
-                      borderRadius: BorderRadius.circular(13),
-                    ),
-                    child: Center(
-                      child: Opacity(
-                        opacity: 0.86,
-                        child: BarGlyph(
-                          BarIcons.playFill,
-                          size: 21,
+              scale: 0.98,
+              child: Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 7),
+                child: Row(
+                  children: <Widget>[
+                    Expanded(
+                      child: Text(
+                        label,
+                        style: BarType.section.copyWith(
                           color: theme.colors.textPrimary,
                         ),
                       ),
                     ),
-                  ),
-                ),
-              ),
-            ),
-          ),
-          Positioned(
-            left: 64,
-            right: 10,
-            top: 13,
-            child: GestureDetector(
-              behavior: HitTestBehavior.opaque,
-              onTap: onOpen,
-              child: MouseRegion(
-                cursor: SystemMouseCursors.click,
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: <Widget>[
-                    Text(
-                      playback?.title.isNotEmpty == true
-                          ? playback!.title
-                          : services.strings(context).mediaNowPlaying,
-                      maxLines: 2,
-                      overflow: TextOverflow.ellipsis,
-                      style: BarType.caption.copyWith(
-                        fontSize: 12,
-                        fontWeight: FontWeight.w700,
-                        color: theme.colors.textPrimary,
+                    if (onOpen != null)
+                      BarGlyph(
+                        BarIcons.chevronRight,
+                        size: 11,
+                        color: theme.colors.textSecondary,
                       ),
-                    ),
-                    const SizedBox(height: 2),
-                    Text(
-                      playback != null && playback.artistLabel.isNotEmpty
-                          ? playback.artistLabel
-                          : services.strings(context).mediaControls,
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                      style: BarType.caption.copyWith(
-                        fontSize: 10,
-                        color: theme.colors.textSecondary.withValues(
-                          alpha: 0.70,
-                        ),
-                      ),
-                    ),
                   ],
                 ),
               ),
             ),
-          ),
-          Positioned(
-            left: 0,
-            right: 0,
-            bottom: 15,
-            height: 40,
-            child: Row(
-              mainAxisAlignment: MainAxisAlignment.center,
-              children: <Widget>[
-                _CcTransport(
-                  icon: BarIcons.backward,
-                  enabled: playback?.canGoPrevious ?? false,
-                  onTap: commands.previous,
-                ),
-                const SizedBox(width: 12),
-                _CcTransport(
-                  icon: playback?.playing == true
-                      ? BarIcons.pauseFill
-                      : BarIcons.playFill,
-                  enabled: available,
-                  onTap: commands.playPause,
-                  primary: true,
-                ),
-                const SizedBox(width: 12),
-                _CcTransport(
-                  icon: BarIcons.forward,
-                  enabled: playback?.canGoNext ?? false,
-                  onTap: commands.next,
-                ),
-              ],
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-}
-
-class _CcTransport extends StatelessWidget {
-  const _CcTransport({
-    required this.icon,
-    required this.enabled,
-    required this.onTap,
-    this.primary = false,
-  });
-
-  final IconData icon;
-  final bool enabled;
-  final Future<void> Function() onTap;
-  final bool primary;
-
-  @override
-  Widget build(BuildContext context) {
-    final theme = context.shellTheme;
-    final size = primary ? 40.0 : 32.0;
-    return GestureDetector(
-      behavior: HitTestBehavior.opaque,
-      onTap: enabled ? () => onTap() : null,
-      child: MouseRegion(
-        cursor: enabled ? SystemMouseCursors.click : MouseCursor.defer,
-        child: SizedBox(
-          width: size,
-          height: size,
-          child: Center(
-            child: BarGlyph(
-              icon,
-              size: primary ? 24 : 18,
-              color: enabled
-                  ? theme.colors.textPrimary
-                  : theme.colors.textTertiary.withValues(alpha: 0.45),
-            ),
-          ),
-        ),
-      ),
-    );
-  }
-}
-
-/// A slider card: the label and percentage on the top line, the chevron that
-/// opens the sub-page, and the track along the bottom.
-///
-/// NextKDE `BrightnessCard.qml` / `SoundCard.qml`. The track is a 5 pt bar with
-/// a filled progress segment and a 30 × 16 thumb that is always visible.
-class _CcSliderCard extends StatefulWidget {
-  const _CcSliderCard({
-    required this.label,
-    required this.percent,
-    required this.value,
-    required this.icon,
-    required this.trackLeft,
-    required this.trackRight,
-    required this.iconBottom,
-    required this.iconSize,
-    required this.onOpen,
-    required this.onChanged,
-    required this.onChangeEnd,
-    this.onChangeStart,
-  });
-
-  final String label;
-  final int percent;
-  final double value;
-  final IconData icon;
-  final double trackLeft;
-  final double trackRight;
-  /// Distance from the card's bottom edge to the glyph's baseline box. The
-  /// reference centres the sound glyph on the slider and drops the brightness
-  /// one to 12.
-  final double iconBottom;
-  final double iconSize;
-  final VoidCallback onOpen;
-  final ValueChanged<double> onChanged;
-  final ValueChanged<double> onChangeEnd;
-  final VoidCallback? onChangeStart;
-
-  @override
-  State<_CcSliderCard> createState() => _CcSliderCardState();
-}
-
-class _CcSliderCardState extends State<_CcSliderCard> {
-  bool _hovered = false;
-
-  @override
-  Widget build(BuildContext context) {
-    final theme = context.shellTheme;
-    final dark = theme.colors.brightness == Brightness.dark;
-    return MouseRegion(
-      onEnter: (_) => setState(() => _hovered = true),
-      onExit: (_) => setState(() => _hovered = false),
-      child: CcCard(
-        radius: BarTokens.ccSliderRadius,
-        active: _hovered,
-        child: Stack(
-          children: <Widget>[
-            Positioned(
-              left: 0,
-              right: 0,
-              top: 0,
-              height: 27,
-              child: GestureDetector(
-                behavior: HitTestBehavior.opaque,
-                onTap: widget.onOpen,
-                child: MouseRegion(cursor: SystemMouseCursors.click),
-              ),
-            ),
-            Positioned(
-              left: BarTokens.ccSliderLabelLeft,
-              top: BarTokens.ccSliderLabelTop,
-              child: Text(
-                widget.label,
-                style: BarType.caption.copyWith(
-                  fontSize: 11,
-                  fontWeight: FontWeight.w600,
-                  color: theme.colors.textPrimary,
-                ),
-              ),
-            ),
-            Positioned(
-              right: BarTokens.ccSliderPercentRight,
-              top: BarTokens.ccSliderLabelTop,
-              child: Text(
-                '${widget.percent}%',
-                style: BarType.caption.copyWith(
-                  fontSize: 9,
-                  color: theme.colors.textPrimary.withValues(alpha: 0.50),
-                ),
-              ),
-            ),
-            Positioned(
-              right: BarTokens.ccSliderChevronRight,
-              top: BarTokens.ccSliderChevronTop,
-              child: GestureDetector(
-                behavior: HitTestBehavior.opaque,
-                onTap: widget.onOpen,
-                child: MouseRegion(
-                  cursor: SystemMouseCursors.click,
-                  child: BarGlyph(
-                    BarIcons.chevronRight,
-                    size: BarTokens.ccSliderChevronSize,
-                    color: theme.colors.textPrimary,
-                  ),
-                ),
-              ),
-            ),
-            Positioned(
-              left: 0,
-              right: 0,
-              bottom: BarTokens.ccSliderTrackBottom,
-              height: BarTokens.ccSliderHeight2,
-              child: CcSlider(
-                value: widget.value,
-                left: widget.trackLeft,
-                right: widget.trackRight,
-                dark: dark,
-                onChangeStart: widget.onChangeStart ?? () {},
-                onChanged: widget.onChanged,
-                onChangeEnd: widget.onChangeEnd,
-              ),
-            ),
-            Positioned(
-              left: 12,
-              bottom: widget.iconBottom,
-              child: BarGlyph(
-                widget.icon,
-                size: widget.iconSize,
-                color: theme.colors.textPrimary.withValues(alpha: 0.65),
-              ),
+            const Spacer(),
+            MacSlider(
+              value: value,
+              leading: leading,
+              trailing: trailing,
+              onChangeStart: onChangeStart,
+              onChanged: onChanged,
+              onChangeEnd: onChangeEnd,
             ),
           ],
         ),
@@ -910,505 +906,141 @@ class _CcSliderCardState extends State<_CcSliderCard> {
   }
 }
 
-/// The brightness sub-page: one 82 pt row per display with its own slider.
-///
-/// NextKDE `BrightnessPage.qml`. Denial exposes a level per monitor, so the
-/// row names the output and keeps the reference's 11 pt label, 10 pt value and
-/// 9 pt "Built-in display" / "External display" line.
-class _BrightnessPage extends ConsumerWidget {
-  const _BrightnessPage({
-    required this.monitorId,
-    required this.output,
-    required this.onOpenSettings,
-    required this.onClose,
-  });
+/// Rebuilds once a second while the timer runs, and whenever it changes.
+class _TimerWatch extends StatefulWidget {
+  const _TimerWatch({required this.builder});
 
-  final int monitorId;
-  final DisplayOutput output;
-  final VoidCallback onOpenSettings;
-  final VoidCallback onClose;
+  final Widget Function(BuildContext context, DateTime now) builder;
 
   @override
-  Widget build(BuildContext context, WidgetRef ref) {
-    final theme = context.shellTheme;
-    final dark = theme.colors.brightness == Brightness.dark;
-    final state = ref.watch(displayBrightnessProvider);
-    final level = state.levels[output.monitorId] ?? 1;
-    final label = output.name;
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.stretch,
-      children: <Widget>[
-        Expanded(
-          child: ListView(
-            padding: const EdgeInsets.symmetric(horizontal: 14),
-            children: <Widget>[
-              SizedBox(
-                height: 82,
-                child: Stack(
-                  children: <Widget>[
-                    Positioned(
-                      left: 0,
-                      right: 0,
-                      top: 0,
-                      child: Row(
-                        children: <Widget>[
-                          Expanded(
-                            child: Text(
-                              label,
-                              maxLines: 1,
-                              overflow: TextOverflow.ellipsis,
-                              style: BarType.caption.copyWith(
-                                fontSize: 11,
-                                fontWeight: FontWeight.w600,
-                                color: theme.colors.textPrimary,
-                              ),
-                            ),
-                          ),
-                          Text(
-                            '${(level * 100).round()}%',
-                            style: BarType.caption.copyWith(
-                              fontSize: 10,
-                              color: theme.colors.textPrimary,
-                            ),
-                          ),
-                        ],
-                      ),
-                    ),
-                    Positioned(
-                      left: 0,
-                      top: 20,
-                      child: Text(
-                        'Display',
-                        style: BarType.caption.copyWith(
-                          fontSize: 9,
-                          color: theme.colors.textSecondary,
-                        ),
-                      ),
-                    ),
-                    Positioned(
-                      left: 0,
-                      right: 0,
-                      bottom: 3,
-                      height: BarTokens.ccSliderHeight2,
-                      child: CcSlider(
-                        value: level,
-                        left: 0,
-                        right: 0,
-                        dark: dark,
-                        onChangeStart: () {},
-                        onChanged: (value) => ref
-                            .read(displayBrightnessProvider.notifier)
-                            .setLevel(output, value),
-                        onChangeEnd: (value) => ref
-                            .read(displayBrightnessProvider.notifier)
-                            .commitLevel(output, value),
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-            ],
-          ),
-        ),
-        CcFooter(
-          label: 'Display settings…',
-          icon: BarIcons.display,
-          onTap: onOpenSettings,
-        ),
-      ],
-    );
+  State<_TimerWatch> createState() => _TimerWatchState();
+}
+
+class _TimerWatchState extends State<_TimerWatch> {
+  late final Timer _tick = Timer.periodic(const Duration(seconds: 1), (_) {
+    if (islandTimer.active && !islandTimer.paused) setState(() {});
+  });
+
+  void _changed() => setState(() {});
+
+  @override
+  void initState() {
+    super.initState();
+    _tick;
+    islandTimer.addListener(_changed);
   }
-}
-
-/// The sound sub-page: master volume, the output devices, then one row per app
-/// stream.
-///
-/// NextKDE `SoundPage.qml`: a 62 pt master section, 30 pt output rows on a
-/// radius-8 pill, 58 pt application rows with a 28 pt mute button, and a 38 pt
-/// settings footer.
-class _SoundPage extends ConsumerWidget {
-  const _SoundPage({
-    required this.services,
-    required this.onOpenSettings,
-    required this.onClose,
-  });
-
-  final ShellServices services;
-  final VoidCallback onOpenSettings;
-  final VoidCallback onClose;
 
   @override
-  Widget build(BuildContext context, WidgetRef ref) {
-    final theme = context.shellTheme;
-    final dark = theme.colors.brightness == Brightness.dark;
-    final outputs = ref.watch(audioDevicesProvider);
-    final outputsController = ref.read(audioDevicesProvider.notifier);
-    final apps = ref.watch(appAudioProvider);
-    final appsController = ref.read(appAudioProvider.notifier);
-    final volume = ref.watch(services.volume);
-    final muted = volume <= 0.001;
-
-    final sectionStyle = BarType.caption.copyWith(
-      fontSize: 10,
-      color: theme.colors.textPrimary.withValues(alpha: 0.60),
-    );
-
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.stretch,
-      children: <Widget>[
-        Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 14),
-          child: SizedBox(
-            height: 62,
-            child: Stack(
-              children: <Widget>[
-                Positioned(
-                  left: 0,
-                  top: 2,
-                  child: Text(
-                    'Master Volume',
-                    style: BarType.caption.copyWith(
-                      fontSize: 11,
-                      fontWeight: FontWeight.w600,
-                      color: theme.colors.textPrimary,
-                    ),
-                  ),
-                ),
-                Positioned(
-                  right: 0,
-                  top: 2,
-                  child: Text(
-                    '${(volume * 100).round()}%',
-                    style: BarType.caption.copyWith(
-                      fontSize: 10,
-                      color: theme.colors.textPrimary.withValues(alpha: 0.65),
-                    ),
-                  ),
-                ),
-                Positioned(
-                  left: 2,
-                  bottom: 4 + (28 - 16) / 2,
-                  child: BarGlyph(
-                    muted ? BarIcons.volumeMute : BarIcons.volumeUp,
-                    size: 16,
-                    color: theme.colors.textPrimary,
-                  ),
-                ),
-                Positioned(
-                  left: 0,
-                  right: 0,
-                  bottom: 4,
-                  height: 28,
-                  child: CcSlider(
-                    value: volume,
-                    left: 26,
-                    right: 2,
-                    dark: dark,
-                    height: 28,
-                    onChangeStart: services.beginVolumeInteraction,
-                    onChanged: services.setVolume,
-                    onChangeEnd: services.commitVolume,
-                  ),
-                ),
-              ],
-            ),
-          ),
-        ),
-        const SizedBox(height: 8),
-        Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 14),
-          child: Align(
-            alignment: Alignment.centerLeft,
-            child: Text('Output devices', style: sectionStyle),
-          ),
-        ),
-        const SizedBox(height: 4),
-        ConstrainedBox(
-          constraints: const BoxConstraints(maxHeight: 3 * 30 + 2 * 3),
-          child: ListView.separated(
-            shrinkWrap: true,
-            padding: const EdgeInsets.symmetric(horizontal: 14),
-            itemCount: outputs.devices.length,
-            separatorBuilder: (_, _) => const SizedBox(height: 3),
-            itemBuilder: (context, index) {
-              final device = outputs.devices[index];
-              final name = device.description.isEmpty
-                  ? device.name
-                  : device.description;
-              return GestureDetector(
-                behavior: HitTestBehavior.opaque,
-                onTap: () => outputsController.select(device.name),
-                child: MouseRegion(
-                  cursor: SystemMouseCursors.click,
-                  child: Container(
-                    height: 30,
-                    decoration: BoxDecoration(
-                      color: device.active
-                          ? ccBlue.withValues(alpha: 0.20)
-                          : (dark
-                                ? Colors.white.withValues(alpha: 0.10)
-                                : Colors.black.withValues(alpha: 0.08)),
-                      borderRadius: BorderRadius.circular(8),
-                    ),
-                    child: Row(
-                      children: <Widget>[
-                        const SizedBox(width: 10),
-                        SizedBox(
-                          width: 11,
-                          child: device.active
-                              ? BarGlyph(
-                                  BarIcons.checkmark,
-                                  size: 11,
-                                  color: theme.colors.textPrimary,
-                                )
-                              : null,
-                        ),
-                        const SizedBox(width: 6),
-                        Expanded(
-                          child: Text(
-                            name,
-                            maxLines: 1,
-                            overflow: TextOverflow.ellipsis,
-                            style: BarType.caption.copyWith(
-                              fontSize: 11,
-                              color: theme.colors.textPrimary,
-                            ),
-                          ),
-                        ),
-                        const SizedBox(width: 10),
-                      ],
-                    ),
-                  ),
-                ),
-              );
-            },
-          ),
-        ),
-        if (outputs.devices.isEmpty)
-          Padding(
-            padding: const EdgeInsets.fromLTRB(14, 4, 14, 0),
-            child: Text(
-              'No available output devices',
-              style: BarType.caption.copyWith(
-                fontSize: 10,
-                color: theme.colors.textPrimary.withValues(alpha: 0.45),
-              ),
-            ),
-          ),
-        const SizedBox(height: 10),
-        Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 14),
-          child: Align(
-            alignment: Alignment.centerLeft,
-            child: Text(
-              'Application Volume',
-              style: sectionStyle.copyWith(fontWeight: FontWeight.w600),
-            ),
-          ),
-        ),
-        const SizedBox(height: 5),
-        Expanded(
-          child: apps.streams.isEmpty
-              ? Center(
-                  child: Text(
-                    'No active audio applications',
-                    style: BarType.caption.copyWith(
-                      fontSize: 10,
-                      color: theme.colors.textPrimary.withValues(alpha: 0.45),
-                    ),
-                  ),
-                )
-              : ListView.separated(
-                  padding: const EdgeInsets.symmetric(horizontal: 14),
-                  itemCount: apps.streams.length,
-                  separatorBuilder: (_, _) => const SizedBox(height: 3),
-                  itemBuilder: (context, index) {
-                    final stream = apps.streams[index];
-                    return _AppVolumeRow(
-                      name: stream.name,
-                      level: stream.level,
-                      dark: dark,
-                      onChanged: (value) =>
-                          appsController.setVolume(stream.id, value),
-                      onChangeEnd: (value) =>
-                          appsController.commitVolume(stream.id, value),
-                    );
-                  },
-                ),
-        ),
-        CcFooter(
-          label: 'Sound settings…',
-          icon: BarIcons.sliderHorizontal3,
-          labelSize: 11,
-          onTap: onOpenSettings,
-        ),
-      ],
-    );
+  void dispose() {
+    _tick.cancel();
+    islandTimer.removeListener(_changed);
+    super.dispose();
   }
-}
-
-/// One application stream: 58 high, a 28 pt mute-style button, the name and
-/// percentage on the top line, its own slider under them.
-class _AppVolumeRow extends StatefulWidget {
-  const _AppVolumeRow({
-    required this.name,
-    required this.level,
-    required this.dark,
-    required this.onChanged,
-    required this.onChangeEnd,
-  });
-
-  final String name;
-  final double level;
-  final bool dark;
-  final ValueChanged<double> onChanged;
-  final ValueChanged<double> onChangeEnd;
 
   @override
-  State<_AppVolumeRow> createState() => _AppVolumeRowState();
+  Widget build(BuildContext context) => widget.builder(context, DateTime.now());
 }
 
-class _AppVolumeRowState extends State<_AppVolumeRow> {
-  bool _hovered = false;
+class _TimerPage extends StatelessWidget {
+  const _TimerPage({required this.onBack});
+
+  final VoidCallback onBack;
+
+  static const List<int> _minutes = <int>[1, 3, 5, 10, 15, 20, 25, 30, 45, 60];
 
   @override
   Widget build(BuildContext context) {
     final theme = context.shellTheme;
-    final muted = widget.level <= 0.001;
-    return MouseRegion(
-      onEnter: (_) => setState(() => _hovered = true),
-      onExit: (_) => setState(() => _hovered = false),
-      child: SizedBox(
-        height: 58,
-        child: Stack(
+    final ink = theme.colors.textPrimary;
+    Widget chip(String label, VoidCallback onTap, {Color? fill, Color? text}) =>
+        Pressable(
+          onTap: onTap,
+          scale: 0.94,
+          child: Container(
+            width: 50,
+            height: 34,
+            alignment: Alignment.center,
+            decoration: BoxDecoration(
+              color: fill ?? ink.withValues(alpha: 0.08),
+              borderRadius: BorderRadius.circular(17),
+            ),
+            child: Text(
+              label,
+              style: BarType.caption.copyWith(
+                fontSize: 12,
+                fontWeight: FontWeight.w600,
+                color: text ?? ink,
+              ),
+            ),
+          ),
+        );
+    return Padding(
+      padding: const EdgeInsets.all(8),
+      child: _TimerWatch(
+        builder: (context, now) => Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.stretch,
           children: <Widget>[
-            Positioned.fill(
-              child: DecoratedBox(
-                decoration: BoxDecoration(
-                  color: _hovered
-                      ? (widget.dark
-                            ? Colors.white.withValues(alpha: 0.10)
-                            : Colors.black.withValues(alpha: 0.055))
-                      : Colors.transparent,
-                  borderRadius: BorderRadius.circular(8),
-                ),
-              ),
-            ),
-            Positioned(
-              left: 4,
-              top: (58 - 28) / 2,
-              width: 28,
-              height: 28,
-              child: GestureDetector(
-                behavior: HitTestBehavior.opaque,
-                onTap: () => widget.onChangeEnd(muted ? 0.5 : 0),
-                child: MouseRegion(
-                  cursor: SystemMouseCursors.click,
-                  child: DecoratedBox(
-                    decoration: BoxDecoration(
-                      color: muted
-                          ? const Color(0xffff453a).withValues(
-                              alpha: widget.dark ? 0.30 : 0.18,
-                            )
-                          : (widget.dark
-                                ? Colors.white.withValues(alpha: 0.12)
-                                : Colors.black.withValues(alpha: 0.07)),
-                      borderRadius: BorderRadius.circular(8),
-                    ),
-                    child: Center(
-                      child: BarGlyph(
-                        muted ? BarIcons.volumeMute : BarIcons.volumeUp,
-                        size: muted ? 15 : 13,
-                        color: muted
-                            ? const Color(0xffff453a)
-                            : theme.colors.textPrimary,
-                      ),
-                    ),
+            MacHeader(title: context.tr('Timer'), onBack: onBack),
+            const MacDivider(),
+            Padding(
+              padding: const EdgeInsets.symmetric(vertical: 14),
+              child: Center(
+                child: Text(
+                  islandTimer.active
+                      ? clockSpan(islandTimer.remaining(now))
+                      : '0:00',
+                  style: BarType.display.copyWith(
+                    fontSize: 40,
+                    color: islandTimer.active && !islandTimer.paused
+                        ? macOrange
+                        : theme.colors.textSecondary,
+                    fontFeatures: const <FontFeature>[
+                      FontFeature.tabularFigures(),
+                    ],
                   ),
                 ),
               ),
             ),
-            Positioned(
-              left: 40,
-              right: 5,
-              top: 5,
-              child: Row(
+            if (islandTimer.active)
+              Padding(
+                padding: const EdgeInsets.only(bottom: 12),
+                child: Wrap(
+                  alignment: WrapAlignment.center,
+                  spacing: 8,
+                  children: <Widget>[
+                    chip(
+                      '+1',
+                      () => islandTimer.add(const Duration(minutes: 1), now),
+                    ),
+                    chip(
+                      context.tr(islandTimer.paused ? 'Resume' : 'Pause'),
+                      () => islandTimer.toggle(now),
+                      fill: macOrange,
+                      text: const Color(0xffffffff),
+                    ),
+                    chip(context.tr('Cancel'), islandTimer.cancel),
+                  ],
+                ),
+              ),
+            MacSection(context.tr('Start a Timer')),
+            Padding(
+              padding: const EdgeInsets.fromLTRB(8, 4, 8, 8),
+              child: Wrap(
+                spacing: 8,
+                runSpacing: 8,
                 children: <Widget>[
-                  Expanded(
-                    child: Text(
-                      widget.name,
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                      style: BarType.caption.copyWith(
-                        fontSize: 10,
-                        fontWeight: FontWeight.w600,
-                        color: theme.colors.textPrimary,
-                      ),
+                  for (final minutes in _minutes)
+                    chip(
+                      context.tr('{}m', minutes),
+                      () => islandTimer.start(Duration(minutes: minutes), now),
                     ),
-                  ),
-                  const SizedBox(width: 6),
-                  Text(
-                    '${(widget.level * 100).round()}%',
-                    style: BarType.caption.copyWith(
-                      fontSize: 9,
-                      color: theme.colors.textPrimary.withValues(alpha: 0.55),
-                    ),
-                  ),
                 ],
               ),
             ),
-            Positioned(
-              left: 40,
-              right: 4,
-              bottom: 3,
-              height: 27,
-              child: CcSlider(
-                value: widget.level,
-                left: 0,
-                right: 0,
-                dark: widget.dark,
-                height: 27,
-                onChangeStart: () {},
-                onChanged: widget.onChanged,
-                onChangeEnd: widget.onChangeEnd,
-              ),
-            ),
           ],
         ),
       ),
-    );
-  }
-}
-
-/// The island's expanded card, shown from Control Centre and from the pill.
-class IslandPanel extends ConsumerWidget {
-  const IslandPanel({
-    required this.mode,
-    required this.services,
-    required this.notification,
-    required this.onDismiss,
-    this.chargePercent,
-    super.key,
-  });
-
-  final IslandMode mode;
-  final ShellServices services;
-  final DesktopNotification? notification;
-  final VoidCallback onDismiss;
-  final int? chargePercent;
-
-  @override
-  Widget build(BuildContext context, WidgetRef ref) {
-    final playback = ref.watch(services.media).value;
-    return IslandExpandedBody(
-      mode: mode,
-      notification: notification,
-      playback: playback,
-      artworkUrl: playback?.artUrl ?? '',
-      commands: ref.watch(services.mediaCommands),
-      onDismissNotice: onDismiss,
-      onActivateNotice: onDismiss,
-      chargePercent: chargePercent,
     );
   }
 }

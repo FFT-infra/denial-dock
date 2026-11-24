@@ -5,12 +5,7 @@ import 'package:denial_topbar/src/clock_label.dart';
 /// Checks the clock's date against shell27's `ddd d MMM` in both scripts.
 void main() {
   _expect(
-    clockDateLabel(
-          weekday: '星期一',
-          month: '十一月',
-          day: 23,
-          monthNumber: 11,
-        ) ==
+    clockDateLabel(weekday: '星期一', month: '十一月', day: 23, monthNumber: 11) ==
         '11月23日 周一',
     'Chinese date keeps macOS order',
   );

@@ -1,59 +1,244 @@
+import 'dart:async';
 import 'dart:math' as math;
 
 import 'package:denial_flutter_sdk/effects.dart';
+import 'package:denial_flutter_sdk/input.dart';
 import 'package:denial_flutter_sdk/panels.dart';
 import 'package:denial_flutter_sdk/popups.dart';
+import 'package:denial_flutter_sdk/state.dart' show denialBridgeProvider;
 import 'package:denial_flutter_sdk/theme.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import 'bar_button.dart';
 import 'bar_tokens.dart';
 import 'continuous_corners.dart';
 
 const String barPanelKey = 'denial_topbar.panel';
+const String barDialogKey = 'denial_topbar.dialog';
 
-String? _openId;
-int? _openPopup;
+/// Id of the bar panel that is open, or null. Bar items light up from this.
+final ValueNotifier<String?> barOpenPanel = ValueNotifier<String?>(null);
 
-/// How a panel is hung under its bar item.
-///
-/// shell27 positions each popover differently and the difference is visible:
-/// a dropdown is **left-aligned** to its title (`x: menuDropX - 4`) and sits
-/// at `barH + 3`; every other popover is **centred** on its icon and sits at
-/// `barH + 6`; Control Centre is pinned to the right edge.
-enum BarPanelAnchor {
-  /// Left edge at the item's left edge − 4. Used by the Apple menu, the app
-  /// menu and every title dropdown.
-  dropdown,
+_BarLayerState? _currentPanel;
 
-  /// Centred on the item. Used by Wi-Fi, Bluetooth, volume, keyboard.
-  centred,
+enum BarPanelAnchor { dropdown, centred, clock, trailing }
 
-  /// Right-aligned to `screen - width - 8`. Used by the clock's calendar,
-  /// which shell27 pins to the right edge because the clock is always the
-  /// rightmost item.
-  clock,
-
-  /// Right-aligned to `screen - width - 10`. Used by Control Centre.
-  trailing,
-
-  /// Centred on the island, at the island's own 32 pt radius and its 8 pt
-  /// gap, so the card reads as the pill growing rather than a popover [S27].
-  island,
-}
-
-/// Scene rectangle of a bar item, used to hang a panel under its edge.
 Rect? barSceneRect(GlobalKey key) {
   final render = key.currentContext?.findRenderObject();
   if (render is! RenderBox || !render.hasSize) return null;
   return render.localToGlobal(Offset.zero) & render.size;
 }
 
-/// Opens one bar panel at a time.
-///
-/// Ports NextKDE `BarStatusArea.qml`'s single-open rule: opening a second
-/// module closes the first, and clicking the open module's own button closes
-/// it again.
+/// What a popup's content can reach: its open/close progress and a way to
+/// close with the exit animation.
+class BarLayer extends InheritedWidget {
+  const BarLayer({
+    required this.animation,
+    required this.dismiss,
+    required super.child,
+    super.key,
+  });
+
+  final Animation<double> animation;
+  final VoidCallback dismiss;
+
+  static BarLayer of(BuildContext context) =>
+      context.dependOnInheritedWidgetOfExactType<BarLayer>()!;
+
+  @override
+  bool updateShouldNotify(BarLayer oldWidget) =>
+      animation != oldWidget.animation;
+}
+
+bool get _reduceMotion => WidgetsBinding
+    .instance
+    .platformDispatcher
+    .accessibilityFeatures
+    .disableAnimations;
+
+/// Shows [builder] on its own full-scene layer. The layer runs its own enter
+/// and exit animation, so the host's fade is switched off.
+void showBarLayer({
+  required WidgetRef ref,
+  required String keyName,
+  required Widget Function(BuildContext context, VoidCallback close) builder,
+  String? panelId,
+  Duration open = const Duration(milliseconds: 320),
+  Duration close = const Duration(milliseconds: 170),
+  bool dismissOnOutsideTap = true,
+  bool passthrough = false,
+  Color? scrim,
+}) {
+  final controller = ref.read(shellPopupControllerProvider.notifier);
+  // A passthrough layer takes no input of its own; what it shows claims its
+  // own region, and a press on any application window dismisses it.
+  final outside = passthrough
+      ? ref
+            .read(denialBridgeProvider)
+            .shellActions
+            .where((event) => event.action.name == 'clientPointerPressed')
+      : null;
+  for (final popup in ref.read(shellPopupControllerProvider)) {
+    if (popup.keyName == keyName) controller.close(popup.id);
+  }
+  controller.show(
+    keyName: keyName,
+    debugLabel: 'Top bar ${panelId ?? keyName}',
+    dismissPolicy: ShellDismissPolicy.none,
+    transitionDuration: Duration.zero,
+    barrierColor: Colors.transparent,
+    pointerPolicy: passthrough
+        ? ShellPointerPolicy.none
+        : ShellPointerPolicy.fullScene,
+    keyboardPolicy: passthrough
+        ? ShellKeyboardPolicy.none
+        : ShellKeyboardPolicy.capture,
+    builder: (context, popup) => _BarLayerHost(
+      outside: outside,
+      panelId: panelId,
+      open: open,
+      close: close,
+      dismissOnOutsideTap: dismissOnOutsideTap,
+      scrim: scrim,
+      onClosed: popup.close,
+      builder: builder,
+    ),
+  );
+}
+
+class _BarLayerHost extends StatefulWidget {
+  const _BarLayerHost({
+    required this.panelId,
+    required this.outside,
+    required this.open,
+    required this.close,
+    required this.dismissOnOutsideTap,
+    required this.scrim,
+    required this.onClosed,
+    required this.builder,
+  });
+
+  final String? panelId;
+  final Stream<Object?>? outside;
+  final Duration open;
+  final Duration close;
+  final bool dismissOnOutsideTap;
+  final Color? scrim;
+  final VoidCallback onClosed;
+  final Widget Function(BuildContext context, VoidCallback close) builder;
+
+  @override
+  State<_BarLayerHost> createState() => _BarLayerState();
+}
+
+class _BarLayerState extends State<_BarLayerHost>
+    with SingleTickerProviderStateMixin {
+  late final AnimationController _controller = AnimationController(
+    vsync: this,
+    duration: _reduceMotion ? Duration.zero : widget.open,
+    reverseDuration: _reduceMotion ? Duration.zero : widget.close,
+  );
+  bool _closing = false;
+  StreamSubscription<Object?>? _outsideSub;
+
+  @override
+  void initState() {
+    super.initState();
+    _outsideSub = widget.outside?.listen((_) => dismiss());
+    if (widget.panelId != null) {
+      _currentPanel = this;
+      // The notifier feeds widgets that may be mid-build right now.
+      scheduleMicrotask(() {
+        if (_currentPanel == this) barOpenPanel.value = widget.panelId;
+      });
+    }
+    _controller.forward();
+  }
+
+  @override
+  void dispose() {
+    _outsideSub?.cancel();
+    _release();
+    _controller.dispose();
+    super.dispose();
+  }
+
+  void _release() {
+    if (_currentPanel != this) return;
+    _currentPanel = null;
+    scheduleMicrotask(() {
+      if (_currentPanel == null) barOpenPanel.value = null;
+    });
+  }
+
+  void dismiss() {
+    if (_closing) return;
+    _closing = true;
+    _release();
+    _controller.reverse().whenCompleteOrCancel(() {
+      if (mounted) widget.onClosed();
+    });
+  }
+
+  void _outside(Offset position) {
+    final target = BarButton.targetAt(position);
+    dismiss();
+    // A press on another bar item switches straight to it, the way a menu
+    // bar hands over between titles.
+    target?.call();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    if (widget.outside != null) {
+      return BarLayer(
+        animation: _controller,
+        dismiss: dismiss,
+        child: Builder(builder: (context) => widget.builder(context, dismiss)),
+      );
+    }
+    final scrim = widget.scrim;
+    return Focus(
+      autofocus: true,
+      onKeyEvent: (_, event) {
+        if (event is KeyDownEvent &&
+            event.logicalKey == LogicalKeyboardKey.escape) {
+          dismiss();
+          return KeyEventResult.handled;
+        }
+        return KeyEventResult.ignored;
+      },
+      child: Stack(
+        fit: StackFit.expand,
+        children: <Widget>[
+          Listener(
+            behavior: HitTestBehavior.opaque,
+            onPointerDown: widget.dismissOnOutsideTap
+                ? (event) => _outside(event.position)
+                : null,
+            child: scrim == null
+                ? const SizedBox.expand()
+                : FadeTransition(
+                    opacity: _controller,
+                    child: ColoredBox(color: scrim),
+                  ),
+          ),
+          BarLayer(
+            animation: _controller,
+            dismiss: dismiss,
+            child: Builder(
+              builder: (context) => widget.builder(context, dismiss),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+/// Opens one bar panel at a time; the open panel's own item closes it.
 void showBarPanel({
   required WidgetRef ref,
   required String panelId,
@@ -61,39 +246,26 @@ void showBarPanel({
   required Widget Function(BuildContext context, VoidCallback close) builder,
   PanelEdge side = PanelEdge.top,
   double width = BarTokens.panelMaxWidth,
-  String keyName = barPanelKey,
   bool glass = true,
   BarPanelAnchor placement = BarPanelAnchor.dropdown,
   Color? fill,
   double barHeight = BarTokens.height,
   double? height,
 }) {
-  final controller = ref.read(shellPopupControllerProvider.notifier);
-  final previous = _openPopup;
-  final previousOpen =
-      previous != null &&
-      ref
-          .read(shellPopupControllerProvider)
-          .any((popup) => popup.id == previous && !popup.closing);
-  if (_openId == panelId && previousOpen) {
-    controller.close(previous);
-    _openId = null;
-    _openPopup = null;
+  final current = _currentPanel;
+  if (current != null && current.widget.panelId == panelId) {
+    current.dismiss();
     return;
   }
-  for (final popup in ref.read(shellPopupControllerProvider)) {
-    if (popup.keyName == keyName) controller.close(popup.id);
-  }
   final rect = barSceneRect(anchor);
-  final handle = controller.show(
-    keyName: keyName,
-    debugLabel: 'Top bar $panelId',
-    dismissPolicy: ShellDismissPolicy.outsideTapAndEscape,
-    // The surface's own fade and close both ride this duration; the island's
-    // shape grows on its own longer spring inside the frame.
-    transitionDuration: Motion.cardSettle,
-    barrierColor: Colors.transparent,
-    builder: (context, popup) => BarPanelFrame(
+  final menu = placement == BarPanelAnchor.dropdown;
+  showBarLayer(
+    ref: ref,
+    keyName: barPanelKey,
+    panelId: panelId,
+    open: Duration(milliseconds: menu ? 90 : 200),
+    close: Duration(milliseconds: menu ? 140 : 160),
+    builder: (context, close) => BarPanelFrame(
       anchor: rect,
       side: side,
       width: width,
@@ -102,87 +274,125 @@ void showBarPanel({
       fill: fill,
       barHeight: barHeight,
       height: height,
-      child: builder(context, popup.close),
+      child: builder(context, close),
     ),
   );
-  _openId = panelId;
-  _openPopup = handle.id;
 }
 
-const String barDialogKey = 'denial_topbar.dialog';
+void closeBarPanel() => _currentPanel?.dismiss();
 
-/// Opens a centred dialog over the desktop, outside the bar's popover chain.
-///
-/// NextKDE `NetworkPanel.qml` makes the join dialog a system modal rather than
-/// a row inside the Wi-Fi list: it closes the list first, then shows the card
-/// on its own so the card, not the scrolling list, owns the keyboard. The same
-/// rule applies here — a dialog is not anchored to a bar item and is not part
-/// of the single-open popover group, so it can outlive the panel that opened it.
+/// A window in the middle of the screen: About, Force Quit, the Wi-Fi
+/// password, the bar's settings.
 void showBarDialog({
   required WidgetRef ref,
   required Widget Function(BuildContext context, VoidCallback close) builder,
   double width = 420,
   String keyName = barDialogKey,
+  bool dismissOnOutsideTap = true,
 }) {
-  final controller = ref.read(shellPopupControllerProvider.notifier);
-  for (final popup in ref.read(shellPopupControllerProvider)) {
-    if (popup.keyName == keyName) controller.close(popup.id);
-  }
-  controller.show(
+  _currentPanel?.dismiss();
+  showBarLayer(
+    ref: ref,
     keyName: keyName,
-    debugLabel: 'Top bar dialog',
-    dismissPolicy: ShellDismissPolicy.outsideTapAndEscape,
-    transitionDuration: Motion.cardSettle,
-    barrierColor: Colors.transparent,
-    builder: (context, popup) => _CentredDialog(
-      width: width,
-      child: builder(context, popup.close),
-    ),
+    open: const Duration(milliseconds: 240),
+    close: const Duration(milliseconds: 160),
+    dismissOnOutsideTap: dismissOnOutsideTap,
+    builder: (context, close) =>
+        BarWindow(width: width, child: builder(context, close)),
   );
 }
 
-/// The card a bar dialog sits in: the same glass as a popover, a little
-/// further from the bar, and centred on the screen rather than hung from a cell.
-class _CentredDialog extends StatelessWidget {
-  const _CentredDialog({required this.width, required this.child});
+/// The enter/exit motion shared by popovers and windows: a small settle out
+/// of [alignment]. The fade belongs to [BarCard], because a backdrop blur has
+/// to be faded by the blur itself.
+class BarSwell extends StatelessWidget {
+  const BarSwell({
+    required this.alignment,
+    required this.child,
+    this.from = 0.96,
+    this.fadeOnly = false,
+    super.key,
+  });
 
-  final double width;
+  final Alignment alignment;
+  final double from;
+  final bool fadeOnly;
+  final Widget child;
+
+  @override
+  Widget build(BuildContext context) {
+    if (fadeOnly) return child;
+    final animation = BarLayer.of(context).animation;
+    return AnimatedBuilder(
+      animation: animation,
+      builder: (context, child) {
+        final forward = animation.status != AnimationStatus.reverse;
+        final scale = forward
+            ? from + (1 - from) * Curves.easeOutCubic.transform(animation.value)
+            : 0.985 + 0.015 * animation.value;
+        return Transform.scale(
+          alignment: alignment,
+          scale: scale,
+          child: child,
+        );
+      },
+      child: child,
+    );
+  }
+}
+
+/// The card every popup draws on: continuous corners, backdrop blur, a
+/// hairline and a soft shadow. Inside a [BarLayer] it fades with the layer.
+class BarCard extends StatelessWidget {
+  const BarCard({
+    required this.radius,
+    required this.child,
+    this.fill,
+    this.elevation = 1,
+    super.key,
+  });
+
+  final double radius;
+  final Color? fill;
+  final double elevation;
   final Widget child;
 
   @override
   Widget build(BuildContext context) {
     final theme = context.shellTheme;
-    const radius = 22.0;
+    final layer = context.dependOnInheritedWidgetOfExactType<BarLayer>();
+    final fade = layer?.animation.drive(CurveTween(curve: Curves.easeOut));
+    final Widget shadow = DecoratedBox(
+      decoration: ShapeDecoration(
+        shape: ContinuousCorners(radius: radius),
+        shadows: <BoxShadow>[
+          BoxShadow(
+            color: theme.colors.shadow.withValues(alpha: 0.30),
+            blurRadius: 36 * elevation,
+            offset: Offset(0, 14 * elevation),
+          ),
+        ],
+      ),
+    );
     return Stack(
-      fit: StackFit.expand,
+      fit: StackFit.passthrough,
       children: <Widget>[
-        Center(
-          child: SizedBox(
-            width: width,
-            child: DecoratedBox(
-              decoration: ShapeDecoration(
-                shape: ContinuousCorners(radius: radius),
-                shadows: <BoxShadow>[
-                  BoxShadow(
-                    color: theme.colors.shadow.withValues(alpha: 0.32),
-                    blurRadius: 34,
-                    offset: const Offset(0, 14),
-                  ),
-                ],
+        Positioned.fill(
+          child: fade == null
+              ? shadow
+              : FadeTransition(opacity: fade, child: shadow),
+        ),
+        ClipPath(
+          clipper: ContinuousCornersClipper(radius: radius),
+          child: ShellBackdropBlur(
+            opacity: fade,
+            child: CustomPaint(
+              painter: _ContinuousCardPainter(
+                radius: radius,
+                fill: fill ?? theme.panelColor(theme.colors.panelBackground),
+                hairline: theme.colors.hairline,
               ),
-              child: ClipPath(
-                clipper: ContinuousCornersClipper(radius: radius),
-                child: ShellBackdropBlur(
-                  child: CustomPaint(
-                    painter: _ContinuousCardPainter(
-                      radius: radius,
-                      fill: theme.panelColor(theme.colors.panelBackground),
-                      hairline: theme.colors.hairline,
-                    ),
-                    child: child,
-                  ),
-                ),
-              ),
+              child: child,
             ),
           ),
         ),
@@ -191,10 +401,111 @@ class _CentredDialog extends StatelessWidget {
   }
 }
 
-/// The glass card every bar panel is drawn in.
-///
-/// shell27 gives a dropdown `radius 14` at `barH + 3` and a popover `radius 26`
-/// at `barH + 6`; both keep a 6 pt screen margin.
+/// A centred window. Drag it by a [BarWindowHandle], or anywhere while the
+/// Super key is held.
+class BarWindow extends StatefulWidget {
+  const BarWindow({required this.width, required this.child, super.key});
+
+  final double width;
+  final Widget child;
+
+  @override
+  State<BarWindow> createState() => BarWindowState();
+}
+
+class BarWindowState extends State<BarWindow> {
+  Offset _offset = Offset.zero;
+  bool _super = false;
+
+  @override
+  void initState() {
+    super.initState();
+    HardwareKeyboard.instance.addHandler(_onKey);
+    _super = HardwareKeyboard.instance.isMetaPressed;
+  }
+
+  @override
+  void dispose() {
+    HardwareKeyboard.instance.removeHandler(_onKey);
+    super.dispose();
+  }
+
+  bool _onKey(KeyEvent event) {
+    final held = HardwareKeyboard.instance.isMetaPressed;
+    if (held != _super && mounted) setState(() => _super = held);
+    return false;
+  }
+
+  void moveBy(Offset delta) {
+    final scene = MediaQuery.sizeOf(context);
+    setState(() {
+      _offset = Offset(
+        (_offset.dx + delta.dx).clamp(-scene.width / 2, scene.width / 2),
+        (_offset.dy + delta.dy).clamp(-scene.height / 2, scene.height / 2),
+      );
+    });
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final scene = MediaQuery.sizeOf(context);
+    return Center(
+      child: Transform.translate(
+        offset: _offset,
+        child: BarSwell(
+          alignment: Alignment.center,
+          from: 0.96,
+          child: ConstrainedBox(
+            constraints: BoxConstraints(
+              maxWidth: math.min(widget.width, scene.width - 32),
+              maxHeight: scene.height - 64,
+            ),
+            child: Listener(
+              behavior: HitTestBehavior.opaque,
+              onPointerMove: _super ? (event) => moveBy(event.delta) : null,
+              child: MouseRegion(
+                cursor: _super ? SystemMouseCursors.move : MouseCursor.defer,
+                child: BarCard(
+                  radius: 22,
+                  elevation: 1.25,
+                  fill: _windowFill(context),
+                  child: IgnorePointer(ignoring: _super, child: widget.child),
+                ),
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+/// Windows hold text over whatever is behind them, so they stay denser than
+/// popovers however clear the theme's panels are.
+Color _windowFill(BuildContext context) {
+  final theme = context.shellTheme;
+  final base = theme.panelColor(theme.colors.panelBackground);
+  return base.withValues(alpha: math.max(base.a, 0.9));
+}
+
+/// A strip of a [BarWindow] that drags the window.
+class BarWindowHandle extends StatelessWidget {
+  const BarWindowHandle({required this.child, super.key});
+
+  final Widget child;
+
+  @override
+  Widget build(BuildContext context) {
+    return GestureDetector(
+      behavior: HitTestBehavior.translucent,
+      onPanUpdate: (details) => context
+          .findAncestorStateOfType<BarWindowState>()
+          ?.moveBy(details.delta),
+      child: child,
+    );
+  }
+}
+
 class BarPanelFrame extends StatelessWidget {
   const BarPanelFrame({
     required this.anchor,
@@ -213,24 +524,10 @@ class BarPanelFrame extends StatelessWidget {
   final PanelEdge side;
   final double width;
   final Widget child;
-
-  /// The strip's real height. shell27 measures `barH + 3` / `barH + 6` from
-  /// the strip's own bottom edge, and Denial's `systemBarThickness` is often
-  /// taller than the 28 pt reference, so this must come from the layout
-  /// rather than the token or every panel tucks into the bar.
   final double barHeight;
-
-  /// Menus are opaque cards on macOS; panels are glass. The bar's own
-  /// dropdowns pass false so their plate does not shimmer over a wallpaper.
   final bool glass;
   final BarPanelAnchor placement;
-
-  /// Overrides the card's colour. The island's expanded card is the pill
-  /// itself grown, so it keeps the pill's black instead of the panel glass.
   final Color? fill;
-
-  /// Fixed card height. The island's card is sized by its reference rather
-  /// than its content so the shape has a known rect to morph to.
   final double? height;
 
   @override
@@ -238,245 +535,95 @@ class BarPanelFrame extends StatelessWidget {
     final theme = context.shellTheme;
     final scene = MediaQuery.sizeOf(context);
     final rect = anchor;
-    final below = side != PanelEdge.bottom;
+    final menu = placement == BarPanelAnchor.dropdown;
     final gap = switch (placement) {
       BarPanelAnchor.dropdown => BarTokens.menuDropOffsetY,
-      BarPanelAnchor.island => BarTokens.islandCardGap,
       _ => BarTokens.popoverGap,
     };
     final radius = switch (placement) {
       BarPanelAnchor.dropdown => BarTokens.menuRadius,
-      BarPanelAnchor.island => BarTokens.islandPopupRadius,
       _ => BarTokens.popoverRadius,
     };
-
-    // shell27 clamps every popover into `[6, screen - width - 6]`.
     const margin = 6.0;
-    final double left = switch (placement) {
-      BarPanelAnchor.dropdown =>
-        ((rect?.left ?? 0) + BarTokens.menuDropOffsetX)
-            .clamp(margin, math.max(margin, scene.width - width - margin))
-            .toDouble(),
-      BarPanelAnchor.centred || BarPanelAnchor.island =>
-        ((rect?.center.dx ?? scene.width / 2) - width / 2)
-            .clamp(margin, math.max(margin, scene.width - width - margin))
-            .toDouble(),
-      BarPanelAnchor.clock => math.max(margin, scene.width - width - 8),
-      BarPanelAnchor.trailing => math.max(
-        margin,
-        scene.width - width - BarTokens.controlCenterInset,
-      ),
-    };
+    final maxLeft = math.max(margin, scene.width - width - margin);
 
-    // shell27 measures from the bar's own bottom edge (`barH + 3`), not from
-    // the item's box, so the panel never shifts with a taller title.
-    final top = below ? barHeight + gap : null;
-    final bottom = below ? null : scene.height - (rect?.top ?? 0) + gap;
-    final available = below
-        ? scene.height - (top ?? 0) - 8
-        : scene.height - (bottom ?? 0) - 8;
+    double? left, top, right, bottom;
+    Alignment origin;
+    if (side.isHorizontal) {
+      final double x = switch (placement) {
+        BarPanelAnchor.dropdown =>
+          ((rect?.left ?? 0) + BarTokens.menuDropOffsetX)
+              .clamp(margin, maxLeft)
+              .toDouble(),
+        BarPanelAnchor.centred =>
+          ((rect?.center.dx ?? scene.width / 2) - width / 2)
+              .clamp(margin, maxLeft)
+              .toDouble(),
+        BarPanelAnchor.clock => math.max(margin, scene.width - width - 8),
+        BarPanelAnchor.trailing => math.max(
+          margin,
+          scene.width - width - BarTokens.controlCenterInset,
+        ),
+      };
+      left = x;
+      if (side == PanelEdge.bottom) {
+        bottom = barHeight + gap;
+      } else {
+        top = barHeight + gap;
+      }
+      final ax = rect == null
+          ? 0.0
+          : (((rect.center.dx - x) / width) * 2 - 1).clamp(-1.0, 1.0);
+      origin = Alignment(ax, side == PanelEdge.bottom ? 1 : -1);
+    } else {
+      // A vertical bar hangs its panels beside the item that opened them.
+      if (side == PanelEdge.left) {
+        left = barHeight + gap;
+      } else {
+        right = barHeight + gap;
+      }
+      top = math.max(margin, (rect?.top ?? margin) - 4);
+      origin = Alignment(side == PanelEdge.left ? -1 : 1, -1);
+    }
+    final available = scene.height - (top ?? 0) - (bottom ?? 0) - 8;
 
-    // macOS 27 draws its cards with continuous corners, and NextKDE gives every
-    // glass surface the same `cornerExponent: 3`; only the dropdown menus stay
-    // a plain rounded rectangle, which is the radius their reference uses.
-    final continuous = placement != BarPanelAnchor.dropdown;
     final cardColor =
         fill ??
         (glass
             ? theme.panelColor(theme.colors.panelBackground)
-            : theme.colors.panelBackground);
-
-    // The blur sits inside the superellipse clip so the frosted region follows
-    // the corner rather than a bounding rectangle, and the fill paints over it
-    // — the same order the rounded branch gets from `ShellBackdropBlur` outside
-    // its `DecoratedBox`.
-    final Widget card = continuous
-        ? ClipPath(
-            clipper: ContinuousCornersClipper(radius: radius),
-            child: ShellBackdropBlur(
-              blur: glass,
-              child: CustomPaint(
-                painter: _ContinuousCardPainter(
-                  radius: radius,
-                  fill: cardColor,
-                  hairline: theme.colors.hairline,
-                ),
-                child: child,
-              ),
-            ),
-          )
-        : DecoratedBox(
-            decoration: BoxDecoration(
-              // A menu is the opaque material macOS draws behind a dropdown;
-              // a panel is the translucent glass card.
-              color: cardColor,
-              borderRadius: BorderRadius.circular(radius),
-              border: Border.all(color: theme.colors.hairline, width: 0.8),
-            ),
-            child: ClipRRect(
-              borderRadius: BorderRadius.circular(radius - 1),
-              child: child,
-            ),
-          );
-
-    final shadows = <BoxShadow>[
-      BoxShadow(
-        color: theme.colors.shadow.withValues(alpha: 0.28),
-        blurRadius: 30,
-        offset: const Offset(0, 12),
-      ),
-    ];
-
-    // A BoxShadow follows a BorderRadius and would paint a rectangle behind
-    // the superellipse; ShapeDecoration casts the shadow along the shape.
-    final shadow = continuous
-        ? DecoratedBox(
-            decoration: ShapeDecoration(
-              shape: ContinuousCorners(radius: radius),
-              shadows: shadows,
-            ),
-            child: card,
-          )
-        : DecoratedBox(
-            decoration: BoxDecoration(
-              borderRadius: BorderRadius.circular(radius),
-              boxShadow: shadows,
-            ),
-            child: ShellBackdropBlur(
-              borderRadius: BorderRadius.circular(radius),
-              blendMode: BlendMode.srcOver,
-              child: card,
-            ),
-          );
-
-    if (placement == BarPanelAnchor.island && rect != null) {
-      // darkshadow's card is the island growing: at t = 0 it sits on the
-      // pill's own rect, at t = 1 it is the card, and position, size and
-      // corners morph together [S36]. The popup surface is full-screen, so it
-      // can start the card on the pill instead of fading in beside it.
-      //
-      // Only the island grows from its anchor; every other popover is sized by
-      // its content, so it takes the plain positioned branch below.
-      return _IslandCardMorph(
-        from: rect,
-        to: Rect.fromLTWH(left, top ?? 0, width, height ?? available),
-        child: shadow,
-      );
-    }
+            : theme.panelColor(theme.colors.surfaceContainer));
 
     return Stack(
       fit: StackFit.expand,
       children: <Widget>[
         Positioned(
           left: left,
+          right: right,
           width: width,
           top: top,
           bottom: bottom,
-          child: ConstrainedBox(
-            constraints: BoxConstraints(
-              maxHeight: available.clamp(120.0, scene.height),
-            ),
-            child: shadow,
-          ),
-        ),
-      ],
-    );
-  }
-}
-
-/// The island card growing out of the pill.
-///
-/// darkshadow animates one rectangle from the pill's rect to the card's, the
-/// corners opening from half the strip height to 30 [S36]. The card is laid
-/// out at its final rect and scaled from the pill's width about its top
-/// centre: the pill and the card share that centre (the card is centred on the
-/// island's anchor), so the shape reads as the pill itself swelling, and the
-/// corners of a 32 pt superellipse scaled down to the pill's width are the
-/// pill's own round ends.
-class _IslandCardMorph extends StatefulWidget {
-  const _IslandCardMorph({
-    required this.from,
-    required this.to,
-    required this.child,
-  });
-
-  /// The pill's scene rect.
-  final Rect from;
-
-  /// The card's scene rect.
-  final Rect to;
-  final Widget child;
-
-  @override
-  State<_IslandCardMorph> createState() => _IslandCardMorphState();
-}
-
-class _IslandCardMorphState extends State<_IslandCardMorph>
-    with SingleTickerProviderStateMixin {
-  late final AnimationController _controller = AnimationController(
-    vsync: this,
-    duration: BarTokens.islandExpand,
-  );
-  late final Animation<double> _eased = CurvedAnimation(
-    parent: _controller,
-    // meniscus expands on `.spring(0.46, bounce 0.24)` [S35]; easeOutBack is
-    // that settle with its light overshoot, without a spring solver.
-    // meniscus expands on `.spring(0.46, bounce 0.24)` with subtle ~3-4% overshoot
-    curve: const Cubic(0.18, 1.04, 0.22, 1.0),
-  );
-
-  @override
-  void initState() {
-    super.initState();
-    _controller.forward();
-  }
-
-  @override
-  void dispose() {
-    _controller.dispose();
-    super.dispose();
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    final start = widget.to.width <= 0
-        ? 1.0
-        : (widget.from.width / widget.to.width).clamp(0.0, 1.0);
-    return Stack(
-      fit: StackFit.expand,
-      children: <Widget>[
-        Positioned(
-          left: widget.to.left,
-          top: widget.to.top,
-          width: widget.to.width,
-          height: widget.to.height,
-          child: AnimatedBuilder(
-            animation: _eased,
-            builder: (context, child) {
-              // The curve overshoots on purpose; the scale keeps the bounce,
-              // the opacity does not.
-              final t = _eased.value;
-              final rest = 1 - t;
-              return Transform.translate(
-                // At t = 0 the card is scaled to the pill's width and moved
-                // onto the pill's own rect, so the first frame is the pill.
-                offset: Offset(
-                  (widget.from.center.dx - widget.to.center.dx) * rest,
-                  (widget.from.top - widget.to.top) * rest,
-                ),
-                child: Transform.scale(
-                  alignment: Alignment.topCenter,
-                  scale: start + (1 - start) * t,
-                  child: Opacity(
-                    // The shape itself is there from the first frame; only the
-                    // surface's own fade-in is honoured, over the first third.
-                    opacity: (t * 3).clamp(0.0, 1.0),
+          child: Align(
+            alignment: bottom != null
+                ? Alignment.bottomCenter
+                : Alignment.topCenter,
+            child: ConstrainedBox(
+              constraints: BoxConstraints(
+                maxHeight: available.clamp(120.0, scene.height),
+              ),
+              child: BarSwell(
+                alignment: origin,
+                fadeOnly: menu,
+                child: Listener(
+                  behavior: HitTestBehavior.opaque,
+                  child: BarCard(
+                    radius: radius,
+                    fill: cardColor,
+                    elevation: menu ? 0.7 : 1,
                     child: child,
                   ),
                 ),
-              );
-            },
-            child: widget.child,
+              ),
+            ),
           ),
         ),
       ],
@@ -484,7 +631,6 @@ class _IslandCardMorphState extends State<_IslandCardMorph>
   }
 }
 
-/// Paints the island card: the superellipse fill, then its hairline.
 class _ContinuousCardPainter extends CustomPainter {
   const _ContinuousCardPainter({
     required this.radius,
@@ -498,20 +644,21 @@ class _ContinuousCardPainter extends CustomPainter {
 
   @override
   void paint(Canvas canvas, Size size) {
-    final path = continuousRoundedRectPath(Offset.zero & size, radius);
-    canvas.drawPath(path, Paint()..color = fill);
+    final rect = Offset.zero & size;
     canvas.drawPath(
-      path,
+      continuousRoundedRectPath(rect, radius),
+      Paint()..color = fill,
+    );
+    canvas.drawPath(
+      continuousRoundedRectPath(rect.deflate(0.5), radius - 0.5),
       Paint()
-        ..color = hairline
         ..style = PaintingStyle.stroke
-        ..strokeWidth = 0.8,
+        ..strokeWidth = 1
+        ..color = hairline,
     );
   }
 
   @override
-  bool shouldRepaint(_ContinuousCardPainter oldDelegate) =>
-      oldDelegate.radius != radius ||
-      oldDelegate.fill != fill ||
-      oldDelegate.hairline != hairline;
+  bool shouldRepaint(_ContinuousCardPainter old) =>
+      old.radius != radius || old.fill != fill || old.hairline != hairline;
 }

@@ -1,10 +1,10 @@
 import 'dart:async';
 import 'dart:math' as math;
+import 'dart:ui' show PointerDeviceKind;
 
 import 'package:denial_flutter_sdk/input.dart';
 import 'package:denial_flutter_sdk/localization.dart';
 import 'package:denial_flutter_sdk/models.dart';
-import 'package:denial_flutter_sdk/popups.dart';
 import 'package:denial_flutter_sdk/services.dart';
 import 'package:denial_flutter_sdk/state.dart';
 import 'package:denial_flutter_sdk/surfaces.dart';
@@ -16,28 +16,28 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import 'app_menu.dart';
 import 'app_menus.dart';
+import 'bar_button.dart';
 import 'bar_ground.dart';
+import 'debug_remote.dart';
 import 'bar_icons.dart';
+import 'bar_menu.dart';
 import 'bar_panel.dart';
 import 'bar_preferences.dart';
 import 'bar_settings.dart';
 import 'bar_status.dart';
 import 'bar_tokens.dart';
 import 'clock_label.dart';
-import 'island.dart';
-import 'panels/audio_panel.dart';
+import 'island/island.dart';
+import 'l10n.dart';
+import 'panels/about_dialog.dart';
 import 'panels/bar_settings_panel.dart';
-import 'panels/cc_card.dart';
-import 'panels/notification_center_panel.dart';
 import 'panels/control_center.dart';
-import 'panels/media_card.dart';
-import 'panels/network_panels.dart';
-import 'panels/notifications_panel.dart';
-import 'panels/panel_parts.dart';
+import 'panels/dialogs.dart';
+import 'panels/notification_center.dart';
+import 'panels/popovers.dart';
 import 'panels/wifi_join_dialog.dart';
 import 'system_menu.dart';
-import 'workspace_dots.dart';
-import 'workspace_switcher.dart';
+import 'workspaces.dart';
 
 /// How much of the surface the floating capsule needs past the strip so its
 /// shadow is not clipped.
@@ -70,34 +70,92 @@ class _TopBarSurfaceState extends ConsumerState<TopBarSurface> {
   final GlobalKey _clockKey = GlobalKey();
   final GlobalKey _wifiKey = GlobalKey();
   final GlobalKey _volumeKey = GlobalKey();
+  final GlobalKey _clipboardKey = GlobalKey();
+  final GlobalKey _bluetoothKey = GlobalKey();
   final GlobalKey _batteryKey = GlobalKey();
   final GlobalKey _notificationsKey = GlobalKey();
   final GlobalKey _controlCenterKey = GlobalKey();
   final GlobalKey _settingsKey = GlobalKey();
-  final GlobalKey _islandKey = GlobalKey();
 
-  /// One anchor per application-menu title, so each dropdown hangs under its
-  /// own title instead of the bar's left edge.
-  final Map<AppMenuId, GlobalKey> _appMenuKeys = <AppMenuId, GlobalKey>{};
+  final GlobalKey _appKey = GlobalKey();
 
-  String? _openPanelId;
-  String _lastIslandKey = '';
-  Timer? _islandCollapse;
-  bool _islandHovered = false;
-  bool _islandExpanded = false;
+  String? get _openPanelId => barOpenPanel.value;
 
-  /// The charger's last seen state, so the pill can flash on the change
-  /// rather than on every frame the battery provider rebuilds.
-  bool? _wasCharging;
-  Timer? _chargeFlash;
-  bool _charging = false;
+  void _panelChanged() {
+    if (!mounted) return;
+    setState(() {});
+    if (barOpenPanel.value == null) _hover();
+  }
+
+  @override
+  void initState() {
+    super.initState();
+    barOpenPanel.addListener(_panelChanged);
+    startDebugRemote();
+    debugCommand.addListener(_debug);
+  }
+
+  final ValueNotifier<double> _islandReserved = ValueNotifier<double>(58);
+
+  bool _hidden = false;
+  bool _overBar = false;
+  bool _overIsland = false;
+  bool _overSensor = false;
+  Timer? _hideTimer;
+  Timer? _revealTimer;
+
+  bool get _autoHide =>
+      (ref.read(barSettingsProvider).value ?? BarSettings.defaults).autoHide;
+
+  void _armHide([Duration after = const Duration(milliseconds: 700)]) {
+    _hideTimer?.cancel();
+    if (!_autoHide || _hidden) return;
+    _hideTimer = Timer(after, () {
+      if (!mounted || !_autoHide) return;
+      if (_overBar || _overIsland || barOpenPanel.value != null) return;
+      setState(() => _hidden = true);
+    });
+  }
+
+  void _reveal({bool touch = false}) {
+    _revealTimer?.cancel();
+    if (!_hidden) return;
+    final settings =
+        ref.read(barSettingsProvider).value ?? BarSettings.defaults;
+    void show() {
+      if (!mounted) return;
+      setState(() => _hidden = false);
+      if (touch) _armHide(const Duration(seconds: 4));
+    }
+
+    if (touch || settings.autoHideDelayMs <= 0) {
+      show();
+    } else {
+      _revealTimer = Timer(
+        Duration(milliseconds: settings.autoHideDelayMs),
+        show,
+      );
+    }
+  }
+
+  void _hover() {
+    if (_overBar || _overIsland) {
+      _hideTimer?.cancel();
+    } else if (_overSensor) {
+      _reveal();
+    } else {
+      _revealTimer?.cancel();
+      _armHide();
+    }
+  }
 
   @override
   void dispose() {
-    _islandCollapse?.cancel();
-    _islandIntent?.cancel();
-    _islandLeave?.cancel();
-    _chargeFlash?.cancel();
+    _hideTimer?.cancel();
+    _revealTimer?.cancel();
+    barOpenPanel.removeListener(_panelChanged);
+    debugCommand.removeListener(_debug);
+    _islandReserved.dispose();
     super.dispose();
   }
 
@@ -125,12 +183,6 @@ class _TopBarSurfaceState extends ConsumerState<TopBarSurface> {
 
   ShellServices get _services => widget.services;
 
-  /// The Control Centre's own width. NextKDE sizes it from the screen rather
-  /// than pinning a constant, so a 1524 pt display gets 336 and a narrow one
-  /// falls back to 296.
-  double get _controlCenterWidth =>
-      BarTokens.controlCenterWidthFor(MediaQuery.sizeOf(context).width);
-
   void _openPanel(
     String id,
     GlobalKey anchor,
@@ -155,12 +207,6 @@ class _TopBarSurfaceState extends ConsumerState<TopBarSurface> {
       height: height,
       builder: builder,
     );
-    // showBarPanel toggles; mirror the resulting state so the cell wash and
-    // the island border agree with the popup list.
-    final open = ref
-        .read(shellPopupControllerProvider)
-        .any((popup) => popup.keyName == barPanelKey && !popup.closing);
-    setState(() => _openPanelId = open ? id : null);
   }
 
   /// Shows the "Join “SSID”" dialog for a secured network with no saved
@@ -174,172 +220,172 @@ class _TopBarSurfaceState extends ConsumerState<TopBarSurface> {
     showBarDialog(
       ref: ref,
       width: WifiJoinDialog.width,
-      builder: (_, close) =>
-          WifiJoinDialog(network: network, onClose: close),
+      builder: (_, close) => WifiJoinDialog(network: network, onClose: close),
     );
   }
 
-  void _openIsland() {
-    final note = ref.read(
-      desktopNotificationsProvider.select((state) => state.bannerNotification),
-    );
-    final mode = _currentIslandMode;
-    if (mode == IslandMode.quiet && note == null) {
-      return;
-    }
-    _openPanel(
-      'island',
-      _islandKey,
-      (_, close) => IslandPanel(
-        mode: mode,
+  void _openBarSettings({int page = 0}) {
+    showBarDialog(
+      ref: ref,
+      width: barSettingsWidth,
+      keyName: 'denial_topbar.settings',
+      builder: (context, close) => BarSettingsPanel(
         services: _services,
-        notification: note,
-        onDismiss: close,
-        chargePercent: ref.read(_services.battery).capacity,
+        initialPage: page,
+        onClose: close,
+        maxHeight: MediaQuery.sizeOf(context).height - 96,
       ),
-      width: IslandExpandedBody.widthFor(mode),
-      height: IslandExpandedBody.heightFor(mode),
-      placement: BarPanelAnchor.island,
-      // The card is the pill grown, so it keeps the pill's black.
-      fill: const Color(BarTokens.islandFill),
     );
   }
 
-  /// Opens the bar's settings sheet, from the system menu and View ▸ Menu Bar
-  /// Settings…. It hangs off the system menu's anchor because the sheet has no
-  /// cell of its own.
-  void _openBarSettings() {
-    _openPanel(
-      'settings',
-      _systemKey,
-      (_, dismiss) => BarSettingsPanel(
-        onClose: dismiss,
-        width: BarTokens.panelMaxWidth,
-        maxHeight: MediaQuery.sizeOf(context).height - 120,
-      ),
-      width: BarTokens.panelMaxWidth,
-      placement: BarPanelAnchor.centred,
-    );
+  BarStatusCluster? _status;
+  VoidCallback? _clockTap;
+
+  void _debug() {
+    final words = debugWords();
+    final status = _status;
+    if (words.isEmpty || status == null || !mounted) return;
+    final number = words.length > 1 ? int.tryParse(words[1]) ?? 0 : 0;
+    switch (words.first) {
+      case 'close':
+        closeBarPanel();
+      case 'cc':
+        status.onControlCenter();
+      case 'clock':
+        _clockTap?.call();
+      case 'wifi':
+        status.onWifi();
+      case 'bluetooth':
+        status.onBluetooth();
+      case 'volume':
+        status.onVolume();
+      case 'battery':
+        status.onBattery();
+      case 'clipboard':
+        status.onClipboard();
+      case 'system':
+        _openSystemMenu();
+      case 'about':
+        _openAbout();
+      case 'settings':
+        _openBarSettings(page: number);
+    }
   }
 
-  Widget _controlCenterBody() {
-    return ControlCenterPanel(
-      services: _services,
-      monitorId: widget.monitorId,
-      output: widget.environment.output,
-      onOpenSettings: () {
-        _openPanel(
-          'settings',
-          _settingsKey,
-          (_, dismiss) => BarSettingsPanel(
-            onClose: dismiss,
-            width: BarTokens.panelMaxWidth,
-            maxHeight: MediaQuery.sizeOf(context).height - 120,
-          ),
-        );
-      },
-      onOpenNotifications: () {
-        _openPanel(
-          'notifications',
-          _notificationsKey,
-          (_, dismiss) => NotificationHistoryPanel(onClose: dismiss),
-          width: PanelWidth.notifications,
-          placement: BarPanelAnchor.trailing,
-        );
-      },
-      onOpenIsland: _openIsland,
-      onOpenDisplaySettings: () => _services.openPowerSettings(),
-      onJoinNetwork: _openWifiJoin,
-      onOpenNowPlaying: () => _openPanel(
-        'nowplaying',
-        _controlCenterKey,
-        (_, close) => Padding(
-          padding: const EdgeInsets.all(BarTokens.panelPadding),
-          child: NowPlayingPanel(services: _services),
+  void _openAbout() {
+    showBarDialog(
+      ref: ref,
+      width: AboutSystemDialog.width,
+      builder: (context, close) => AboutSystemDialog(
+        mark: _DistroGlyph(
+          ink: context.shellTheme.colors.textPrimary,
+          size: 64,
         ),
-        width: BarTokens.panelMaxWidth,
-        placement: BarPanelAnchor.trailing,
+        onClose: close,
       ),
     );
   }
 
-  /// The island's mode for this frame. `ref.watch` is only legal inside
-  /// [build], so [build] resolves it once and the event handlers read the
-  /// cached value.
-  IslandMode _currentIslandMode = IslandMode.quiet;
-
-  void _armIslandCollapse() {
-    _islandCollapse?.cancel();
-    if (!_islandExpanded) return;
-    _islandCollapse = Timer(BarTokens.islandAutoCollapse, () {
-      if (!mounted || _islandHovered) return;
-      setState(() => _islandExpanded = false);
-    });
+  void _openForceQuit() {
+    showBarDialog(
+      ref: ref,
+      width: ForceQuitDialog.width,
+      builder: (context, close) =>
+          ForceQuitDialog(services: _services, onClose: close),
+    );
   }
 
-  /// meniscus's hover intent [S35]: the pointer must rest 180 ms before the
-  /// island opens, so a cursor crossing the notch cannot flash it open, and
-  /// leaving gives 120 ms of grace before it folds back.
-  Timer? _islandIntent;
-  Timer? _islandLeave;
-
-  void _onIslandHover(bool hovered) {
-    _islandHovered = hovered;
-    if (hovered) {
-      _islandLeave?.cancel();
-      _islandCollapse?.cancel();
-      final peek = ref.read(barSettingsProvider).value?.islandHoverPeek ?? true;
-      if (!peek || _islandExpanded) return;
-      _islandIntent?.cancel();
-      _islandIntent = Timer(BarTokens.islandHoverIntent, () {
-        if (!mounted || !_islandHovered) return;
-        if (_currentIslandMode != IslandMode.quiet) {
-          setState(() => _islandExpanded = true);
-        }
-      });
-      return;
-    }
-    _islandIntent?.cancel();
-    _islandLeave?.cancel();
-    _islandLeave = Timer(BarTokens.islandLeaveGrace, () {
-      if (mounted) _armIslandCollapse();
-    });
+  void _confirmPower(SessionPowerAction action) {
+    final (title, label) = switch (action) {
+      SessionPowerAction.reboot => (
+        'Are you sure you want to restart now?',
+        'Restart',
+      ),
+      SessionPowerAction.logout => (
+        'Are you sure you want to log out now?',
+        'Log Out',
+      ),
+      _ => ('Are you sure you want to shut down now?', 'Shut Down'),
+    };
+    final power = ref.read(sessionPowerProvider.notifier);
+    showBarDialog(
+      ref: ref,
+      width: ConfirmDialog.width,
+      builder: (context, close) => ConfirmDialog(
+        mark: _DistroGlyph(
+          ink: context.shellTheme.colors.textPrimary,
+          size: 52,
+        ),
+        title: context.tr(title),
+        detail: context.tr('Open windows will be closed.'),
+        action: context.tr(label),
+        onClose: close,
+        onConfirm: () async {
+          await power.request(action);
+          await power.confirm();
+        },
+      ),
+    );
   }
 
-  /// Expands the pill when the track changes or a notice lands, matching
-  /// revo-shell's `onTrackTitleChanged` and `Notifications.onNotify`.
-  void _onIslandContentChanged(String key) {
-    if (key == _lastIslandKey) return;
-    _lastIslandKey = key;
-    if (key.isEmpty) {
-      // Playback stopped or the notice went away: fold back immediately.
-      _islandCollapse?.cancel();
-      if (_islandExpanded) setState(() => _islandExpanded = false);
-      return;
-    }
-    setState(() => _islandExpanded = true);
-    _armIslandCollapse();
+  void _openSystemMenu() {
+    final window = ref.read(shellControllerProvider).foregroundWindow;
+    final frontName = window == null
+        ? null
+        : _displayAppName(context, window, watch: false);
+    showBarMenu(
+      ref: ref,
+      panelId: 'system',
+      anchor: _systemKey,
+      vertical: !_horizontal,
+      fromRight: _side == PanelEdge.right,
+      entries: (context) => systemMenuEntries(
+        context,
+        ref,
+        services: _services,
+        frontAppName: frontName,
+        onAbout: _openAbout,
+        onBarSettings: _openBarSettings,
+        onForceQuit: _openForceQuit,
+        onForceQuitFront: window == null
+            ? null
+            : () => closeApplication(ref, window.appId),
+        onConfirm: _confirmPower,
+      ),
+    );
   }
 
-  /// Holds the charge face for a moment when the charger goes in or out.
-  ///
-  /// macOS shows the banner on every plug and unplug with no way to turn it
-  /// off [S28], so this follows the edge rather than the level: the first
-  /// frame only records the state, and a later change flashes. A build cannot
-  /// call `setState`, so the flash is armed through a zero-delay timer.
-  void _syncChargeFlash(BarSettings settings, bool charging) {
-    final previous = _wasCharging;
-    _wasCharging = charging;
-    if (previous == null || previous == charging) return;
-    if (!settings.activityCharging) return;
-    _chargeFlash?.cancel();
-    _chargeFlash = Timer(Duration.zero, () {
-      if (!mounted) return;
-      setState(() => _charging = true);
-      _chargeFlash = Timer(const Duration(seconds: 3), () {
-        if (mounted) setState(() => _charging = false);
-      });
-    });
+  Widget _controlCenterBody(VoidCallback close) {
+    return ControlCenterPanel(
+      onClose: close,
+      services: _services,
+      output: widget.environment.output,
+      onSettings: () {
+        close();
+        _services.openPowerSettings();
+      },
+      onJoinNetwork: (network) {
+        close();
+        _openWifiJoin(network);
+      },
+    );
+  }
+
+  void _openNotificationCenter(String id, {required bool merged}) {
+    showNotificationCenter(
+      ref: ref,
+      services: _services,
+      side: _side,
+      barHeight: _bodyHeight,
+      panelId: id,
+      notifications: merged || id == 'notifications',
+      widgets: id == 'clock',
+    );
+  }
+
+  void _openSettingsApp(VoidCallback close) {
+    close();
+    _services.openPowerSettings();
   }
 
   @override
@@ -356,35 +402,6 @@ class _TopBarSurfaceState extends ConsumerState<TopBarSurface> {
     final ink = BarGroundLayer.inkFor(wallpaper, settings);
     final now = ref.watch(_services.clock).value ?? DateTime.now();
     final strings = _services.strings(context);
-    final playback = ref.watch(_services.media).value;
-    final battery = ref.watch(_services.battery);
-    final banner = ref.watch(
-      desktopNotificationsProvider.select((state) => state.bannerNotification),
-    );
-    _syncChargeFlash(settings, battery.charging);
-    final islandMode = _currentIslandMode = resolveIslandMode(
-      mediaEnabled: settings.activityMedia,
-      mediaPlaying: playback?.playing ?? false,
-      notificationsEnabled: settings.activityNotifications,
-      hasNotice: ref.watch(
-        desktopNotificationsProvider.select(
-          (state) => state.bannerNotifications.isNotEmpty,
-        ),
-      ),
-      charging: _charging,
-    );
-    final islandKey = switch (islandMode) {
-      IslandMode.media => 'media:${playback?.serviceName}:${playback?.title}',
-      IslandMode.notice => 'notice:${banner?.id}',
-      // The flash expands once per plug event and folds back when it ends.
-      IslandMode.charging => 'charge',
-      IslandMode.hud => 'hud',
-      IslandMode.quiet => '',
-    };
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (mounted) _onIslandContentChanged(islandKey);
-    });
-
     final workspacePlacement = settings.workspacePlacement;
     final islandAvailable = _side == PanelEdge.top && settings.islandEnabled;
     final showWorkspaces =
@@ -392,17 +409,19 @@ class _TopBarSurfaceState extends ConsumerState<TopBarSurface> {
         (workspacePlacement != BarWorkspacePlacement.island ||
             !islandAvailable);
 
-    final workspace = WorkspaceSwitcher(
+    final workspace = BarWorkspaces(
       services: _services,
       monitorId: widget.monitorId,
       ink: ink,
+      settings: settings,
+      vertical: !_horizontal,
+      side: _side,
+      barHeight: bodyHeight,
     );
-    // The island sizes itself from the dots it hosts, so it needs their
-    // width before layout. A dark pill always needs white dots.
     final workspaceStatus = ref.watch(_services.workspace(widget.monitorId));
     final workspaceEnabled = ref.watch(_services.workspacesEnabled);
     final islandWorkspaceWidth = workspaceEnabled && workspaceStatus.count > 0
-        ? workspaceDotsWidth(workspaceStatus.count) + 4.0
+        ? workspacesExtent(workspaceStatus.count, settings.workspaceStyle) + 4.0
         : 0.0;
 
     final systemMenu = settings.showSystemMenu
@@ -411,17 +430,7 @@ class _TopBarSurfaceState extends ConsumerState<TopBarSurface> {
             glyph: _DistroGlyph(ink: ink),
             open: _openPanelId == 'system',
             ink: ink,
-            onToggle: () => _openPanel(
-              'system',
-              _systemKey,
-              (_, close) => SystemMenuBody(
-                services: _services,
-                onClose: close,
-                onBarSettings: _openBarSettings,
-              ),
-              width: BarTokens.menuWidth,
-              glass: false,
-            ),
+            onToggle: _openSystemMenu,
           )
         : null;
 
@@ -433,89 +442,100 @@ class _TopBarSurfaceState extends ConsumerState<TopBarSurface> {
       key: _clockKey,
       time: strings.time(now),
       date: clockDateLabel(
-        weekday: localizedWeekday(context.l10n, now.weekday),
+        weekday: settings.clockWeekday
+            ? localizedWeekday(context.l10n, now.weekday)
+            : '',
         month: localizedMonth(context.l10n, now.month),
         day: now.day,
         monthNumber: now.month,
-      ),
-      showDate: settings.showClockDate && _horizontal,
+      ).trim(),
+      showDate: settings.showClockDate,
+      vertical: !_horizontal,
+      crossExtent: bodyHeight,
       ink: ink,
-      onTap: () => _openPanel(
+      open: _openPanelId == 'clock',
+      onTap: () => _openNotificationCenter(
         'clock',
-        _clockKey,
-        (_, close) => NotificationCenterPanel(onClose: close),
-        width: PanelWidth.notifications,
-        placement: BarPanelAnchor.clock,
+        merged: settings.mergedNotificationCenter,
       ),
     );
 
+    BarButton.tips = settings.tooltips && _horizontal;
+    _clockTap = clock.onTap;
     final status = BarStatusCluster(
       services: _services,
       settings: settings,
       openPanel: _openPanelId,
       ink: ink,
+      horizontal: _horizontal,
+      crossExtent: bodyHeight,
       wifiKey: _wifiKey,
       volumeKey: _volumeKey,
       batteryKey: _batteryKey,
+      bluetoothKey: _bluetoothKey,
       notificationsKey: _notificationsKey,
       controlCenterKey: _controlCenterKey,
       settingsKey: _settingsKey,
       onWifi: () => _openPanel(
         'wifi',
         _wifiKey,
-        (_, close) => _PopoverShell(
-          child: _WifiPopover(
-            services: _services,
-            onJoinNetwork: (network) {
-              close();
-              _openWifiJoin(network);
-            },
-          ),
+        (_, close) => WifiPopover(
+          onSettings: () => _openSettingsApp(close),
+          onJoin: (network) {
+            close();
+            _openWifiJoin(network);
+          },
         ),
-        width: PanelWidth.wifi,
+        width: popoverWidth,
+        placement: BarPanelAnchor.centred,
+      ),
+      onBluetooth: () => _openPanel(
+        'bluetooth',
+        _bluetoothKey,
+        (_, close) =>
+            BluetoothPopover(onSettings: () => _openSettingsApp(close)),
+        width: popoverWidth,
         placement: BarPanelAnchor.centred,
       ),
       onVolume: () => _openPanel(
         'volume',
         _volumeKey,
-        (_, close) => _PopoverShell(child: SoundPopover(services: _services)),
-        width: PanelWidth.volume,
+        (_, close) => SoundPopover(
+          services: _services,
+          onSettings: () => _openSettingsApp(close),
+        ),
+        width: popoverWidth,
         placement: BarPanelAnchor.centred,
       ),
       onBattery: () => _openPanel(
         'battery',
         _batteryKey,
-        (_, close) => _PopoverShell(
-          child: _BatteryContent(services: _services),
+        (_, close) => BatteryPopover(
+          services: _services,
+          onSettings: () => _openSettingsApp(close),
         ),
-        width: PanelWidth.wifi,
+        width: popoverWidth,
         placement: BarPanelAnchor.centred,
       ),
-      onNotifications: () => _openPanel(
-        'notifications',
-        _notificationsKey,
-        (_, close) => NotificationHistoryPanel(onClose: close),
-        width: PanelWidth.notifications,
-        placement: BarPanelAnchor.trailing,
+      onSearch: _services.toggleLauncher,
+      clipboardKey: _clipboardKey,
+      onClipboard: () => _openPanel(
+        'clipboard',
+        _clipboardKey,
+        (_, close) => ClipboardPopover(onClose: close),
+        width: popoverWidth,
+        placement: BarPanelAnchor.centred,
       ),
+      onNotifications: () =>
+          _openNotificationCenter('notifications', merged: false),
       onControlCenter: () => _openPanel(
         'controlcenter',
         _controlCenterKey,
-        (_, _) => _controlCenterBody(),
-        width: _controlCenterWidth,
+        (_, close) => _controlCenterBody(close),
+        width: controlCenterWidth,
         placement: BarPanelAnchor.trailing,
       ),
-      onSettings: () => _openPanel(
-        'settings',
-        _settingsKey,
-        (_, close) => BarSettingsPanel(
-          onClose: close,
-          width: BarTokens.panelMaxWidth,
-          maxHeight: MediaQuery.sizeOf(context).height - 120,
-        ),
-        width: BarTokens.panelMaxWidth,
-        placement: BarPanelAnchor.centred,
-      ),
+      onSettings: _openBarSettings,
     );
 
     // macOS measures 31 pt on a machine whose bar is taller than 24; on a
@@ -523,46 +543,33 @@ class _TopBarSurfaceState extends ConsumerState<TopBarSurface> {
     // pill never fills it edge to edge.
     final islandHeight = math.max(
       BarTokens.islandMinHeight,
-      math.min(BarTokens.islandHeight, bodyHeight - 4),
+      math.min(BarTokens.islandHeight, bodyHeight - 5),
     );
 
+    _status = status;
     final island = islandAvailable
-        ? TopBarIsland(
-            key: _islandKey,
-            mode: islandMode,
-            showClock: settings.islandShowsClock,
-            timeText: strings.time(now),
-            dateText: settings.showClockDate
-                ? clockDateLabel(
-                    weekday: localizedWeekday(context.l10n, now.weekday),
-                    month: localizedMonth(context.l10n, now.month),
-                    day: now.day,
-                    monthNumber: now.month,
-                  )
-                : '',
-            mediaTitle: playback?.title ?? '',
-            noticeSummary: banner?.summary ?? '',
-            expanded: _islandExpanded,
+        ? Island(
+            services: _services,
+            monitorId: widget.monitorId,
+            settings: settings,
             height: islandHeight,
-            onOpen: _openIsland,
-            onHover: _onIslandHover,
-            artworkUrl: playback?.artUrl ?? '',
-            chargePercent: battery.capacity,
+            reserved: _islandReserved,
+            timeLabel: strings.time(now),
+            dateLabel: clock.date,
+            onControlCenter: status.onControlCenter,
+            onNotifications: clock.onTap,
             workspace: workspacePlacement == BarWorkspacePlacement.island
-                ? WorkspaceSwitcher(
+                ? BarWorkspaces(
                     services: _services,
                     monitorId: widget.monitorId,
                     ink: const Color(0xffffffff),
+                    settings: settings.copyWith(workspacePreview: false),
+                    barHeight: bodyHeight,
                   )
                 : null,
             workspaceWidth: workspacePlacement == BarWorkspacePlacement.island
                 ? islandWorkspaceWidth
                 : 0.0,
-            onNoticeClose: banner == null
-                ? null
-                : () => ref
-                      .read(desktopNotificationsProvider.notifier)
-                      .hideBanner(banner.id),
           )
         : null;
 
@@ -570,7 +577,7 @@ class _TopBarSurfaceState extends ConsumerState<TopBarSurface> {
       ?systemMenu,
       if (settings.workspacePlacement == BarWorkspacePlacement.leading &&
           showWorkspaces) ...<Widget>[
-        const SizedBox(width: BarTokens.clusterGap),
+        const SizedBox.square(dimension: BarTokens.clusterGap),
         workspace,
       ],
       ?appMenu,
@@ -579,17 +586,26 @@ class _TopBarSurfaceState extends ConsumerState<TopBarSurface> {
       if (settings.workspacePlacement == BarWorkspacePlacement.trailing &&
           showWorkspaces) ...<Widget>[
         workspace,
-        const SizedBox(width: BarTokens.statusSpacing),
+        const SizedBox.square(dimension: BarTokens.statusSpacing),
       ],
       status,
-      const SizedBox(width: BarTokens.statusSpacing),
+      const SizedBox.square(dimension: BarTokens.statusSpacing),
       clock,
     ];
 
     final content = _BarRow(
       horizontal: _horizontal,
       leading: leading,
-      centre: island,
+      centre: island == null
+          ? null
+          : ValueListenableBuilder<double>(
+              valueListenable: _islandReserved,
+              builder: (context, width, _) => AnimatedContainer(
+                duration: const Duration(milliseconds: 420),
+                curve: BarTokens.spring,
+                width: width,
+              ),
+            ),
       trailing: trailing,
       bodyHeight: bodyHeight,
     );
@@ -598,7 +614,9 @@ class _TopBarSurfaceState extends ConsumerState<TopBarSurface> {
         ? BorderRadius.zero
         : BorderRadius.circular(BarTokens.floatingRadius);
     // shell27: `leftRow.x: 8`, `rightRow.rightMargin: 6`.
-    final padding = attached
+    final padding = !_horizontal
+        ? const EdgeInsets.symmetric(vertical: BarTokens.insetLeft)
+        : attached
         ? const EdgeInsets.only(
             left: BarTokens.insetLeft,
             right: BarTokens.insetRight,
@@ -617,18 +635,37 @@ class _TopBarSurfaceState extends ConsumerState<TopBarSurface> {
 
     bar = ShellInputRegion(
       debugLabel: 'denial_topbar.bar',
-      child: GestureDetector(
-        behavior: HitTestBehavior.translucent,
-        onSecondaryTap: () => _openPanel(
-          'settings',
-          _settingsKey,
-          (_, close) => BarSettingsPanel(
-            onClose: close,
-            width: BarTokens.panelMaxWidth,
-            maxHeight: MediaQuery.sizeOf(context).height - 120,
+      child: MouseRegion(
+        onEnter: (_) {
+          _overBar = true;
+          _hover();
+        },
+        onExit: (_) {
+          _overBar = false;
+          _hover();
+        },
+        child: Listener(
+          onPointerDown: (event) {
+            if (event.kind != PointerDeviceKind.mouse) {
+              _armHide(const Duration(seconds: 4));
+            }
+          },
+          child: GestureDetector(
+            behavior: HitTestBehavior.translucent,
+            onSecondaryTapUp: (details) => showBarMenu(
+              ref: ref,
+              panelId: 'context',
+              at: details.globalPosition,
+              entries: (context) => <BarMenuEntry>[
+                BarMenuItem(
+                  label: context.tr('Menu Bar Settings…'),
+                  onSelected: _openBarSettings,
+                ),
+              ],
+            ),
+            child: bar,
           ),
         ),
-        child: bar,
       ),
     );
 
@@ -640,13 +677,14 @@ class _TopBarSurfaceState extends ConsumerState<TopBarSurface> {
       visible: settings.ground == BarGround.none && _horizontal,
     );
 
-    return Align(
-      alignment: switch (_side) {
-        PanelEdge.bottom => Alignment.bottomCenter,
-        PanelEdge.left => Alignment.centerLeft,
-        PanelEdge.right => Alignment.centerRight,
-        _ => Alignment.topCenter,
-      },
+    final stripAlignment = switch (_side) {
+      PanelEdge.bottom => Alignment.bottomCenter,
+      PanelEdge.left => Alignment.centerLeft,
+      PanelEdge.right => Alignment.centerRight,
+      _ => Alignment.topCenter,
+    };
+    final strip = Align(
+      alignment: stripAlignment,
       child: Padding(
         padding: attached
             ? EdgeInsets.zero
@@ -669,81 +707,154 @@ class _TopBarSurfaceState extends ConsumerState<TopBarSurface> {
         ),
       ),
     );
-  }
-
-  /// The title row: the focused app's name, then File / Edit / View / Window /
-  /// Help, exactly the list shell27 ships.
-  ///
-  /// Wayland has no global-menu protocol, so each title opens the menu this
-  /// shell can build itself; the app name opens the window list.
-  Widget _appMenu(BuildContext context, Color ink, BarSettings settings) {
-    final state = ref.watch(shellControllerProvider);
-    final window = state.foregroundWindow;
-    final appName = window == null
-        ? 'Denial'
-        : _displayAppName(context, window);
-    final titles = appMenuTitles(appName);
-    return Row(
-      mainAxisSize: MainAxisSize.min,
+    final body = Stack(
       children: <Widget>[
-        for (final title in titles)
-          Builder(
-            builder: (context) {
-              final id = switch (title.id) {
-                AppMenuId.app => 'app',
-                AppMenuId.file => 'file',
-                AppMenuId.edit => 'edit',
-                AppMenuId.view => 'view',
-                AppMenuId.window => 'window',
-                AppMenuId.help => 'help',
-              };
-              final anchor = _appMenuKeys[title.id] ??= GlobalKey();
-              return KeyedSubtree(
-                key: anchor,
-                child: BarTitle(
-                  label: title.label,
-                  ink: ink,
-                  bold: title.bold,
-                  open: _openPanelId == id,
-                  onTap: () => _openPanel(
-                    id,
-                    anchor,
-                    (_, close) => AppMenuBody(
-                      id: title.id,
-                      services: _services,
-                      monitorId: widget.monitorId,
-                      onClose: close,
-                      onBarSettings: _openBarSettings,
-                    ),
-                    width: BarTokens.menuWidth,
-                    glass: false,
-                  ),
-                ),
-              );
-            },
+        Positioned.fill(child: strip),
+        if (island != null)
+          Positioned(
+            left: 0,
+            right: 0,
+            top:
+                (attached ? 0 : BarTokens.floatingMargin) +
+                (bodyHeight - islandHeight) / 2,
+            child: Align(
+              alignment: Alignment.topCenter,
+              child: MouseRegion(
+                opaque: false,
+                onEnter: (_) {
+                  _overIsland = true;
+                  _hover();
+                },
+                onExit: (_) {
+                  _overIsland = false;
+                  _hover();
+                },
+                child: island,
+              ),
+            ),
           ),
       ],
+    );
+
+    final hidden = settings.autoHide && _hidden;
+    if (settings.autoHide && !_hidden && _hideTimer == null) _armHide();
+    final away = thickness + barShadowExtent;
+    final direction = switch (_side) {
+      PanelEdge.bottom => const Offset(0, 1),
+      PanelEdge.left => const Offset(-1, 0),
+      PanelEdge.right => const Offset(1, 0),
+      _ => const Offset(0, -1),
+    };
+    return Stack(
+      children: <Widget>[
+        Align(
+          alignment: stripAlignment,
+          child: IgnorePointer(
+            ignoring: !hidden,
+            child: ShellInputRegion(
+              debugLabel: 'denial_topbar.reveal',
+              active: hidden,
+              child: MouseRegion(
+                onEnter: (_) {
+                  _overSensor = true;
+                  _hover();
+                },
+                onExit: (_) {
+                  _overSensor = false;
+                  _hover();
+                },
+                child: Listener(
+                  behavior: HitTestBehavior.opaque,
+                  onPointerDown: (event) =>
+                      _reveal(touch: event.kind != PointerDeviceKind.mouse),
+                  child: SizedBox(
+                    width: _horizontal ? double.infinity : thickness,
+                    height: _horizontal ? thickness : double.infinity,
+                  ),
+                ),
+              ),
+            ),
+          ),
+        ),
+        Positioned.fill(
+          child: TweenAnimationBuilder<double>(
+            tween: Tween<double>(end: hidden ? 1 : 0),
+            duration: const Duration(milliseconds: 340),
+            curve: Curves.easeOutCubic,
+            builder: (context, t, child) => Transform.translate(
+              offset: direction * (away * t),
+              child: Opacity(opacity: 1 - t * 0.6, child: child),
+            ),
+            child: body,
+          ),
+        ),
+      ],
+    );
+  }
+
+  /// The focused application's name in bold, and nothing after it: the
+  /// compositor exposes no application menus, so the bar draws no titles it
+  /// could not open.
+  Widget _appMenu(BuildContext context, Color ink, BarSettings settings) {
+    final window = ref.watch(shellControllerProvider).foregroundWindow;
+    if (window == null) {
+      return _horizontal
+          ? BarTitle(label: 'Denial', ink: ink, bold: true)
+          : const SizedBox.shrink();
+    }
+    final appName = _displayAppName(context, window);
+    return KeyedSubtree(
+      key: _appKey,
+      child: BarTitle(
+        label: appName,
+        ink: ink,
+        bold: true,
+        icon: _horizontal
+            ? null
+            : _services.buildApplicationIcon(context, window.appId),
+        open: _openPanelId == 'app',
+        onTap: () => showBarMenu(
+          ref: ref,
+          panelId: 'app',
+          anchor: _appKey,
+          vertical: !_horizontal,
+          fromRight: _side == PanelEdge.right,
+          entries: (context) => appMenuEntries(
+            context,
+            ref,
+            window: window,
+            appName: appName,
+            services: _services,
+          ),
+        ),
+      ),
     );
   }
 
   /// The app's own name from the shell's catalog, falling back to the id's
   /// last segment the way revo-shell does.
-  String _displayAppName(BuildContext context, DenialWindow window) {
+  String _displayAppName(
+    BuildContext context,
+    DenialWindow window, {
+    bool watch = true,
+  }) {
     final appId = window.appId;
     if (appId.isEmpty) return 'Denial';
-    final name = ref
-        .watch(_services.applications)
-        .firstWhere(
-          (application) =>
-              application.appId == appId ||
-              application.windowAppIds.contains(appId),
-          orElse: () => LaunchableApplication(
-            id: appId,
-            appId: appId,
-            name: '',
-            windowAppIds: const <String>[],
-          ),
-        );
+    final name =
+        (watch
+                ? ref.watch(_services.applications)
+                : ref.read(_services.applications))
+            .firstWhere(
+              (application) =>
+                  application.appId == appId ||
+                  application.windowAppIds.contains(appId),
+              orElse: () => LaunchableApplication(
+                id: appId,
+                appId: appId,
+                name: '',
+                windowAppIds: const <String>[],
+              ),
+            );
     if (name.name.isNotEmpty) return name.name;
     final segment = appId.split('.').last;
     if (segment.isEmpty) return 'Denial';
@@ -814,10 +925,7 @@ class _BarRow extends StatelessWidget {
                 alignment: Alignment.centerRight,
                 minWidth: 0,
                 maxWidth: double.infinity,
-                child: Row(
-                  mainAxisSize: MainAxisSize.min,
-                  children: trailing,
-                ),
+                child: Row(mainAxisSize: MainAxisSize.min, children: trailing),
               ),
             ),
           ),
@@ -833,164 +941,25 @@ class _BarRow extends StatelessWidget {
 /// the Fedora logo on this machine. `/etc/os-release` decides which asset to
 /// use, so a differently-branded image is a one-line change.
 class _DistroGlyph extends StatelessWidget {
-  const _DistroGlyph({required this.ink});
+  const _DistroGlyph({
+    required this.ink,
+    this.size = BarTokens.systemMenuGlyph,
+  });
 
   final Color ink;
+  final double size;
 
   @override
   Widget build(BuildContext context) {
     return Image.asset(
       'assets/distro-fedora.png',
-      width: BarTokens.systemMenuGlyph,
-      height: BarTokens.systemMenuGlyph,
+      width: size,
+      height: size,
       color: ink,
       filterQuality: FilterQuality.high,
       package: 'denial_topbar',
-      errorBuilder: (context, error, stack) => BarGlyph(
-        BarIcons.circleFill,
-        size: BarTokens.systemMenuGlyph,
-        color: ink,
-      ),
-    );
-  }
-}
-
-
-/// The bar's own Wi-Fi popover: the shared sub-page header over the same
-/// network page Control Centre shows.
-class _WifiPopover extends ConsumerWidget {
-  const _WifiPopover({required this.services, required this.onJoinNetwork});
-
-  final ShellServices services;
-  final ValueChanged<WifiNetwork> onJoinNetwork;
-
-  @override
-  Widget build(BuildContext context, WidgetRef ref) {
-    final state = ref.watch(networkConnectivityProvider);
-    final controller = ref.read(networkConnectivityProvider.notifier);
-    final on = state.snapshot.wirelessEnabled;
-    // The popover is the same card the Control Centre's Wi-Fi page draws, at
-    // the reference's own 360 pt height, so the two views cannot drift.
-    return SizedBox(
-      height: BarTokens.ccWifiPageHeight,
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.stretch,
-        children: <Widget>[
-          CcSubmenuHeader(
-            title: services.strings(context).wifiTitle,
-            trailing: CcSwitch(
-              value: on,
-              busy: state.radioChanging,
-              onChanged: () => controller.setWirelessEnabled(!on),
-            ),
-          ),
-          const SizedBox(height: 6),
-          Expanded(
-            child: WifiContent(
-              onOpenSettings: () => services.openPowerSettings(),
-              onJoinNetwork: onJoinNetwork,
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-}
-
-/// The padding shell27 gives every popover's content: loaded at `x: 11; y: 11`
-/// inside a 320-wide shape, which leaves 11 pt on each side and 11 at the top.
-class _PopoverShell extends StatelessWidget {
-  const _PopoverShell({required this.child});
-
-  final Widget child;
-
-  @override
-  Widget build(BuildContext context) {
-    return Padding(
-      padding: const EdgeInsets.fromLTRB(
-        panelInset,
-        panelInset,
-        panelInset,
-        panelInset - 2,
-      ),
-      child: child,
-    );
-  }
-}
-
-/// The battery popover: the charge, the charging state and the time left.
-///
-/// macOS keeps this card short — a large percentage, a state line, and one
-/// button into the battery settings — so it follows that shape rather than the
-/// Wi-Fi list's.
-class _BatteryContent extends ConsumerWidget {
-  const _BatteryContent({required this.services});
-
-  final ShellServices services;
-
-  @override
-  Widget build(BuildContext context, WidgetRef ref) {
-    final theme = context.shellTheme;
-    final battery = ref.watch(services.battery);
-    final strings = services.strings(context);
-    final capacity = battery.capacity;
-    return Column(
-      mainAxisSize: MainAxisSize.min,
-      crossAxisAlignment: CrossAxisAlignment.stretch,
-      children: <Widget>[
-        Padding(
-          padding: const EdgeInsets.fromLTRB(4, 2, 4, 0),
-          child: Row(
-            children: <Widget>[
-              BarGlyph(
-                batteryIconFor(battery),
-                size: 18,
-                color: theme.colors.textPrimary,
-              ),
-              const SizedBox(width: 8),
-              Text(
-                capacity == null ? strings.batteryTitle : '$capacity%',
-                style: PanelText.title(theme),
-              ),
-              const Spacer(),
-              if (battery.charging)
-                Text(
-                  'Charging',
-                  style: PanelText.detail(theme),
-                ),
-            ],
-          ),
-        ),
-        const SizedBox(height: 6),
-        Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 4),
-          child: Container(
-            height: 6,
-            decoration: BoxDecoration(
-              color: theme.colors.textPrimary.withValues(alpha: 0.16),
-              borderRadius: BorderRadius.circular(3),
-            ),
-            child: FractionallySizedBox(
-              alignment: Alignment.centerLeft,
-              widthFactor: ((capacity ?? 0) / 100).clamp(0.0, 1.0),
-              child: DecoratedBox(
-                decoration: BoxDecoration(
-                  color: battery.charging
-                      ? theme.accent
-                      : theme.colors.textPrimary,
-                  borderRadius: BorderRadius.circular(3),
-                ),
-              ),
-            ),
-          ),
-        ),
-        const SizedBox(height: 8),
-        PanelDivider(color: theme.colors.hairlineSoft),
-        PanelAction(
-          label: 'Battery Settings…',
-          onTap: () => services.openPowerSettings(),
-        ),
-      ],
+      errorBuilder: (context, error, stack) =>
+          BarGlyph(BarIcons.circleFill, size: size, color: ink),
     );
   }
 }

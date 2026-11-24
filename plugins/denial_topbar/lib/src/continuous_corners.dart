@@ -46,34 +46,22 @@ Path continuousRoundedRectPath(
   path.lineTo(right - r, top);
   for (var index = 0; index <= segments; index++) {
     final t = index / segments * math.pi / 2;
-    path.lineTo(
-      right - r + r * across(t),
-      top + r - r * along(t),
-    );
+    path.lineTo(right - r + r * across(t), top + r - r * along(t));
   }
   path.lineTo(right, bottom - r);
   for (var index = 0; index <= segments; index++) {
     final t = index / segments * math.pi / 2;
-    path.lineTo(
-      right - r + r * along(t),
-      bottom - r + r * across(t),
-    );
+    path.lineTo(right - r + r * along(t), bottom - r + r * across(t));
   }
   path.lineTo(left + r, bottom);
   for (var index = 0; index <= segments; index++) {
     final t = index / segments * math.pi / 2;
-    path.lineTo(
-      left + r - r * across(t),
-      bottom - r + r * along(t),
-    );
+    path.lineTo(left + r - r * across(t), bottom - r + r * along(t));
   }
   path.lineTo(left, top + r);
   for (var index = 0; index <= segments; index++) {
     final t = index / segments * math.pi / 2;
-    path.lineTo(
-      left + r - r * along(t),
-      top + r - r * across(t),
-    );
+    path.lineTo(left + r - r * along(t), top + r - r * across(t));
   }
   return path..close();
 }
@@ -108,7 +96,10 @@ class ContinuousCorners extends ShapeBorder {
   @override
   void paint(Canvas canvas, Rect rect, {TextDirection? textDirection}) {
     if (side.style == BorderStyle.none || side.width <= 0) return;
-    canvas.drawPath(getOuterPath(rect, textDirection: textDirection), side.toPaint());
+    canvas.drawPath(
+      getOuterPath(rect, textDirection: textDirection),
+      side.toPaint(),
+    );
   }
 
   @override
@@ -155,20 +146,14 @@ class ContinuousCorners extends ShapeBorder {
 
 /// A clipper with the same shape, so content never spills past the curve.
 class ContinuousCornersClipper extends CustomClipper<Path> {
-  const ContinuousCornersClipper({
-    required this.radius,
-    this.exponent = 3,
-  });
+  const ContinuousCornersClipper({required this.radius, this.exponent = 3});
 
   final double radius;
   final double exponent;
 
   @override
-  Path getClip(Size size) => continuousRoundedRectPath(
-    Offset.zero & size,
-    radius,
-    exponent: exponent,
-  );
+  Path getClip(Size size) =>
+      continuousRoundedRectPath(Offset.zero & size, radius, exponent: exponent);
 
   @override
   bool shouldReclip(ContinuousCornersClipper oldClipper) =>
