@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:math' as math;
 
 import 'package:denial_shell_kit/kit_motion.dart';
+import 'package:denial_shell_kit/kit_requests.dart';
 import 'package:denial_shell_kit/kit_style.dart';
 import 'package:denial_flutter_sdk/applications.dart'
     show applicationRecentsProvider;
@@ -124,6 +125,10 @@ class _DockContainerState extends ConsumerState<DockContainer>
 
   final OverlayPortalController _menuPortal = OverlayPortalController();
   double _menuAnchor = 0;
+
+  /// True when the dock menu was opened from the launcher icon, which adds
+  /// the system's own entries above the dock's.
+  bool _menuFromLauncher = false;
 
   /// One dwell timer gates the first name label; moving between icons keeps the
   /// visible label continuous instead of restarting the delay.
@@ -606,12 +611,13 @@ class _DockContainerState extends ConsumerState<DockContainer>
     return label?.key;
   }
 
-  void _openDockMenu(double surfaceMain) {
+  void _openDockMenu(double surfaceMain, {bool launcher = false}) {
     if (_menuOpen) {
       _closeDockMenu();
       return;
     }
     _menuAnchor = surfaceMain;
+    _menuFromLauncher = launcher;
     _menuOpen = true;
     _menuPortal.show();
     setState(() {});
@@ -1628,6 +1634,34 @@ class _DockContainerState extends ConsumerState<DockContainer>
                         mainAxisSize: MainAxisSize.min,
                         crossAxisAlignment: CrossAxisAlignment.stretch,
                         children: [
+                          // The launcher's icon stands in for the system
+                          // menu, so its menu leads with that menu's entries.
+                          // The about box belongs to another plugin and is
+                          // asked for by name; without a listener the row
+                          // would do nothing, so it is left out.
+                          if (_menuFromLauncher) ...[
+                            if (KitRequests.answered)
+                              DockMenuRow(
+                                icon: Icons.info_outline,
+                                label: chinese ? '关于本机' : 'About This System',
+                                onTap: () {
+                                  _closeDockMenu();
+                                  KitRequests.send(
+                                    KitRequests.about,
+                                    monitorId: widget.monitorId,
+                                  );
+                                },
+                              ),
+                            DockMenuRow(
+                              icon: Icons.settings_outlined,
+                              label: chinese ? '系统设置…' : 'System Settings…',
+                              onTap: () {
+                                _closeDockMenu();
+                                widget.services.openPowerSettings();
+                              },
+                            ),
+                            const DockMenuSeparator(),
+                          ],
                           DockMenuRow(
                             icon: smart
                                 ? Icons.visibility_off_outlined
@@ -1875,8 +1909,13 @@ class _DockContainerState extends ConsumerState<DockContainer>
     // Neighbours ease into their new slot while an icon is being dragged,
     // matching the reorder animation in the reference docks.
     final shuffle = _motion.duration(
-      dragging ? const Duration(milliseconds: 180) : Duration.zero,
+      dragging ? KitMotion.enter : Duration.zero,
     );
+    // A liquid look lets a neighbour run a hair past its new slot and come
+    // back; the other eases straight into it.
+    final shuffleCurve = KitStyle.of(context).liquid
+        ? KitMotion.spring
+        : KitMotion.outCubic;
     Widget slotAt({
       required double cross,
       required double mainExtent,
@@ -1887,7 +1926,7 @@ class _DockContainerState extends ConsumerState<DockContainer>
       DockPosition.bottom => AnimatedPositioned(
         key: key,
         duration: shuffle,
-        curve: Curves.easeOutCubic,
+        curve: shuffleCurve,
         left: main,
         bottom: cross,
         width: mainExtent,
@@ -1897,7 +1936,7 @@ class _DockContainerState extends ConsumerState<DockContainer>
       DockPosition.left => AnimatedPositioned(
         key: key,
         duration: shuffle,
-        curve: Curves.easeOutCubic,
+        curve: shuffleCurve,
         top: main,
         left: cross,
         height: mainExtent,
@@ -1907,7 +1946,7 @@ class _DockContainerState extends ConsumerState<DockContainer>
       DockPosition.right => AnimatedPositioned(
         key: key,
         duration: shuffle,
-        curve: Curves.easeOutCubic,
+        curve: shuffleCurve,
         top: main,
         right: cross,
         height: mainExtent,
@@ -1965,7 +2004,7 @@ class _DockContainerState extends ConsumerState<DockContainer>
             appearance: _settings.appearance,
             label: launcherLabel,
             onTap: widget.services.toggleLauncher,
-            onOpenMenu: () => _openDockMenu(slot.center),
+            onOpenMenu: () => _openDockMenu(slot.center, launcher: true),
           ),
         );
       case _SlotKind.folder:
@@ -2120,6 +2159,7 @@ class _DockContainerState extends ConsumerState<DockContainer>
               indicatorStyle: settings.indicatorStyle,
               previewStyle: settings.previewStyle,
               previewHover: settings.previewHover,
+              previewDelayMs: settings.previewDelayMs,
               dimInactivePinned: settings.dimInactivePinned,
               badge: publishedCount > 0
                   ? publishedCount
@@ -2361,6 +2401,36 @@ class _DockLabelBubble extends StatelessWidget {
     final padH = (iconSize * 0.24).clamp(10.0, 14.0);
     final height = fontSize * 1.25 + padV * 2;
     final tailSize = (iconSize * 0.13).clamp(6.0, 9.0);
+    // The bubble grows out of its tail when it first appears. Sliding along
+    // the row keeps the same bubble, so it does not replay between icons.
+    return TweenAnimationBuilder<double>(
+      tween: Tween<double>(begin: 0, end: 1),
+      duration: KitMotion.duration(context, KitMotion.fade),
+      curve: KitMotion.outCubic,
+      builder: (context, shown, child) => Opacity(
+        opacity: shown,
+        child: Transform.scale(
+          scale: 0.9 + 0.1 * shown,
+          alignment: !horizontal
+              ? Alignment.bottomCenter
+              : tailLeading
+              ? Alignment.centerLeft
+              : Alignment.centerRight,
+          child: child,
+        ),
+      ),
+      child: _bubble(theme, fontSize, padV, padH, tailSize, height),
+    );
+  }
+
+  Widget _bubble(
+    ShellThemeData theme,
+    double fontSize,
+    double padV,
+    double padH,
+    double tailSize,
+    double height,
+  ) {
     return CustomPaint(
       painter: _BubblePainter(
         color: background,

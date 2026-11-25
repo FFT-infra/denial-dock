@@ -449,6 +449,7 @@ void main() {
         old.hideScope == DockHideScope.all &&
         old.revealDelayMs == 90 &&
         old.hideDelayMs == 200 &&
+        old.previewDelayMs == DockSettings.defaultPreviewDelayMs &&
         !old.lockItems &&
         !old.currentWorkspaceOnly &&
         !old.previewMiddleClose &&
@@ -466,6 +467,7 @@ void main() {
     'indicatorStyle': 'segments',
     'revealDelayMs': 5000,
     'hideDelayMs': -3,
+    'previewDelayMs': 9000,
     'showProgress': false,
     'showAttention': false,
     'showDesktopActions': false,
@@ -482,6 +484,7 @@ void main() {
         newer.indicatorStyle == DockIndicatorStyle.segments &&
         newer.revealDelayMs == DockSettings.maxRevealDelayMs &&
         newer.hideDelayMs == 0 &&
+        newer.previewDelayMs == DockSettings.maxPreviewDelayMs &&
         !newer.showProgress &&
         !newer.showAttention &&
         !newer.showDesktopActions &&

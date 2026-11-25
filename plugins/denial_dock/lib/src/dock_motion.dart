@@ -59,11 +59,18 @@ class DockMotion {
       ? DockLaunchFeedback.pulse
       : chosen;
 
+  /// One attention period at normal speed: a hop, then a pause.
+  static const Duration attentionPeriod = Duration(milliseconds: 1200);
+
   /// The share of an attention period the hop takes; the rest is a pause.
+  /// With [attentionPeriod] the hop lasts as long as one launch hop, so the
+  /// two read as the same gesture.
   static const double attentionHopShare = 0.4;
 
-  /// How high the attention hop goes, in icon sizes.
-  static const double attentionHeightRatio = 0.22;
+  /// How high the attention hop goes, in icon sizes. Lower than a launch hop,
+  /// which answers a click and can afford to be loud, but high enough to
+  /// clear the row: at a fifth of an icon it was easy to miss.
+  static const double attentionHeightRatio = 0.45;
 
   /// The attention signal for [phase] in 0..1 of its period, from zero to one
   /// and back: one hop at the start of each period, then a rest.

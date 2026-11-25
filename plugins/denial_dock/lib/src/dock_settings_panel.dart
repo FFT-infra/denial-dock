@@ -795,6 +795,19 @@ class _DockSettingsPanelState extends ConsumerState<DockSettingsPanel> {
                 ],
                 onChanged: (value) => _controller.setPreviewStyle(value),
               ),
+              _SliderRow(
+                label: _zh ? '停留多久后弹出预览' : 'Delay before previews',
+                value: settings.previewDelayMs.toDouble(),
+                min: 0,
+                max: DockSettings.maxPreviewDelayMs.toDouble(),
+                divisions:
+                    DockSettings.maxPreviewDelayMs ~/
+                    DockSettings.previewDelayStepMs,
+                display: _delayText(settings.previewDelayMs),
+                describe: (value) => _delayText(value.round()),
+                onChanged: (value) =>
+                    _controller.setPreviewDelayMs(value.round()),
+              ),
               _SegmentedField<DockPreviewHover>(
                 label: _zh ? '指针停在预览上' : 'Resting on a preview',
                 value: settings.previewHover,

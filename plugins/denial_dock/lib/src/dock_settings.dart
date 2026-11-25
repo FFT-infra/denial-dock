@@ -539,6 +539,7 @@ class DockSettings {
     this.hideScope = DockHideScope.all,
     this.revealDelayMs = defaultRevealDelayMs,
     this.hideDelayMs = defaultHideDelayMs,
+    this.previewDelayMs = defaultPreviewDelayMs,
     this.showProgress = true,
     this.showAttention = true,
     this.showDesktopActions = true,
@@ -678,6 +679,9 @@ class DockSettings {
 
   final int hideDelayMs;
 
+  /// How long the pointer rests on an icon before its previews open.
+  final int previewDelayMs;
+
   /// Draws the progress an application publishes through the Unity launcher
   /// API along the bottom of its icon.
   final bool showProgress;
@@ -709,6 +713,17 @@ class DockSettings {
   static const int maxRevealDelayMs = 1000;
   static const int maxHideDelayMs = 2000;
   static const int delayStepMs = 10;
+
+  /// How long the pointer rests on an icon before its window previews open.
+  ///
+  /// The name label appears after 250 ms. Previews at 400 ms came only 150 ms
+  /// behind it, so on the way to a click the label flashed and was replaced
+  /// at once, and a pointer that merely slowed over an icon opened a panel.
+  /// 600 ms keeps the two apart, and the wait is a setting for anyone who
+  /// wants the 400 ms Windows uses for its taskbar thumbnails back.
+  static const int defaultPreviewDelayMs = 600;
+  static const int maxPreviewDelayMs = 1500;
+  static const int previewDelayStepMs = 50;
 
   static int clampDelay(int value, int max) => value.clamp(0, max);
 
@@ -761,6 +776,7 @@ class DockSettings {
     DockHideScope? hideScope,
     int? revealDelayMs,
     int? hideDelayMs,
+    int? previewDelayMs,
     bool? showProgress,
     bool? showAttention,
     bool? showDesktopActions,
@@ -810,6 +826,10 @@ class DockSettings {
       maxRevealDelayMs,
     ),
     hideDelayMs: clampDelay(hideDelayMs ?? this.hideDelayMs, maxHideDelayMs),
+    previewDelayMs: clampDelay(
+      previewDelayMs ?? this.previewDelayMs,
+      maxPreviewDelayMs,
+    ),
     showProgress: showProgress ?? this.showProgress,
     showAttention: showAttention ?? this.showAttention,
     showDesktopActions: showDesktopActions ?? this.showDesktopActions,
@@ -1066,6 +1086,12 @@ class DockSettings {
             : defaultHideDelayMs,
         maxHideDelayMs,
       ),
+      previewDelayMs: clampDelay(
+        json['previewDelayMs'] is num
+            ? (json['previewDelayMs'] as num).toInt()
+            : defaultPreviewDelayMs,
+        maxPreviewDelayMs,
+      ),
       showProgress: json['showProgress'] is bool
           ? json['showProgress'] as bool
           : true,
@@ -1190,6 +1216,7 @@ class DockPreferencesStore {
     json['hideScope'] = settings.hideScope.key;
     json['revealDelayMs'] = settings.revealDelayMs;
     json['hideDelayMs'] = settings.hideDelayMs;
+    json['previewDelayMs'] = settings.previewDelayMs;
     json['showProgress'] = settings.showProgress;
     json['showAttention'] = settings.showAttention;
     json['showDesktopActions'] = settings.showDesktopActions;

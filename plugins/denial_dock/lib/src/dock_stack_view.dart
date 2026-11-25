@@ -7,7 +7,6 @@ import 'package:denial_flutter_sdk/theme.dart';
 import 'package:flutter/gestures.dart'
     show PointerScrollEvent, PointerSignalEvent;
 import 'package:flutter/material.dart';
-import 'package:flutter/physics.dart';
 import 'package:flutter/services.dart';
 
 import 'dock_drag.dart';
@@ -15,6 +14,7 @@ import 'dock_mac_icons.dart';
 import 'dock_menu.dart';
 import 'dock_settings.dart' show DockPosition, DockStackMode, DockStackSortMode;
 import 'dock_pile.dart';
+import 'dock_spring.dart';
 import 'dock_stack_fan.dart';
 import 'dock_stack_files.dart';
 import 'dock_stack_grid.dart';
@@ -100,14 +100,25 @@ class DockStackView extends StatefulWidget {
 
 class _DockStackViewState extends State<DockStackView>
     with SingleTickerProviderStateMixin {
-  late final AnimationController _open = AnimationController(
-    vsync: this,
-    duration: KitMotion.now.duration(const Duration(milliseconds: 340)),
-  );
+  /// The stack's one clock, running from zero to one over [_total] seconds
+  /// of spring time. Every row reads its own spring off it.
+  late final AnimationController _open = AnimationController(vsync: this);
 
   bool _launched = false;
   double _stagger = 0;
-  double _total = _springSeconds;
+  double _total = 1;
+
+  /// The spring a row rides out of the pile on.
+  late DockSpring _out;
+
+  /// The spring the rows ride back on, set once the stack starts to close,
+  /// with where each row was when it did.
+  DockSpring? _back;
+  List<double> _foldFrom = const [];
+  double _foldPanelFrom = 1;
+  int _foldRows = 1;
+  double _foldStagger = 0;
+  double _foldTotal = 1;
 
   _StackLayout? _layout;
   Object? _layoutKey;
@@ -143,44 +154,54 @@ class _DockStackViewState extends State<DockStackView>
 
   bool get _dragging => _dragFrom != null;
 
-  /// How much spring time one row's settle spans, in seconds. The curve is
-  /// sampled, not timed, so this only sets how far into the oscillation the
-  /// settle is allowed to travel.
-  static const double _springSeconds = 0.30;
+  /// A row leaving the pile. A liquid look runs past its place once and
+  /// comes back; the other settles with barely a trace of that. Going back
+  /// uses the look's own shrink tuning, which never overshoots, so a card
+  /// cannot dip past the icon it lands on.
+  static const KitSpringTuning _liquidOut = KitSpringTuning(420, 0.62);
+  static const KitSpringTuning _plainOut = KitSpringTuning(520, 0.86);
 
   /// The smallest gap between one row leaving the pile and the next, in
   /// seconds, and the longest the whole cascade may run. A stack of three
   /// keeps a visible beat between cards; a tall fan tightens the beat so its
   /// last row still lands in about the same time a short one takes.
-  static const double _staggerSeconds = 0.024;
+  static const double _staggerSeconds = 0.028;
   static const double _staggerCap = 0.26;
-
-  /// A damped-oscillator curve: overshoots its target once, then settles.
-  /// This is the difference between a macOS motion and a plain decelerate.
-  static final Curve _spring = _SpringCurve(Motion.bouncy, _springSeconds);
 
   static double _staggerFor(int count) =>
       count < 2 ? 0 : math.min(_staggerSeconds, _staggerCap / (count - 1));
 
+  static DockSpring _springOf(KitSpringTuning tuning) => DockSpring(
+    stiffness: tuning.stiffness,
+    dampingRatio: tuning.dampingRatio,
+  );
+
+  /// [seconds] of spring time as the clock's length at the shell's speed.
+  static Duration _paced(double seconds) => KitMotion.now.scaled(
+    Duration(microseconds: (seconds * 1e6).round()),
+  );
+
   @override
   void didChangeDependencies() {
     super.didChangeDependencies();
-    if (MediaQuery.disableAnimationsOf(context)) {
-      // With motion turned off the stack has to be usable at once; the spring
-      // would otherwise still stagger every row in.
-      _open.value = 1;
-      _launched = true;
-      return;
-    }
     if (_launched) return;
     _launched = true;
+    _out = _springOf(KitStyle.of(context).liquid ? _liquidOut : _plainOut);
+    if (KitMotion.reduced(context)) {
+      // With motion turned off the stack has to be usable at once; the spring
+      // would otherwise still stagger every row in.
+      _total = _out.seconds;
+      _open.value = 1;
+      return;
+    }
     // The number of rows is known before the layout runs, and the whole
-    // cascade is one controller: a fixed window per row would either rush a
-    // tall fan or crawl through a short one.
-    final count = math.max(1, widget.entries.length);
+    // cascade is one clock: a fixed window per row would either rush a tall
+    // fan or crawl through a short one. The extra row is the one that opens
+    // the folder.
+    final count = math.max(1, widget.entries.length + 1);
     _stagger = _staggerFor(count);
-    _total = _stagger * math.max(0, count - 1) + _springSeconds;
-    _open.duration = Duration(microseconds: (_total * 1e6).round());
+    _total = _stagger * (count - 1) + _out.seconds;
+    _open.duration = _paced(_total);
     _open.forward();
   }
 
@@ -212,9 +233,9 @@ class _DockStackViewState extends State<DockStackView>
       bindings: {
         const SingleActivator(LogicalKeyboardKey.escape): _escape,
         const SingleActivator(LogicalKeyboardKey.arrowUp): () =>
-            _moveSelection(-1),
+            _arrow(up: true),
         const SingleActivator(LogicalKeyboardKey.arrowDown): () =>
-            _moveSelection(1),
+            _arrow(up: false),
         const SingleActivator(LogicalKeyboardKey.arrowLeft): () =>
             _moveSelection(-layout.columns),
         const SingleActivator(LogicalKeyboardKey.arrowRight): () =>
@@ -268,7 +289,6 @@ class _DockStackViewState extends State<DockStackView>
                     if (layout.isFan) ...[
                       for (var i = 0; i < layout.rows.length; i++)
                         _buildFanRow(context, layout, i, icon),
-                      _buildOpenButton(context, layout),
                     ] else if (layout.isList)
                       _buildList(context, layout)
                     else
@@ -375,14 +395,20 @@ class _DockStackViewState extends State<DockStackView>
       return;
     }
     if (_query.text.trim().isNotEmpty) return;
-    if (to == null ||
-        to == from ||
-        from >= names.length ||
-        to >= names.length ||
-        layout.rows[to].entry == null) {
+    if (to == null || to == from || layout.rows[to].entry == null) return;
+    // A side stack leads with the row that opens the folder, so a row's place
+    // among the files is its index less the rows ahead of it that are not
+    // files.
+    final lead = layout.rows.first.entry == null ? 1 : 0;
+    final fromFile = from - lead;
+    final toFile = to - lead;
+    if (fromFile < 0 ||
+        toFile < 0 ||
+        fromFile >= names.length ||
+        toFile >= names.length) {
       return;
     }
-    widget.onReorder?.call(DockDrag.moved(names, from, to));
+    widget.onReorder?.call(DockDrag.moved(names, fromFile, toFile));
   }
 
   /// A cancelled pan changes nothing, so the file is not trashed or moved by a
@@ -404,6 +430,27 @@ class _DockStackViewState extends State<DockStackView>
     final next = (_scroll + event.scrollDelta.dy).clamp(0.0, max);
     if (next == _scroll) return;
     setState(() => _scroll = next);
+  }
+
+  /// Up and Down. In a fan that rises from the dock the first row is the
+  /// lowest, so Up walks away from the dock; everywhere else the rows read
+  /// downward and Up is the row before.
+  void _arrow({required bool up}) {
+    final layout = _layout;
+    if (layout == null || _closing || layout.rows.isEmpty) return;
+    if (!layout.isFan) {
+      _moveSelection(up ? -1 : 1);
+      return;
+    }
+    final next = DockStackFan.step(
+      current: _selected,
+      count: layout.rows.length,
+      towardDock: layout.rises ? !up : up,
+    );
+    setState(() {
+      _selected = next;
+      _hovered = next;
+    });
   }
 
   void _moveSelection(int delta) {
@@ -435,15 +482,31 @@ class _DockStackViewState extends State<DockStackView>
   }
 
   /// Folds the rows back into the icon, then drops the portal.
+  ///
+  /// The way back runs on its own spring from wherever each row is, so a
+  /// stack closed while it is still opening turns round instead of jumping,
+  /// and the last row out is the first one home.
   void _dismiss() {
     if (_closing) return;
     _closing = true;
     if (_hovered != null) setState(() => _hovered = null);
-    if (MediaQuery.disableAnimationsOf(context)) {
+    if (KitMotion.reduced(context)) {
       widget.onDismiss();
       return;
     }
-    _open.reverse().whenComplete(() {
+    final layout = _layout;
+    final rows = layout != null && layout.isFan ? layout.rows.length : 1;
+    final from = [for (var i = 0; i < rows; i++) _progressOf(i)];
+    final panel = _panelProgress;
+    final back = _springOf(KitStyle.of(context).panelShrink);
+    _foldFrom = from;
+    _foldPanelFrom = panel;
+    _foldRows = rows;
+    _foldStagger = _staggerFor(rows);
+    _foldTotal = _foldStagger * (rows - 1) + back.seconds;
+    _back = back;
+    _open.duration = _paced(_foldTotal);
+    _open.reverse(from: 1).whenComplete(() {
       if (mounted) widget.onDismiss();
     });
   }
@@ -470,9 +533,7 @@ class _DockStackViewState extends State<DockStackView>
 
   _StackLayout _computeLayout(BuildContext context) {
     final theme = context.shellTheme;
-    final style = theme.text.systemBarCaption.copyWith(
-      color: theme.colors.textPrimary,
-    );
+    final style = _plateStyle(theme);
     final entries = _visible;
     if (entries.isEmpty) {
       return _messageLayout(
@@ -513,18 +574,11 @@ class _DockStackViewState extends State<DockStackView>
   /// rather than under it.
   ({double top, double bottom}) get _room {
     const searchHeight = 38.0;
-    // A bottom dock's fan carries the open button above its last row, so the
-    // rows have to stop short of the screen edge by that much.
-    const openRoom = DockStackFan.openSize + DockStackFan.gap;
-    final reserve = switch (widget.mode) {
-      DockStackMode.grid => 0.0,
-      _ => widget.position == DockPosition.bottom ? openRoom : 0.0,
-    };
     // The work area already excludes the system bar, so the rows start at its
     // edge; without one, fall back to the output with a small inset.
     final top = widget.workArea?.top ?? widget.bounds.top;
     return (
-      top: top + 8 + (_searchable ? searchHeight : 0) + reserve,
+      top: top + 8 + (_searchable ? searchHeight : 0),
       bottom: widget.position == DockPosition.bottom
           ? widget.anchor.top - DockStackFan.gap
           : widget.bounds.bottom - 8,
@@ -547,27 +601,37 @@ class _DockStackViewState extends State<DockStackView>
     if (side != null) {
       return _sideLayout(style, entries, side, truncate: truncate);
     }
+    // The top row is the way into the folder itself, so it takes a slot of
+    // its own above the files.
     final widths = <double>[
       for (final entry in entries) _rowWidth(entry.name, style),
+      _rowWidth(_openLabel, style),
     ];
+    // Automatic view follows macOS: a fan that would have to leave files out
+    // is replaced by the grid panel, which shows all of them. Only an explicit
+    // fan truncates, and then its top row says how many it left out.
+    if (!truncate &&
+        !DockStackFan.fits(
+          files: entries.length,
+          bottom: _room.bottom,
+          top: _room.top,
+          widths: widths,
+        )) {
+      return null;
+    }
     final slots = DockStackFan.fitRows(
       bottom: _room.bottom,
       top: _room.top,
       widths: widths,
     );
-    // Automatic view follows macOS: a fan that would have to leave files out
-    // is replaced by the grid panel, which shows all of them. Only an explicit
-    // fan truncates with a "more" row.
-    if (!truncate && slots < entries.length) return null;
-    final overflows = slots < entries.length;
-    final shown = overflows
-        ? math.max(0, slots - 1)
-        : math.min(slots, entries.length);
+    final overflows = slots < entries.length + 1;
+    final shown = overflows ? math.max(0, slots - 1) : entries.length;
     final rows = <_StackRow>[
       for (var i = 0; i < shown; i++) _StackRow.entry(entries[i]),
-      if (overflows) _StackRow.more(_moreLabel(entries.length - shown)),
+      _StackRow.open(
+        overflows ? _moreLabel(entries.length - shown) : _openLabel,
+      ),
     ];
-    if (rows.isEmpty) return null;
     final rowWidths = <double>[
       for (final row in rows) _rowWidth(row.label, style),
     ];
@@ -593,6 +657,7 @@ class _DockStackViewState extends State<DockStackView>
       rows,
       geometry,
       iconLeading: lean == DockFanLean.left,
+      rises: true,
     );
   }
 
@@ -605,15 +670,20 @@ class _DockStackViewState extends State<DockStackView>
     required bool truncate,
   }) {
     final room = _room.bottom - _room.top;
-    final slots = math.max(1, (room / DockStackFan.rowStep).floor());
-    if (!truncate && slots < entries.length) return null;
-    final overflows = slots < entries.length;
-    final shown = overflows
-        ? math.max(0, slots - 1)
-        : math.min(slots, entries.length);
+    final slots = math.min(
+      DockStackFan.maxRows,
+      math.max(1, (room / DockStackFan.rowStep).floor()),
+    );
+    if (!truncate && slots < entries.length + 1) return null;
+    final overflows = slots < entries.length + 1;
+    final shown = overflows ? math.max(0, slots - 1) : entries.length;
+    // The column reads downward, so the row that opens the folder leads it:
+    // that keeps it the top item here as it is in a fan.
     final rows = <_StackRow>[
+      _StackRow.open(
+        overflows ? _moreLabel(entries.length - shown) : _openLabel,
+      ),
       for (var i = 0; i < shown; i++) _StackRow.entry(entries[i]),
-      if (overflows) _StackRow.more(_moreLabel(entries.length - shown)),
     ];
     final rowWidths = <double>[
       for (final row in rows) _rowWidth(row.label, style),
@@ -696,11 +766,13 @@ class _DockStackViewState extends State<DockStackView>
         bottom: _room.bottom,
       ),
     );
-    return _StackLayout.fan([_StackRow.more(label)], geometry);
+    return _StackLayout.fan([_StackRow.open(label)], geometry, rises: true);
   }
 
+  String get _openLabel => widget.zh ? '在文件管理器中打开' : 'Open in Files';
+
   String _moreLabel(int count) =>
-      widget.zh ? '还有 $count 个，在文件管理器中显示' : '$count more in Files';
+      widget.zh ? '还有 $count 项，在文件管理器中打开' : '$count More in Files';
 
   /// Moves a fan that would leave the screen back onto it, arc intact.
   List<DockFanRow> _clampFan(List<DockFanRow> rows) {
@@ -761,7 +833,7 @@ class _DockStackViewState extends State<DockStackView>
       top: top,
       width: width,
       child: Opacity(
-        opacity: _open.value.clamp(0.0, 1.0),
+        opacity: _panelProgress.clamp(0.0, 1.0),
         child: SizedBox(
           height: 30,
           child: DecoratedBox(
@@ -882,72 +954,39 @@ class _DockStackViewState extends State<DockStackView>
     // The name plate stays out of the way until the card has cleared the pile.
     final label = ((eased - 0.30) / 0.55).clamp(0.0, 1.0);
     return Positioned(
+      key: ValueKey('stack-row-$index'),
       left: 0,
       top: 0,
       child: Transform.translate(
         offset: travel - Offset(box.width / 2, box.height / 2),
-        child: Transform.scale(
-          scale: scale * (lit ? DockStackFan.hoverScale : 1),
-          child: Opacity(
-            // The row being dragged leaves a hole behind; the ghost carries
-            // the picture under the pointer. The card is opaque as soon as it
-            // lifts, so the hand-off from the pile's own card is seamless.
-            opacity: lifting ? 0.35 : (eased * 3).clamp(0.0, 1.0),
-            child: IgnorePointer(
-              child: SizedBox(
-                width: box.width,
-                height: box.height,
-                child: _StackRowTile(
-                  row: row,
-                  theme: theme,
-                  lit: lit,
-                  tilt: angle,
-                  label: label,
-                  dropTarget: dropTarget,
-                  iconLeading: layout.iconLeading,
+        // The row swells under the pointer rather than snapping to its larger
+        // size, and the plate's colour arrives with it.
+        child: TweenAnimationBuilder<double>(
+          tween: Tween<double>(end: lit ? 1 : 0),
+          duration: KitMotion.duration(context, KitMotion.fade),
+          curve: KitMotion.out,
+          builder: (context, hover, _) => Transform.scale(
+            scale: scale * (1 + (DockStackFan.hoverScale - 1) * hover),
+            child: Opacity(
+              // The row being dragged leaves a hole behind; the ghost carries
+              // the picture under the pointer. The card is opaque as soon as
+              // it lifts, so the hand-off from the pile's own card is
+              // seamless.
+              opacity: lifting ? 0.35 : (eased * 3).clamp(0.0, 1.0),
+              child: IgnorePointer(
+                child: SizedBox(
+                  width: box.width,
+                  height: box.height,
+                  child: _StackRowTile(
+                    row: row,
+                    theme: theme,
+                    hover: hover,
+                    tilt: angle,
+                    label: label,
+                    dropTarget: dropTarget,
+                    iconLeading: layout.iconLeading,
+                  ),
                 ),
-              ),
-            ),
-          ),
-        ),
-      ),
-    );
-  }
-
-  /// The round "open in Files" button macOS puts above a stack. It is the one
-  /// way out of the stack that does not need a row, so a folder of files the
-  /// dock cannot show is still reachable.
-  Widget _buildOpenButton(BuildContext context, _StackLayout layout) {
-    if (layout.fan.isEmpty) return const SizedBox.shrink();
-    final theme = context.shellTheme;
-    final top = layout.fan.last;
-    const size = DockStackFan.openSize;
-    final eased = _progressOf(layout.rows.length);
-    // The button sits on the icon column, above the top row, so the eye reads
-    // one line from the dock to the button.
-    return Positioned(
-      left: top.iconX - size / 2,
-      top: top.top - DockStackFan.gap - size,
-      width: size,
-      height: size,
-      child: Opacity(
-        opacity: eased.clamp(0.0, 1.0),
-        child: Transform.scale(
-          scale: 0.7 + 0.3 * eased,
-          child: GestureDetector(
-            behavior: HitTestBehavior.opaque,
-            onTap: _closing ? null : widget.onOpenFolder,
-            child: DecoratedBox(
-              decoration: BoxDecoration(
-                shape: BoxShape.circle,
-                color: _plateFill(theme),
-                border: Border.all(color: theme.colors.hairline),
-                boxShadow: _plateShadow(theme),
-              ),
-              child: Icon(
-                Icons.arrow_outward_rounded,
-                size: size * 0.44,
-                color: theme.colors.textPrimary,
               ),
             ),
           ),
@@ -1244,26 +1283,35 @@ class _DockStackViewState extends State<DockStackView>
     );
   }
 
-  /// A row's own progress on the one timeline. Each row's spring starts after
+  /// A row's own progress on the one clock. Each row's spring starts after
   /// the row before it has left the pile, so the stack reads as cards being
-  /// dealt off the front rather than one block sliding out. Reversing the
-  /// controller folds the last card back first, which puts the newest file
-  /// onto the pile last.
+  /// dealt off the front rather than one block sliding out. On the way back
+  /// the order turns round: the last card out folds first, which puts the
+  /// newest file onto the pile last.
   double _progressOf(int index) {
-    final t = _open.value * _total - index * _stagger;
-    if (t <= 0) return 0;
-    return _spring.transform(math.min(1.0, t / _springSeconds));
+    final back = _back;
+    if (back == null) return _out.at(_open.value * _total - index * _stagger);
+    final from = index < _foldFrom.length ? _foldFrom[index] : 1.0;
+    final wait = math.max(0, _foldRows - 1 - index) * _foldStagger;
+    return from * (1 - back.at((1 - _open.value) * _foldTotal - wait));
   }
 
   /// The grid and list panels have no rows to stagger, so they run on the
-  /// spring window alone rather than waiting out the fan's cascade.
-  double get _panelProgress =>
-      _spring.transform(math.min(1.0, _open.value * _total / _springSeconds));
+  /// spring alone rather than waiting out the fan's cascade.
+  double get _panelProgress {
+    final back = _back;
+    if (back == null) return _out.at(_open.value * _total);
+    return _foldPanelFrom * (1 - back.at((1 - _open.value) * _foldTotal));
+  }
 }
 
 class _StackLayout {
-  const _StackLayout.fan(this.rows, this.fan, {this.iconLeading = false})
-    : grid = const [],
+  const _StackLayout.fan(
+    this.rows,
+    this.fan, {
+    this.iconLeading = false,
+    this.rises = false,
+  }) : grid = const [],
       columns = 1,
       width = 0,
       height = 0,
@@ -1285,7 +1333,8 @@ class _StackLayout {
        columns = 1,
        isFan = false,
        isList = true,
-       iconLeading = false;
+       iconLeading = false,
+       rises = false;
 
   const _StackLayout.grid(
     this.rows, {
@@ -1299,7 +1348,8 @@ class _StackLayout {
   }) : fan = const [],
        isFan = false,
        isList = false,
-       iconLeading = false;
+       iconLeading = false,
+       rises = false;
 
   final List<_StackRow> rows;
   final List<DockFanRow> fan;
@@ -1322,6 +1372,10 @@ class _StackLayout {
   /// label: the picture stays on the outside of the arc.
   final bool iconLeading;
 
+  /// True for a fan that climbs away from a bottom dock, whose first row is
+  /// its lowest. A side dock's column reads downward instead.
+  final bool rises;
+
   int? hitTest(Offset point, double scroll) => isFan
       ? DockStackFan.hitTest(fan, point.dx, point.dy)
       : isList
@@ -1334,11 +1388,46 @@ class _StackLayout {
         );
 }
 
-/// One fan row: the file's icon or thumbnail on the right and its name in a
-/// pill, which is the shape the reference docks draw.
-/// Fan rows float over whatever window is behind them with no blur of their
-/// own, so their fill keeps a floor.
-Color _plateFill(ShellThemeData theme) {
+/// The name plates of a fan: dark and translucent with white ink in every
+/// theme. A fan floats over whatever window is behind it with no blur of its
+/// own, so a plate that followed a light theme would wash out over a bright
+/// wallpaper.
+const Color _plateFill = Color(0xB81C1C1E);
+const Color _plateInk = Color(0xFFFFFFFF);
+
+TextStyle _plateStyle(ShellThemeData theme) => theme.text.systemBarCaption
+    .copyWith(color: _plateInk, fontWeight: FontWeight.w500);
+
+/// A plate under the pointer or the keyboard, [hover] of the way there. One
+/// look pours its accent into the plate, the other only lifts it.
+({Color fill, Color ink, Color edge}) _plateColours(
+  BuildContext context,
+  ShellThemeData theme,
+  double hover,
+) {
+  final style = KitStyle.of(context);
+  final accent = style.accent(theme);
+  final hot = style.accentMenuRows
+      ? accent
+      : Color.alphaBlend(
+          _plateInk.withValues(alpha: 0.20),
+          _plateFill.withValues(alpha: 0.86),
+        );
+  return (
+    fill: Color.lerp(_plateFill, hot, hover)!,
+    ink: style.accentMenuRows
+        ? Color.lerp(_plateInk, style.onAccent(theme), hover)!
+        : _plateInk,
+    edge: Color.lerp(
+      _plateInk.withValues(alpha: 0.12),
+      accent.withValues(alpha: style.accentMenuRows ? 0 : 0.75),
+      hover,
+    )!,
+  );
+}
+
+/// The fill under a preview card, which keeps a floor for the same reason.
+Color _cardFill(ShellThemeData theme) {
   final fill = theme.panelColor(theme.colors.surfaceContainerHigh);
   return fill.a < 0.9 ? fill.withValues(alpha: 0.9) : fill;
 }
@@ -1351,11 +1440,13 @@ List<BoxShadow> _plateShadow(ShellThemeData theme) => [
   ),
 ];
 
+/// One fan row: the file's name on a pill and its preview beside it, which is
+/// the shape a macOS stack draws.
 class _StackRowTile extends StatelessWidget {
   const _StackRowTile({
     required this.row,
     required this.theme,
-    required this.lit,
+    required this.hover,
     required this.tilt,
     this.label = 1,
     this.dropTarget = false,
@@ -1364,7 +1455,10 @@ class _StackRowTile extends StatelessWidget {
 
   final _StackRow row;
   final ShellThemeData theme;
-  final bool lit;
+
+  /// How far the row is lit, from zero to one: the pointer or the keyboard
+  /// selection is on it.
+  final double hover;
   final bool dropTarget;
 
   /// How much of the name plate is shown. The card leads the motion out of
@@ -1381,12 +1475,13 @@ class _StackRowTile extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final card = _previewCard();
-    final name = _labelPill();
+    final colours = _plateColours(context, theme, hover);
+    final card = row.entry == null ? _openMark(colours) : _previewCard();
+    final name = _labelPill(colours);
     // The row is exactly as wide as its parts. The box the layout hands it is
     // the widest name in the fan, so letting the row fill that box stretched
     // the short names' pills out into long empty capsules.
-    final row = Align(
+    final body = Align(
       alignment: iconLeading ? Alignment.centerLeft : Alignment.centerRight,
       child: Row(
         mainAxisSize: MainAxisSize.min,
@@ -1401,19 +1496,16 @@ class _StackRowTile extends StatelessWidget {
     return Transform.rotate(
       angle: tilt,
       alignment: iconLeading ? Alignment.centerLeft : Alignment.centerRight,
-      child: row,
+      child: body,
     );
   }
 
   /// The name on its own pill: a macOS stack separates the label from the
   /// preview, so the two read as a list of names with pictures beside them.
-  Widget _labelPill() {
-    final plate = _plateFill(theme);
+  Widget _labelPill(({Color fill, Color ink, Color edge}) colours) {
     final fill = dropTarget
-        ? Color.alphaBlend(theme.kitAccent.withValues(alpha: 0.32), plate)
-        : lit
-        ? Color.alphaBlend(theme.kitAccent.withValues(alpha: 0.16), plate)
-        : plate;
+        ? Color.alphaBlend(theme.kitAccent.withValues(alpha: 0.45), _plateFill)
+        : colours.fill;
     // The pill hugs its text: a macOS name plate is a thin capsule beside the
     // preview, not a panel as tall as the card. A Row would stretch it to the
     // card's height, so the height is set and the pill centred. It stays at
@@ -1437,7 +1529,7 @@ class _StackRowTile extends StatelessWidget {
                   DockStackFan.pillHeight / 2,
                 ),
                 border: Border.all(
-                  color: dropTarget ? theme.kitAccent : theme.colors.hairline,
+                  color: dropTarget ? theme.kitAccent : colours.edge,
                 ),
                 boxShadow: _plateShadow(theme),
               ),
@@ -1453,12 +1545,36 @@ class _StackRowTile extends StatelessWidget {
                     row.label,
                     maxLines: 1,
                     overflow: TextOverflow.ellipsis,
-                    style: theme.text.systemBarCaption.copyWith(
-                      color: theme.colors.textPrimary,
-                    ),
+                    style: _plateStyle(theme).copyWith(color: colours.ink),
                   ),
                 ),
               ),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
+  /// The round arrow of the row that opens the folder, centred in the space a
+  /// preview card takes so it sits on the same column as the cards under it.
+  Widget _openMark(({Color fill, Color ink, Color edge}) colours) {
+    return SizedBox.square(
+      dimension: DockStackFan.thumbSize,
+      child: Center(
+        child: SizedBox.square(
+          dimension: DockStackFan.openSize,
+          child: DecoratedBox(
+            decoration: BoxDecoration(
+              shape: BoxShape.circle,
+              color: colours.fill,
+              border: Border.all(color: colours.edge),
+              boxShadow: _plateShadow(theme),
+            ),
+            child: Icon(
+              Icons.arrow_outward_rounded,
+              size: DockStackFan.openSize * 0.5,
+              color: colours.ink,
             ),
           ),
         ),
@@ -1474,12 +1590,14 @@ class _StackRowTile extends StatelessWidget {
       height: DockStackFan.thumbSize,
       child: DecoratedBox(
         decoration: BoxDecoration(
-          color: _plateFill(theme),
+          color: _cardFill(theme),
           borderRadius: theme.borderRadius(8),
           border: Border.all(
-            color: lit
-                ? theme.kitAccent.withValues(alpha: 0.55)
-                : theme.colors.hairline,
+            color: Color.lerp(
+              theme.colors.hairline,
+              theme.kitAccent.withValues(alpha: 0.7),
+              hover,
+            )!,
           ),
           boxShadow: _plateShadow(theme),
         ),
@@ -1661,7 +1779,9 @@ class _StackRow {
     : moreLabel = '',
       thumbnail = _previewOf(entry);
 
-  const _StackRow.more(this.moreLabel) : entry = null, thumbnail = null;
+  /// The row that opens the folder in the file manager; it has no file of
+  /// its own and draws a round arrow where a preview would be.
+  const _StackRow.open(this.moreLabel) : entry = null, thumbnail = null;
 
   final DockStackEntry? entry;
 
@@ -1675,21 +1795,4 @@ class _StackRow {
 
   static String? _previewOf(DockStackEntry? entry) =>
       entry == null ? null : DockStackThumbs.preview(entry.path);
-}
-
-/// A damped oscillator sampled as a curve: the value runs past its target
-/// once, then settles back. A plain decelerate stops dead at the target, which
-/// is what makes scripted motion read as mechanical next to macOS.
-class _SpringCurve extends Curve {
-  const _SpringCurve(this.spring, this.seconds);
-
-  final SpringDescription spring;
-
-  /// How much spring time one unit of the curve spans. Too short and the
-  /// curve stops mid-bounce; long enough and it is at rest by the end.
-  final double seconds;
-
-  @override
-  double transformInternal(double t) =>
-      SpringSimulation(spring, 0, 1, 0).x(t * seconds);
 }
