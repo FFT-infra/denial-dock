@@ -1,10 +1,9 @@
-import 'dart:convert';
-import 'dart:io';
-
 import 'package:denial_flutter_sdk/theme.dart';
 import 'package:flutter/widgets.dart';
 
 import 'kit_motion_pace.dart';
+import 'kit_store.dart';
+import 'shell_preset.dart';
 
 /// How a spring is tuned: stiffness and damping ratio, as Denial's liquid
 /// motion recipe writes them.
@@ -247,47 +246,6 @@ final KitStyleNotifier kitStyle = KitStyleNotifier._();
 /// program with both plugins has one value.
 final KitSpeedNotifier kitSpeed = KitSpeedNotifier._();
 
-File? _kitFile() {
-  final env = Platform.environment;
-  final configured = env['XDG_CONFIG_HOME'];
-  final home = env['HOME'];
-  final root = configured != null && configured.startsWith('/')
-      ? configured
-      : home != null && home.startsWith('/')
-      ? '$home/.config'
-      : null;
-  return root == null
-      ? null
-      : File('$root/denial/plugins/denial_shell_kit.json');
-}
-
-Map<String, dynamic> _readKitJson() {
-  final file = _kitFile();
-  if (file == null) return <String, dynamic>{};
-  try {
-    final json = jsonDecode(file.readAsStringSync());
-    return json is Map<String, dynamic> ? json : <String, dynamic>{};
-  } on Object {
-    return <String, dynamic>{};
-  }
-}
-
-/// Writes the keys given, keeping every other key the file already has: the
-/// look and the speed are separate settings in one file, and a newer build
-/// may have added more.
-void _writeKitJson(Map<String, dynamic> json) {
-  final file = _kitFile();
-  if (file == null) return;
-  try {
-    file.parent.createSync(recursive: true);
-    final temp = File('${file.path}.$pid.tmp')
-      ..writeAsStringSync('${jsonEncode(json)}\n');
-    temp.renameSync(file.path);
-  } on FileSystemException {
-    return;
-  }
-}
-
 /// Both settings reach most widgets without a subscription, and a switch is
 /// rare, so everything is built again.
 void _rebuildEverything() {
@@ -299,46 +257,22 @@ void _rebuildEverything() {
   WidgetsBinding.instance.rootElement?.visitChildren(visit);
 }
 
-/// The store's version, written on every save. A file without it was written
-/// when the store held only the look, which is what version 1 held; a file
-/// with a newer version is read but never written, so a build cannot drop
-/// settings it does not know.
-const int _storeVersion = 2;
-
-/// Whether this build may write the file, decided once from its version.
-final bool _mayWrite = (() {
-  final version = _readKitJson()['version'];
-  return version is! int || version <= _storeVersion;
-})();
-
-/// The file's keys in the shape this build writes them: the version it knows,
-/// and every key it did not write left as it was.
-Map<String, dynamic> _withVersion(Map<String, dynamic> json) =>
-    json..['version'] = _storeVersion;
-
 class KitStyleNotifier extends ValueNotifier<KitStyle> {
-  KitStyleNotifier._() : super(_read());
-
-  static KitStyle _read() {
-    final style = _readKitJson()['style'];
-    return KitStyle.byId(style is String ? style : null);
-  }
+  KitStyleNotifier._()
+    : super(KitStyle.byId(KitStore.textOf(kitStore.read(), 'style')));
 
   /// Switches the look and remembers it.
   void choose(KitStyle style) {
     if (style.id == value.id) return;
     value = style;
     _rebuildEverything();
-    if (!_mayWrite) return;
-    final json = _withVersion(_readKitJson())..['style'] = style.id;
-    _writeKitJson(json);
+    kitStore.put('style', style.id);
   }
 }
 
 class KitSpeedNotifier extends ValueNotifier<double> {
-  KitSpeedNotifier._() : super(_read());
-
-  static double _read() => KitMotionPace.clampSpeed(_readKitJson()['speed']);
+  KitSpeedNotifier._()
+    : super(KitMotionPace.clampSpeed(kitStore.read()['speed']));
 
   /// Sets the speed multiplier and remembers it. A missing value in a file
   /// written by an older build means normal speed; anything else lands on one
@@ -349,9 +283,40 @@ class KitSpeedNotifier extends ValueNotifier<double> {
     if (speed == super.value) return;
     super.value = speed;
     _rebuildEverything();
-    if (!_mayWrite) return;
-    final json = _withVersion(_readKitJson())..['speed'] = speed;
-    _writeKitJson(json);
+    kitStore.put('speed', speed);
+  }
+}
+
+/// Whether the dock shows at all. The dock reads it when the shell places
+/// its surfaces, so a change rebuilds everything to have them placed again.
+final KitDockNotifier kitDockEnabled = KitDockNotifier._();
+
+class KitDockNotifier extends ValueNotifier<bool> {
+  KitDockNotifier._() : super(KitStore.dockOf(kitStore.read()));
+
+  @override
+  set value(bool next) {
+    if (next == super.value) return;
+    super.value = next;
+    _rebuildEverything();
+    kitStore.put('dock', next);
+  }
+}
+
+/// The preset last applied, by id. It only names where the arrangement
+/// started from; the look and the bar's own settings are what is drawn.
+final KitPresetNotifier kitPreset = KitPresetNotifier._();
+
+class KitPresetNotifier extends ValueNotifier<String> {
+  KitPresetNotifier._()
+    : super(ShellPreset.byId(KitStore.textOf(kitStore.read(), 'preset')).id);
+
+  @override
+  set value(String next) {
+    final id = ShellPreset.byId(next).id;
+    if (id == super.value) return;
+    super.value = id;
+    kitStore.put('preset', id);
   }
 }
 

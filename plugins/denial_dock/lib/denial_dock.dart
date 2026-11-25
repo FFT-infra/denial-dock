@@ -4,6 +4,7 @@ library;
 import 'package:denial_flutter_sdk/actions.dart';
 import 'package:denial_flutter_sdk/surfaces.dart';
 import 'package:denial_sdk/composition.dart';
+import 'package:denial_shell_kit/kit_style.dart';
 import 'package:flutter/widgets.dart';
 
 import 'src/dock_container.dart';
@@ -26,7 +27,9 @@ final class DockPlugin implements ShellSurface {
 
   @override
   ShellSurfacePlacement? place(ShellSurfaceEnvironment environment) {
-    if (environment.output.inputOnly) {
+    // The shell's settings can switch the dock off; the kit rebuilds the
+    // shell when they do, which places the surfaces again.
+    if (environment.output.inputOnly || !kitDockEnabled.value) {
       return null;
     }
 

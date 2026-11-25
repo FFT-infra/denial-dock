@@ -495,6 +495,49 @@ class BarSettings {
     );
   }
 
+  /// The settings a preset decides, under the keys they are stored by, as
+  /// the bar draws them now: the zones are the ones in force whether or not
+  /// they were ever arranged, and an island that is switched off is not in
+  /// them.
+  Map<String, Object?> layoutJson() {
+    final zones = this.zones;
+    return <String, Object?>{
+      'shape': shape.key,
+      'cap': cap.key,
+      'ground': ground.key,
+      'groundOpacity': groundOpacity,
+      'groundTint': groundTint.key,
+      'borderWidth': borderWidth,
+      'borderColour': borderColour.key,
+      'textScale': textScale,
+      'partGap': partGap,
+      'edgeMargin': edgeMargin,
+      'endInset': endInset,
+      'contentPadding': contentPadding,
+      'cornerRadius': cornerRadius,
+      'workspaceStyle': workspaceStyle.name,
+      'workspacePlacement': workspacesShownIn?.key,
+      'start': zones.start,
+      'center': <String>[
+        for (final id in zones.center)
+          if (id != BarPart.island || islandEnabled) id,
+      ],
+      'end': zones.end,
+    };
+  }
+
+  /// These settings with a preset's layout keys laid over them. Everything
+  /// the preset does not name stays, and an island the preset places is
+  /// switched on.
+  BarSettings withLayout(Map<String, Object?> layout) {
+    final json = <String, dynamic>{};
+    writeJson(json);
+    final next = BarSettings.fromJson(<String, dynamic>{...json, ...layout});
+    return next.zones.center.contains(BarPart.island)
+        ? next.copyWith(islandEnabled: true)
+        : next;
+  }
+
   Duration get islandNoticeHold => Duration(seconds: islandNoticeSeconds);
 
   BarSettings copyWith({
