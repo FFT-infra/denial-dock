@@ -42,7 +42,10 @@ abstract final class DockInk {
     double band = 0.06,
   }) {
     final luminance = shown(fill: fill, opacity: opacity, backdrop: backdrop);
-    if ((luminance - darkLimit).abs() <= band) return themeDark;
-    return luminance < darkLimit;
+    // At the line and under it the plate is dark, as the top bar reads its
+    // own ground: light ink reads on a mid tone and dark ink does not. Only
+    // just above the line does the appearance settle it.
+    if (luminance <= darkLimit) return true;
+    return luminance - darkLimit <= band && themeDark;
   }
 }

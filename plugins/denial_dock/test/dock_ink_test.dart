@@ -76,13 +76,13 @@ void main() {
           themeDark: false,
         ) &&
         DockInk.lightInk(fill: 0.47, opacity: 1, backdrop: 0, themeDark: true) &&
-        !DockInk.lightInk(
+        DockInk.lightInk(
           fill: 0.47,
           opacity: 1,
           backdrop: 0,
           themeDark: false,
         ),
-    'near the line the appearance decides',
+    'just above the line the appearance decides, under it the ink is light',
   );
   _expect(
     DockInk.lightInk(fill: 0.40, opacity: 1, backdrop: 0, themeDark: false) &&
