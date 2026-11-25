@@ -14,7 +14,7 @@ import 'package:denial_flutter_sdk/wallpaper.dart';
 import 'package:denial_shell_kit/kit_dock_link.dart';
 import 'package:denial_shell_kit/kit_host.dart';
 import 'package:denial_shell_kit/kit_motion.dart';
-import 'package:denial_shell_kit/kit_style.dart' show kitDockEnabled;
+import 'package:denial_shell_kit/kit_style.dart' show KitStyle, kitDockEnabled;
 import 'package:denial_shell_kit/shell_preset.dart';
 import 'package:denial_shell_kit/kit_part.dart';
 import 'package:denial_shell_kit/kit_requests.dart';
