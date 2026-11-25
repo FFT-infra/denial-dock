@@ -593,7 +593,9 @@ class _Row extends StatelessWidget {
           padding: const EdgeInsets.symmetric(horizontal: 10),
           decoration: BoxDecoration(
             color: row.fill,
-            borderRadius: BorderRadius.circular(_M.rowRadius),
+            borderRadius: BorderRadius.circular(
+              KitStyle.of(context).corner(_M.rowRadius),
+            ),
           ),
           child: Row(
             children: <Widget>[

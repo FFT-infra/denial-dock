@@ -32,6 +32,14 @@ class KitStyle {
     required this.panelBead,
     required this.pressTuning,
     required this.accentMenuRows,
+    this.label = '',
+    this.fontPackage,
+    this.fontScale = 1,
+    this.cornerScale = 1,
+    this.borderWidth = 1,
+    this.borderFromAccent = false,
+    this.opaque = false,
+    this.shadow = 1,
   });
 
   /// Denial's own material: the wallpaper's accent, the shell's font and
@@ -39,6 +47,7 @@ class KitStyle {
   /// into its shape, a switch fills as the accent pours in.
   static const KitStyle denial = KitStyle(
     id: 'denial',
+    label: 'Denial',
     fixedAccent: null,
     fontFamily: null,
     scaleCorners: true,
@@ -54,8 +63,10 @@ class KitStyle {
   /// no overshoot.
   static const KitStyle mac = KitStyle(
     id: 'mac',
+    label: 'macOS',
     fixedAccent: Color(0xff0a84ff),
     fontFamily: 'Inter',
+    fontPackage: 'denial_topbar',
     scaleCorners: false,
     liquid: false,
     panelGrow: KitSpringTuning(620, 1),
@@ -65,12 +76,80 @@ class KitStyle {
     accentMenuRows: true,
   );
 
-  static const List<KitStyle> presets = <KitStyle>[denial, mac];
+  /// Solid rounded panels: the shell's accent and font, tighter corners, no
+  /// blur behind a panel and a lighter shadow under it, and motion that
+  /// settles without a bounce.
+  static const KitStyle soft = KitStyle(
+    id: 'soft',
+    label: 'Soft',
+    fixedAccent: null,
+    fontFamily: null,
+    scaleCorners: true,
+    liquid: false,
+    panelGrow: KitSpringTuning(520, 1),
+    panelShrink: KitSpringTuning(800, 1),
+    panelBead: Size(0.94, 0.94),
+    pressTuning: KitSpringTuning(620, 0.8),
+    accentMenuRows: false,
+    cornerScale: 0.6,
+    opaque: true,
+    shadow: 0.6,
+  );
+
+  /// A terminal's look: square corners, a 2 px line in the accent around
+  /// every panel, opaque fills with no blur and no shadow, fixed-width type,
+  /// and motion that is over at once.
+  static const KitStyle terminal = KitStyle(
+    id: 'terminal',
+    label: 'Terminal',
+    fixedAccent: null,
+    fontFamily: 'JetBrainsMono',
+    fontPackage: 'denial_flutter_sdk',
+    fontScale: 0.93,
+    scaleCorners: false,
+    liquid: false,
+    panelGrow: KitSpringTuning(1100, 1),
+    panelShrink: KitSpringTuning(1400, 1),
+    panelBead: Size(0.98, 0.98),
+    pressTuning: KitSpringTuning(1000, 1),
+    accentMenuRows: true,
+    cornerScale: 0,
+    borderWidth: 2,
+    borderFromAccent: true,
+    opaque: true,
+    shadow: 0,
+  );
+
+  static const List<KitStyle> presets = <KitStyle>[denial, mac, soft, terminal];
 
   static KitStyle byId(String? id) =>
       presets.firstWhere((style) => style.id == id, orElse: () => denial);
 
   final String id;
+
+  /// The look's name, as its makers write it.
+  final String label;
+
+  /// The package that carries [fontFamily].
+  final String? fontPackage;
+
+  /// Scales type set in [fontFamily], for a family that runs wide.
+  final double fontScale;
+
+  /// Multiplies every corner radius; 0 squares them all.
+  final double cornerScale;
+
+  /// The line around a panel.
+  final double borderWidth;
+
+  /// Whether that line takes the accent, or stays a hairline.
+  final bool borderFromAccent;
+
+  /// Whether panels are filled solid, which also leaves nothing to blur.
+  final bool opaque;
+
+  /// How much of the usual shadow a panel casts, 0 to 1.
+  final double shadow;
 
   /// The accent when the look brings its own; otherwise the shell's.
   final Color? fixedAccent;
@@ -142,7 +221,18 @@ class KitStyle {
   }
 
   double radius(ShellThemeData theme, double base) =>
-      scaleCorners ? theme.scaledRadius(base) : base;
+      (scaleCorners ? theme.scaledRadius(base) : base) * cornerScale;
+
+  /// A radius that does not follow the shell's roundness, such as a row's or
+  /// a button's, in this look.
+  double corner(double base) => base * cornerScale;
+
+  /// A panel's fill in this look.
+  Color panelFill(Color fill) => opaque ? fill.withValues(alpha: 1) : fill;
+
+  /// The colour of the line around a panel.
+  Color border(ShellThemeData theme) =>
+      borderFromAccent ? accent(theme) : theme.colors.hairline;
 
   /// The look in force. Both plugins run in one program, so this one value
   /// serves the dock and the top bar alike, popups included.

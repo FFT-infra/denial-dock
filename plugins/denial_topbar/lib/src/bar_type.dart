@@ -5,11 +5,11 @@ import 'package:flutter/widgets.dart';
 ///
 /// shell27 draws the bar at 14 pt (menu titles, clock) and the dropdown at
 /// 13 pt with a 12 pt shortcut column. The family comes from the look: the
-/// shell's own, or Inter, vendored under `assets/` so the macOS look keeps
-/// its proportions without shipping SF Pro. The SDK's `systemBarValue` is
-/// JetBrains Mono, which is why the bar does not use it.
+/// shell's own; Inter, vendored under `assets/` so the macOS look keeps its
+/// proportions without shipping SF Pro; or JetBrains Mono, which the SDK
+/// bundles for its own system bar, for a look set in fixed-width type. The
+/// fallback families carry Chinese under every one of them.
 abstract final class BarType {
-  static const String _package = 'denial_topbar';
   static const List<String> _fallback = <String>[
     'Source Han Sans CN',
     'Noto Sans CJK SC',
@@ -23,9 +23,11 @@ abstract final class BarType {
     // Without a family the text takes the shell's own, from the default
     // text style it is built under.
     fontFamily: kitStyle.value.fontFamily,
-    package: kitStyle.value.fontFamily == null ? null : _package,
+    package: kitStyle.value.fontFamily == null
+        ? null
+        : kitStyle.value.fontPackage,
     fontFamilyFallback: _fallback,
-    fontSize: size,
+    fontSize: size * kitStyle.value.fontScale,
     fontWeight: weight,
     height: 1.2,
     letterSpacing: spacing,

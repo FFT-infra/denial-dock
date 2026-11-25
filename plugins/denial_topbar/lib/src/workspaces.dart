@@ -156,7 +156,9 @@ class _BarWorkspacesState extends ConsumerState<BarWorkspaces> {
           alignment: Alignment.center,
           decoration: BoxDecoration(
             color: ink.withValues(alpha: active ? 0.22 : 0),
-            borderRadius: BorderRadius.circular(6),
+            borderRadius: BorderRadius.circular(
+              KitStyle.of(context).corner(6),
+            ),
           ),
           child: Text(
             '$workspace',

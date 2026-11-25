@@ -4,6 +4,7 @@ import 'dart:math' as math;
 import 'package:denial_flutter_sdk/theme.dart';
 import 'package:denial_shell_kit/kit_layer.dart' show kitPressTargets;
 import 'package:denial_shell_kit/kit_motion.dart';
+import 'package:denial_shell_kit/kit_style.dart';
 import 'package:flutter/material.dart';
 
 import 'bar_ground.dart';
@@ -176,7 +177,9 @@ class _BarButtonState extends State<BarButton> {
                             : BarTokens.itemHoverAlphaLight,
                       )
                 : const Color(0x00000000),
-            borderRadius: BorderRadius.circular(widget.radius),
+            borderRadius: BorderRadius.circular(
+              KitStyle.of(context).corner(widget.radius),
+            ),
           ),
           child: widget.child,
         ),
@@ -231,7 +234,7 @@ class _Tip extends StatelessWidget {
         padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 5),
         decoration: BoxDecoration(
           color: const Color(0xf02c2c2e),
-          borderRadius: BorderRadius.circular(7),
+          borderRadius: BorderRadius.circular(KitStyle.of(context).corner(7)),
           border: Border.all(color: const Color(0x29ffffff), width: 0.6),
           boxShadow: const <BoxShadow>[
             BoxShadow(

@@ -206,9 +206,9 @@ class _BarSettingsPanelState extends ConsumerState<BarSettingsPanel> {
               label: context.tr('Look'),
               trailing: _Segments<KitStyle>(
                 value: kitStyle.value,
-                options: const <(KitStyle, String)>[
-                  (KitStyle.denial, 'Denial'),
-                  (KitStyle.mac, 'macOS'),
+                options: <(KitStyle, String)>[
+                  for (final style in KitStyle.presets)
+                    (style, context.tr(style.label)),
                 ],
                 onChanged: kitStyle.choose,
               ),

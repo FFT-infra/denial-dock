@@ -8,7 +8,8 @@ import 'continuous_corners.dart';
 import 'kit_style.dart';
 
 /// The card every popup of the dock and the top bar draws on: continuous
-/// corners, backdrop blur, a hairline and one soft shadow.
+/// corners, backdrop blur, a hairline and one soft shadow, each as the look
+/// in force has them.
 class GlassCard extends StatelessWidget {
   const GlassCard({
     required this.radius,
@@ -53,18 +54,22 @@ class GlassCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final theme = context.shellTheme;
-    final radius = KitStyle.of(context).radius(theme, this.radius);
+    final style = KitStyle.of(context);
+    final radius = style.radius(theme, this.radius);
     final fade = this.fade;
-    final fill = this.fill ?? fillOf(theme, minOpacity: minOpacity);
+    final fill = style.panelFill(
+      this.fill ?? fillOf(theme, minOpacity: minOpacity),
+    );
     final Widget shadow = DecoratedBox(
       decoration: ShapeDecoration(
         shape: ContinuousCorners(radius: radius),
         shadows: [
-          BoxShadow(
-            color: theme.colors.shadow.withValues(alpha: 0.30),
-            blurRadius: 36 * elevation,
-            offset: Offset(0, 14 * elevation),
-          ),
+          if (style.shadow > 0)
+            BoxShadow(
+              color: theme.colors.shadow.withValues(alpha: 0.30 * style.shadow),
+              blurRadius: 36 * elevation,
+              offset: Offset(0, 14 * elevation),
+            ),
         ],
       ),
     );
@@ -92,7 +97,8 @@ class GlassCard extends StatelessWidget {
               painter: _CardPainter(
                 radius: radius,
                 fill: fill,
-                hairline: theme.colors.hairline,
+                line: style.border(theme),
+                lineWidth: style.borderWidth,
               ),
               child: child,
             ),
@@ -107,12 +113,14 @@ class _CardPainter extends CustomPainter {
   const _CardPainter({
     required this.radius,
     required this.fill,
-    required this.hairline,
+    required this.line,
+    required this.lineWidth,
   });
 
   final double radius;
   final Color fill;
-  final Color hairline;
+  final Color line;
+  final double lineWidth;
 
   @override
   void paint(Canvas canvas, Size size) {
@@ -121,16 +129,22 @@ class _CardPainter extends CustomPainter {
       continuousRoundedRectPath(rect, radius),
       Paint()..color = fill,
     );
+    if (lineWidth <= 0) return;
+    // The line lies wholly inside the card, so the clip does not thin it.
+    final half = lineWidth / 2;
     canvas.drawPath(
-      continuousRoundedRectPath(rect.deflate(0.5), math.max(0, radius - 0.5)),
+      continuousRoundedRectPath(rect.deflate(half), math.max(0, radius - half)),
       Paint()
         ..style = PaintingStyle.stroke
-        ..strokeWidth = 1
-        ..color = hairline,
+        ..strokeWidth = lineWidth
+        ..color = line,
     );
   }
 
   @override
   bool shouldRepaint(_CardPainter old) =>
-      old.radius != radius || old.fill != fill || old.hairline != hairline;
+      old.radius != radius ||
+      old.fill != fill ||
+      old.line != line ||
+      old.lineWidth != lineWidth;
 }

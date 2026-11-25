@@ -250,4 +250,6 @@ const Map<String, String> zh = <String, String>{
   '{} h': '{} 小时',
   '{} min': '{} 分钟',
   'Islands': '分块悬浮',
+  'Soft': '柔和',
+  'Terminal': '终端',
 };
