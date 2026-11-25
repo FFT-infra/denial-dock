@@ -2,6 +2,7 @@ import 'dart:convert';
 import 'dart:io';
 
 import 'dock_look.dart';
+import 'dock_metrics.dart';
 import 'dock_visibility.dart';
 import 'dock_zones.dart';
 
@@ -156,6 +157,9 @@ enum DockIndicatorStyle {
   /// The bar, cut into one segment per window, up to four.
   segments,
 
+  /// One short capsule, longer under the application in front.
+  pill,
+
   none;
 
   String get key => switch (this) {
@@ -163,6 +167,7 @@ enum DockIndicatorStyle {
     DockIndicatorStyle.line => 'line',
     DockIndicatorStyle.dashes => 'dashes',
     DockIndicatorStyle.segments => 'segments',
+    DockIndicatorStyle.pill => 'pill',
     DockIndicatorStyle.none => 'none',
   };
 
@@ -174,6 +179,7 @@ enum DockIndicatorStyle {
     'line' => DockIndicatorStyle.line,
     'dashes' => DockIndicatorStyle.dashes,
     'segments' => DockIndicatorStyle.segments,
+    'pill' => DockIndicatorStyle.pill,
     'none' => DockIndicatorStyle.none,
     _ => fallback,
   };
@@ -552,6 +558,7 @@ class DockSettings {
     this.previewMiddleClose = false,
     this.avoidReservedEdge = true,
     this.look = const {},
+    this.chosen = const {},
     this.explicitZones,
     this.align = DockAlign.packed,
   });
@@ -699,6 +706,37 @@ class DockSettings {
   DockLook lookFor(String? styleId, {DockLook? preset}) =>
       DockLook.resolve(preset ?? DockLook.preset(styleId), look);
 
+  /// Which of [iconSize], [magnification], [magnificationAmount] and
+  /// [indicatorStyle] the user set, by the key [DockMetrics] knows each
+  /// under. The others follow the look of the shell in force, whatever
+  /// value this object holds for them.
+  final Set<String> chosen;
+
+  /// The dock's metrics under the shell look called [styleId], for a dock
+  /// of [shape], or of the shape these settings give when none is named.
+  /// What the user set lies over the look's own values, see
+  /// [DockMetrics.resolve].
+  DockMetrics metricsFor(String? styleId, {DockShape? shape}) =>
+      DockMetrics.resolve(
+        DockMetrics.preset(styleId).shaped(shape ?? lookFor(styleId).shape),
+        <String, Object?>{
+          ...look,
+          if (chosen.contains(DockMetrics.iconSizeKey))
+            DockMetrics.iconSizeKey: iconSize,
+          if (chosen.contains(DockMetrics.magnifyKey))
+            DockMetrics.magnifyKey: magnification,
+          if (chosen.contains(DockMetrics.magnifyAmountKey))
+            DockMetrics.magnifyAmountKey: magnificationAmount,
+          if (chosen.contains(DockMetrics.indicatorKey))
+            DockMetrics.indicatorKey: indicatorStyle.key,
+        },
+      );
+
+  /// These settings with the value stored under [key] following the look
+  /// again; see [chosen].
+  DockSettings following(String key) =>
+      copyWith(chosen: <String>{...chosen}..remove(key));
+
   /// Draws the progress an application publishes through the Unity launcher
   /// API along the bottom of its icon.
   final bool showProgress;
@@ -763,7 +801,7 @@ class DockSettings {
     'trailing': zones.trailing,
     'shape': lookFor(styleId).shape.name,
     'align': align.key,
-    'magnification': magnification,
+    'magnification': metricsFor(styleId).magnify,
     'visibility': visibility.key,
   };
 
@@ -856,6 +894,7 @@ class DockSettings {
     bool? revealIndicator,
     DockLaunchFeedback? launchFeedback,
     DockIndicatorStyle? indicatorStyle,
+    Set<String>? chosen,
     DockPreviewStyle? previewStyle,
     bool? dimInactivePinned,
     DockPreviewHover? previewHover,
@@ -943,6 +982,21 @@ class DockSettings {
     previewMiddleClose: previewMiddleClose ?? this.previewMiddleClose,
     avoidReservedEdge: avoidReservedEdge ?? this.avoidReservedEdge,
     look: look ?? this.look,
+    // Setting one of these values is choosing it over the look's.
+    chosen:
+        chosen ??
+        (iconSize == null &&
+                magnification == null &&
+                magnificationAmount == null &&
+                indicatorStyle == null
+            ? this.chosen
+            : Set<String>.unmodifiable(<String>{
+                ...this.chosen,
+                if (iconSize != null) DockMetrics.iconSizeKey,
+                if (magnification != null) DockMetrics.magnifyKey,
+                if (magnificationAmount != null) DockMetrics.magnifyAmountKey,
+                if (indicatorStyle != null) DockMetrics.indicatorKey,
+              })),
     explicitZones:
         zones ??
         _zonesAfter(
@@ -1128,6 +1182,30 @@ class DockSettings {
         if (!order.contains(id)) id,
     ];
     final iconSize = json['iconSize'];
+    final amount = json['magnificationAmount'];
+    final storedChosen = json['chosen'];
+    // A file from before the looks had metrics of their own names no
+    // choices: a value that is not what every dock started with is taken
+    // for the user's, and the rest follow the look.
+    final chosen = storedChosen is List
+        ? <String>{
+            for (final entry in storedChosen)
+              if (entry is String) entry,
+          }
+        : <String>{
+            if (iconSize is num &&
+                clampIconSize(iconSize.toDouble()) != defaultIconSize)
+              DockMetrics.iconSizeKey,
+            if (json['magnification'] == false) DockMetrics.magnifyKey,
+            if (amount is num && clampMagnification(amount.toDouble()) != 0.6)
+              DockMetrics.magnifyAmountKey,
+            if (DockIndicatorStyle.parse(
+                  json['indicatorStyle'] ??
+                      (json['showIndicators'] == false ? 'none' : null),
+                ) !=
+                DockIndicatorStyle.dot)
+              DockMetrics.indicatorKey,
+          };
     return DockSettings(
       // An explicit empty list means the user removed every pin.
       pinned: stored is List ? List.unmodifiable(pins) : defaultPins,
@@ -1248,6 +1326,7 @@ class DockSettings {
           ? json['avoidReservedEdge'] as bool
           : true,
       look: DockLook.cleaned(json['look']),
+      chosen: Set<String>.unmodifiable(chosen),
       explicitZones: json['leading'] is List || json['trailing'] is List
           ? DockZones.stored(
               json['leading'],
@@ -1372,6 +1451,7 @@ class DockPreferencesStore {
     } else {
       json['look'] = settings.look;
     }
+    json['chosen'] = settings.chosen.toList()..sort();
     // A dock that never had its zones set keeps a file without them, and so
     // keeps following the side settings.
     final zones = settings.explicitZones;

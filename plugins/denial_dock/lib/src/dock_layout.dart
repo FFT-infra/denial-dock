@@ -80,6 +80,49 @@ abstract final class DockLayout {
   static double plateauFor({required double pitch, required double radius}) =>
       math.min(pitch / 2, radius * 0.6);
 
+  /// The edge icons are drawn at so a row of [icons] of them fits in
+  /// [available]: [iconSize] while the row fits, and otherwise as much less
+  /// as it takes, the way the macOS Dock shrinks as it fills up. [fixed] is
+  /// everything in the row that does not shrink with the icons: the room at
+  /// its ends, the gaps, the dividers and the parts of other plugins.
+  /// [scaled] is what shrinks in proportion with them, measured at
+  /// [iconSize], for a look whose spacing follows its icons. The result is
+  /// whole pixels and never under [floor], so a row that cannot fit even
+  /// then overflows instead of vanishing.
+  static double fitIconSize({
+    required double available,
+    required double iconSize,
+    required int icons,
+    required double fixed,
+    required double floor,
+    double scaled = 0,
+  }) {
+    if (icons <= 0 || !available.isFinite || !iconSize.isFinite) {
+      return iconSize;
+    }
+    final shrinking = icons * iconSize + scaled;
+    if (fixed + shrinking <= available) return iconSize;
+    final fitted = ((available - fixed) * iconSize / shrinking).floorToDouble();
+    return math.min(iconSize, math.max(math.min(floor, iconSize), fitted));
+  }
+
+  /// How long a task button is on a bar where [tasks] of them share
+  /// [available] between them: as long as [widest] while there is room,
+  /// then an equal share, and [icon] alone once a share leaves less than
+  /// [minTitle] for the title, since a title of a letter or two says
+  /// nothing.
+  static double taskExtent({
+    required double available,
+    required int tasks,
+    required double icon,
+    required double widest,
+    double minTitle = 44,
+  }) {
+    if (tasks <= 0 || !available.isFinite) return icon;
+    final share = math.min(widest, available / tasks).floorToDouble();
+    return share < icon + minTitle ? icon : share;
+  }
+
   static DockLayoutFrame compute({
     required double surfaceExtent,
     required List<DockSlot> slots,

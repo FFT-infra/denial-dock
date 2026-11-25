@@ -14,6 +14,16 @@ import 'package:denial_shell_kit/glass_card.dart';
 
 import 'dock_look_style.dart';
 
+/// The corners of a menu of the dock in the look in force.
+BorderRadius dockMenuRadius(BuildContext context) => BorderRadius.circular(
+  KitStyle.of(context).radius(context.shellTheme, dockLookMetrics.menuRadius),
+);
+
+/// The corners of a row's plate in such a menu.
+BorderRadius dockMenuRowRadius(BuildContext context) => BorderRadius.circular(
+  KitStyle.of(context).corner(dockLookMetrics.menuRowRadius),
+);
+
 /// Which side of a menu panel carries the pointer tail, mirroring the dock's
 /// edge. Menus open away from the screen edge, so the tail points back at it.
 enum DockMenuTail { none, down, left, right }
@@ -216,7 +226,10 @@ class DockMenuPanel extends StatelessWidget {
     );
     // The outline is stroked over the panel and its tail as one shape, so the
     // hairline never crosses the tail's base the way a bottom border did.
-    final outlined = tail != DockMenuTail.none;
+    // A look whose menus carry no tail keeps the tail's room, so the panel
+    // stands off its anchor, and draws nothing in it.
+    final tailed = dockLookMetrics.menuTail;
+    final outlined = tail != DockMenuTail.none && tailed;
     final fill = GlassCard.fillOf(theme);
     // A tail has to be stroked as one outline with its panel, so only a
     // tail-less panel takes the card's continuous corners and shadow.
@@ -244,7 +257,7 @@ class DockMenuPanel extends StatelessWidget {
         DockMenuTail.down => Alignment(tailAlignment * 2 - 1, 0),
         _ => Alignment(0, tailAlignment * 2 - 1),
       },
-      child: DockTail(tail: tail, color: fill),
+      child: tailed ? DockTail(tail: tail, color: fill) : null,
     );
     final body = switch (tail) {
       DockMenuTail.down => Column(
@@ -274,7 +287,9 @@ class DockMenuPanel extends StatelessWidget {
     if (!outlined) return body;
     return CustomPaint(
       foregroundPainter: _MenuOutlinePainter(
-        color: theme.colors.hairline,
+        // The look's own line: a hairline, or the accent where the look
+        // outlines its panels.
+        color: KitStyle.of(context).border(theme),
         radius: radius.topLeft.x,
         tail: tail,
         tailAlignment: tailAlignment,
@@ -464,7 +479,10 @@ class DockMenuSeparator extends StatelessWidget {
   Widget build(BuildContext context) {
     final theme = context.shellTheme;
     return Padding(
-      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 5),
+      padding: EdgeInsets.symmetric(
+        horizontal: 12,
+        vertical: (dockLookMetrics.menuSeparator - 1) / 2,
+      ),
       child: SizedBox(
         height: 1,
         child: ColoredBox(color: theme.colors.hairline),
@@ -543,11 +561,11 @@ class _DockMenuSubmenuRowState extends State<DockMenuSubmenuRow> {
           behavior: HitTestBehavior.opaque,
           onTap: _scheduleOpen,
           child: Container(
-            height: 30,
+            height: dockLookMetrics.menuRowHeight,
             margin: const EdgeInsets.symmetric(horizontal: 6),
             padding: const EdgeInsets.symmetric(horizontal: 10),
             decoration: BoxDecoration(
-              borderRadius: theme.borderRadius(8),
+              borderRadius: dockMenuRowRadius(context),
               color: row.fill,
             ),
             child: Row(
@@ -574,7 +592,6 @@ class _DockMenuSubmenuRowState extends State<DockMenuSubmenuRow> {
   }
 
   Widget _buildSubmenu(BuildContext context, OverlayChildLayoutInfo layout) {
-    final theme = context.shellTheme;
     final anchor = MatrixUtils.transformRect(
       layout.childPaintTransform,
       Offset.zero & layout.childSize,
@@ -599,7 +616,7 @@ class _DockMenuSubmenuRowState extends State<DockMenuSubmenuRow> {
         },
         onExit: (_) => _scheduleClose(),
         child: DockMenuPanel(
-          radius: theme.borderRadius(13),
+          radius: dockMenuRadius(context),
           origin: opensRight ? Alignment.topLeft : Alignment.topRight,
           child: Padding(
             padding: const EdgeInsets.symmetric(vertical: 4),
@@ -682,11 +699,11 @@ class _DockMenuRowState extends State<DockMenuRow> {
           behavior: HitTestBehavior.opaque,
           onTap: widget.onTap,
           child: Container(
-            height: 30,
+            height: dockLookMetrics.menuRowHeight,
             margin: const EdgeInsets.symmetric(horizontal: 6),
             padding: const EdgeInsets.symmetric(horizontal: 10),
             decoration: BoxDecoration(
-              borderRadius: theme.borderRadius(8),
+              borderRadius: dockMenuRowRadius(context),
               color: row.fill,
             ),
             child: Row(

@@ -11,7 +11,7 @@ import 'dock_pile.dart';
 /// rather than the accent-tinted rounded tile the Denial look uses.
 ///
 /// A folder becomes a blue folder carrying a pile of its newest files, the
-/// trash becomes a wire can, and the launcher becomes the Launchpad grid.
+/// trash becomes a glass can, and the launcher becomes the applications tile.
 
 /// One card in a stack icon: the picture to draw, or the type glyph when the
 /// file has no thumbnail, and whether the entry is a folder. A folder draws
@@ -239,8 +239,8 @@ class _FolderPainter extends CustomPainter {
   bool shouldRepaint(_FolderPainter old) => old.accent != accent;
 }
 
-/// A macOS trash can: a tapered wire basket under its lid, holding paper once
-/// it has anything in it.
+/// A macOS trash can: an open can of frosted glass, with what was thrown
+/// away standing out of it once it holds anything.
 class DockTrashIcon extends StatelessWidget {
   const DockTrashIcon({
     required this.size,
@@ -252,8 +252,8 @@ class DockTrashIcon extends StatelessWidget {
   final double size;
   final bool pressed;
 
-  /// Whether the can holds something. macOS draws an empty can as bare metal
-  /// and a used one with paper inside it.
+  /// Whether the can holds something. macOS draws an empty can as bare glass
+  /// and a used one with its contents standing out of it.
   final bool full;
 
   @override
@@ -275,93 +275,86 @@ class _TrashPainter extends CustomPainter {
   void paint(Canvas canvas, Size size) {
     final w = size.width;
     final h = size.height;
-    final stroke = w * 0.038;
-    final line = Paint()
-      ..style = PaintingStyle.stroke
-      ..strokeWidth = stroke
-      ..strokeJoin = StrokeJoin.round
-      ..color = const Color(0xFF9B9EA6);
-    final metal = Paint()
-      ..shader = const LinearGradient(
-        begin: Alignment.topCenter,
-        end: Alignment.bottomCenter,
-        colors: [Color(0xFFF7F8FA), Color(0xFFDDE0E6)],
-      ).createShader(Rect.fromLTWH(0, h * 0.18, w, h * 0.65));
-
-    final lid = RRect.fromLTRBR(
-      w * 0.21,
-      h * 0.24,
-      w * 0.79,
-      h * 0.31,
-      Radius.circular(w * 0.035),
-    );
-    final handle = RRect.fromLTRBR(
-      w * 0.41,
-      h * 0.17,
-      w * 0.59,
-      h * 0.245,
-      Radius.circular(w * 0.03),
-    );
-    canvas.drawRRect(handle, metal);
-    canvas.drawRRect(handle, line);
-    canvas.drawRRect(lid, metal);
-    canvas.drawRRect(lid, line);
-
+    // An open can of frosted glass, a little narrower at its foot, with a
+    // bright rim. The plate shows through it, as it does through the real
+    // one.
     final body = Path()
-      ..moveTo(w * 0.265, h * 0.325)
-      ..lineTo(w * 0.735, h * 0.325)
-      ..lineTo(w * 0.700, h * 0.78)
-      ..quadraticBezierTo(w * 0.697, h * 0.845, w * 0.645, h * 0.845)
-      ..lineTo(w * 0.355, h * 0.845)
-      ..quadraticBezierTo(w * 0.303, h * 0.845, w * 0.300, h * 0.78)
+      ..moveTo(w * 0.17, h * 0.17)
+      ..lineTo(w * 0.83, h * 0.17)
+      ..lineTo(w * 0.775, h * 0.85)
+      ..quadraticBezierTo(w * 0.765, h * 0.93, w * 0.68, h * 0.93)
+      ..lineTo(w * 0.32, h * 0.93)
+      ..quadraticBezierTo(w * 0.235, h * 0.93, w * 0.225, h * 0.85)
       ..close();
-    canvas.drawPath(body, metal);
-    canvas.drawPath(body, line);
+    final area = Rect.fromLTWH(0, h * 0.13, w, h * 0.80);
 
     if (full) {
-      // Paper seen through the wire: two sheets, the nearer one paler, both
-      // clipped to the basket so nothing spills past the wire.
-      canvas.save();
-      canvas.clipPath(body);
-      final back = Path()
-        ..moveTo(w * 0.32, h * 0.62)
-        ..lineTo(w * 0.46, h * 0.44)
-        ..lineTo(w * 0.58, h * 0.58)
-        ..lineTo(w * 0.70, h * 0.40)
-        ..lineTo(w * 0.74, h * 0.86)
-        ..lineTo(w * 0.30, h * 0.86)
-        ..close();
-      canvas.drawPath(back, Paint()..color = const Color(0xFFF4F1EA));
-      final front = Path()
-        ..moveTo(w * 0.36, h * 0.86)
-        ..lineTo(w * 0.42, h * 0.56)
-        ..lineTo(w * 0.54, h * 0.70)
-        ..lineTo(w * 0.62, h * 0.52)
-        ..lineTo(w * 0.66, h * 0.86)
-        ..close();
-      canvas.drawPath(front, Paint()..color = const Color(0xFFFFFFFF));
-      canvas.drawPath(
-        front,
-        Paint()
-          ..style = PaintingStyle.stroke
-          ..strokeWidth = stroke * 0.6
-          ..color = const Color(0xFFD8D3C8),
-      );
-      canvas.restore();
+      // What was thrown away stands out of the can's mouth; the part
+      // inside shows dimly through the glass drawn over it.
+      void scrap(List<double> points, Color colour) {
+        final path = Path()..moveTo(w * points[0], h * points[1]);
+        for (var k = 2; k < points.length; k += 2) {
+          path.lineTo(w * points[k], h * points[k + 1]);
+        }
+        canvas.drawPath(path..close(), Paint()..color = colour);
+      }
+
+      scrap(const [0.24, 0.30, 0.30, 0.07, 0.46, 0.12, 0.44, 0.34],
+          const Color(0xFFB9BCC4));
+      scrap(const [0.40, 0.34, 0.50, 0.05, 0.66, 0.16, 0.60, 0.36],
+          const Color(0xFFF2B63C));
+      scrap(const [0.56, 0.34, 0.70, 0.09, 0.80, 0.20, 0.72, 0.36],
+          const Color(0xFF4AA8E8));
     }
 
-    final rib = Paint()
-      ..style = PaintingStyle.stroke
-      ..strokeWidth = stroke * 0.8
-      ..color = const Color(0xFFB4B7BE)
-      ..strokeCap = StrokeCap.round;
-    for (final x in const [0.395, 0.5, 0.605]) {
-      canvas.drawLine(
-        Offset(w * x, h * 0.39),
-        Offset(w * (0.5 + (x - 0.5) * 0.90), h * 0.78),
-        rib,
-      );
-    }
+    canvas.drawPath(
+      body,
+      Paint()
+        ..shader = const LinearGradient(
+          begin: Alignment.centerLeft,
+          end: Alignment.centerRight,
+          colors: [
+            Color(0xD9F4F5F7),
+            Color(0xB3DCDEE3),
+            Color(0xC7EEF0F3),
+            Color(0xD9FAFAFB),
+          ],
+          stops: [0, 0.38, 0.72, 1],
+        ).createShader(area),
+    );
+    // Shade toward the foot, where the glass is thickest.
+    canvas.drawPath(
+      body,
+      Paint()
+        ..shader = const LinearGradient(
+          begin: Alignment.topCenter,
+          end: Alignment.bottomCenter,
+          colors: [Color(0x00000000), Color(0x1F3C4048)],
+        ).createShader(area),
+    );
+    canvas.drawPath(
+      body,
+      Paint()
+        ..style = PaintingStyle.stroke
+        ..strokeWidth = math.max(1, w * 0.016)
+        ..strokeJoin = StrokeJoin.round
+        ..color = const Color(0x40585C66),
+    );
+    final rim = RRect.fromLTRBR(
+      w * 0.145,
+      h * 0.135,
+      w * 0.855,
+      h * 0.205,
+      Radius.circular(h * 0.035),
+    );
+    canvas.drawRRect(rim, Paint()..color = const Color(0xF2FDFDFE));
+    canvas.drawRRect(
+      rim,
+      Paint()
+        ..style = PaintingStyle.stroke
+        ..strokeWidth = math.max(1, w * 0.014)
+        ..color = const Color(0x4D585C66),
+    );
     if (pressed) {
       canvas.drawRRect(
         RRect.fromLTRBR(
@@ -381,7 +374,8 @@ class _TrashPainter extends CustomPainter {
       old.pressed != pressed || old.full != full;
 }
 
-/// The Launchpad grid: nine tinted squares on a pale tile.
+/// The launcher as macOS draws it now: a search field over six tinted
+/// squares on a pale tile.
 class DockLaunchpadIcon extends StatelessWidget {
   const DockLaunchpadIcon({
     required this.size,
@@ -409,13 +403,10 @@ class _LaunchpadPainter extends CustomPainter {
   static const List<Color> _tints = [
     Color(0xFF0A84FF),
     Color(0xFF30D158),
-    Color(0xFFFF9F0A),
     Color(0xFFFF375F),
+    Color(0xFFFF9F0A),
     Color(0xFFBF5AF2),
-    Color(0xFF40C8E0),
-    Color(0xFFFFD60A),
-    Color(0xFFFF6B3D),
-    Color(0xFF5E5CE6),
+    Color(0xFF98989D),
   ];
 
   @override
@@ -434,13 +425,34 @@ class _LaunchpadPainter extends CustomPainter {
           colors: [Color(0xFFFCFCFE), Color(0xFFE7E9EF)],
         ).createShader(Rect.fromLTWH(0, 0, w, h)),
     );
-    final cell = w * 0.185;
-    final gap = w * 0.055;
-    final block = cell * 3 + gap * 2;
-    final left = (w - block) / 2;
-    final top = (h - block) / 2;
+    // A search field over two rows of three applications.
+    canvas.drawRRect(
+      RRect.fromLTRBR(
+        w * 0.17,
+        h * 0.225,
+        w * 0.83,
+        h * 0.36,
+        Radius.circular(h * 0.0675),
+      ),
+      Paint()..color = const Color(0xFFD6D7DC),
+    );
+    final glass = Paint()
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = math.max(1, w * 0.022)
+      ..strokeCap = StrokeCap.round
+      ..color = const Color(0xFFFFFFFF);
+    canvas.drawCircle(Offset(w * 0.255, h * 0.287), w * 0.027, glass);
+    canvas.drawLine(
+      Offset(w * 0.276, h * 0.308),
+      Offset(w * 0.295, h * 0.327),
+      glass,
+    );
+    final cell = w * 0.155;
+    final gap = w * 0.075;
+    final left = (w - cell * 3 - gap * 2) / 2;
+    final top = h * 0.455;
     final square = Radius.circular(cell * 0.30);
-    for (var i = 0; i < 9; i++) {
+    for (var i = 0; i < _tints.length; i++) {
       final col = i % 3;
       final row = i ~/ 3;
       canvas.drawRRect(

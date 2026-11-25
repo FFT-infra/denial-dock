@@ -26,7 +26,8 @@ class ShellPreset {
   final Map<String, Object?> bar;
 
   /// The dock's layout: what its leading and trailing ends hold, its shape
-  /// and how its applications are aligned.
+  /// and how its applications are aligned. Whether icons grow under the
+  /// pointer is the look's to say, so no preset names it.
   final Map<String, Object?> dock;
 
   /// How much of itself the bar draws: `shown`, `islandOnly` or `hidden`.
@@ -39,7 +40,6 @@ class ShellPreset {
     'trailing': <String>['dock.stacks', 'dock.trash'],
     'shape': 'floating',
     'align': 'packed',
-    'magnification': true,
     'visibility': 'smart',
   };
 
@@ -164,7 +164,6 @@ class ShellPreset {
       'trailing': <String>['status.tray', 'status', 'clock'],
       'shape': 'bar',
       'align': 'start',
-      'magnification': false,
       'visibility': 'always',
     },
   );
@@ -187,7 +186,6 @@ class ShellPreset {
       ],
       'shape': 'floating',
       'align': 'packed',
-      'magnification': true,
       'visibility': 'smart',
     },
   );

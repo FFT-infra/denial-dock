@@ -33,6 +33,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import 'dock_autohide.dart';
 import 'dock_badges.dart';
+import 'dock_cell.dart';
 import 'dock_recents.dart';
 import 'dock_drag.dart';
 import 'dock_extras.dart';
@@ -50,6 +51,7 @@ import 'dock_layout.dart';
 import 'dock_look.dart';
 import 'dock_look_style.dart';
 import 'dock_menu.dart';
+import 'dock_metrics.dart';
 import 'dock_motion.dart';
 import 'dock_part_cell.dart';
 import 'dock_parts.dart';
@@ -151,6 +153,23 @@ class _DockContainerState extends ConsumerState<DockContainer>
   /// How the capsule is drawn and spaced: the preset of the shell look in
   /// force with the user's own changes on top. Resolved once per build.
   DockLook _look = DockLook.denial;
+
+  /// [_look] as the settings give it, before its spacing follows the icons.
+  DockLook _baseLook = DockLook.denial;
+
+  /// How much larger than the look's own the spacing is drawn.
+  double _spacing = 1;
+
+  /// The metrics of the look in force, with what the user set over them.
+  DockMetrics _fit = DockMetrics.denial;
+
+  /// The icon size the row was shrunk to so it fits its edge; null while it
+  /// fits at the size asked for.
+  double? _fitIcon;
+
+  /// How long a task button is on a bar that shows titles; zero when none
+  /// does.
+  double _taskExtent = 0;
   WorkspaceStatus _workspaceStatus = WorkspaceStatus(
     count: 1,
     active: 1,
@@ -215,7 +234,7 @@ class _DockContainerState extends ConsumerState<DockContainer>
   double? _dragIconSize;
   bool _resizing = false;
 
-  double get _iconSize => _dragIconSize ?? _settings.iconSize;
+  double get _iconSize => _fitIcon ?? _dragIconSize ?? _fit.iconSize;
   double get _capsuleHeight => _iconSize + _look.padding * 2;
   double get _halfIcon => _iconSize / 2;
 
@@ -1104,8 +1123,16 @@ class _DockContainerState extends ConsumerState<DockContainer>
             DockSlotKind.divider => _SlotKind.divider,
             DockSlotKind.part => _SlotKind.part,
           },
+          titled:
+              section.kind == DockSlotKind.app &&
+              _taskExtent > _iconSize &&
+              entries[section.index!].windows.isNotEmpty,
           half: switch (section.kind) {
-            DockSlotKind.divider => 0.5,
+            DockSlotKind.divider => _fit.dividerSpan * _spacing / 2,
+            DockSlotKind.app
+                when _taskExtent > _iconSize &&
+                    entries[section.index!].windows.isNotEmpty =>
+              _taskExtent / 2,
             // Until a part has been measured it holds one icon's room.
             DockSlotKind.part =>
               (_partExtents[section.partId] ?? _iconSize) / 2,
@@ -1156,6 +1183,78 @@ class _DockContainerState extends ConsumerState<DockContainer>
     return true;
   }
 
+  /// The slots for [entries] at a size the row fits its edge with. A row too
+  /// long for the edge has its icons shrunk, the way the macOS Dock shrinks
+  /// as it fills up; a bar that shows titles shares what room is left among
+  /// the applications that have a window.
+  List<_SlotSpec> _fitSpecs(
+    double surfaceExtent,
+    List<_DockEntry> entries,
+    DockSettings settings,
+  ) {
+    _fitIcon = null;
+    _taskExtent = 0;
+    final asked = _iconSize;
+    _spaceFor(asked);
+    final specs = _specsFor(entries, settings);
+    if (!surfaceExtent.isFinite || specs.isEmpty) return specs;
+    final bar = _look.shape == DockShape.bar;
+    // A floating capsule keeps clear of the screen's corners.
+    final available = surfaceExtent - (bar ? 0 : 16);
+    final icons = specs.where((spec) => spec.growable).length;
+    var spacing = _look.endPadding * 2 + _look.gap * (specs.length - 1);
+    var parts = 0.0;
+    for (final spec in specs) {
+      if (spec.kind == _SlotKind.divider) spacing += spec.half * 2;
+      if (spec.kind == _SlotKind.part) parts += spec.half * 2;
+    }
+    final fixed = parts + spacing;
+    final fitted = DockLayout.fitIconSize(
+      available: available,
+      iconSize: asked,
+      icons: icons,
+      fixed: _fit.scaleSpacing ? parts : fixed,
+      scaled: _fit.scaleSpacing ? spacing : 0,
+      floor: DockMetrics.fitFloor,
+    );
+    if (fitted < asked) {
+      _fitIcon = fitted;
+      _spaceFor(fitted);
+      return _specsFor(entries, settings);
+    }
+    if (!bar || _vertical || !_fit.taskTitles) return specs;
+    final tasks = specs
+        .where(
+          (spec) =>
+              spec.kind == _SlotKind.app &&
+              entries[spec.entry!].windows.isNotEmpty,
+        )
+        .length;
+    final extent = DockLayout.taskExtent(
+      available: available - fixed - (icons - tasks) * asked,
+      tasks: tasks,
+      icon: asked,
+      widest: _fit.taskWidth,
+    );
+    if (extent <= asked) return specs;
+    _taskExtent = extent;
+    return _specsFor(entries, settings);
+  }
+
+  /// Spaces the row for icons of [size]: a look whose spacing follows its
+  /// icons gets its plate, gaps and divider scaled with them.
+  void _spaceFor(double size) {
+    _spacing = _fit.spacingScale(size);
+    _look = _spacing == 1
+        ? _baseLook
+        : DockLook.fitted(
+            _baseLook,
+            padding: _baseLook.padding * _spacing,
+            gap: _baseLook.gap * _spacing,
+            endInset: _baseLook.endInset * _spacing,
+          );
+  }
+
   DockLayoutFrame _layout(
     double surfaceExtent,
     List<_SlotSpec> specs, {
@@ -1170,7 +1269,7 @@ class _DockContainerState extends ConsumerState<DockContainer>
     gap: _look.gap,
     pointer: _pointer,
     hover: hover,
-    maxScale: _settings.effectiveMaxScale,
+    maxScale: _fit.maxScale,
     radius: _look.magnifyRange,
     spread: _spreadFor(specs),
   );
@@ -1197,9 +1296,11 @@ class _DockContainerState extends ConsumerState<DockContainer>
     final storedSettings = ref.watch(dockSettingsProvider);
     final settings = storedSettings.value ?? DockSettings.defaults;
     _settings = settings;
-    _look = dockLookNow(settings);
+    _baseLook = dockLookNow(settings);
+    _look = _baseLook;
+    _fit = dockMetricsNow(settings, _look.shape);
     if (_dragIconSize != null &&
-        (_dragIconSize! - settings.iconSize).abs() < 0.5) {
+        (_dragIconSize! - _fit.iconSize).abs() < 0.5) {
       _dragIconSize = null;
     }
     final catalog = ref.watch(widget.services.applications);
@@ -1260,7 +1361,6 @@ class _DockContainerState extends ConsumerState<DockContainer>
     final launcherLabel = chinese ? '启动台' : 'Launcher';
 
     final baseEntries = _entries(settings, catalog, windows, null, recents);
-    final baseSpecs = _specsFor(baseEntries, settings);
     final badges = settings.showBadges
         ? DockBadges.counts(
             ref
@@ -1289,6 +1389,7 @@ class _DockContainerState extends ConsumerState<DockContainer>
         _surfaceWidth = constraints.maxWidth;
         _surfaceHeight = constraints.maxHeight;
         final surfaceMain = _vertical ? _surfaceHeight : _surfaceWidth;
+        final baseSpecs = _fitSpecs(surfaceMain, baseEntries, settings);
         var entries = baseEntries;
         var specs = baseSpecs;
         if (_dragKey != null && !_settling && _dragTo >= 0) {
@@ -1400,6 +1501,9 @@ class _DockContainerState extends ConsumerState<DockContainer>
                 foreground: colors.textPrimary,
                 horizontal: _vertical,
                 tailLeading: _position == DockPosition.left,
+                shape: _fit.label,
+                fontSize: _fit.labelFontSize,
+                weight: _fit.labelWeight,
               );
         final nameLabel = bubble == null
             ? null
@@ -1414,12 +1518,12 @@ class _DockContainerState extends ConsumerState<DockContainer>
                       _look.padding +
                       (labelSlot?.half ?? _halfIcon) * 2 +
                       labelLift +
-                      6,
+                      _fit.labelGap,
                   width: 220,
                   child: IgnorePointer(child: Center(child: bubble)),
                 ),
                 DockPosition.left => Positioned(
-                  left: _capsuleFar + 10,
+                  left: _capsuleFar + _fit.labelGap + 4,
                   top: (label!.center - 14).clamp(
                     8.0,
                     math.max(8.0, _surfaceHeight - 36.0),
@@ -1433,7 +1537,7 @@ class _DockContainerState extends ConsumerState<DockContainer>
                   ),
                 ),
                 DockPosition.right => Positioned(
-                  right: _capsuleFar + 10,
+                  right: _capsuleFar + _fit.labelGap + 4,
                   top: (label!.center - 14).clamp(
                     8.0,
                     math.max(8.0, _surfaceHeight - 36.0),
@@ -1712,7 +1816,10 @@ class _DockContainerState extends ConsumerState<DockContainer>
     final scene = Offset.zero & layout.overlaySize;
     final onOutput = anchor.intersect(scene);
     final visible = onOutput.isEmpty ? scene : onOutput;
-    final width = math.min(248.0, math.max(0.0, visible.width - 16));
+    final width = math.min(
+      dockLookMetrics.menuWidth,
+      math.max(0.0, visible.width - 16),
+    );
     final capsuleTopScene = anchor.top + _surfaceHeight - _capsuleFar;
     final capsuleLeftScene = _position == DockPosition.right
         ? anchor.left + _surfaceWidth - _capsuleFar
@@ -1748,7 +1855,7 @@ class _DockContainerState extends ConsumerState<DockContainer>
     );
     if (placement == null) return const SizedBox.shrink();
     final smart = _settings.visibility == DockVisibilityMode.smart;
-    final magnifies = _settings.magnification;
+    final magnifies = _fit.magnify;
     final maxHeight = _position == DockPosition.bottom
         ? math.max(0.0, capsuleTopScene - visible.top - 16)
         : math.max(0.0, visible.height - 16);
@@ -1775,7 +1882,7 @@ class _DockContainerState extends ConsumerState<DockContainer>
                 anchor: placement,
                 overlaySize: layout.overlaySize,
                 child: DockMenuPanel(
-                  radius: theme.borderRadius(13),
+                  radius: dockMenuRadius(context),
                   maxHeight: maxHeight,
                   tail: placement.tail,
                   tailAlignment: placement.tailAlignment,
@@ -2039,7 +2146,7 @@ class _DockContainerState extends ConsumerState<DockContainer>
 
   /// Half width of a divider's hit area. Slots sit 8 px apart, so the handle
   /// never reaches into an icon's own region.
-  static const double _dividerReach = 6;
+  double get _dividerReach => math.max(6.0, _fit.dividerSpan * _spacing / 2);
 
   Widget _dividerHandle(Color color) {
     final vertical = _position == DockPosition.bottom;
@@ -2160,11 +2267,43 @@ class _DockContainerState extends ConsumerState<DockContainer>
       ),
     };
 
+    // The plate behind an item reaches halfway into the gap along the row,
+    // and across it either the whole plate, for a dock that keeps the cell
+    // of the application in front lit, or as far as the marker leaves room.
+    final markerOffset = _look.padding - _fit.markerInset * _spacing;
+    final plateCross = _fit.activePlate
+        ? _look.padding
+        : math.max(
+            0.0,
+            math.min(_look.gap / 2, markerOffset - _fit.markerSize / 2 - 1),
+          );
+    Widget cell(Widget child, {bool active = false}) => DockCell(
+      hover: _fit.highlight && !dragging,
+      active: _fit.activePlate && active,
+      outline: _fit.highlightOutline,
+      main: _look.gap / 2,
+      cross: plateCross,
+      vertical: _vertical,
+      child: child,
+    );
+
     switch (spec.kind) {
       case _SlotKind.divider:
-        final line = _iconSize * 0.52;
-        final inset = _look.padding + _iconSize * 0.24;
-        final handle = _dividerHandle(context.shellTheme.colors.hairline);
+        // The line's length is a share of the plate, and it sits in the
+        // middle of it.
+        final line = _capsuleHeight * _fit.dividerLength;
+        final inset = (_capsuleHeight - line) / 2;
+        final dividerTheme = context.shellTheme;
+        final dividerAlpha = _fit.dividerAlphaFor(
+          dark: dividerTheme.brightness == Brightness.dark,
+        );
+        final handle = _dividerHandle(
+          dividerAlpha == null
+              ? dividerTheme.colors.hairline
+              : dividerTheme.colors.textPrimary.withValues(
+                  alpha: dividerAlpha,
+                ),
+        );
         return switch (_position) {
           DockPosition.bottom => AnimatedPositioned(
             key: ValueKey('dock-divider-${spec.dividerKey ?? 'default'}'),
@@ -2233,7 +2372,7 @@ class _DockContainerState extends ConsumerState<DockContainer>
           cross: _look.padding,
           mainExtent: extent,
           crossExtent: extent,
-          child: _LauncherItem(
+          child: cell(_LauncherItem(
             size: extent,
             lift: lift,
             position: _position,
@@ -2241,7 +2380,7 @@ class _DockContainerState extends ConsumerState<DockContainer>
             label: launcherLabel,
             onTap: widget.services.toggleLauncher,
             onOpenMenu: () => _openDockMenu(slot.center, launcher: true),
-          ),
+          )),
         );
       case _SlotKind.folder:
         final folder = spec.folder;
@@ -2251,7 +2390,7 @@ class _DockContainerState extends ConsumerState<DockContainer>
           cross: _look.padding,
           mainExtent: extent,
           crossExtent: extent,
-          child: DockFolderItem(
+          child: cell(DockFolderItem(
             folder: folder,
             size: extent,
             lift: lift,
@@ -2286,7 +2425,7 @@ class _DockContainerState extends ConsumerState<DockContainer>
                   .setFolderOrder(folder.path, order),
             ),
             trashRect: _trashRect,
-          ),
+          )),
         );
       case _SlotKind.file:
         final file = spec.file;
@@ -2296,7 +2435,7 @@ class _DockContainerState extends ConsumerState<DockContainer>
           cross: _look.padding,
           mainExtent: extent,
           crossExtent: extent,
-          child: DockFileItem(
+          child: cell(DockFileItem(
             file: file,
             size: extent,
             lift: lift,
@@ -2311,7 +2450,7 @@ class _DockContainerState extends ConsumerState<DockContainer>
             ),
             onOpenSettings: _openSettings,
             onOverlayChanged: _setOverlayHold,
-          ),
+          )),
         );
       case _SlotKind.trash:
         return slotAt(
@@ -2319,7 +2458,7 @@ class _DockContainerState extends ConsumerState<DockContainer>
           cross: _look.padding,
           mainExtent: extent,
           crossExtent: extent,
-          child: DockTrashItem(
+          child: cell(DockTrashItem(
             size: extent,
             lift: lift,
             position: _position,
@@ -2328,7 +2467,7 @@ class _DockContainerState extends ConsumerState<DockContainer>
             monitorBounds: _output,
             onOpenSettings: _openSettings,
             appearance: _settings.appearance,
-          ),
+          )),
         );
       case _SlotKind.app:
         final entryIndex = spec.entry!;
@@ -2368,10 +2507,12 @@ class _DockContainerState extends ConsumerState<DockContainer>
           key: ValueKey('dock-${entry.appId}'),
           cross: _look.padding,
           mainExtent: extent,
-          crossExtent: extent,
+          crossExtent: spec.titled ? _iconSize : extent,
           child: Opacity(
             opacity: isSource ? 0 : 1,
-            child: DockItemWidget(
+            child: cell(
+              active: entry.windows.any((window) => window.active),
+              DockItemWidget(
               appId: entry.appId,
               launchId: entry.launchId,
               name: entry.name,
@@ -2382,7 +2523,11 @@ class _DockContainerState extends ConsumerState<DockContainer>
               monitorId: widget.monitorId,
               monitorBounds: _output,
               position: _position,
-              size: extent,
+              size: spec.titled ? _iconSize : extent,
+              cellExtent: spec.titled ? extent : null,
+              title: spec.titled ? _taskTitle(entry) : null,
+              metrics: _fit,
+              markerOffset: markerOffset,
               lift: lift,
               clickAction: settings.clickAction,
               scrollAction: settings.scrollAction,
@@ -2391,8 +2536,12 @@ class _DockContainerState extends ConsumerState<DockContainer>
               scrollReversed: settings.scrollReversed,
               scrollWraps: settings.scrollWraps,
               motion: _motion,
-              launchFeedback: _motion.launchFeedback(settings.launchFeedback),
-              indicatorStyle: settings.indicatorStyle,
+              // A look that does not hop answers a launch with the pulse.
+              launchFeedback:
+                  !_fit.hop && settings.launchFeedback == DockLaunchFeedback.hop
+                  ? DockLaunchFeedback.pulse
+                  : _motion.launchFeedback(settings.launchFeedback),
+              indicatorStyle: _fit.indicator,
               markerColor: _look.markerColor,
               previewStyle: settings.previewStyle,
               previewHover: settings.previewHover,
@@ -2423,10 +2572,25 @@ class _DockContainerState extends ConsumerState<DockContainer>
               onDragUpdate: settings.lockItems ? null : _updateDrag,
               onDragEnd: settings.lockItems ? null : _endDrag,
               onDragCancel: settings.lockItems ? null : _cancelDrag,
-            ),
+            )),
           ),
         );
     }
+  }
+
+  /// What a task button says: the title of the application's window in
+  /// front, or of its first one, and the application's name when the window
+  /// has none.
+  static String _taskTitle(_DockEntry entry) {
+    var window = entry.windows.first;
+    for (final candidate in entry.windows) {
+      if (candidate.active) {
+        window = candidate;
+        break;
+      }
+    }
+    final title = window.title.trim();
+    return title.isEmpty ? entry.name : title;
   }
 
   _LabelTarget? _labelForSlot(
@@ -2488,7 +2652,12 @@ class _SlotSpec {
     this.file,
     this.dividerKey,
     this.partId,
+    this.titled = false,
   });
+
+  /// Whether this is a task button: an application's icon with its
+  /// window's title beside it.
+  final bool titled;
 
   final _SlotKind kind;
   final double half;
@@ -2498,7 +2667,10 @@ class _SlotSpec {
   final String? dividerKey;
   final String? partId;
 
-  bool get growable => kind != _SlotKind.divider && kind != _SlotKind.part;
+  /// Whether the slot is one icon: it grows under the pointer and shrinks
+  /// with the row.
+  bool get growable =>
+      kind != _SlotKind.divider && kind != _SlotKind.part && !titled;
 }
 
 class _DockEntry {
@@ -2616,7 +2788,20 @@ class _DockLabelBubble extends StatelessWidget {
     required this.foreground,
     this.horizontal = false,
     this.tailLeading = true,
+    this.shape = DockLabelShape.bubble,
+    this.fontSize,
+    this.weight = 600,
   });
+
+  /// Whether the label is a pill with a tail, a pill, or a plate with the
+  /// look's corners and line.
+  final DockLabelShape shape;
+
+  /// The type size; null scales it with the icon.
+  final double? fontSize;
+
+  /// The type's weight, as a CSS number.
+  final int weight;
 
   final String text;
 
@@ -2635,11 +2820,13 @@ class _DockLabelBubble extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final theme = context.shellTheme;
-    final fontSize = (iconSize * 0.26).clamp(11.0, 13.0);
+    final fontSize = this.fontSize ?? (iconSize * 0.26).clamp(11.0, 13.0);
     final padV = (iconSize * 0.10).clamp(4.0, 6.0);
     final padH = (iconSize * 0.24).clamp(10.0, 14.0);
     final height = fontSize * 1.25 + padV * 2;
-    final tailSize = (iconSize * 0.13).clamp(6.0, 9.0);
+    final tailSize = shape == DockLabelShape.bubble
+        ? (iconSize * 0.13).clamp(6.0, 9.0)
+        : 0.0;
     // The bubble grows out of its tail when it first appears. Sliding along
     // the row keeps the same bubble, so it does not replay between icons.
     return TweenAnimationBuilder<double>(
@@ -2670,11 +2857,15 @@ class _DockLabelBubble extends StatelessWidget {
     double tailSize,
     double height,
   ) {
+    final style = kitStyle.value;
+    final tag = shape == DockLabelShape.tag;
     return CustomPaint(
       painter: _BubblePainter(
         color: background,
-        border: border,
-        radius: height / 2,
+        // A tag is one of the look's panels in small: its line and corners.
+        border: tag ? style.border(theme) : border,
+        borderWidth: tag ? style.borderWidth : 1,
+        radius: tag ? style.corner(8) : style.pill(height),
         tail: tailSize,
         horizontal: horizontal,
         tailLeading: tailLeading,
@@ -2693,7 +2884,7 @@ class _DockLabelBubble extends StatelessWidget {
           style: theme.text.systemBarCaption.inLook.copyWith(
             color: foreground,
             fontSize: fontSize,
-            fontWeight: FontWeight.w600,
+            fontWeight: FontWeight.values[(weight ~/ 100 - 1).clamp(0, 8)],
             height: 1.25,
             letterSpacing: 0.1,
           ),
@@ -2713,8 +2904,10 @@ class _BubblePainter extends CustomPainter {
     required this.tail,
     required this.horizontal,
     required this.tailLeading,
+    this.borderWidth = 1,
   });
 
+  final double borderWidth;
   final Color color;
   final Color border;
   final double radius;
@@ -2750,20 +2943,23 @@ class _BubblePainter extends CustomPainter {
         ..lineTo(rect.center.dx + depth / 2, rect.bottom - 1)
         ..close();
     }
-    final shape = Path.combine(PathOperation.union, body, point);
+    final shape = tail > 0
+        ? Path.combine(PathOperation.union, body, point)
+        : body;
     canvas.drawPath(shape, Paint()..color = color);
     canvas.drawPath(
       shape,
       Paint()
         ..color = border
         ..style = PaintingStyle.stroke
-        ..strokeWidth = 1
+        ..strokeWidth = borderWidth
         ..strokeJoin = StrokeJoin.round,
     );
   }
 
   @override
   bool shouldRepaint(covariant _BubblePainter old) =>
+      old.borderWidth != borderWidth ||
       old.color != color ||
       old.border != border ||
       old.radius != radius ||

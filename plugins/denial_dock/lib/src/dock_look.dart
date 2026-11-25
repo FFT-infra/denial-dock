@@ -51,6 +51,7 @@ class DockLook {
     required this.markerColor,
     required this.magnifyRange,
     this.accentBorder = false,
+    this.endInset = 5,
   });
 
   /// Denial's own capsule: the system's blur at full strength and the
@@ -136,6 +137,43 @@ class DockLook {
       markerColor: base.markerColor,
       magnifyRange: base.magnifyRange,
       accentBorder: accentBorder,
+      endInset: base.endInset,
+    );
+  }
+
+  /// [base] spaced as a look's metrics ask: the room around the icons,
+  /// between them and at the two ends of the row. Everything the capsule is
+  /// drawn with stays, and a spacing that changes nothing gets [base]
+  /// itself.
+  static DockLook fitted(
+    DockLook base, {
+    required double padding,
+    required double gap,
+    required double endInset,
+  }) {
+    if (padding == base.padding &&
+        gap == base.gap &&
+        endInset == base.endInset) {
+      return base;
+    }
+    return DockLook(
+      blur: base.blur,
+      opacity: base.opacity,
+      tint: base.tint,
+      tintShade: base.tintShade,
+      radius: base.radius,
+      border: base.border,
+      borderWidth: base.borderWidth,
+      brightBorder: base.brightBorder,
+      shadow: base.shadow,
+      padding: padding.clamp(minPadding, maxPadding).toDouble(),
+      gap: gap.clamp(minGap, maxGap).toDouble(),
+      edgeMargin: base.edgeMargin,
+      shape: base.shape,
+      markerColor: base.markerColor,
+      magnifyRange: base.magnifyRange,
+      accentBorder: base.accentBorder,
+      endInset: endInset,
     );
   }
 
@@ -148,7 +186,7 @@ class DockLook {
       maxBorderWidth = 3,
       borderWidthStep = 0.5;
   static const double minShadow = 0, maxShadow = 1, shadowStep = 0.05;
-  static const double minPadding = 2, maxPadding = 14, paddingStep = 1;
+  static const double minPadding = 2, maxPadding = 20, paddingStep = 1;
   static const double minGap = 0, maxGap = 20, gapStep = 1;
   static const double minEdgeMargin = 0, maxEdgeMargin = 40, edgeMarginStep = 1;
   static const double minMagnifyRange = 80,
@@ -215,9 +253,12 @@ class DockLook {
   /// How far along the row the pointer's magnification reaches.
   final double magnifyRange;
 
-  /// Space at the two ends of the row. Looser than [padding] by the amount
-  /// the dock has always kept between the two.
-  double get endPadding => padding + 5;
+  /// How much looser the two ends of the row are than [padding]. Part of
+  /// the preset; the settings do not offer it on its own.
+  final double endInset;
+
+  /// Space at the two ends of the row.
+  double get endPadding => padding + endInset;
 
   /// A bar lies on the edge it belongs to.
   double get effectiveEdgeMargin => shape == DockShape.bar ? 0 : edgeMargin;
@@ -264,6 +305,7 @@ class DockLook {
       ),
       brightBorder: base.brightBorder,
       accentBorder: base.accentBorder,
+      endInset: base.endInset,
       shadow: number(shadowKey, base.shadow, minShadow, maxShadow),
       padding: number(paddingKey, base.padding, minPadding, maxPadding),
       gap: number(gapKey, base.gap, minGap, maxGap),
