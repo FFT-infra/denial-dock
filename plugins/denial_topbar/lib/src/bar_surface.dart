@@ -411,7 +411,10 @@ class _TopBarSurfaceState extends ConsumerState<TopBarSurface>
         valueListenable: _islandReserved,
         builder: (context, width, _) => AnimatedContainer(
           duration: KitMotion.duration(context, KitMotion.rebound),
-          curve: KitMotion.spring,
+          // Only a liquid look runs past its mark.
+          curve: KitStyle.of(context).liquid
+              ? KitMotion.spring
+              : KitMotion.outCubic,
           width: width,
         ),
       ),
