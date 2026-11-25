@@ -489,18 +489,10 @@ abstract final class KitBlurMath {
     }
     final sigma = target * scale;
     if (sigma <= 0) return KitBlurPlan.none;
-    if (!glass) {
-      return KitBlurPlan(direct: true, strength: 1, sigma: sigma);
-    }
-    final strength = base > 0 ? strengthFor(sigma, base) : 1.0;
-    return strength <= 0
-        ? KitBlurPlan.none
-        : KitBlurPlan(
-            direct: false,
-            strength: strength,
-            sigma: sigmaAt(strength, base),
-            capped: sigma > base,
-          );
+    // A measured material is drawn at its own sigma in either mode: a
+    // share of the glass's frost would cap it and leave its saturation out,
+    // and the look would no longer be the one that was measured.
+    return KitBlurPlan(direct: true, strength: 1, sigma: sigma);
   }
 }
 

@@ -49,19 +49,14 @@ void main() {
     'a caller scales the sigma',
   );
 
-  // Glass mode: a share of the glass's own sigma, capped at it.
-  final lens = KitBlurMath.plan(menu, enabled: true, glass: true, base: 10);
-  _expect(
-    !lens.direct && lens.strength == 1 && lens.sigma == 10 && lens.capped,
-    'glass caps 13 at 10',
-  );
-  final wide = KitBlurMath.plan(menu, enabled: true, glass: true, base: 26);
-  _expect(
-    !wide.direct && wide.strength == 0.5 && wide.sigma == 13 && !wide.capped,
-    'glass reaches 13 of 26',
-  );
-  final clear = KitBlurMath.plan(menu, enabled: true, glass: true, base: 0);
-  _expect(clear.blurs && clear.strength == 1, 'a glass with no frost stays');
+  // Glass mode: a measured material keeps its own sigma, uncapped.
+  for (final base in const <double>[0, 10, 26]) {
+    final lens = KitBlurMath.plan(menu, enabled: true, glass: true, base: base);
+    _expect(
+      lens.direct && lens.sigma == menu.sigma && !lens.capped,
+      'glass at $base leaves a measured sigma alone',
+    );
+  }
 
   // Transparency off: nothing blurs, whatever the material asks.
   for (final material in const <KitMaterial>[menu, shell]) {
