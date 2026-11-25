@@ -11,6 +11,7 @@ import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import 'glass_card.dart';
+import 'kit_material.dart';
 import 'kit_motion.dart';
 import 'kit_panel_place.dart';
 import 'kit_springs.dart';
@@ -490,12 +491,18 @@ class KitCard extends StatelessWidget {
     required this.child,
     this.fill,
     this.elevation = 1,
+    this.minOpacity = 0,
+    this.tier = KitTier.popover,
     super.key,
   });
 
   final double radius;
   final Color? fill;
   final double elevation;
+
+  /// See [GlassCard.minOpacity] and [GlassCard.tier].
+  final double minOpacity;
+  final KitTier tier;
   final Widget child;
 
   @override
@@ -508,6 +515,8 @@ class KitCard extends StatelessWidget {
       radius: radius,
       fill: fill,
       elevation: elevation,
+      minOpacity: minOpacity,
+      tier: tier,
       grouped: together,
       fade: together
           ? null
@@ -605,7 +614,9 @@ class KitWindowState extends State<KitWindow> {
                 child: KitCard(
                   radius: 22,
                   elevation: 1.25,
-                  fill: _windowFill(context),
+                  // Windows hold text over whatever is behind them, so
+                  // they stay denser than a popup.
+                  minOpacity: 0.9,
                   child: IgnorePointer(ignoring: _super, child: widget.child),
                 ),
               ),
@@ -615,14 +626,6 @@ class KitWindowState extends State<KitWindow> {
       ),
     );
   }
-}
-
-/// Windows hold text over whatever is behind them, so they stay denser than
-/// popovers however clear the theme's panels are.
-Color _windowFill(BuildContext context) {
-  final theme = context.shellTheme;
-  final base = theme.panelColor(theme.colors.panelBackground);
-  return base.withValues(alpha: math.max(base.a, 0.9));
 }
 
 /// A strip of a [KitWindow] that drags the window.
@@ -737,6 +740,7 @@ class KitPanelFrame extends StatelessWidget {
                     radius: radius,
                     fill: cardColor,
                     elevation: menu ? 0.7 : 1,
+                    tier: menu ? KitTier.menu : KitTier.popover,
                     child: child,
                   ),
                 ),

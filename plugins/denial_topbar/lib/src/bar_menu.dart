@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'dart:math' as math;
 
+import 'package:denial_shell_kit/kit_material.dart';
 import 'package:denial_shell_kit/kit_motion.dart';
 import 'package:denial_shell_kit/kit_style.dart';
 import 'package:denial_flutter_sdk/theme.dart';
@@ -455,6 +456,7 @@ class _MenuCard extends StatelessWidget {
       behavior: HitTestBehavior.opaque,
       child: KitCard(
         radius: _M.radius,
+        tier: KitTier.menu,
         elevation: 0.7,
         fill: theme.panelColor(theme.colors.surfaceContainer),
         child: MouseRegion(

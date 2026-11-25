@@ -1,6 +1,7 @@
 import 'package:denial_flutter_sdk/theme.dart';
 import 'package:flutter/widgets.dart';
 
+import 'kit_material.dart';
 import 'kit_motion_pace.dart';
 import 'kit_store.dart';
 import 'shell_preset.dart';
@@ -39,6 +40,7 @@ class KitStyle {
     this.borderFromAccent = false,
     this.opaque = false,
     this.shadow = 1,
+    this.materials = KitMaterials.shell,
   });
 
   /// Denial's own material: the wallpaper's accent, the shell's font and
@@ -73,6 +75,7 @@ class KitStyle {
     panelBead: Size(0.96, 0.96),
     pressTuning: KitSpringTuning(620, 0.7),
     accentMenuRows: true,
+    materials: KitMaterials.mac,
   );
 
   /// Solid rounded panels: the shell's accent and font, tighter corners, no
@@ -149,6 +152,9 @@ class KitStyle {
 
   /// How much of the usual shadow a panel casts, 0 to 1.
   final double shadow;
+
+  /// What the look's surfaces are made of.
+  final KitMaterials materials;
 
   /// The accent when the look brings its own; otherwise the shell's.
   final Color? fixedAccent;
@@ -284,6 +290,23 @@ class KitSpeedNotifier extends ValueNotifier<double> {
     super.value = speed;
     _rebuildEverything();
     kitStore.put('speed', speed);
+  }
+}
+
+/// Whether a material may saturate what is behind it. The colour filter
+/// rides in the same backdrop pass as the blur; turning it off leaves the
+/// blur alone, for a device that cannot afford the extra work.
+final KitSaturateNotifier kitSaturate = KitSaturateNotifier._();
+
+class KitSaturateNotifier extends ValueNotifier<bool> {
+  KitSaturateNotifier._() : super(kitStore.read()['saturate'] != false);
+
+  @override
+  set value(bool next) {
+    if (next == super.value) return;
+    super.value = next;
+    _rebuildEverything();
+    kitStore.put('saturate', next);
   }
 }
 

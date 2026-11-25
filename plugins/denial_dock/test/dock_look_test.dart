@@ -8,15 +8,44 @@ void main() {
   _expect(identical(DockLook.preset(null), DockLook.denial), 'no look');
   _expect(identical(DockLook.preset('other'), DockLook.denial), 'unknown look');
 
-  // The macOS preset is the lighter material: less blur, a fill under half
-  // opaque, a bright rim, a shadow, closer to the edge.
+  // The macOS preset is the measured one: a blur counted in pixels, corners
+  // of 22, no shadow, 5 from the edge.
   _expect(DockLook.mac.blur < DockLook.denial.blur, 'mac blurs less');
+  _expect(
+    (DockLook.mac.blurSigma! - 1.6).abs() < 1e-9,
+    'mac blurs 1.6 logical pixels',
+  );
+  _expect(
+    DockLook.mac.radius == 22 &&
+        DockLook.mac.shadow == 0 &&
+        DockLook.mac.edgeMargin == 5,
+    'mac geometry',
+  );
   _expect(
     DockLook.mac.opacity != null && DockLook.mac.opacity! < 0.5,
     'mac names a light fill',
   );
   _expect(DockLook.denial.opacity == null, 'denial follows the system');
-  _expect(DockLook.mac.brightBorder && DockLook.mac.shadow > 0, 'rim, shadow');
+  _expect(DockLook.denial.blurSigma == null, 'denial follows the system blur');
+
+  // A blur kept from when the macOS preset counted it as a share of the
+  // system's blur: it reads in pixels now, as what that share drew on the
+  // shell's starting level (0.45 of 6 was the old preset), and the slider's
+  // range holds it. Under Denial the same number is still a share.
+  final kept45 = DockLook.resolve(DockLook.mac, const {'blur': 0.45});
+  _expect((kept45.blurSigma! - 2.7).abs() < 1e-9, 'an old 0.45 is 2.7 px');
+  final full = DockLook.resolve(DockLook.mac, const {'blur': 1});
+  _expect(full.blurSigma == DockLook.shellBlurSigma, 'the slider ends at 6');
+  final off = DockLook.resolve(DockLook.mac, const {'blur': 0});
+  _expect(off.blurSigma == 0, 'and starts at none');
+  _expect(
+    DockLook.resolve(DockLook.denial, const {'blur': 0.45}).blurSigma == null,
+    'a share stays a share under denial',
+  );
+  _expect(
+    DockLook.mac.blur >= DockLook.minBlur && DockLook.mac.blur <= DockLook.maxBlur,
+    'the preset lies inside the slider',
+  );
   _expect(
     DockLook.mac.edgeMargin < DockLook.denial.edgeMargin,
     'mac sits closer to the edge',
