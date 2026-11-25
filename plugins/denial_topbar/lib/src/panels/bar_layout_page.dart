@@ -41,7 +41,163 @@ class _LayoutPageState extends ConsumerState<_LayoutPage> {
   /// The zone a part from the palette goes into.
   int _target = 2;
 
+  /// The parts group, whose box the drag is measured in.
+  final GlobalKey _groupKey = GlobalKey();
+  final List<GlobalKey> _rowKeys = <GlobalKey>[
+    for (var zone = 0; zone < BarZones.count; zone++) GlobalKey(),
+  ];
+  final Map<(int, int), GlobalKey> _chipKeys = <(int, int), GlobalKey>{};
+
+  /// The part being dragged, the box it had when the drag began and how far
+  /// the pointer has carried it since.
+  (int, int)? _dragged;
+  Rect _dragBox = Rect.zero;
+  Offset _dragFrom = Offset.zero;
+  Offset _dragBy = Offset.zero;
+
+  /// Where the dragged part would land: its zone and the chips before it.
+  (int, int)? _drop;
+  Rect? _caret;
+
   BarSettings get _s => widget.settings;
+
+  GlobalKey _chipKey(int zone, int at) =>
+      _chipKeys.putIfAbsent((zone, at), GlobalKey.new);
+
+  /// The box of [key]'s widget inside the parts group.
+  Rect? _boxOf(GlobalKey key) {
+    final group = _groupKey.currentContext?.findRenderObject();
+    final box = key.currentContext?.findRenderObject();
+    if (group is! RenderBox || box is! RenderBox || !box.hasSize) return null;
+    return box.localToGlobal(Offset.zero, ancestor: group) & box.size;
+  }
+
+  void _dragStart(int zone, int at, Offset global) {
+    final box = _boxOf(_chipKey(zone, at));
+    if (box == null) return;
+    setState(() {
+      _picked = (zone, at);
+      _dragged = (zone, at);
+      _dragBox = box;
+      _dragFrom = global;
+      _dragBy = Offset.zero;
+      _drop = null;
+      _caret = null;
+    });
+  }
+
+  void _dragMove(Offset global) {
+    final dragged = _dragged;
+    final group = _groupKey.currentContext?.findRenderObject();
+    if (dragged == null || group is! RenderBox) return;
+    final zones = _s.zones;
+    if (dragged.$2 >= zones.zone(dragged.$1).length) return _dragEnd(false);
+    final at = group.globalToLocal(global);
+    final rows = <Rect>[for (final key in _rowKeys) _boxOf(key) ?? Rect.zero];
+    // The island grows from the middle of the screen and sits nowhere else.
+    final island = zones.zone(dragged.$1)[dragged.$2] == BarPart.island;
+    final zone = island
+        ? 1
+        : PartDrop.zone(<(double, double)>[
+            for (final row in rows) (row.top, row.bottom),
+          ], at.dy);
+    final chips = <Rect>[
+      for (var i = 0; i < zones.zone(zone).length; i++)
+        _boxOf(_chipKey(zone, i)) ?? Rect.zero,
+    ];
+    final slot = PartDrop.slot(
+      <PartBox>[
+        for (final chip in chips)
+          (
+            left: chip.left,
+            top: chip.top,
+            right: chip.right,
+            bottom: chip.bottom,
+          ),
+      ],
+      at.dx,
+      at.dy,
+    );
+    final Rect caret;
+    if (chips.isEmpty) {
+      // Where the first chip of the row would sit.
+      caret = Rect.fromLTWH(rows[zone].left + 64, rows[zone].top + 8, 2, 26);
+    } else if (slot < chips.length) {
+      caret = Rect.fromLTWH(
+        chips[slot].left - 4,
+        chips[slot].top,
+        2,
+        chips[slot].height,
+      );
+    } else {
+      caret = Rect.fromLTWH(
+        chips.last.right + 2,
+        chips.last.top,
+        2,
+        chips.last.height,
+      );
+    }
+    setState(() {
+      _dragBy = global - _dragFrom;
+      _drop = (zone, slot);
+      _caret = caret;
+    });
+  }
+
+  void _dragEnd(bool land) {
+    final dragged = _dragged;
+    final drop = _drop;
+    if (dragged == null) return;
+    final zones = _s.zones;
+    var picked = _picked;
+    var next = zones;
+    if (land && drop != null) {
+      final (moved, zone, at) = PartDrop.moved(
+        zones,
+        dragged.$1,
+        dragged.$2,
+        drop.$1,
+        drop.$2,
+      );
+      next = moved;
+      picked = (zone, at);
+    }
+    setState(() {
+      _picked = picked;
+      _dragged = null;
+      _drop = null;
+      _caret = null;
+    });
+    if (next != zones) _setZones(next);
+  }
+
+  /// A chip that can be carried to another place: at once with a mouse, and
+  /// after a held press by touch, where a plain drag scrolls the page.
+  Widget _carried(int zone, int at, Widget chip) => GestureDetector(
+    supportedDevices: const <PointerDeviceKind>{PointerDeviceKind.mouse},
+    onPanStart: (d) => _dragStart(zone, at, d.globalPosition),
+    onPanUpdate: (d) => _dragMove(d.globalPosition),
+    onPanEnd: (_) => _dragEnd(true),
+    onPanCancel: () => _dragEnd(false),
+    child: GestureDetector(
+      supportedDevices: const <PointerDeviceKind>{
+        PointerDeviceKind.touch,
+        PointerDeviceKind.stylus,
+      },
+      onLongPressStart: (d) => _dragStart(zone, at, d.globalPosition),
+      onLongPressMoveUpdate: (d) => _dragMove(d.globalPosition),
+      onLongPressEnd: (_) => _dragEnd(true),
+      onLongPressCancel: () => _dragEnd(false),
+      child: KeyedSubtree(
+        key: _chipKey(zone, at),
+        child: AnimatedOpacity(
+          duration: KitMotion.duration(context, KitMotion.fill),
+          opacity: _dragged == (zone, at) ? 0.35 : 1,
+          child: chip,
+        ),
+      ),
+    ),
+  );
 
   void _setZones(BarZones zones, {bool island = false}) => widget.save(
     (s) => s.copyWith(zones: zones, islandEnabled: island ? true : null),
@@ -105,6 +261,11 @@ class _LayoutPageState extends ConsumerState<_LayoutPage> {
       picked = null;
     }
     final pickedId = picked == null ? null : zones.zone(picked.$1)[picked.$2];
+    var dragged = _dragged;
+    if (dragged != null && dragged.$2 >= zones.zone(dragged.$1).length) {
+      dragged = null;
+    }
+    final caret = dragged == null ? null : _caret;
 
     final palette = <String>[
       for (final id in BarPart.all)
@@ -190,147 +351,177 @@ class _LayoutPageState extends ConsumerState<_LayoutPage> {
             ),
           ],
         ),
-        _Group(
-          title: context.tr('Parts'),
-          note: context.tr(
-            'Pick a part, then move it along the bar with the arrows; at the end of a zone it goes on into the next. With pointed ends, a separator starts a new segment.',
-          ),
+        Stack(
+          key: _groupKey,
+          clipBehavior: Clip.none,
           children: <Widget>[
-            for (var zone = 0; zone < BarZones.count; zone++)
-              Padding(
-                padding: const EdgeInsets.fromLTRB(12, 8, 10, 8),
-                child: Row(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: <Widget>[
-                    SizedBox(
-                      width: 52,
-                      child: Padding(
-                        padding: const EdgeInsets.only(top: 6),
-                        child: Text(
-                          context.tr(_zoneNames[zone]),
-                          style: BarType.caption.copyWith(
-                            fontSize: 12,
-                            color: theme.colors.textSecondary,
+            _Group(
+              title: context.tr('Parts'),
+              note: context.tr(
+                'Drag a part to where it should sit; by touch, press and hold it first. Or pick a part, then move it along the bar with the arrows; at the end of a zone it goes on into the next. With pointed ends, a separator starts a new segment.',
+              ),
+              children: <Widget>[
+                for (var zone = 0; zone < BarZones.count; zone++)
+                  Padding(
+                    key: _rowKeys[zone],
+                    padding: const EdgeInsets.fromLTRB(12, 8, 10, 8),
+                    child: Row(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: <Widget>[
+                        SizedBox(
+                          width: 52,
+                          child: Padding(
+                            padding: const EdgeInsets.only(top: 6),
+                            child: Text(
+                              context.tr(_zoneNames[zone]),
+                              style: BarType.caption.copyWith(
+                                fontSize: 12,
+                                color: theme.colors.textSecondary,
+                              ),
+                            ),
                           ),
                         ),
-                      ),
-                    ),
-                    Expanded(
-                      child: zones.zone(zone).isEmpty
-                          ? Padding(
-                              padding: const EdgeInsets.only(top: 6),
-                              child: Text(
-                                context.tr('Empty'),
-                                style: BarType.caption.copyWith(
-                                  fontSize: 12,
-                                  color: theme.colors.textTertiary,
-                                ),
-                              ),
-                            )
-                          : Wrap(
-                              spacing: 6,
-                              runSpacing: 6,
-                              children: <Widget>[
-                                for (
-                                  var at = 0;
-                                  at < zones.zone(zone).length;
-                                  at++
-                                )
-                                  _PartChip(
-                                    id: zones.zone(zone)[at],
-                                    selected: picked == (zone, at),
-                                    dimmed:
-                                        zones.zone(zone)[at] ==
-                                            BarPart.island &&
-                                        !s.islandEnabled,
-                                    onTap: () => setState(
-                                      () => _picked = picked == (zone, at)
-                                          ? null
-                                          : (zone, at),
+                        Expanded(
+                          child: zones.zone(zone).isEmpty
+                              ? Padding(
+                                  padding: const EdgeInsets.only(top: 6),
+                                  child: Text(
+                                    context.tr('Empty'),
+                                    style: BarType.caption.copyWith(
+                                      fontSize: 12,
+                                      color: theme.colors.textTertiary,
                                     ),
                                   ),
-                              ],
-                            ),
+                                )
+                              : Wrap(
+                                  spacing: 6,
+                                  runSpacing: 6,
+                                  children: <Widget>[
+                                    for (
+                                      var at = 0;
+                                      at < zones.zone(zone).length;
+                                      at++
+                                    )
+                                      _carried(
+                                        zone,
+                                        at,
+                                        _PartChip(
+                                          id: zones.zone(zone)[at],
+                                          selected: picked == (zone, at),
+                                          dimmed:
+                                              zones.zone(zone)[at] ==
+                                                  BarPart.island &&
+                                              !s.islandEnabled,
+                                          onTap: () => setState(
+                                            () => _picked = picked == (zone, at)
+                                                ? null
+                                                : (zone, at),
+                                          ),
+                                        ),
+                                      ),
+                                  ],
+                                ),
+                        ),
+                      ],
                     ),
-                  ],
-                ),
-              ),
-            _Row(
-              label: pickedId == null
-                  ? context.tr('No part picked')
-                  : context.tr(_partInfo(pickedId).$1),
-              enabled: pickedId != null,
-              trailing: Row(
-                mainAxisSize: MainAxisSize.min,
-                children: <Widget>[
-                  _IconButton(
-                    icon: BarIcons.chevronLeft,
-                    onTap: () => _move(-1),
                   ),
-                  const SizedBox(width: 6),
-                  _IconButton(
-                    icon: BarIcons.chevronRight,
-                    onTap: () => _move(1),
-                  ),
-                  const SizedBox(width: 6),
-                  SizedBox(
-                    width: 72,
-                    child: _TextButton(
-                      label: context.tr('Remove'),
-                      onTap: _remove,
-                    ),
-                  ),
-                ],
-              ),
-            ),
-            Padding(
-              padding: const EdgeInsets.fromLTRB(12, 8, 10, 10),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.stretch,
-                children: <Widget>[
-                  Row(
+                _Row(
+                  label: pickedId == null
+                      ? context.tr('No part picked')
+                      : context.tr(_partInfo(pickedId).$1),
+                  enabled: pickedId != null,
+                  trailing: Row(
+                    mainAxisSize: MainAxisSize.min,
                     children: <Widget>[
-                      Expanded(
-                        child: Text(
-                          context.tr('Add to'),
-                          style: BarType.menuRow.copyWith(
-                            color: theme.colors.textPrimary,
-                          ),
+                      _IconButton(
+                        icon: BarIcons.chevronLeft,
+                        onTap: () => _move(-1),
+                      ),
+                      const SizedBox(width: 6),
+                      _IconButton(
+                        icon: BarIcons.chevronRight,
+                        onTap: () => _move(1),
+                      ),
+                      const SizedBox(width: 6),
+                      SizedBox(
+                        width: 72,
+                        child: _TextButton(
+                          label: context.tr('Remove'),
+                          onTap: _remove,
                         ),
                       ),
-                      _Segments<int>(
-                        value: _target,
-                        options: <(int, String)>[
-                          for (var zone = 0; zone < BarZones.count; zone++)
-                            (zone, context.tr(_zoneNames[zone])),
+                    ],
+                  ),
+                ),
+                Padding(
+                  padding: const EdgeInsets.fromLTRB(12, 8, 10, 10),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.stretch,
+                    children: <Widget>[
+                      Row(
+                        children: <Widget>[
+                          Expanded(
+                            child: Text(
+                              context.tr('Add to'),
+                              style: BarType.menuRow.copyWith(
+                                color: theme.colors.textPrimary,
+                              ),
+                            ),
+                          ),
+                          _Segments<int>(
+                            value: _target,
+                            options: <(int, String)>[
+                              for (var zone = 0; zone < BarZones.count; zone++)
+                                (zone, context.tr(_zoneNames[zone])),
+                            ],
+                            onChanged: (zone) => setState(() => _target = zone),
+                          ),
                         ],
-                        onChanged: (zone) => setState(() => _target = zone),
+                      ),
+                      const SizedBox(height: 8),
+                      Wrap(
+                        spacing: 6,
+                        runSpacing: 6,
+                        children: <Widget>[
+                          for (final id in palette)
+                            _PartChip(id: id, add: true, onTap: () => _add(id)),
+                        ],
                       ),
                     ],
                   ),
-                  const SizedBox(height: 8),
-                  Wrap(
-                    spacing: 6,
-                    runSpacing: 6,
-                    children: <Widget>[
-                      for (final id in palette)
-                        _PartChip(id: id, add: true, onTap: () => _add(id)),
-                    ],
+                ),
+                if (s.explicitZones != null)
+                  _Row(
+                    label: context.tr('Follow the switches on the other pages'),
+                    trailing: SizedBox(
+                      width: 72,
+                      child: _TextButton(
+                        label: context.tr('Reset'),
+                        onTap: () {
+                          setState(() => _picked = null);
+                          save((s) => s.copyWith(zones: null));
+                        },
+                      ),
+                    ),
                   ),
-                ],
-              ),
+              ],
             ),
-            if (s.explicitZones != null)
-              _Row(
-                label: context.tr('Follow the switches on the other pages'),
-                trailing: SizedBox(
-                  width: 72,
-                  child: _TextButton(
-                    label: context.tr('Reset'),
-                    onTap: () {
-                      setState(() => _picked = null);
-                      save((s) => s.copyWith(zones: null));
-                    },
+            if (caret != null)
+              Positioned.fromRect(
+                rect: caret,
+                child: IgnorePointer(
+                  child: ColoredBox(color: KitStyle.of(context).accent(theme)),
+                ),
+              ),
+            if (dragged != null)
+              Positioned(
+                left: _dragBox.left + _dragBy.dx,
+                top: _dragBox.top + _dragBy.dy,
+                child: IgnorePointer(
+                  child: _PartChip(
+                    id: zones.zone(dragged.$1)[dragged.$2],
+                    selected: true,
+                    onTap: () {},
                   ),
                 ),
               ),
@@ -739,6 +930,7 @@ class _PresetCard extends StatelessWidget {
                 look: look,
                 ink: ink,
                 accent: look.accent(theme),
+                corner: style.corner(5),
               ),
             ),
           ),
@@ -776,12 +968,16 @@ class _BarSketch extends CustomPainter {
     required this.look,
     required this.ink,
     required this.accent,
+    required this.corner,
   });
 
   final BarSettings settings;
   final KitStyle look;
   final Color ink;
   final Color accent;
+
+  /// The corner of the tile the sketch is drawn on, in the look in force.
+  final double corner;
 
   static const double _bar = 10;
   static const double _gap = 2;
@@ -806,11 +1002,11 @@ class _BarSketch extends CustomPainter {
   void paint(Canvas canvas, Size size) {
     final s = settings;
     canvas.drawRRect(
-      RRect.fromRectAndRadius(Offset.zero & size, const Radius.circular(5)),
+      RRect.fromRectAndRadius(Offset.zero & size, Radius.circular(corner)),
       Paint()..color = ink.withValues(alpha: 0.07),
     );
     canvas.clipRRect(
-      RRect.fromRectAndRadius(Offset.zero & size, const Radius.circular(5)),
+      RRect.fromRectAndRadius(Offset.zero & size, Radius.circular(corner)),
     );
     final strip = s.shape == BarShape.strip;
     final top = strip ? 0.0 : 3.0;
@@ -968,5 +1164,6 @@ class _BarSketch extends CustomPainter {
           settings.layoutJson().toString() ||
       old.look != look ||
       old.ink != ink ||
-      old.accent != accent;
+      old.accent != accent ||
+      old.corner != corner;
 }

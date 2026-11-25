@@ -270,7 +270,6 @@ const Map<String, String> zh = <String, String>{
   'No part picked': '未选中部件',
   'Padding inside the background': '底板内边距',
   'Parts': '部件',
-  'Pick a part, then move it along the bar with the arrows; at the end of a zone it goes on into the next. With pointed ends, a separator starts a new segment.': '选中一个部件，用箭头沿着栏移动它，移到分区尽头会进入下一个分区。端头为尖角时，分隔线之后另起一段。',
   'Pointed': '尖角',
   'Presets': '预设',
   'Remove': '移除',
@@ -293,4 +292,9 @@ const Map<String, String> zh = <String, String>{
   'Centre': '中间',
   'End': '末尾',
   '{} More Notifications': '还有 {} 个通知',
+  'Drag a part to where it should sit; by touch, press and hold it first. Or pick a part, then move it along the bar with the arrows; at the end of a zone it goes on into the next. With pointed ends, a separator starts a new segment.': '把部件拖到想放的位置，触屏上先长按再拖。也可以选中一个部件，用箭头沿着栏移动它，移到分区尽头会进入下一个分区。端头为尖角时，分隔线之后另起一段。',
+  'Fade after the pointer rests for': '指针停留多久后淡出',
+  'Press and hold to open after': '长按多久后展开',
+  'Pressing and holding opens it too; click outside or press Esc to close it.': '长按也可展开；点外面或按 Esc 收回',
+  '{} ms': '{} 毫秒',
 };

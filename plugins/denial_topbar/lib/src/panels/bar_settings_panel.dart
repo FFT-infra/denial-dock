@@ -1,4 +1,5 @@
 import 'dart:math' as math;
+import 'dart:ui' show PointerDeviceKind;
 
 import 'package:denial_flutter_sdk/settings.dart';
 import 'package:denial_flutter_sdk/services.dart';
@@ -19,6 +20,7 @@ import '../bar_type.dart';
 import '../tray_names.dart';
 import '../l10n.dart';
 import 'mac_kit.dart';
+import 'part_drop.dart';
 
 part 'bar_layout_page.dart';
 
@@ -128,9 +130,16 @@ class _BarSettingsPanelState extends ConsumerState<BarSettingsPanel> {
                   padding: const EdgeInsets.all(12),
                   child: _TextButton(
                     label: context.tr('Restore Defaults'),
-                    onTap: () => save(
-                      (s) => BarSettings(recentsClearedAt: s.recentsClearedAt),
-                    ),
+                    onTap: () {
+                      // The look and the preset live outside the bar's own
+                      // settings, and go back with them.
+                      kitStyle.choose(KitStyle.denial);
+                      kitPreset.value = ShellPreset.denial.id;
+                      save(
+                        (s) =>
+                            BarSettings(recentsClearedAt: s.recentsClearedAt),
+                      );
+                    },
                   ),
                 ),
               ],
@@ -163,7 +172,7 @@ class _BarSettingsPanelState extends ConsumerState<BarSettingsPanel> {
                             width: 26,
                             height: 26,
                             decoration: BoxDecoration(
-                              shape: BoxShape.circle,
+                              borderRadius: KitStyle.of(context).disc(26),
                               color: theme.colors.textPrimary.withValues(
                                 alpha: 0.10,
                               ),
@@ -269,6 +278,18 @@ class _BarSettingsPanelState extends ConsumerState<BarSettingsPanel> {
     BarSettings s,
     _Save save,
   ) => <Widget>[
+    Padding(
+      padding: const EdgeInsets.fromLTRB(4, 0, 4, 10),
+      child: Text(
+        context.tr(
+          'Pressing and holding opens it too; click outside or press Esc to close it.',
+        ),
+        style: BarType.caption.copyWith(
+          height: 1.35,
+          color: context.shellTheme.colors.textSecondary,
+        ),
+      ),
+    ),
     _Group(
       note: context.tr(
         'The island sits in the middle of a bar at the top of the screen. Click or tap it to open the activity; drag down to pull it open.',
@@ -299,6 +320,28 @@ class _BarSettingsPanelState extends ConsumerState<BarSettingsPanel> {
               islandHoverFade: v,
               islandHoverPeek: v ? false : s.islandHoverPeek,
             ),
+          ),
+        ),
+        _Pair(
+          _timing(
+            context,
+            label: context.tr('Fade after the pointer rests for'),
+            value: s.islandFadeDelayMs,
+            min: BarMetric.islandFadeDelayMsMin,
+            max: BarMetric.islandFadeDelayMsMax,
+            step: 50,
+            enabled: s.islandEnabled && s.islandHoverFade,
+            onChanged: (v) => save((s) => s.copyWith(islandFadeDelayMs: v)),
+          ),
+          _timing(
+            context,
+            label: context.tr('Press and hold to open after'),
+            value: s.islandLongPressMs,
+            min: BarMetric.islandLongPressMsMin,
+            max: BarMetric.islandLongPressMsMax,
+            step: 10,
+            enabled: s.islandEnabled,
+            onChanged: (v) => save((s) => s.copyWith(islandLongPressMs: v)),
           ),
         ),
       ],
@@ -763,7 +806,7 @@ class _SidebarItem extends StatelessWidget {
                 : theme.colors.textPrimary.withValues(
                     alpha: hovered ? 0.07 : 0,
                   ),
-            borderRadius: BorderRadius.circular(8),
+            borderRadius: BorderRadius.circular(KitStyle.of(context).corner(8)),
           ),
           child: Row(
             children: <Widget>[
@@ -772,7 +815,9 @@ class _SidebarItem extends StatelessWidget {
                 height: 22,
                 decoration: BoxDecoration(
                   color: colour,
-                  borderRadius: BorderRadius.circular(6),
+                  borderRadius: BorderRadius.circular(
+                    KitStyle.of(context).corner(6),
+                  ),
                   border: Border.all(
                     color: const Color(0x33ffffff),
                     width: 0.5,
@@ -800,6 +845,33 @@ class _SidebarItem extends StatelessWidget {
     );
   }
 }
+
+/// A length of time in milliseconds, set with a slider.
+Widget _timing(
+  BuildContext context, {
+  required String label,
+  required int value,
+  required int min,
+  required int max,
+  required int step,
+  required bool enabled,
+  required ValueChanged<int> onChanged,
+}) => _Cell(
+  label: label,
+  detail: context.tr('{} ms', value),
+  enabled: enabled,
+  child: MacSlider(
+    inList: true,
+    value: ((value - min) / (max - min)).clamp(0.0, 1.0),
+    onChanged: (v) {
+      final next = (((min + v * (max - min)) / step).round() * step).clamp(
+        min,
+        max,
+      );
+      if (next != value) onChanged(next);
+    },
+  ),
+);
 
 class _Group extends StatelessWidget {
   const _Group({required this.children, this.title, this.note});
@@ -829,7 +901,9 @@ class _Group extends StatelessWidget {
           Container(
             decoration: BoxDecoration(
               color: theme.colors.textPrimary.withValues(alpha: 0.05),
-              borderRadius: BorderRadius.circular(11),
+              borderRadius: BorderRadius.circular(
+                KitStyle.of(context).corner(11),
+              ),
               border: Border.all(
                 color: theme.colors.textPrimary.withValues(alpha: 0.07),
               ),
@@ -895,19 +969,32 @@ class _Row extends StatelessWidget {
           constraints: const BoxConstraints(minHeight: 42),
           child: Padding(
             padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
-            child: Row(
-              children: <Widget>[
-                Expanded(
-                  child: Text(
-                    label,
-                    style: BarType.menuRow.copyWith(
-                      color: theme.colors.textPrimary,
+            child: LayoutBuilder(
+              builder: (context, constraints) => Row(
+                children: <Widget>[
+                  Expanded(
+                    child: Text(
+                      label,
+                      style: BarType.menuRow.copyWith(
+                        color: theme.colors.textPrimary,
+                      ),
                     ),
                   ),
-                ),
-                const SizedBox(width: 12),
-                trailing,
-              ],
+                  const SizedBox(width: 12),
+                  // A wider face makes a wider control: it shrinks before it
+                  // runs out of the row.
+                  ConstrainedBox(
+                    constraints: BoxConstraints(
+                      maxWidth: math.max(0, constraints.maxWidth - 12 - 96),
+                    ),
+                    child: FittedBox(
+                      fit: BoxFit.scaleDown,
+                      alignment: Alignment.centerRight,
+                      child: trailing,
+                    ),
+                  ),
+                ],
+              ),
             ),
           ),
         ),
@@ -963,7 +1050,7 @@ class _Segments<T> extends StatelessWidget {
       padding: const EdgeInsets.all(2),
       decoration: BoxDecoration(
         color: ink.withValues(alpha: 0.08),
-        borderRadius: BorderRadius.circular(8),
+        borderRadius: BorderRadius.circular(KitStyle.of(context).corner(8)),
       ),
       child: Row(
         mainAxisSize: MainAxisSize.min,
@@ -983,7 +1070,9 @@ class _Segments<T> extends StatelessWidget {
                   color: option == value
                       ? ink.withValues(alpha: 0.20)
                       : ink.withValues(alpha: 0),
-                  borderRadius: BorderRadius.circular(6),
+                  borderRadius: BorderRadius.circular(
+                    KitStyle.of(context).corner(6),
+                  ),
                 ),
                 child: Text(
                   label,
@@ -1053,7 +1142,7 @@ class _Stepper extends StatelessWidget {
           padding: const EdgeInsets.all(2),
           decoration: BoxDecoration(
             color: ink.withValues(alpha: 0.08),
-            borderRadius: BorderRadius.circular(8),
+            borderRadius: BorderRadius.circular(KitStyle.of(context).corner(8)),
           ),
           child: Row(
             mainAxisSize: MainAxisSize.min,
@@ -1090,13 +1179,18 @@ class _TextButton extends StatelessWidget {
         alignment: Alignment.center,
         decoration: BoxDecoration(
           color: theme.colors.textPrimary.withValues(alpha: 0.08),
-          borderRadius: BorderRadius.circular(8),
+          borderRadius: BorderRadius.circular(KitStyle.of(context).corner(8)),
         ),
-        child: Text(
-          label,
-          style: BarType.caption.copyWith(
-            fontSize: 12,
-            color: theme.colors.textPrimary,
+        // A wider face still fits the button.
+        child: FittedBox(
+          fit: BoxFit.scaleDown,
+          child: Text(
+            label,
+            maxLines: 1,
+            style: BarType.caption.copyWith(
+              fontSize: 12,
+              color: theme.colors.textPrimary,
+            ),
           ),
         ),
       ),
@@ -1183,11 +1277,11 @@ class _OrderListState extends State<_OrderList> {
                     theme.colors.surfaceContainer,
                   )
                 : ink.withValues(alpha: 0),
-            borderRadius: BorderRadius.circular(9),
+            borderRadius: BorderRadius.circular(KitStyle.of(context).corner(9)),
             boxShadow: dragging
-                ? const <BoxShadow>[
+                ? KitStyle.of(context).cast(const <BoxShadow>[
                     BoxShadow(color: Color(0x44000000), blurRadius: 12),
-                  ]
+                  ])
                 : null,
           ),
           padding: const EdgeInsets.only(left: 12, right: 4),
