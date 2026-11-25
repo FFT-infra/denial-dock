@@ -5,6 +5,7 @@ import 'package:denial_dock/src/dock_layout.dart';
 import 'package:denial_dock/src/dock_look.dart';
 import 'package:denial_dock/src/dock_sections.dart';
 import 'package:denial_dock/src/dock_settings.dart';
+import 'package:denial_shell_kit/shell_preset.dart';
 
 Future<void> main() async {
   // Settings that never had zones draw what the side settings always drew.
@@ -135,6 +136,57 @@ Future<void> main() async {
     'side settings agree with it',
   );
   _expect(_sameMap(defaults.layoutJson('denial'), usual), 'defaults read so');
+
+  // Every shell preset reads back as itself right after it is applied, from
+  // any other preset, and leaves the user's own settings alone.
+  final mine = defaults.copyWith(iconSize: 56, showTrash: false);
+  for (final preset in ShellPreset.all) {
+    final one = mine.withLayout(preset.dock);
+    _expect(
+      preset.matches(
+        look: preset.look,
+        bar: preset.bar,
+        dock: one.layoutJson(preset.look),
+        barMode: preset.barMode,
+      ),
+      '${preset.id} matches once applied: ${one.layoutJson(preset.look)}',
+    );
+    _expect(one.iconSize == 56, '${preset.id} keeps the icon size');
+    for (final other in ShellPreset.all) {
+      final two = one.withLayout(other.dock);
+      _expect(
+        other.matches(
+          look: other.look,
+          bar: other.bar,
+          dock: two.layoutJson(other.look),
+          barMode: other.barMode,
+        ),
+        '${preset.id} then ${other.id}',
+      );
+    }
+  }
+  // A dock changed afterwards no longer matches.
+  final afterTaskbar = defaults.withLayout(ShellPreset.taskbar.dock);
+  _expect(
+    !ShellPreset.taskbar.matches(
+      look: 'soft',
+      bar: ShellPreset.taskbar.bar,
+      dock: afterTaskbar
+          .copyWith(visibility: DockVisibilityMode.smart)
+          .layoutJson('soft'),
+    ),
+    'a taskbar set to hide is a change',
+  );
+  // An untouched dock is the Denial preset's dock.
+  _expect(
+    ShellPreset.denial.matches(
+      look: 'denial',
+      bar: ShellPreset.denial.bar,
+      dock: defaults.layoutJson('denial'),
+      barMode: 'shown',
+    ),
+    'the default dock is the Denial preset',
+  );
 
   // With zones stored, the older side settings move their own part only.
   final moved = applied.copyWith(launcherSide: DockSide.right);

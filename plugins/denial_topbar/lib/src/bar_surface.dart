@@ -11,7 +11,9 @@ import 'package:denial_flutter_sdk/surfaces.dart';
 import 'package:denial_flutter_sdk/system_services.dart' show WifiNetwork;
 import 'package:denial_flutter_sdk/theme.dart';
 import 'package:denial_flutter_sdk/wallpaper.dart';
+import 'package:denial_shell_kit/kit_host.dart';
 import 'package:denial_shell_kit/kit_motion.dart';
+import 'package:denial_shell_kit/kit_style.dart' show kitDockEnabled;
 import 'package:denial_shell_kit/shell_preset.dart';
 import 'package:denial_shell_kit/kit_part.dart';
 import 'package:denial_shell_kit/kit_requests.dart';
@@ -28,6 +30,7 @@ import 'bar_menu.dart';
 import 'bar_panel.dart';
 import 'bar_parts.dart';
 import 'bar_preferences.dart';
+import 'bar_reserve.dart';
 import 'bar_segments.dart';
 import 'bar_settings.dart';
 import 'bar_status.dart';
@@ -98,6 +101,32 @@ class _TopBarSurfaceState extends ConsumerState<TopBarSurface>
     });
     startDebugRemote();
     debugCommand.addListener(_debug);
+    kitBarMode.addListener(_shellChanged);
+    kitHosts.addListener(_shellChanged);
+    kitDockEnabled.addListener(_shellChanged);
+    _syncReservation();
+  }
+
+  /// The bar's mode, the dock's switch or what the dock reports changed:
+  /// draw the new mode and have the shell keep the right edge free.
+  void _shellChanged() {
+    if (!mounted) return;
+    setState(() {});
+    _syncReservation();
+  }
+
+  bool _reserveQueued = false;
+
+  /// One bar speaks for the shell, the one on the main output. Queued, so
+  /// several changes at once are handed over as one.
+  void _syncReservation() {
+    if (!widget.environment.isMainOutput || _reserveQueued) return;
+    _reserveQueued = true;
+    scheduleMicrotask(() {
+      _reserveQueued = false;
+      if (!mounted) return;
+      syncBarReservation(ref, widget.environment.settings.layout);
+    });
   }
 
   StreamSubscription<KitRequest>? _requests;
@@ -166,6 +195,9 @@ class _TopBarSurfaceState extends ConsumerState<TopBarSurface>
     _requests?.cancel();
     kitOpenPanel.removeListener(_panelChanged);
     debugCommand.removeListener(_debug);
+    kitBarMode.removeListener(_shellChanged);
+    kitHosts.removeListener(_shellChanged);
+    kitDockEnabled.removeListener(_shellChanged);
     _islandReserved.dispose();
     super.dispose();
   }
@@ -248,7 +280,11 @@ class _TopBarSurfaceState extends ConsumerState<TopBarSurface>
     final now = ref.watch(_services.clock).value ?? DateTime.now();
     final strings = _services.strings(context);
     final zones = settings.zones;
-    final islandAvailable = _side == PanelEdge.top && settings.showsIsland;
+    // A bar that draws only its island has one whatever the layout says.
+    final mode = kitBarMode.value;
+    final islandAvailable =
+        _side == PanelEdge.top &&
+        (settings.showsIsland || mode == KitBarMode.islandOnly);
     final workspaceInIsland = settings.workspacesInIsland;
     final gap = settings.partGap;
 
@@ -308,6 +344,28 @@ class _TopBarSurfaceState extends ConsumerState<TopBarSurface>
             workspaceWidth: workspaceInIsland ? islandWorkspaceWidth : 0.0,
           )
         : null;
+
+    if (mode != KitBarMode.shown) {
+      // No strip, so nothing to hide, nothing under the pointer and no room
+      // kept free: the island floats where it always sat, or nothing shows.
+      _hideTimer?.cancel();
+      _hideTimer = null;
+      _hidden = false;
+      _overPlates.clear();
+      if (island == null || mode == KitBarMode.hidden) {
+        return const SizedBox.shrink();
+      }
+      return Stack(
+        children: <Widget>[
+          Positioned(
+            left: 0,
+            right: 0,
+            top: margin + (bodyHeight - islandHeight) / 2,
+            child: Align(alignment: Alignment.topCenter, child: island),
+          ),
+        ],
+      );
+    }
 
     // What each part draws in this bar. A part is given the ink of the spot
     // it lands on, and keeps its anchor wherever that is.

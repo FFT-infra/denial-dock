@@ -5,6 +5,7 @@ import 'package:denial_flutter_sdk/surfaces.dart';
 import 'package:denial_sdk/composition.dart';
 import 'package:flutter/widgets.dart';
 
+import 'src/bar_reserve.dart';
 import 'src/bar_surface.dart';
 import 'src/island/island.dart' show islandReach;
 
@@ -12,6 +13,10 @@ import 'src/island/island.dart' show islandReach;
 ///
 /// The bar is the sole work-area provider, so the built-in `denial_top_bar`
 /// must be disabled before this plugin is activated.
+///
+/// The surface stays placed while the bar draws only its island or nothing
+/// at all: it is what offers the bar's parts to other hosts and keeps the
+/// shell's reservation in step.
 @Provides(ShellSurface)
 final class TopBarPlugin implements ShellSurface {
   const TopBarPlugin();
@@ -63,13 +68,6 @@ final class TopBarWorkArea implements ShellWorkArea {
   const TopBarWorkArea();
 
   @override
-  ShellWorkAreaReservation? reserve(ShellLayoutSettings settings) {
-    final side = settings.systemBarSide ?? PanelEdge.top;
-    if (side == PanelEdge.hidden) return null;
-    return ShellWorkAreaReservation(
-      edge: side,
-      thickness: settings.systemBarThickness,
-      outputNames: settings.systemBarOutputNames,
-    );
-  }
+  ShellWorkAreaReservation? reserve(ShellLayoutSettings settings) =>
+      barReservation(settings);
 }
