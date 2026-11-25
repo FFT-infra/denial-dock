@@ -68,19 +68,11 @@ mixin _BarActions<T extends ConsumerStatefulWidget> on ConsumerState<T> {
     );
   }
 
-  void _openBarSettings({int page = 0}) {
-    showKitDialog(
-      ref: ref,
-      width: barSettingsWidth,
-      keyName: 'denial_topbar.settings',
-      builder: (context, close) => BarSettingsPanel(
-        services: _services,
-        initialPage: page,
-        onClose: close,
-        maxHeight: MediaQuery.sizeOf(context).height - 96,
-      ),
-    );
-  }
+  /// Opens the shell's settings window at one of the bar's pages.
+  void _openBarSettings({int page = 0}) => showKitSettings(
+    ref: ref,
+    page: barSettingsPageIds[page.clamp(0, barSettingsPageIds.length - 1)],
+  );
 
   void _openAbout() {
     showKitDialog(

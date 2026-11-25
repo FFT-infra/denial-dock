@@ -8,6 +8,7 @@ import 'package:denial_shell_kit/kit_motion.dart';
 import 'package:denial_shell_kit/kit_panel_place.dart' show KitEdge;
 import 'package:denial_shell_kit/kit_part.dart';
 import 'package:denial_shell_kit/kit_requests.dart';
+import 'package:denial_shell_kit/kit_settings.dart';
 import 'package:denial_shell_kit/kit_style.dart';
 import 'package:denial_flutter_sdk/applications.dart'
     show applicationRecentsProvider;
@@ -322,6 +323,7 @@ class _DockContainerState extends ConsumerState<DockContainer>
     kitOpenPanel.addListener(_onShellState);
     kitReservation.addListener(_onShellState);
     if (widget.environment.isMainOutput) kitDock.attach(_applyLayout);
+    registerDockSettingsPages();
   }
 
   void _onSpeed() {
@@ -722,25 +724,28 @@ class _DockContainerState extends ConsumerState<DockContainer>
     _evaluateHide();
   }
 
-  /// The settings sheet is a managed shell popup, not an OverlayPortal menu, so
-  /// it keeps its own hold: without it the capsule retracts behind the sheet
-  /// when a window is parked on the dock strip.
-  void _openSettings({int page = 0}) {
-    if (_settingsOpen) return;
+  /// Opens the shell's settings window: at one of the dock's pages, or at
+  /// its first page when [page] is null.
+  ///
+  /// The window is a managed shell popup, not an OverlayPortal menu, so the
+  /// dock keeps its own hold: without it the capsule retracts behind the
+  /// window when a window is parked on the dock strip.
+  void _openSettings({int? page = 0}) {
     _closeDockMenu();
+    showKitSettings(
+      ref: ref,
+      page: page == null
+          ? null
+          : dockSettingsPageInfo[page.clamp(
+              0,
+              dockSettingsPageInfo.length - 1,
+            )].id,
+    );
+    if (_settingsOpen) return;
     _settingsOpen = true;
     _evaluateHide();
-    ref
-        .read(shellPopupControllerProvider.notifier)
-        .show(
-          keyName: 'denial_dock.settings',
-          debugLabel: 'Dock settings',
-          dismissPolicy: ShellDismissPolicy.outsideTapAndEscape,
-          builder: (context, handle) =>
-              DockSettingsPanel(onClose: handle.close, initialPage: page),
-        );
-    // The handle has no completion callback; poll the popup list so the hold is
-    // released once the sheet has finished its closing transition.
+    // The popup has no completion callback; poll the popup list so the hold
+    // is released once the window has finished its closing transition.
     Timer.periodic(const Duration(milliseconds: 120), (timer) {
       if (!mounted) {
         timer.cancel();
@@ -748,7 +753,7 @@ class _DockContainerState extends ConsumerState<DockContainer>
       }
       final open = ref
           .read(shellPopupControllerProvider)
-          .any((popup) => popup.keyName == 'denial_dock.settings');
+          .any((popup) => popup.keyName == kitSettingsKey);
       if (open) return;
       timer.cancel();
       if (!mounted) return;
@@ -1804,6 +1809,11 @@ class _DockContainerState extends ConsumerState<DockContainer>
                                 _closeDockMenu();
                                 widget.services.openPowerSettings();
                               },
+                            ),
+                            DockMenuRow(
+                              icon: Icons.dashboard_customize_outlined,
+                              label: chinese ? '外壳设置…' : 'Shell Settings…',
+                              onTap: () => _openSettings(page: null),
                             ),
                             const DockMenuSeparator(),
                           ],

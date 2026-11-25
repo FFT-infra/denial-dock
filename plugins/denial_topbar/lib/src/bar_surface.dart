@@ -17,6 +17,7 @@ import 'package:denial_shell_kit/kit_style.dart' show kitDockEnabled;
 import 'package:denial_shell_kit/shell_preset.dart';
 import 'package:denial_shell_kit/kit_part.dart';
 import 'package:denial_shell_kit/kit_requests.dart';
+import 'package:denial_shell_kit/kit_settings.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
@@ -92,6 +93,7 @@ class _TopBarSurfaceState extends ConsumerState<TopBarSurface>
     super.initState();
     kitOpenPanel.addListener(_panelChanged);
     registerBarParts(outside: _hostedBarPart);
+    registerBarSettingsPages(widget.services);
     // Another plugin asks for the about box by name; it opens on the output
     // the request names, or on every bar's when it names none.
     _requests = KitRequests.stream.listen((request) {
