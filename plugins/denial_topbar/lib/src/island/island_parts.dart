@@ -3,6 +3,7 @@ import 'dart:math' as math;
 import 'package:denial_flutter_sdk/system_services.dart'
     show MprisPlaybackState;
 import 'package:denial_shell_kit/kit_motion.dart';
+import 'package:denial_shell_kit/kit_springs.dart';
 import 'package:denial_shell_kit/kit_style.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/widgets.dart';
@@ -32,11 +33,12 @@ class IslandCover extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    // A new track's cover fades in over the old one.
+    // A new track's cover takes the old one's place: the old one draws
+    // back and the new one comes up from small, on the look's own curve.
     return SizedBox.square(
       dimension: size,
-      child: AnimatedSwitcher(
-        duration: KitMotion.duration(context, KitMotion.travel),
+      child: IslandSwap(
+        shrink: 0.35,
         child: MediaArtwork(
           key: ValueKey<String>(url),
           url: url,
@@ -117,38 +119,48 @@ class _IslandEqualizerState extends State<IslandEqualizer>
   Widget build(BuildContext context) {
     const bar = 3.0;
     const gap = 2.0;
+    final feel = IslandFeel.of(KitStyle.of(context));
     return SizedBox(
       width: widget.bars * bar + (widget.bars - 1) * gap,
       height: widget.height,
-      child: AnimatedBuilder(
-        animation: _controller,
-        builder: (context, _) => Row(
-          mainAxisAlignment: MainAxisAlignment.spaceBetween,
-          children: <Widget>[
-            for (var index = 0; index < widget.bars; index++)
-              AnimatedContainer(
-                duration: KitMotion.loop(context, KitMotion.fade),
-                width: bar,
-                height: widget.playing
-                    ? widget.height *
-                          (0.28 +
-                              0.72 *
-                                  (0.5 +
-                                      0.5 *
-                                          math.sin(
-                                            _controller.value *
-                                                    math.pi *
-                                                    2 *
-                                                    _rates[index % 6] +
-                                                _phases[index % 6],
-                                          )))
-                    : bar,
-                decoration: BoxDecoration(
-                  color: _ink,
-                  borderRadius: BorderRadius.circular(bar / 2),
+      // The bars rise out of their dots and sink back into them on a
+      // spring; the wave itself is already continuous and needs no easing
+      // laid over it.
+      child: Sprung(
+        target: widget.playing ? 1 : 0,
+        tuning: feel.level,
+        builder: (context, energy, _) => AnimatedBuilder(
+          animation: _controller,
+          builder: (context, _) => Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: <Widget>[
+              for (var index = 0; index < widget.bars; index++)
+                Container(
+                  width: bar,
+                  height: math.max(
+                    bar,
+                    bar +
+                        (widget.height - bar) *
+                            energy.clamp(0.0, 1.2) *
+                            (0.2 +
+                                0.8 *
+                                    (0.5 +
+                                        0.5 *
+                                            math.sin(
+                                              _controller.value *
+                                                      math.pi *
+                                                      2 *
+                                                      _rates[index % 6] +
+                                                  _phases[index % 6],
+                                            ))),
+                  ),
+                  decoration: BoxDecoration(
+                    color: _ink,
+                    borderRadius: BorderRadius.circular(bar / 2),
+                  ),
                 ),
-              ),
-          ],
+            ],
+          ),
         ),
       ),
     );
@@ -171,14 +183,21 @@ class IslandLevel extends StatelessWidget {
           color: _track,
           borderRadius: BorderRadius.circular(height / 2),
         ),
-        child: AnimatedContainer(
-          duration: KitMotion.duration(context, KitMotion.ease),
-          curve: KitMotion.out,
-          width: math.max(height, constraints.maxWidth * level.clamp(0.0, 1.0)),
-          height: height,
-          decoration: BoxDecoration(
-            color: level <= 0.001 ? const Color(0x00000000) : _ink,
-            borderRadius: BorderRadius.circular(height / 2),
+        // The fill follows its level on a spring, so a level that keeps
+        // changing is one motion and not a run of restarted eases.
+        child: Sprung(
+          target: level.clamp(0.0, 1.0),
+          tuning: IslandFeel.of(KitStyle.of(context)).level,
+          builder: (context, shown, _) => Container(
+            width: math.max(
+              height,
+              constraints.maxWidth * shown.clamp(0.0, 1.0),
+            ),
+            height: height,
+            decoration: BoxDecoration(
+              color: shown <= 0.001 ? const Color(0x00000000) : _ink,
+              borderRadius: BorderRadius.circular(height / 2),
+            ),
           ),
         ),
       ),

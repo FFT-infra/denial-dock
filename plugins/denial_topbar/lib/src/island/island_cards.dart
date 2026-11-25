@@ -1,12 +1,14 @@
 import 'dart:math' as math;
 
 import 'package:denial_shell_kit/kit_motion.dart';
+import 'package:denial_shell_kit/kit_springs.dart';
 import 'package:denial_shell_kit/kit_style.dart';
 import 'package:flutter/widgets.dart';
 
 import '../bar_icons.dart';
 import '../bar_type.dart';
 import '../panels/mac_kit.dart';
+import 'island_motion.dart';
 
 const Color _ink = Color(0xffffffff);
 const Color _dim = Color(0x99ffffff);
@@ -131,12 +133,11 @@ class IslandRing extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return TweenAnimationBuilder<double>(
-      tween: Tween<double>(end: value.clamp(0.0, 1.0)),
-      duration: KitMotion.duration(context, KitMotion.reveal),
-      curve: KitMotion.outCubic,
+    return Sprung(
+      target: value.clamp(0.0, 1.0),
+      tuning: IslandFeel.of(KitStyle.of(context)).level,
       builder: (context, shown, _) => CustomPaint(
-        painter: _RingPainter(shown, colour, stroke),
+        painter: _RingPainter(shown.clamp(0.0, 1.0), colour, stroke),
         child: SizedBox.square(
           dimension: size,
           child: Center(child: child),
@@ -372,15 +373,11 @@ class IslandProgressCard extends StatelessWidget {
                     child: Stack(
                       children: <Widget>[
                         const Positioned.fill(child: ColoredBox(color: _track)),
-                        TweenAnimationBuilder<double>(
-                          tween: Tween<double>(end: value.clamp(0.0, 1.0)),
-                          duration: KitMotion.duration(
-                            context,
-                            KitMotion.reveal,
-                          ),
-                          curve: KitMotion.outCubic,
+                        Sprung(
+                          target: value.clamp(0.0, 1.0),
+                          tuning: IslandFeel.of(KitStyle.of(context)).level,
                           builder: (context, shown, _) => FractionallySizedBox(
-                            widthFactor: shown,
+                            widthFactor: shown.clamp(0.0, 1.0),
                             heightFactor: 1,
                             alignment: Alignment.centerLeft,
                             child: const ColoredBox(color: macBlue),
@@ -521,13 +518,18 @@ class IslandPageDots extends StatelessWidget {
             onTap: onPick == null ? null : () => onPick!(i),
             child: Padding(
               padding: const EdgeInsets.symmetric(horizontal: 2.5, vertical: 4),
-              child: AnimatedContainer(
-                duration: KitMotion.duration(context, KitMotion.fill),
-                width: i == index ? 12 : 5,
-                height: 5,
-                decoration: BoxDecoration(
-                  color: i == index ? _ink : _track,
-                  borderRadius: BorderRadius.circular(2.5),
+              // The lit dot stretches and the one it leaves draws in, each
+              // on the spring the island's other levels use.
+              child: Sprung(
+                target: i == index ? 1 : 0,
+                tuning: IslandFeel.of(KitStyle.of(context)).level,
+                builder: (context, lit, _) => Container(
+                  width: 5 + 7 * lit.clamp(0.0, 1.3),
+                  height: 5,
+                  decoration: BoxDecoration(
+                    color: Color.lerp(_track, _ink, lit.clamp(0.0, 1.0)),
+                    borderRadius: BorderRadius.circular(2.5),
+                  ),
                 ),
               ),
             ),

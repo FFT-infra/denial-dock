@@ -144,6 +144,7 @@ class _IslandState extends ConsumerState<Island> with TickerProviderStateMixin {
   /// open, or the one still closing.
   IslandKind _card = IslandKind.home;
   IslandKind _bubble = IslandKind.media;
+  IslandKind _bubbleLeft = IslandKind.media;
   IconData _hudIcon = BarIcons.volumeUp;
   double _hudLevel = 0;
   int _hudTurn = 1;
@@ -187,6 +188,11 @@ class _IslandState extends ConsumerState<Island> with TickerProviderStateMixin {
 
   /// 0 shows the pill's face, 1 the card's content.
   late final KitSpring _content = KitSpring(0, IslandFeel.liquid.content);
+
+  /// A closing outline waits here for its card to leave; see [_release].
+  bool _waiting = false;
+  Size _aim = const Size(_I.rest, 0);
+  double _aimRadius = 0;
   late final KitSprings _shape = KitSprings(this, <KitSpring>[
     _w,
     _h,
@@ -202,20 +208,26 @@ class _IslandState extends ConsumerState<Island> with TickerProviderStateMixin {
   // How the pill answers the pointer and the engine: it swells under a
   // pointer, gives under a press, draws a breath when something arrives,
   // lets its bubble go, and, where the user asks, fades out of the way.
-  late final KitSpring _hoverFeel = KitSpring(
-    0,
-    const KitSpringTuning(380, 0.7),
-  );
-  late final KitSpring _pressFeel = KitSpring(0, KitStyle.denial.pressTuning);
-  late final KitSpring _veil = KitSpring(0, const KitSpringTuning(260, 1));
+  late final KitSpring _hoverFeel = KitSpring(0, IslandFeel.liquid.hover);
+  late final KitSpring _pressFeel = KitSpring(0, IslandFeel.liquid.press);
+  late final KitSpring _veil = KitSpring(0, IslandFeel.liquid.veil);
+
+  /// The bubble on the pill's right, and the one on its left.
   late final KitSpring _split = KitSpring(0, IslandFeel.liquid.split);
+  late final KitSpring _splitLeft = KitSpring(0, IslandFeel.liquid.split);
   late final KitSpring _pop = KitSpring(0, IslandFeel.liquid.pop);
+
+  /// A press being held: the pill gathers itself towards the panel it is
+  /// about to open, and is there as the press has lasted long enough.
+  late final KitSpring _charge = KitSpring(0, IslandFeel.liquid.press);
   late final KitSprings _feel = KitSprings(this, <KitSpring>[
     _hoverFeel,
     _pressFeel,
     _veil,
     _split,
+    _splitLeft,
     _pop,
+    _charge,
   ]);
 
   void _kick(KitSprings group) {
@@ -247,17 +259,26 @@ class _IslandState extends ConsumerState<Island> with TickerProviderStateMixin {
     } else if (open == null && size.width != _w.target) {
       _shaping = _Shaping.reshape;
     }
+    // Width, height and corner share one tuning and start together, so the
+    // outline is one move and never widens before it deepens.
     final tuning = _shapeTuning(feel);
     for (final spring in <KitSpring>[_w, _h, _r]) {
       spring.tune(tuning);
     }
-    _content.tune(feel.content);
+    _content.tune(open == null ? feel.contentOut : feel.content);
+    _aim = size;
+    _aimRadius = radius;
     // A hand on the island has the outline.
     if (_dragFrom != null) return;
-    _w.target = size.width;
-    _h.target = size.height;
-    _r.target = radius;
     _content.target = open == null ? 0 : 1;
+    // The card leaves first. A closing outline keeps its size until most of
+    // the card has gone; with no travel to wait for it goes at once.
+    _waiting =
+        open == null &&
+        _shaped &&
+        islandHoldsOutline(_content.value) &&
+        !KitMotion.reduced(context);
+    if (!_waiting) _release();
     if (!_shaped) {
       _shaped = true;
       for (final spring in _shape.springs) {
@@ -266,6 +287,14 @@ class _IslandState extends ConsumerState<Island> with TickerProviderStateMixin {
       return;
     }
     _kick(_shape);
+  }
+
+  /// Lets the outline go to where it was last aimed.
+  void _release() {
+    _waiting = false;
+    _w.target = _aim.width;
+    _h.target = _aim.height;
+    _r.target = _aimRadius;
   }
 
   bool get _yields => islandYields(
@@ -277,16 +306,39 @@ class _IslandState extends ConsumerState<Island> with TickerProviderStateMixin {
   );
 
   /// Points the smaller springs at what the pointer and the engine do now.
-  void _aimFeel(IslandFeel feel, KitStyle style, {required bool split}) {
+  void _aimFeel(IslandFeel feel, {required int bubbles}) {
     final fade = widget.settings.islandHoverFade;
-    _hoverFeel.target = _hovered && !fade && !_engine.expanded ? 1 : 0;
+    _hoverFeel
+      ..tune(feel.hover)
+      ..target = _hovered && !fade && !_engine.expanded ? 1 : 0;
     _pressFeel
-      ..tune(style.pressTuning)
+      ..tune(feel.press)
       ..target = _pressed ? 1 : 0;
-    _veil.target = _yields ? 1 : 0;
+    // Held, the pill gathers over exactly the time the press has to last;
+    // let go, it springs back as any press does.
+    final charging = _pressed && _engine.canExpand && !_engine.expanded;
+    _charge
+      ..tune(
+        charging
+            ? KitSpringTuning(
+                islandChargeStiffness(
+                  widget.settings.islandLongPress.inMilliseconds / 1000,
+                  KitMotion.speed,
+                ),
+                1,
+              )
+            : feel.press,
+      )
+      ..target = charging ? 1 : 0;
+    _veil
+      ..tune(feel.veil)
+      ..target = _yields ? 1 : 0;
     _split
-      ..tune(split ? feel.split : feel.merge)
-      ..target = split ? 1 : 0;
+      ..tune(bubbles > 0 ? feel.split : feel.merge)
+      ..target = bubbles > 0 ? 1 : 0;
+    _splitLeft
+      ..tune(bubbles > 1 ? feel.split : feel.merge)
+      ..target = bubbles > 1 ? 1 : 0;
     _pop.tune(feel.pop);
     if (_engine.arrivals != _arrivals) {
       _arrivals = _engine.arrivals;
@@ -317,6 +369,9 @@ class _IslandState extends ConsumerState<Island> with TickerProviderStateMixin {
     // The closing card's content is dropped once the outline is home.
     // It can come to rest inside a build (reduced motion settles at once),
     // so the redraw waits its turn.
+    _shape.before = (_) {
+      if (_waiting && !islandHoldsOutline(_content.value)) _release();
+    };
     _shape.onRest = () {
       if (!_cardBuilt || _engine.expanded || _dragFrom != null) return;
       scheduleMicrotask(() {
@@ -964,9 +1019,14 @@ class _IslandState extends ConsumerState<Island> with TickerProviderStateMixin {
       _ => '',
     };
     final compact = _compactWidth(kind, label);
-    final second = settings.islandSplit ? _engine.secondary : null;
-    if (second != null) _bubble = second;
-    final reserve = compact + (second == null ? 0 : (h + _I.gap) * 2);
+    final beside = settings.islandSplit
+        ? _engine.bubbles
+        : const <IslandKind>[];
+    if (beside.isNotEmpty) _bubble = beside.first;
+    if (beside.length > 1) _bubbleLeft = beside[1];
+    // Room is kept on both sides whenever a bubble stands on either, so the
+    // pill stays in the middle.
+    final reserve = compact + (beside.isEmpty ? 0 : (h + _I.gap) * 2);
     if (widget.reserved.value != reserve) {
       scheduleMicrotask(() => widget.reserved.value = reserve);
     }
@@ -974,7 +1034,7 @@ class _IslandState extends ConsumerState<Island> with TickerProviderStateMixin {
     final open = _engine.card;
     if (open != null) _card = open;
     _aimShape(compact, feel, style);
-    _aimFeel(feel, style, split: second != null);
+    _aimFeel(feel, bubbles: beside.length);
 
     // Which way the new face and the new card come from: a turn of the page
     // moves sideways, a passing item rises over what it interrupts and sinks
@@ -1056,9 +1116,17 @@ class _IslandState extends ConsumerState<Island> with TickerProviderStateMixin {
               ],
             ),
           );
-    final bubbleLayer = RepaintBoundary(
-      child: _bubbleFor(_bubble, playback, progress),
+    Widget bubbleLayer(IslandKind bubble) => RepaintBoundary(
+      child: IslandSwap(
+        shrink: 0.4,
+        child: KeyedSubtree(
+          key: ValueKey<IslandKind>(bubble),
+          child: _bubbleFor(bubble, playback, progress),
+        ),
+      ),
     );
+    final rightBubble = bubbleLayer(_bubble);
+    final leftBubble = bubbleLayer(_bubbleLeft);
     final coverUrl = playback?.artUrl ?? '';
     final swipes =
         settings.islandSwipe &&
@@ -1071,18 +1139,25 @@ class _IslandState extends ConsumerState<Island> with TickerProviderStateMixin {
     return AnimatedBuilder(
       animation: Listenable.merge(<Listenable>[_shape, _feel]),
       builder: (context, _) {
-        final width = math.max(h, _w.value);
-        final height = math.max(h * 0.9, _h.value);
+        // A held press reaches a little towards the panel: wider, and
+        // deeper from the pill's own top edge, which is how it will open.
+        final charge = _charge.value.clamp(-0.2, 1.2) * (1 - _content.value);
+        final width = math.max(h, _w.value + 14 * charge);
+        final height = math.max(h * 0.9, _h.value + 5 * charge);
         final radius = math.max(0.0, _r.value);
-        final tc = islandOpenShare(height, h, cardSize.height);
+        final tc = islandOpenShare(_h.value, h, cardSize.height);
         final shown = _content.value;
-        final faceShown = 1 - kitPhase(shown, 0, 0.45);
-        final cardShown = kitPhase(shown, 0.4, 1);
+        final faceShown = islandFaceShare(shown, tc);
+        final cardShown = islandCardShare(shown, tc);
         final split = _split.value;
-        final reach = math.max(0.0, split) * (h + _I.gap);
-        final bubbleLeft =
-            reach + width + islandBubbleOffset(split, h, _I.gap);
+        final splitLeft = _splitLeft.value;
+        final reach =
+            math.max(0.0, math.max(split, splitLeft)) * (h + _I.gap);
+        final bubbleAt = reach + width + islandBubbleOffset(split, h, _I.gap);
+        final bubbleLeftAt =
+            reach - h - islandBubbleOffset(splitLeft, h, _I.gap);
         final hasBubble = split > 0.002;
+        final hasBubbleLeft = splitLeft > 0.002;
         final veil = _veil.value.clamp(0.0, 1.0);
         final hover = _hoverFeel.value * (1 - tc);
         final press = _pressFeel.value;
@@ -1229,7 +1304,26 @@ class _IslandState extends ConsumerState<Island> with TickerProviderStateMixin {
           ),
         );
 
-        final bubbleShown = kitPhase(split, 0.5, 0.95);
+        Widget bubbleAtop(double left, double share, Widget layer) {
+          final bubbleShown = kitPhase(share, 0.5, 0.95);
+          return Positioned(
+            left: left,
+            top: 0,
+            width: h,
+            height: h,
+            child: IgnorePointer(
+              ignoring: yields || bubbleShown < 0.5,
+              child: Opacity(
+                opacity: bubbleShown,
+                child: Transform.scale(
+                  scale: 0.6 + 0.4 * bubbleShown,
+                  child: layer,
+                ),
+              ),
+            ),
+          );
+        }
+
         final island = SizedBox(
           width: width + reach * 2,
           height: height,
@@ -1241,11 +1335,19 @@ class _IslandState extends ConsumerState<Island> with TickerProviderStateMixin {
                   painter: IslandBlobPainter(
                     body: Rect.fromLTWH(reach, 0, width, height),
                     radius: radius,
-                    bubble: hasBubble
-                        ? Rect.fromLTWH(bubbleLeft, 0, h, h)
-                        : null,
+                    drops: <IslandDrop>[
+                      if (hasBubble)
+                        IslandDrop(
+                          Rect.fromLTWH(bubbleAt, 0, h, h),
+                          islandNeck(split),
+                        ),
+                      if (hasBubbleLeft)
+                        IslandDrop(
+                          Rect.fromLTWH(bubbleLeftAt, 0, h, h),
+                          islandNeck(splitLeft),
+                        ),
+                    ],
                     bubbleRadius: IslandLook.pill(style, h),
-                    neck: islandNeck(split),
                     shadow: tc,
                   ),
                 ),
@@ -1257,23 +1359,9 @@ class _IslandState extends ConsumerState<Island> with TickerProviderStateMixin {
                 height: height,
                 child: body,
               ),
-              if (hasBubble && bubbleShown > 0)
-                Positioned(
-                  left: bubbleLeft,
-                  top: 0,
-                  width: h,
-                  height: h,
-                  child: IgnorePointer(
-                    ignoring: yields || bubbleShown < 0.5,
-                    child: Opacity(
-                      opacity: bubbleShown,
-                      child: Transform.scale(
-                        scale: 0.6 + 0.4 * bubbleShown,
-                        child: bubbleLayer,
-                      ),
-                    ),
-                  ),
-                ),
+              if (hasBubble) bubbleAtop(bubbleAt, split, rightBubble),
+              if (hasBubbleLeft)
+                bubbleAtop(bubbleLeftAt, splitLeft, leftBubble),
             ],
           ),
         );

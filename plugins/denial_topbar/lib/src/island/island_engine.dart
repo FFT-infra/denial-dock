@@ -170,12 +170,16 @@ class IslandEngine {
   /// Whether [expand] has a card to open.
   bool get canExpand => opens != IslandKind.home || homeCard;
 
-  /// The live activity shown as a bubble beside the pill.
-  IslandKind? get secondary {
-    if (_current != null || _card != null) return null;
-    final all = live;
-    return all.length > 1 ? all[1] : null;
+  /// The live activities shown as bubbles beside the pill, nearest first:
+  /// the next strongest stands on one side, the one after it on the other.
+  /// Any more than that wait in the panel's pages.
+  List<IslandKind> get bubbles {
+    if (_current != null || _card != null) return const <IslandKind>[];
+    return live.skip(1).take(2).toList();
   }
+
+  /// The first of [bubbles].
+  IslandKind? get secondary => bubbles.firstOrNull;
 
   IslandTap get tap {
     final current = _current;

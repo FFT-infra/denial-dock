@@ -206,6 +206,14 @@ void main() {
   _expect(engine.secondary == IslandKind.media, 'playback rides beside it');
   engine.setLive(IslandKind.recording, true);
   _expect(engine.kind == IslandKind.recording, 'recording outranks a timer');
+  _expect(
+    engine.bubbles.join() ==
+        <IslandKind>[IslandKind.timer, IslandKind.media].join(),
+    'the other two ride on either side',
+  );
+  engine.setLive(IslandKind.progress, true);
+  _expect(engine.bubbles.length == 2, 'and never more than two');
+  engine.setLive(IslandKind.progress, false);
   _expect(engine.cycle(1), 'a swipe moves');
   _expect(engine.kind == IslandKind.timer, 'to the next one');
   engine.cycle(1);

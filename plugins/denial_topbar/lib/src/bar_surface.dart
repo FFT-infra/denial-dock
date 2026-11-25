@@ -14,7 +14,8 @@ import 'package:denial_flutter_sdk/wallpaper.dart';
 import 'package:denial_shell_kit/kit_dock_link.dart';
 import 'package:denial_shell_kit/kit_host.dart';
 import 'package:denial_shell_kit/kit_motion.dart';
-import 'package:denial_shell_kit/kit_style.dart' show kitDockEnabled;
+import 'package:denial_shell_kit/kit_springs.dart' show Sprung;
+import 'package:denial_shell_kit/kit_style.dart' show KitStyle, kitDockEnabled;
 import 'package:denial_shell_kit/shell_preset.dart';
 import 'package:denial_shell_kit/kit_part.dart';
 import 'package:denial_shell_kit/kit_requests.dart';
@@ -40,6 +41,7 @@ import 'bar_tokens.dart';
 import 'bar_type.dart';
 import 'clock_label.dart';
 import 'island/island.dart';
+import 'island/island_motion.dart';
 import 'l10n.dart';
 import 'panels/about_dialog.dart';
 import 'panels/bar_settings_panel.dart';
@@ -407,10 +409,14 @@ class _TopBarSurfaceState extends ConsumerState<TopBarSurface>
       // width open.
       BarPart.island: (_) => ValueListenableBuilder<double>(
         valueListenable: _islandReserved,
-        builder: (context, width, _) => AnimatedContainer(
-          duration: KitMotion.duration(context, KitMotion.rebound),
-          curve: KitMotion.spring,
-          width: width,
+        // The slot follows the pill on a spring of the same family, dead
+        // beat, so the parts beside it give way as the pill grows.
+        builder: (context, width, _) => Sprung(
+          target: width,
+          tuning: IslandFeel.of(KitStyle.of(context)).slot,
+          tolerance: 0.05,
+          builder: (context, value, _) =>
+              SizedBox(width: math.max(0.0, value)),
         ),
       ),
     };
