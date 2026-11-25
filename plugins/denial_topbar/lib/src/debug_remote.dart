@@ -1,4 +1,5 @@
 import 'package:denial_shell_kit/debug_file.dart';
+import 'package:denial_shell_kit/kit_style.dart';
 import 'package:flutter/foundation.dart';
 
 /// Lets a developer drive the bar without a pointer: when the file
@@ -14,6 +15,10 @@ void startDebugRemote() {
   _started = true;
   var count = 0;
   debugFileCommands('denial_topbar').listen((words) {
+    // `look <id>` switches the look and leaves the layout alone.
+    if (words.length > 1 && words.first == 'look') {
+      kitStyle.choose(KitStyle.byId(words[1]));
+    }
     debugCommand.value = '${words.join(' ')} #${count++}';
   });
 }
