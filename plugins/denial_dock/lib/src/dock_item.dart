@@ -13,6 +13,7 @@ import 'package:flutter/gestures.dart'
         PointerDeviceKind,
         PointerScrollEvent,
         PointerSignalEvent,
+        kLongPressTimeout,
         kPrimaryButton;
 import 'package:flutter/material.dart';
 import 'package:flutter/scheduler.dart';
@@ -23,9 +24,11 @@ import 'package:denial_shell_kit/glass_card.dart';
 import 'dock_click.dart';
 import 'dock_debug.dart';
 import 'dock_desktop_actions.dart';
+import 'dock_drag.dart';
 import 'dock_icon.dart';
 import 'dock_launch.dart';
 import 'dock_menu.dart';
+import 'dock_motion.dart';
 import 'dock_scroll.dart';
 import 'dock_settings.dart';
 
@@ -63,6 +66,7 @@ class DockItemWidget extends StatefulWidget {
     required this.scrollGate,
     required this.scrollReversed,
     required this.scrollWraps,
+    required this.motion,
     required this.launchFeedback,
     required this.indicatorStyle,
     required this.previewStyle,
@@ -87,6 +91,7 @@ class DockItemWidget extends StatefulWidget {
     this.onDragStart,
     this.onDragUpdate,
     this.onDragEnd,
+    this.onDragCancel,
     super.key,
   });
 
@@ -134,6 +139,11 @@ class DockItemWidget extends StatefulWidget {
   final bool scrollReversed;
   final bool scrollWraps;
 
+  /// The dock's motion policy; it decides how attention shows.
+  final DockMotion motion;
+
+  /// The launch feedback in effect, which with reduced motion is never the
+  /// hop.
   final DockLaunchFeedback launchFeedback;
   final DockIndicatorStyle indicatorStyle;
   final DockPreviewStyle previewStyle;
@@ -200,6 +210,10 @@ class DockItemWidget extends StatefulWidget {
   final ValueChanged<Offset>? onDragUpdate;
   final VoidCallback? onDragEnd;
 
+  /// Puts a picked-up icon back without dropping it anywhere: a finger that
+  /// held the icon and let go where it was, or a touch the system took away.
+  final VoidCallback? onDragCancel;
+
   @override
   State<DockItemWidget> createState() => _DockItemWidgetState();
 }
@@ -223,7 +237,19 @@ class _DockItemWidgetState extends State<DockItemWidget>
   double _landingStartLift = 0;
   bool _launchFailed = false;
 
-  /// Touch and pen have no right button; a long press opens the same menu.
+  /// The press under way, or null between presses and for any button but the
+  /// primary one. A mouse picks the icon up by travelling; a finger or pen has
+  /// to rest on it first, so a swipe across the dock leaves the row alone.
+  DockPress? _press;
+  DockPointerKind _pressKind = DockPointerKind.precise;
+
+  /// The pointer that owns [_press], so a second finger cannot end it.
+  int _pressPointer = -1;
+
+  /// Touch and pen have no right button, so resting on the icon is their long
+  /// press. It lifts the icon; letting go without moving opens the menu the
+  /// secondary button opens. The flag keeps that release from also counting
+  /// as a click.
   Timer? _longPressTimer;
   bool _longPressFired = false;
 
@@ -590,6 +616,126 @@ class _DockItemWidgetState extends State<DockItemWidget>
     }
   }
 
+  /// A mouse and a trackpad steer a cursor. Everything else lands on the
+  /// icon directly, and may only be passing over it.
+  static DockPointerKind _pointerKind(PointerDeviceKind kind) => switch (kind) {
+    PointerDeviceKind.mouse ||
+    PointerDeviceKind.trackpad => DockPointerKind.precise,
+    _ => DockPointerKind.touch,
+  };
+
+  void _pointerDown(PointerDownEvent event) {
+    // A second finger must not take over an icon another one already holds.
+    if (_press == DockPress.lifted || _press == DockPress.dragging) return;
+    // The pan's start position is unreliable in this shell (the button
+    // pointer begins at the scene origin), but the down event carries the
+    // real grab point.
+    _downPosition = event.position;
+    _downButtons = event.buttons;
+    _longPressTimer?.cancel();
+    _longPressTimer = null;
+    _longPressFired = false;
+    _press = null;
+    if (event.buttons != kPrimaryButton) return;
+    _pressDown();
+    _press = DockPress.down;
+    _pressKind = _pointerKind(event.kind);
+    _pressPointer = event.pointer;
+    if (_pressKind == DockPointerKind.touch) {
+      // The SDK exposes no long-press time of its own, so this is Flutter's.
+      _longPressTimer = Timer(kLongPressTimeout, _pointerRested);
+    }
+  }
+
+  /// The finger or pen has stayed on the icon for the long-press time.
+  void _pointerRested() {
+    _longPressTimer = null;
+    final press = _press;
+    final origin = _downPosition;
+    if (!mounted || press == null || origin == null) return;
+    if (DockDrag.pressRested(press, _pressKind) != DockPress.lifted) return;
+    // Whatever the release does now, it is not a click.
+    _longPressFired = true;
+    final start = widget.onDragStart;
+    if (start == null) {
+      // Locked items cannot be picked up, so there is nothing to tell apart
+      // and the menu opens under the finger, as it does without the lock.
+      _press = null;
+      _openMenu();
+      return;
+    }
+    if (widget.dragging) {
+      // Another icon is already in the air; this hold must not steer it.
+      _press = null;
+      return;
+    }
+    _press = DockPress.lifted;
+    // The container draws the icon raised off the row, exactly as it does for
+    // a drag. That lift is the cue that the hold has armed.
+    start(origin);
+  }
+
+  void _pointerMove(PointerMoveEvent event) {
+    final press = _press;
+    final origin = _downPosition;
+    // A mouse is followed by the pan recogniser below.
+    if (press == null ||
+        origin == null ||
+        _pressKind != DockPointerKind.touch ||
+        event.pointer != _pressPointer) {
+      return;
+    }
+    final next = DockDrag.leftRest((event.position - origin).distance)
+        ? DockDrag.pressTravelled(press, _pressKind)
+        : press;
+    _press = next;
+    switch (next) {
+      case DockPress.swipe:
+        _longPressTimer?.cancel();
+        _longPressTimer = null;
+      case DockPress.lifted || DockPress.dragging:
+        // Fed from the raw pointer: the pan recogniser waits out its own,
+        // wider touch slop, which would hold the lifted icon still and then
+        // make it jump.
+        widget.onDragUpdate?.call(event.position);
+      case DockPress.down:
+        break;
+    }
+  }
+
+  void _pointerUp(PointerEvent event, {required bool cancelled}) {
+    final press = _press;
+    if (press != null &&
+        _pressKind == DockPointerKind.touch &&
+        event.pointer != _pressPointer) {
+      return;
+    }
+    _pressUp();
+    _longPressTimer?.cancel();
+    _longPressTimer = null;
+    _press = null;
+    _downPosition = null;
+    _downButtons = 0;
+    // A mouse drag is ended by the pan recogniser below.
+    if (press == null || _pressKind != DockPointerKind.touch) return;
+    final end = DockDrag.pressReleased(press);
+    if (end == DockPressEnd.none) return;
+    if (cancelled) {
+      // A touch the system took away decided nothing, so nothing is dropped.
+      widget.onDragCancel?.call();
+      return;
+    }
+    switch (end) {
+      case DockPressEnd.menu:
+        widget.onDragCancel?.call();
+        _openMenu();
+      case DockPressEnd.drop:
+        widget.onDragEnd?.call();
+      case DockPressEnd.none:
+        break;
+    }
+  }
+
   void _pressDown() {
     _pressTimer?.cancel();
     if (!_pressed) setState(() => _pressed = true);
@@ -745,6 +891,9 @@ class _DockItemWidgetState extends State<DockItemWidget>
       );
       if (!done) {
         if (widget.launchFeedback == DockLaunchFeedback.pulse) {
+          // The feedback can turn from a hop into a pulse while it runs (the
+          // reduced-motion setting does that), and a pulse stays on the row.
+          _launchLift = 0;
           _launchPulse = DockLaunch.pulseOpacity(
             sinceStart.inMilliseconds / 1000.0,
           );
@@ -759,6 +908,7 @@ class _DockItemWidgetState extends State<DockItemWidget>
       _launchHopping = false;
       _launchPulse = 1;
       if (widget.launchFeedback == DockLaunchFeedback.pulse) {
+        _launchLift = 0;
         _launchStartedAt = null;
         _launchTicker.stop();
         _launchLastTick = Duration.zero;
@@ -1033,53 +1183,10 @@ class _DockItemWidgetState extends State<DockItemWidget>
               child: Listener(
                 onPointerSignal: _onPointerSignal,
                 onPointerHover: _restartPreviewOnMove,
-                // The pan's start position is unreliable in this shell (the
-                // button pointer begins at the scene origin), but the down
-                // event carries the real grab point.
-                onPointerDown: (event) {
-                  _downPosition = event.position;
-                  _downButtons = event.buttons;
-                  if (event.buttons == kPrimaryButton) _pressDown();
-                  // A touch or pen has no secondary button; a long press opens
-                  // the same menu. The timer is cancelled as soon as the
-                  // pointer moves, so a drag never turns into a menu.
-                  if (event.kind != PointerDeviceKind.mouse &&
-                      event.buttons == kPrimaryButton) {
-                    _longPressFired = false;
-                    _longPressTimer?.cancel();
-                    _longPressTimer = Timer(
-                      const Duration(milliseconds: 550),
-                      () {
-                        _longPressTimer = null;
-                        if (!mounted) return;
-                        _longPressFired = true;
-                        _openMenu();
-                      },
-                    );
-                  }
-                },
-                onPointerMove: (event) {
-                  if (_longPressTimer != null &&
-                      (_downPosition != null) &&
-                      (event.position - _downPosition!).distance > 6) {
-                    _longPressTimer?.cancel();
-                    _longPressTimer = null;
-                  }
-                },
-                onPointerUp: (event) {
-                  _pressUp();
-                  _longPressTimer?.cancel();
-                  _longPressTimer = null;
-                  _downPosition = null;
-                  _downButtons = 0;
-                },
-                onPointerCancel: (event) {
-                  _pressUp();
-                  _longPressTimer?.cancel();
-                  _longPressTimer = null;
-                  _downPosition = null;
-                  _downButtons = 0;
-                },
+                onPointerDown: _pointerDown,
+                onPointerMove: _pointerMove,
+                onPointerUp: (event) => _pointerUp(event, cancelled: false),
+                onPointerCancel: (event) => _pointerUp(event, cancelled: true),
                 child: GestureDetector(
                   behavior: HitTestBehavior.opaque,
                   onTap: () {
@@ -1096,23 +1203,40 @@ class _DockItemWidgetState extends State<DockItemWidget>
                   // do.
                   onTertiaryTapDown: (_) => _middleClick(),
                   // Secondary-button drags must not reorder or pin anything; a
-                  // right-drag is a menu gesture.
+                  // right-drag is a menu gesture. The pan drives a mouse drag
+                  // only: a finger or pen is followed by the listener above,
+                  // which knows whether it rested on the icon first.
                   onPanStart: widget.onDragStart == null
                       ? null
                       : (details) {
                           if (_downButtons != kPrimaryButton) return;
+                          if (_pressKind == DockPointerKind.touch) return;
+                          _press = DockDrag.pressTravelled(
+                            _press ?? DockPress.down,
+                            _pressKind,
+                          );
                           widget.onDragStart!(
                             _downPosition ?? details.globalPosition,
                           );
                         },
                   onPanUpdate: widget.onDragUpdate == null
                       ? null
-                      : (details) =>
-                            widget.onDragUpdate!(details.globalPosition),
+                      : (details) {
+                          if (_pressKind == DockPointerKind.touch) return;
+                          widget.onDragUpdate!(details.globalPosition);
+                        },
                   onPanEnd: widget.onDragEnd == null
                       ? null
-                      : (_) => widget.onDragEnd!(),
-                  onPanCancel: widget.onDragEnd,
+                      : (_) {
+                          if (_pressKind == DockPointerKind.touch) return;
+                          widget.onDragEnd!();
+                        },
+                  onPanCancel: widget.onDragEnd == null
+                      ? null
+                      : () {
+                          if (_pressKind == DockPointerKind.touch) return;
+                          widget.onDragEnd!();
+                        },
                   child: AnimatedBuilder(
                     animation: _attention,
                     builder: (context, child) => Transform.translate(
@@ -1120,12 +1244,19 @@ class _DockItemWidgetState extends State<DockItemWidget>
                       offset:
                           offset +
                           _away *
-                              (_attention.value < 0.4
-                                  ? math.sin(_attention.value / 0.4 * math.pi) *
-                                        size *
-                                        0.22
-                                  : 0),
-                      child: child,
+                              widget.motion.attentionLift(
+                                _attention.value,
+                                size,
+                              ),
+                      // With reduced motion nothing hops, and the dock has no
+                      // still marker for attention, so the icon dims in the
+                      // same rhythm instead.
+                      child: Opacity(
+                        opacity: widget.motion.attentionOpacity(
+                          _attention.value,
+                        ),
+                        child: child,
+                      ),
                     ),
                     child: SizedBox(
                       width: size,
