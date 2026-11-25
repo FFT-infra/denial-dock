@@ -1,6 +1,7 @@
 import 'dart:convert';
 import 'dart:io';
 
+import 'dock_look.dart';
 import 'dock_visibility.dart';
 
 export 'dock_visibility.dart' show DockVisibility, DockVisibilityMode;
@@ -548,6 +549,7 @@ class DockSettings {
     this.currentWorkspaceOnly = false,
     this.previewMiddleClose = false,
     this.avoidReservedEdge = true,
+    this.look = const {},
   });
 
   /// Base icon edge before magnification.
@@ -682,6 +684,15 @@ class DockSettings {
   /// How long the pointer rests on an icon before its previews open.
   final int previewDelayMs;
 
+  /// What the user changed about the capsule's look, as overrides on the
+  /// preset of the shell look in force; see [DockLook.resolve]. Kept as the
+  /// map the file holds, so a key a newer build wrote is carried through.
+  final Map<String, Object?> look;
+
+  /// The capsule's look under the shell look called [styleId].
+  DockLook lookFor(String? styleId) =>
+      DockLook.resolve(DockLook.preset(styleId), look);
+
   /// Draws the progress an application publishes through the Unity launcher
   /// API along the bottom of its icon.
   final bool showProgress;
@@ -777,6 +788,7 @@ class DockSettings {
     int? revealDelayMs,
     int? hideDelayMs,
     int? previewDelayMs,
+    Map<String, Object?>? look,
     bool? showProgress,
     bool? showAttention,
     bool? showDesktopActions,
@@ -838,6 +850,7 @@ class DockSettings {
     currentWorkspaceOnly: currentWorkspaceOnly ?? this.currentWorkspaceOnly,
     previewMiddleClose: previewMiddleClose ?? this.previewMiddleClose,
     avoidReservedEdge: avoidReservedEdge ?? this.avoidReservedEdge,
+    look: look ?? this.look,
   );
 
   static double clampIconSize(double value) {
@@ -1114,6 +1127,7 @@ class DockSettings {
       avoidReservedEdge: json['avoidReservedEdge'] is bool
           ? json['avoidReservedEdge'] as bool
           : true,
+      look: DockLook.cleaned(json['look']),
     );
   }
 }
@@ -1225,6 +1239,11 @@ class DockPreferencesStore {
     json['currentWorkspaceOnly'] = settings.currentWorkspaceOnly;
     json['previewMiddleClose'] = settings.previewMiddleClose;
     json['avoidReservedEdge'] = settings.avoidReservedEdge;
+    if (settings.look.isEmpty) {
+      json.remove('look');
+    } else {
+      json['look'] = settings.look;
+    }
     await file.parent.create(recursive: true);
     final temp = File('${file.path}.$pid.${_sequence++}.tmp');
     try {

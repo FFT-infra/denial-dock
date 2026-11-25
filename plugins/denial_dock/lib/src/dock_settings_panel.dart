@@ -8,6 +8,7 @@ import 'package:flutter/scheduler.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import 'dock_extras.dart';
+import 'dock_look.dart';
 import 'dock_preferences.dart';
 import 'dock_stack_files.dart' show DockStackFiles;
 import 'dock_stack_view.dart' show stackFileColor, stackFileIcon;
@@ -286,6 +287,10 @@ class _DockSettingsPanelState extends ConsumerState<DockSettingsPanel> {
   ) {
     final hides = settings.visibility != DockVisibilityMode.always;
     const gap = SizedBox(height: 22);
+    final look = settings.lookFor(kitStyle.value.id);
+    final floating = look.shape == DockShape.floating;
+    String px(double value) => '${value.round()}';
+    String percent(double value) => '${(value * 100).round()}%';
     return [
       (
         title: _zh ? '显示与隐藏' : 'Visibility',
@@ -603,6 +608,17 @@ class _DockSettingsPanelState extends ConsumerState<DockSettingsPanel> {
                 enabled: settings.magnification,
                 onChanged: (value) => _controller.setMagnificationAmount(value),
               ),
+              _lookSlider(
+                settings,
+                label: _zh ? '放大范围' : 'Magnification reach',
+                keyName: DockLook.magnifyRangeKey,
+                value: look.magnifyRange,
+                min: DockLook.minMagnifyRange,
+                max: DockLook.maxMagnifyRange,
+                step: DockLook.magnifyRangeStep,
+                text: px,
+                enabled: settings.magnification,
+              ),
             ],
           ),
           gap,
@@ -689,6 +705,180 @@ class _DockSettingsPanelState extends ConsumerState<DockSettingsPanel> {
         ],
       ),
       (
+        title: _zh ? '底板' : 'Backplate',
+        icon: Icons.rounded_corner,
+        sections: [
+          _SettingsSection(
+            title: _zh ? '材质' : 'Material',
+            footer: _zh
+                ? '未改动的项跟随所选风格的默认值。模糊只在系统开启了透明效果时可见。'
+                : 'Anything left alone follows the chosen style. The blur '
+                      'shows only while the system has transparency on.',
+            children: [
+              _SegmentedField<DockShape>(
+                label: _zh ? '形状' : 'Shape',
+                value: look.shape,
+                options: [
+                  (
+                    DockShape.floating,
+                    _zh ? '悬浮圆角' : 'Floating',
+                    Icons.crop_7_5,
+                  ),
+                  (
+                    DockShape.bar,
+                    _zh ? '贴边通栏' : 'Edge bar',
+                    Icons.horizontal_rule,
+                  ),
+                ],
+                onChanged: (value) =>
+                    _controller.setLook(DockLook.shapeKey, value.name),
+              ),
+              _lookSlider(
+                settings,
+                label: _zh ? '模糊强度' : 'Blur',
+                keyName: DockLook.blurKey,
+                value: look.blur,
+                min: DockLook.minBlur,
+                max: DockLook.maxBlur,
+                step: DockLook.blurStep,
+                text: percent,
+              ),
+              _lookSlider(
+                settings,
+                label: _zh ? '不透明度' : 'Opacity',
+                keyName: DockLook.opacityKey,
+                value:
+                    look.opacity ?? context.shellTheme.effectivePanelOpacity,
+                min: DockLook.minOpacity,
+                max: DockLook.maxOpacity,
+                step: DockLook.opacityStep,
+                text: percent,
+                display: look.opacity == null
+                    ? (_zh ? '跟随系统' : 'System')
+                    : null,
+              ),
+              _SegmentedField<DockTint>(
+                label: _zh ? '着色' : 'Tint',
+                value: look.tint,
+                options: [
+                  (
+                    DockTint.theme,
+                    _zh ? '跟随主题' : 'Theme',
+                    Icons.brightness_6_outlined,
+                  ),
+                  (
+                    DockTint.accent,
+                    _zh ? '壁纸强调色' : 'Wallpaper accent',
+                    Icons.wallpaper_outlined,
+                  ),
+                  (DockTint.custom, _zh ? '自定深浅' : 'Custom', Icons.tonality),
+                ],
+                onChanged: (value) =>
+                    _controller.setLook(DockLook.tintKey, value.name),
+              ),
+              _lookSlider(
+                settings,
+                label: _zh ? '深浅' : 'Shade',
+                keyName: DockLook.tintShadeKey,
+                value: look.tintShade,
+                min: DockLook.minShade,
+                max: DockLook.maxShade,
+                step: DockLook.shadeStep,
+                text: percent,
+                enabled: look.tint == DockTint.custom,
+              ),
+            ],
+          ),
+          gap,
+          _SettingsSection(
+            title: _zh ? '轮廓' : 'Outline',
+            children: [
+              _lookSlider(
+                settings,
+                label: _zh ? '圆角' : 'Corner radius',
+                keyName: DockLook.radiusKey,
+                value: look.radius,
+                min: DockLook.minRadius,
+                max: DockLook.maxRadius,
+                step: DockLook.radiusStep,
+                text: px,
+                enabled: floating,
+              ),
+              _ToggleRow(
+                label: _zh ? '描边' : 'Border',
+                value: look.border,
+                onChanged: (value) =>
+                    _controller.setLook(DockLook.borderKey, value),
+              ),
+              _lookSlider(
+                settings,
+                label: _zh ? '描边粗细' : 'Border width',
+                keyName: DockLook.borderWidthKey,
+                value: look.borderWidth,
+                min: DockLook.minBorderWidth,
+                max: DockLook.maxBorderWidth,
+                step: DockLook.borderWidthStep,
+                text: (value) => value.toStringAsFixed(1),
+                enabled: look.border,
+              ),
+              _lookSlider(
+                settings,
+                label: _zh ? '阴影' : 'Shadow',
+                keyName: DockLook.shadowKey,
+                value: look.shadow,
+                min: DockLook.minShadow,
+                max: DockLook.maxShadow,
+                step: DockLook.shadowStep,
+                text: (value) =>
+                    value == 0 ? (_zh ? '关闭' : 'Off') : percent(value),
+              ),
+            ],
+          ),
+          gap,
+          _SettingsSection(
+            title: _zh ? '间距' : 'Spacing',
+            children: [
+              _lookSlider(
+                settings,
+                label: _zh ? '底板内边距' : 'Padding',
+                keyName: DockLook.paddingKey,
+                value: look.padding,
+                min: DockLook.minPadding,
+                max: DockLook.maxPadding,
+                step: DockLook.paddingStep,
+                text: px,
+              ),
+              _lookSlider(
+                settings,
+                label: _zh ? '图标间距' : 'Icon spacing',
+                keyName: DockLook.gapKey,
+                value: look.gap,
+                min: DockLook.minGap,
+                max: DockLook.maxGap,
+                step: DockLook.gapStep,
+                text: px,
+              ),
+              _lookSlider(
+                settings,
+                label: _zh ? '离屏幕边缘' : 'Distance from the edge',
+                keyName: DockLook.edgeMarginKey,
+                value: look.edgeMargin,
+                min: DockLook.minEdgeMargin,
+                max: DockLook.maxEdgeMargin,
+                step: DockLook.edgeMarginStep,
+                text: px,
+                enabled: floating,
+              ),
+              _ActionRow(
+                icon: Icons.restart_alt,
+                label: _zh ? '全部恢复默认' : 'Restore all defaults',
+                onTap: () => _controller.resetLook(),
+              ),
+            ],
+          ),
+        ],
+      ),
+      (
         title: _zh ? '标记与角标' : 'Markers and badges',
         icon: Icons.circle_notifications_outlined,
         sections: [
@@ -722,6 +912,29 @@ class _DockSettingsPanelState extends ConsumerState<DockSettingsPanel> {
                   (DockIndicatorStyle.none, _zh ? '无' : 'None', Icons.block),
                 ],
                 onChanged: (value) => _controller.setIndicatorStyle(value),
+              ),
+              _SegmentedField<DockMarkerColor>(
+                label: _zh ? '标记颜色' : 'Marker colour',
+                value: look.markerColor,
+                options: [
+                  (
+                    DockMarkerColor.auto,
+                    _zh ? '自动' : 'Automatic',
+                    Icons.auto_awesome_outlined,
+                  ),
+                  (
+                    DockMarkerColor.accent,
+                    _zh ? '强调色' : 'Accent',
+                    Icons.palette_outlined,
+                  ),
+                  (
+                    DockMarkerColor.ink,
+                    _zh ? '文字色' : 'Text colour',
+                    Icons.contrast,
+                  ),
+                ],
+                onChanged: (value) =>
+                    _controller.setLook(DockLook.markerColorKey, value.name),
               ),
               _ToggleRow(
                 label: _zh
@@ -994,6 +1207,36 @@ class _DockSettingsPanelState extends ConsumerState<DockSettingsPanel> {
       ),
     ];
   }
+
+  /// A slider for one number of the capsule's look. Its reset button shows
+  /// once the user has moved it off the style's own value.
+  Widget _lookSlider(
+    DockSettings settings, {
+    required String label,
+    required String keyName,
+    required double value,
+    required double min,
+    required double max,
+    required double step,
+    required String Function(double value) text,
+    String? display,
+    bool enabled = true,
+  }) => _SliderRow(
+    label: label,
+    value: value,
+    min: min,
+    max: max,
+    divisions: ((max - min) / step).round(),
+    display: display ?? text(value),
+    describe: text,
+    enabled: enabled,
+    onChanged: (next) => _controller.setLook(keyName, next),
+    resetLabel: _zh ? '恢复默认' : 'Restore default',
+    onReset: settings.look.containsKey(keyName)
+        ? () => _controller.setLook(keyName, null)
+        : null,
+    reserveReset: true,
+  );
 
   Widget _pageScroll(BuildContext context, List<Widget> children) {
     final theme = context.shellTheme;
@@ -2207,6 +2450,9 @@ class _SliderRow extends StatelessWidget {
     required this.describe,
     required this.onChanged,
     this.enabled = true,
+    this.onReset,
+    this.resetLabel = '',
+    this.reserveReset = false,
   });
 
   final String label;
@@ -2218,6 +2464,14 @@ class _SliderRow extends StatelessWidget {
   final String Function(double value) describe;
   final ValueChanged<double> onChanged;
   final bool enabled;
+
+  /// Puts the value back on its default; null while it is already there.
+  final VoidCallback? onReset;
+  final String resetLabel;
+
+  /// Keeps room for the reset button, so the row does not shift when the
+  /// button comes and goes.
+  final bool reserveReset;
 
   @override
   Widget build(BuildContext context) {
@@ -2247,9 +2501,25 @@ class _SliderRow extends StatelessWidget {
           );
           final readout = Text(
             display,
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
             textAlign: TextAlign.right,
             style: valueStyle,
           );
+          final reset = !reserveReset
+              ? null
+              : SizedBox.square(
+                  dimension: 26,
+                  child: onReset == null
+                      ? null
+                      : _IconButton(
+                          icon: Icons.restart_alt,
+                          tooltip: resetLabel,
+                          onPressed: onReset!,
+                          size: 26,
+                          iconSize: 15,
+                        ),
+                );
           if (constraints.maxWidth < 360) {
             return Padding(
               padding: const EdgeInsets.fromLTRB(12, 10, 12, 6),
@@ -2268,6 +2538,7 @@ class _SliderRow extends StatelessWidget {
                       ),
                       const SizedBox(width: 10),
                       SizedBox(width: 52, child: readout),
+                      ?reset,
                     ],
                   ),
                   const SizedBox(height: 1),
@@ -2297,6 +2568,7 @@ class _SliderRow extends StatelessWidget {
                   ),
                   const SizedBox(width: 12),
                   SizedBox(width: 52, child: readout),
+                  ?reset,
                 ],
               ),
             ),

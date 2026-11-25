@@ -28,6 +28,7 @@ import 'dock_desktop_actions.dart';
 import 'dock_drag.dart';
 import 'dock_icon.dart';
 import 'dock_launch.dart';
+import 'dock_look.dart';
 import 'dock_menu.dart';
 import 'dock_motion.dart';
 import 'dock_scroll.dart';
@@ -64,6 +65,7 @@ class DockItemWidget extends StatefulWidget {
     required this.motion,
     required this.launchFeedback,
     required this.indicatorStyle,
+    this.markerColor = DockMarkerColor.auto,
     required this.previewStyle,
     required this.previewHover,
     this.previewDelayMs = DockSettings.defaultPreviewDelayMs,
@@ -142,6 +144,9 @@ class DockItemWidget extends StatefulWidget {
   /// hop.
   final DockLaunchFeedback launchFeedback;
   final DockIndicatorStyle indicatorStyle;
+
+  /// What colour the running marker takes.
+  final DockMarkerColor markerColor;
   final DockPreviewStyle previewStyle;
 
   /// Focuses a previewed window when the pointer moves onto its row.
@@ -440,7 +445,7 @@ class _DockItemWidgetState extends State<DockItemWidget>
         case DockScrollAction.nothing:
           return;
         case DockScrollAction.cycleWindows:
-          final windows = widget.windows;
+          final windows = _cycleWindows;
           final next = DockClick.scrollIndex(
             count: windows.length,
             activeIndex: DockClick.activeIndex(
@@ -749,6 +754,11 @@ class _DockItemWidgetState extends State<DockItemWidget>
     });
   }
 
+  /// The application's windows in the order a click or a wheel turn steps
+  /// through them, which must not change as windows come to the front.
+  List<ApplicationWindow> get _cycleWindows =>
+      DockClick.stable(widget.windows, (window) => window.id);
+
   /// Clicking an application follows macOS: a stopped application starts, a
   /// front-most one minimizes or cycles to its next window, and one in the
   /// background comes forward.
@@ -761,7 +771,7 @@ class _DockItemWidgetState extends State<DockItemWidget>
       _launch();
       return;
     }
-    final windows = widget.windows;
+    final windows = _cycleWindows;
     final activeIndex = DockClick.activeIndex(
       windows.map((window) => window.active),
     );
@@ -1139,9 +1149,16 @@ class _DockItemWidgetState extends State<DockItemWidget>
     final indicator =
         running && widget.indicatorStyle != DockIndicatorStyle.none
         ? _buildIndicator(
-            color: active
-                ? theme.kitAccent
-                : colors.textPrimary.withValues(alpha: 0.55),
+            color: switch (widget.markerColor) {
+              DockMarkerColor.auto =>
+                active
+                    ? theme.kitAccent
+                    : colors.textPrimary.withValues(alpha: 0.55),
+              DockMarkerColor.accent => theme.kitAccent,
+              DockMarkerColor.ink => colors.textPrimary.withValues(
+                alpha: active ? 0.9 : 0.55,
+              ),
+            },
             count: widget.windows.length,
             style: widget.indicatorStyle,
           )

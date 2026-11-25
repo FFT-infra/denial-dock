@@ -1,5 +1,6 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import 'dock_look.dart';
 import 'dock_settings.dart';
 
 export 'dock_settings.dart';
@@ -101,6 +102,18 @@ class DockSettingsController extends AsyncNotifier<DockSettings> {
 
   Future<void> setDimInactivePinned({required bool dim}) =>
       _update((current) => current.copyWith(dimInactivePinned: dim));
+
+  /// Sets one value of the capsule's look, or puts it back on the preset
+  /// when [value] is null.
+  Future<void> setLook(String key, Object? value) => _update(
+    (current) => current.copyWith(
+      look: DockLook.withOverride(current.look, key, value),
+    ),
+  );
+
+  /// Puts the whole look back on the preset of the shell look in force.
+  Future<void> resetLook() =>
+      _update((current) => current.copyWith(look: const {}));
 
   Future<void> setPreviewDelayMs(int delay) =>
       _update((current) => current.copyWith(previewDelayMs: delay));
