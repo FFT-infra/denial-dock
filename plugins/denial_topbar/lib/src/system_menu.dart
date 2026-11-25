@@ -164,6 +164,7 @@ List<BarMenuEntry> systemMenuEntries(
   required ValueChanged<SessionPowerAction> onConfirm,
 }) {
   final session = ref.read(sessionPowerProvider);
+  final power = ref.read(sessionPowerProvider.notifier);
   bool canLogOut() =>
       session.busyAction == null &&
       session.availabilityFor(SessionPowerAction.logout).enabled;
@@ -207,6 +208,15 @@ List<BarMenuEntry> systemMenuEntries(
       label: context.tr('Log Out…'),
       enabled: canLogOut(),
       onSelected: () => onConfirm(SessionPowerAction.logout),
+      // Held with the alternate key, it logs out without asking.
+      alternate: BarMenuItem(
+        label: context.tr('Log Out'),
+        enabled: canLogOut(),
+        onSelected: () async {
+          await power.request(SessionPowerAction.logout);
+          await power.confirm();
+        },
+      ),
     ),
   ];
 }

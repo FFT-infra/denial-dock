@@ -250,7 +250,10 @@ class _DockContainerState extends ConsumerState<DockContainer>
   }
 
   void _onSpeed() {
-    if (mounted) setState(() {});
+    if (!mounted) return;
+    // The pace is held as a value, so a new speed has to be read into it here:
+    // a change of the setting does not run didChangeDependencies.
+    setState(() => _motion = DockMotion(pace: KitMotion.pace(context)));
   }
 
   StreamSubscription<List<String>>? _debug;
@@ -317,8 +320,8 @@ class _DockContainerState extends ConsumerState<DockContainer>
   void didChangeDependencies() {
     super.didChangeDependencies();
     // The same signal the settings panel and the stack view read. Depending
-    // on it here means a change of the setting reaches a running dock. The
-    // speed itself is read each frame, so a new pace costs nothing here.
+    // on it here means a change of the setting reaches a running dock; a
+    // change of the speed arrives through [_onSpeed].
     _motion = DockMotion(pace: KitMotion.pace(context));
   }
 

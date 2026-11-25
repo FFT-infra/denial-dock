@@ -253,21 +253,25 @@ class _BluetoothPopoverState extends ConsumerState<BluetoothPopover> {
   /// The scan runs while the popover is up and is stopped on the way out:
   /// BlueZ keeps the radio advertising for its full window otherwise, and a
   /// scan left running is how a battery dies.
+  ///
+  /// The controller is kept from initState because a ref may not be read
+  /// while the widget is being disposed.
+  late final _bluetooth = ref.read(bluetoothProvider.notifier);
+
   @override
   void initState() {
     super.initState();
+    final controller = _bluetooth;
     Future<void>.microtask(() {
-      final controller = ref.read(bluetoothProvider.notifier);
-      if (ref.read(bluetoothProvider).available &&
-          ref.read(bluetoothProvider).powered) {
-        controller.scan();
-      }
+      if (!mounted) return;
+      final state = ref.read(bluetoothProvider);
+      if (state.available && state.powered) controller.scan();
     });
   }
 
   @override
   void dispose() {
-    ref.read(bluetoothProvider.notifier).stopScan();
+    _bluetooth.stopScan();
     super.dispose();
   }
 
