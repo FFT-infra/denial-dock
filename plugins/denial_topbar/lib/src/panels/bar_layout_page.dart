@@ -508,7 +508,7 @@ class _LayoutPageState extends ConsumerState<_LayoutPage> {
         _Group(
           title: context.tr('Presets'),
           note: context.tr(
-            'A preset sets the look and the layout of the bar. Which items show stays as you set it.',
+            'A preset sets the look and the layout of the bar and the Dock. Each preset remembers the changes you make to it; choose the one in use again to put it back as it came. Which items show stays as you set it.',
           ),
           children: <Widget>[
             Padding(
@@ -534,7 +534,13 @@ class _LayoutPageState extends ConsumerState<_LayoutPage> {
                                 _picked = null;
                                 _dockPicked = null;
                               });
-                              applyShellPreset(ref, preset);
+                              // The preset in force, tapped again, goes
+                              // back to how it ships.
+                              applyShellPreset(
+                                ref,
+                                preset,
+                                fresh: preset.id == current.id,
+                              );
                             },
                           ),
                         ),

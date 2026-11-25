@@ -206,6 +206,62 @@ void main() {
 
     KitStore(null).put('dock', false);
     _expect(KitStore(null).read().isEmpty, 'no file, nothing kept');
+    // Every preset comes back whole from no memory, from junk, and from its
+    // own memory; and one preset's memory never leaks into another.
+    for (final preset in ShellPreset.all) {
+      for (final junk in <Object?>[null, 3, 'x', <String, Object?>{'bar': 4}]) {
+        final plain = preset.recall(junk);
+        _expect(
+          preset.matches(
+            look: plain.look,
+            bar: plain.bar,
+            dock: plain.dock,
+            barMode: plain.barMode,
+          ),
+          '${preset.id} as shipped from $junk',
+        );
+      }
+      final changed = <String, Object?>{...preset.bar, 'partGap': 11};
+      final memory = preset.remember(
+        look: 'terminal',
+        barMode: 'shown',
+        bar: <String, Object?>{...changed, 'showWifi': false},
+        dock: <String, Object?>{...preset.dock, 'align': 'center', 'extra': 1},
+      );
+      final back = preset.recall(memory);
+      _expect(back.look == 'terminal', '${preset.id} keeps its look');
+      _expect(back.bar['partGap'] == 11, '${preset.id} keeps a change');
+      _expect(!back.bar.containsKey('showWifi'), 'only layout keys are kept');
+      _expect(back.dock['align'] == 'center', '${preset.id} keeps the dock');
+      _expect(!back.dock.containsKey('extra'), 'only the dock layout keys');
+      _expect(
+        back.bar.length == preset.bar.length &&
+            back.dock.length == preset.dock.length,
+        '${preset.id} comes back whole',
+      );
+      // No dock running: the dock's earlier memory stays.
+      final later = preset.remember(
+        look: 'mac',
+        barMode: 'shown',
+        bar: changed,
+        before: memory,
+      );
+      _expect(
+        preset.recall(later).dock['align'] == 'center',
+        '${preset.id} keeps the dock while none runs',
+      );
+      // A value of the wrong kind falls back to what ships.
+      final wrong = preset.recall(<String, Object?>{
+        'bar': <String, Object?>{'shape': 5, 'start': 'x', 'partGap': 'wide'},
+        'dock': <String, Object?>{'leading': <Object?>[1, 2]},
+      });
+      _expect(
+        wrong.bar['shape'] == preset.bar['shape'] &&
+            wrong.bar['partGap'] == preset.bar['partGap'] &&
+            wrong.dock['leading'] == preset.dock['leading'],
+        '${preset.id} ignores values of the wrong kind',
+      );
+    }
     stdout.writeln('All shell preset and store tests passed.');
   } finally {
     directory.deleteSync(recursive: true);

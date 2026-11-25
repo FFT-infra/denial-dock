@@ -114,7 +114,8 @@ class _BarSettingsPanelState extends ConsumerState<BarSettingsPanel> {
   /// Puts the bar back as it came. The look and the preset live outside the
   /// bar's own settings, and go back with them.
   void _restore() {
-    applyShellPreset(ref, ShellPreset.denial);
+    forgetShellPresets();
+    applyShellPreset(ref, ShellPreset.denial, fresh: true);
     ref
         .read(barSettingsProvider.notifier)
         .save((s) => BarSettings(recentsClearedAt: s.recentsClearedAt));

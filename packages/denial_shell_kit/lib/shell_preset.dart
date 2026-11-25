@@ -236,4 +236,67 @@ class ShellPreset {
     // Numbers compare by value, so 6 in a preset is 6.0 from a slider.
     return a == b;
   }
+
+  /// The shell as it stands, in the shape [recall] reads: what to keep for
+  /// this preset when the user goes to another. Only the keys the preset
+  /// decides are kept; [dock] is null while no dock runs, and then the
+  /// dock's part of an earlier memory in [before] stays.
+  Map<String, Object?> remember({
+    required String look,
+    required String barMode,
+    required Map<String, Object?> bar,
+    Map<String, Object?>? dock,
+    Object? before,
+  }) => <String, Object?>{
+    'look': look,
+    'barMode': barMode,
+    'bar': <String, Object?>{
+      for (final key in this.bar.keys) key: bar[key],
+    },
+    if (dock != null)
+      'dock': <String, Object?>{
+        for (final key in this.dock.keys)
+          if (dock.containsKey(key)) key: dock[key],
+      }
+    else if (before is Map && before['dock'] is Map)
+      'dock': before['dock'],
+  };
+
+  /// This preset as the user left it: [memory] laid over what the preset
+  /// ships with, key by key, so a memory written by an older build that
+  /// lacks a key, or holds one of the wrong kind, still gives a whole
+  /// preset. Null or anything that is no map gives the preset as shipped.
+  ({String look, String barMode, Map<String, Object?> bar, Map<String, Object?> dock})
+  recall(Object? memory) {
+    Map<String, Object?> over(Map<String, Object?> base, Object? saved) =>
+        <String, Object?>{
+          for (final entry in base.entries)
+            entry.key:
+                saved is Map &&
+                    saved.containsKey(entry.key) &&
+                    _kin(entry.value, saved[entry.key])
+                ? saved[entry.key]
+                : entry.value,
+        };
+    final map = memory is Map ? memory : const <Object?, Object?>{};
+    final look = map['look'];
+    final mode = map['barMode'];
+    return (
+      look: look is String ? look : this.look,
+      barMode: mode is String ? mode : barMode,
+      bar: over(bar, map['bar']),
+      dock: over(dock, map['dock']),
+    );
+  }
+
+  /// Whether [saved] may stand in for [shipped]: the same kind of value.
+  /// A key that ships as null (no value set) takes a number or null.
+  static bool _kin(Object? shipped, Object? saved) => switch (shipped) {
+    null => saved == null || saved is num,
+    num() => saved is num,
+    String() => saved is String,
+    bool() => saved is bool,
+    List() => saved is List && saved.every((item) => item is String),
+    _ => false,
+  };
 }

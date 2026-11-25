@@ -1,5 +1,6 @@
 import 'package:denial_shell_kit/kit_dock_link.dart';
 import 'package:denial_shell_kit/kit_host.dart';
+import 'package:denial_shell_kit/kit_store.dart';
 import 'package:denial_shell_kit/kit_style.dart';
 import 'package:denial_shell_kit/shell_preset.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -40,15 +41,42 @@ class BarSettingsController extends AsyncNotifier<BarSettings> {
 /// much of itself the bar draws, and the dock's layout. Every other setting
 /// of the bar and the dock stays as it is. With no dock running the dock's
 /// part waits in the kit until one starts.
-void applyShellPreset(WidgetRef ref, ShellPreset preset) {
-  kitStyle.choose(KitStyle.byId(preset.look));
+///
+/// Each preset remembers how the user left it: going to another keeps the
+/// one in force under its name, and coming back brings it out again. With
+/// [fresh] the preset is applied as it ships and its memory is dropped.
+void applyShellPreset(WidgetRef ref, ShellPreset preset, {bool fresh = false}) {
+  final settings = ref.read(barSettingsProvider).value;
+  final stored = kitStore.read()['presets'];
+  final memory = <String, Object?>{
+    if (stored is Map)
+      for (final entry in stored.entries)
+        if (entry.key is String) entry.key as String: entry.value,
+  };
+  final leaving = ShellPreset.byId(kitPreset.value);
+  if (settings != null && leaving.id != preset.id) {
+    memory[leaving.id] = leaving.remember(
+      look: kitStyle.value.id,
+      barMode: kitBarMode.value.key,
+      bar: settings.layoutJson(),
+      dock: kitDock.layout,
+      before: memory[leaving.id],
+    );
+  }
+  if (fresh) memory.remove(preset.id);
+  kitStore.put('presets', memory);
+  final next = preset.recall(memory[preset.id]);
+  kitStyle.choose(KitStyle.byId(next.look));
   kitPreset.value = preset.id;
-  kitBarMode.value = KitBarMode.parse(preset.barMode);
-  kitDock.apply(preset.dock);
+  kitBarMode.value = KitBarMode.parse(next.barMode);
+  kitDock.apply(next.dock);
   ref
       .read(barSettingsProvider.notifier)
-      .save((settings) => settings.withLayout(preset.bar));
+      .save((settings) => settings.withLayout(next.bar));
 }
+
+/// Drops what every preset remembers.
+void forgetShellPresets() => kitStore.put('presets', <String, Object?>{});
 
 /// Whether the shell has been changed since [preset] was applied. The dock
 /// counts while one runs.

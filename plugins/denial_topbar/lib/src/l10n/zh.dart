@@ -252,7 +252,7 @@ const Map<String, String> zh = <String, String>{
   'Islands': '分块悬浮',
   'Soft': '柔和',
   'Terminal': '终端',
-  'A preset sets the look and the layout of the bar. Which items show stays as you set it.': '预设会换掉外观和栏的布局，显示哪些项目保持你原来的设置。',
+  'A preset sets the look and the layout of the bar and the Dock. Each preset remembers the changes you make to it; choose the one in use again to put it back as it came. Which items show stays as you set it.': '预设决定外观以及顶栏和程序坞的布局。每个预设会记住你对它的改动，切走再切回来还在；再点一次正在用的预设，就恢复成它原本的样子。显示哪些项目保持你的设置。',
   'Accent': '强调色',
   'Add to': '添加到',
   'Border colour': '描边颜色',
