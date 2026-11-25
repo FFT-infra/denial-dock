@@ -108,7 +108,10 @@ abstract final class KitMotion {
   /// as a state before its first build.
   static bool reduced(BuildContext context) =>
       MediaQuery.maybeDisableAnimationsOf(context) ??
-      WidgetsBinding.instance.platformDispatcher.accessibilityFeatures
+      WidgetsBinding
+          .instance
+          .platformDispatcher
+          .accessibilityFeatures
           .disableAnimations;
 
   /// The speed multiplier in force, without the context needed to read the
@@ -131,9 +134,18 @@ abstract final class KitMotion {
         .disableAnimations,
   );
 
-  /// [nominal] with the user's speed applied; zero under reduced motion.
+  /// The pace of a transition that plays once: the user's speed times the
+  /// look's own, so a brisk look shortens every such transition. Loops and
+  /// springs keep to [pace].
+  static KitMotionPace timed(BuildContext context) => KitMotionPace(
+    speed: kitSpeed.value * kitStyle.value.pace,
+    reduced: reduced(context),
+  );
+
+  /// [nominal] with the user's speed and the look's pace applied; zero under
+  /// reduced motion.
   static Duration duration(BuildContext context, Duration nominal) =>
-      pace(context).duration(nominal);
+      timed(context).duration(nominal);
 
   /// [nominal] with only the speed applied: for a repeating animation, and
   /// for an AnimatedSize, which re-dirties itself during layout when its

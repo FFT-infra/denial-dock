@@ -39,6 +39,8 @@ class KitStyle {
     this.borderFromAccent = false,
     this.opaque = false,
     this.shadow = 1,
+    this.switchTuning,
+    this.pace = 1,
   });
 
   /// Denial's own material: the wallpaper's accent, the shell's font and
@@ -93,6 +95,7 @@ class KitStyle {
     cornerScale: 0.6,
     opaque: true,
     shadow: 0.6,
+    switchTuning: KitSpringTuning(620, 1),
   );
 
   /// A terminal's look: square corners, a 2 px line in the accent around
@@ -117,6 +120,8 @@ class KitStyle {
     borderFromAccent: true,
     opaque: true,
     shadow: 0,
+    switchTuning: KitSpringTuning(1000, 1),
+    pace: 1.6,
   );
 
   static const List<KitStyle> presets = <KitStyle>[denial, mac, soft, terminal];
@@ -149,6 +154,15 @@ class KitStyle {
 
   /// How much of the usual shadow a panel casts, 0 to 1.
   final double shadow;
+
+  /// A switch's knob crossing over, when the look does not take the usual
+  /// one for its kind; see [toggle].
+  final KitSpringTuning? switchTuning;
+
+  /// How much faster than written this look's timed transitions run. It
+  /// multiplies the user's speed for durations only: the springs are tuned
+  /// per look already.
+  final double pace;
 
   /// The accent when the look brings its own; otherwise the shell's.
   final Color? fixedAccent;
@@ -225,6 +239,50 @@ class KitStyle {
   /// A radius that does not follow the shell's roundness, such as a row's or
   /// a button's, in this look.
   double corner(double base) => base * cornerScale;
+
+  /// Whether every corner is square. Round things then turn square too: a
+  /// disc is a block, a pill a bar, a switch a block sliding in a slot.
+  bool get square => cornerScale == 0;
+
+  /// The corner radius of a pill [height] tall: half of it, so the ends are
+  /// round, or none where the look is square.
+  double pill(double height) => square ? 0 : height / 2;
+
+  /// The outline of something round [size] across, such as an icon's plate
+  /// or a knob: a circle, or a block where the look is square.
+  BorderRadius disc(double size) => BorderRadius.circular(pill(size));
+
+  /// Whether controls are flat fills behind a thin line, with no gloss, no
+  /// inner shade and no shadow of their own.
+  bool get flat => opaque && shadow == 0;
+
+  /// Whether surfaces are glass: lit from above and blurring what is behind.
+  bool get glassy => !opaque;
+
+  /// The thin line around a control in a [flat] look; null where controls
+  /// carry no line.
+  Border? controlLine(ShellThemeData theme) =>
+      flat ? Border.all(color: theme.colors.hairline) : null;
+
+  /// [shadows] as this look casts them: fainter, or none at all.
+  List<BoxShadow> cast(List<BoxShadow> shadows) => shadow >= 1
+      ? shadows
+      : shadow <= 0
+      ? const <BoxShadow>[]
+      : <BoxShadow>[
+          for (final one in shadows)
+            one.copyWith(
+              color: one.color.withValues(alpha: one.color.a * shadow),
+            ),
+        ];
+
+  /// A switch's knob crossing over: with a little life where the look has
+  /// any, and dead-beat where it asks for that.
+  KitSpringTuning get toggle =>
+      switchTuning ??
+      (liquid
+          ? const KitSpringTuning(520, 0.6)
+          : const KitSpringTuning(620, 0.72));
 
   /// A panel's fill in this look.
   Color panelFill(Color fill) => opaque ? fill.withValues(alpha: 1) : fill;

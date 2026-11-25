@@ -73,6 +73,7 @@ class KitLayer extends InheritedWidget {
   /// closes it: answering true means the content stepped back a level itself
   /// (left a detail page, ended an edit) and the layer stays. Null clears it.
   final ValueChanged<bool Function()?>? interceptBack;
+
   /// Set only on a layer shown with `contentEndsClose`: the content calls it
   /// once its own exit has come to rest, and the layer goes away then.
   final VoidCallback? finish;
@@ -256,7 +257,7 @@ class _KitLayerState extends State<_KitLayerHost>
 
   @override
   Widget build(BuildContext context) {
-    final pace = KitMotion.pace(context);
+    final pace = KitMotion.timed(context);
     _controller
       ..duration = pace.duration(widget.open)
       ..reverseDuration = pace.duration(widget.close);
