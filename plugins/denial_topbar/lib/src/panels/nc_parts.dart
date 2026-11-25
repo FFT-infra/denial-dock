@@ -5,6 +5,8 @@ import 'package:denial_flutter_sdk/effects.dart';
 import 'package:denial_flutter_sdk/theme.dart';
 import 'package:denial_shell_kit/continuous_corners.dart';
 import 'package:denial_shell_kit/glass_card.dart';
+import 'package:denial_shell_kit/kit_glass.dart';
+import 'package:denial_shell_kit/kit_material.dart';
 import 'package:denial_shell_kit/kit_motion.dart';
 import 'package:denial_shell_kit/kit_springs.dart';
 import 'package:denial_shell_kit/kit_style.dart';
@@ -86,9 +88,9 @@ List<Shadow>? ncGroundShadow(BuildContext context) =>
 /// Corners still go through [KitStyle.radius] and colours through the theme;
 /// these are the sizes and the few colours that are the centre's own.
 abstract final class NcLook {
-  /// The width of a card, and how far it stands from the screen's edge.
-  static const double width = 372;
-  static const double edge = 10;
+  /// A card's width, its distance from the screen's edge, the space between
+  /// two cards and the dimming behind the column, as the look measures them.
+  static KitCardLayout get layout => kitStyle.value.materials.cardLayout;
 
   /// Corners of a card and of a widget, at the shell's normal roundness.
   static const double cardRadius = 22;
@@ -493,12 +495,24 @@ class NcPlate extends StatelessWidget {
     final theme = context.shellTheme;
     final style = KitStyle.of(context);
     final framed = NcScope.of(context).framed;
-    final radius = style.radius(theme, NcLook.cardRadius);
-    final panel = style.panelFill(GlassCard.fillOf(theme));
+    // The card's material: a look that measured one brings its own fill,
+    // corners and blur; any other takes the shell's panel.
+    final material = kitMaterialOf(context, KitTier.card);
+    final radius = style.radius(theme, material.radius ?? NcLook.cardRadius);
+    final panel = material.fill.fixed
+        ? kitToneColor(material.fill, theme, style)
+        : style.panelFill(GlassCard.fillOf(theme));
     final fill = framed ? NcLook.framedFill(theme, panel) : panel;
-    final solid = fill.a < NcLook.solid
-        ? fill.withValues(alpha: NcLook.solid)
+    final solid = fill.a < material.solid
+        ? fill.withValues(alpha: material.solid)
         : fill;
+    final glassMode = theme.transparencyMode == ShellTransparencyMode.glass;
+    final plan = KitBlurMath.plan(
+      material,
+      enabled: theme.backdropBlurEnabled,
+      glass: glassMode,
+      base: glassMode ? theme.glass.blurSigma : theme.backdropBlurSigma,
+    );
     final repaint = Listenable.merge(<Listenable>[unfold, glass]);
     _PlatePainter layer(bool under) => _PlatePainter(
       under: under,
@@ -523,17 +537,47 @@ class NcPlate extends StatelessWidget {
     return CustomPaint(
       painter: layer(true),
       foregroundPainter: layer(false),
-      child: blur && fill.a < 1
-          ? ShellBackdropBlur(
+      child: !blur || fill.a >= 1 || !plan.blurs
+          ? null
+          : plan.direct
+          // A sigma of the material's own, with its saturation.
+          ? FadeTransition(
+              opacity: glass,
+              child: ClipPath(
+                clipper: _PlateClip(radius),
+                child: BackdropFilter.grouped(
+                  filterConfig: KitGlass.filterFor(
+                    theme,
+                    sigma: plan.sigma,
+                    saturation: material.saturation,
+                  ),
+                  blendMode: BlendMode.srcOver,
+                  child: const SizedBox.expand(),
+                ),
+              ),
+            )
+          : ShellBackdropBlur(
               grouped: true,
               borderRadius: BorderRadius.circular(radius),
               // Faded by the blur itself; at nothing it is not composited.
               opacity: glass,
               child: const SizedBox.expand(),
-            )
-          : null,
+            ),
     );
   }
+}
+
+class _PlateClip extends CustomClipper<Path> {
+  const _PlateClip(this.radius);
+
+  final double radius;
+
+  @override
+  Path getClip(Size size) =>
+      continuousRoundedRectPath(Offset.zero & size, radius);
+
+  @override
+  bool shouldReclip(_PlateClip old) => old.radius != radius;
 }
 
 /// One of the two layers of a plate: what lies [under] the blur (the shadow
