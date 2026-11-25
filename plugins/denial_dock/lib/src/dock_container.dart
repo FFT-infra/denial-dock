@@ -52,6 +52,7 @@ import 'dock_look_style.dart';
 import 'dock_menu.dart';
 import 'dock_motion.dart';
 import 'dock_part_cell.dart';
+import 'dock_parts.dart';
 import 'dock_preferences.dart';
 import 'dock_scroll.dart';
 import 'dock_sections.dart';
@@ -324,6 +325,7 @@ class _DockContainerState extends ConsumerState<DockContainer>
     kitReservation.addListener(_onShellState);
     if (widget.environment.isMainOutput) kitDock.attach(_applyLayout);
     registerDockSettingsPages();
+    registerDockParts();
   }
 
   void _onSpeed() {

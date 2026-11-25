@@ -1249,6 +1249,31 @@ class _DockSettingsPanelState extends ConsumerState<DockSettingsPanel> {
                 value: settings.showTrash,
                 onChanged: (value) => _controller.setShowTrash(show: value),
               ),
+              // Only an edge bar has room to spread its ends apart.
+              if (!floating)
+                _SegmentedField<DockAlign>(
+                label: _zh ? '贴边通栏里的应用' : 'Applications on an edge bar',
+                value: settings.align,
+                options: [
+                  (
+                    DockAlign.packed,
+                    _zh ? '整体居中' : 'One group',
+                    Icons.align_horizontal_center,
+                  ),
+                  (
+                    DockAlign.center,
+                    _zh ? '两端分开，居中' : 'Ends apart, centred',
+                    Icons.format_align_center,
+                  ),
+                  (
+                    DockAlign.start,
+                    _zh ? '两端分开，靠起始' : 'Ends apart, at the start',
+                    Icons.format_align_left,
+                  ),
+                ],
+                onChanged: (value) =>
+                    _controller.applyLayout({'align': value.key}),
+              ),
               _ToggleRow(
                 label: _zh ? '锁定 Dock 内容' : 'Lock the dock',
                 value: settings.lockItems,

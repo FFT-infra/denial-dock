@@ -8,6 +8,10 @@ part of 'bar_settings_panel.dart';
         (item, BarIcons.circleFill);
   }
   return switch (id) {
+    'dock.launcher' => ('Launcher', BarIcons.grid),
+    'dock.stacks' => ('Folders and files', BarIcons.folder),
+    'dock.trash' => ('Trash', BarIcons.trash),
+    'dock.divider' => ('Separator', BarIcons.minus),
     BarPart.system => ('System menu', BarIcons.circleFill),
     BarPart.workspaces => ('Workspaces', BarIcons.squareGrid),
     BarPart.app => ('Application name', BarIcons.macwindow),
@@ -21,6 +25,43 @@ part of 'bar_settings_panel.dart';
 }
 
 const List<String> _zoneNames = <String>['Start', 'Centre', 'End'];
+
+const List<String> _dockZoneNames = <String>['Before', 'After'];
+const List<String> _dockZoneKeys = <String>['leading', 'trailing'];
+
+/// Chinese for the labels this page added for the dock and the bar's mode.
+/// Anything not here goes through the bar's own tables.
+const Map<String, String> _layoutZh = <String, String>{
+  'Launcher': '启动台',
+  'Folders and files': '文件夹与文件',
+  'Trash': '废纸篓',
+  'Before': '应用前',
+  'After': '应用后',
+  'Top bar': '顶栏栏体',
+  'Shown': '显示',
+  'Island only': '仅灵动岛',
+  'Hidden': '隐藏',
+  'Dock': '程序坞',
+  'Edge bar': '贴边通栏',
+  'Applications': '应用区',
+  'One group': '整体居中',
+  'Centred': '居中',
+  'At the start': '靠起始',
+  'Dock parts': '程序坞部件',
+  'With the bar hidden or reduced to its island, a Dock that always shows keeps its edge free of windows.':
+      '栏体隐藏或只留灵动岛时，始终显示的程序坞会让窗口避开它所在的边。',
+  'What sits before and after the applications. Parts of the bar placed here open their panels from the Dock.':
+      '应用图标前后放什么。放到这里的顶栏部件会从程序坞一侧展开面板。',
+  'Always show': '始终显示',
+};
+
+extension on BuildContext {
+  /// A label of this page in the shell's language.
+  String lt(String en) =>
+      Localizations.maybeLocaleOf(this)?.languageCode == 'zh'
+      ? _layoutZh[en] ?? tr(en)
+      : tr(en);
+}
 
 /// The layout page: presets, the parts of the three zones, the bar's shape
 /// and its measures.
@@ -41,7 +82,94 @@ class _LayoutPageState extends ConsumerState<_LayoutPage> {
   /// The zone a part from the palette goes into.
   int _target = 2;
 
+  /// The same for the dock's two zones.
+  (int, int)? _dockPicked;
+  int _dockTarget = 1;
+
   BarSettings get _s => widget.settings;
+
+  void _shellChanged() {
+    if (mounted) setState(() {});
+  }
+
+  @override
+  void initState() {
+    super.initState();
+    kitDock.addListener(_shellChanged);
+    kitBarMode.addListener(_shellChanged);
+    kitParts.addListener(_shellChanged);
+  }
+
+  @override
+  void dispose() {
+    kitDock.removeListener(_shellChanged);
+    kitBarMode.removeListener(_shellChanged);
+    kitParts.removeListener(_shellChanged);
+    super.dispose();
+  }
+
+  /// The dock's two zones as it publishes them, or null with no dock.
+  List<List<String>>? get _dockZones {
+    final layout = kitDock.layout;
+    if (layout == null) return null;
+    return <List<String>>[
+      for (final key in _dockZoneKeys)
+        <String>[
+          for (final id in layout[key] as List? ?? const <Object?>[])
+            if (id is String) id,
+        ],
+    ];
+  }
+
+  void _setDockZones(List<List<String>> zones) => kitDock.apply(
+    <String, Object?>{_dockZoneKeys[0]: zones[0], _dockZoneKeys[1]: zones[1]},
+  );
+
+  /// Moves the picked dock part one step along the dock, over the
+  /// applications into the other zone when it is at the end of its own.
+  void _dockMove(int by) {
+    final picked = _dockPicked;
+    final zones = _dockZones;
+    if (picked == null || zones == null) return;
+    final (zone, at) = picked;
+    if (at >= zones[zone].length) return;
+    final to = at + by;
+    if (to >= 0 && to < zones[zone].length) {
+      zones[zone].insert(to, zones[zone].removeAt(at));
+      setState(() => _dockPicked = (zone, to));
+    } else {
+      final target = zone + by;
+      if (target < 0 || target > 1) return;
+      final id = zones[zone].removeAt(at);
+      final place = by > 0 ? 0 : zones[target].length;
+      zones[target].insert(place, id);
+      setState(() => _dockPicked = (target, place));
+    }
+    _setDockZones(zones);
+  }
+
+  void _dockRemove() {
+    final picked = _dockPicked;
+    final zones = _dockZones;
+    if (picked == null || zones == null) return;
+    if (picked.$2 >= zones[picked.$1].length) return;
+    zones[picked.$1].removeAt(picked.$2);
+    setState(() => _dockPicked = null);
+    _setDockZones(zones);
+  }
+
+  void _dockAdd(String id) {
+    final zones = _dockZones;
+    if (zones == null) return;
+    if (kitParts[id]?.single ?? true) {
+      for (final zone in zones) {
+        zone.remove(id);
+      }
+    }
+    zones[_dockTarget].add(id);
+    setState(() => _dockPicked = (_dockTarget, zones[_dockTarget].length - 1));
+    _setDockZones(zones);
+  }
 
   void _setZones(BarZones zones, {bool island = false}) => widget.save(
     (s) => s.copyWith(zones: zones, islandEnabled: island ? true : null),
@@ -106,6 +234,26 @@ class _LayoutPageState extends ConsumerState<_LayoutPage> {
     }
     final pickedId = picked == null ? null : zones.zone(picked.$1)[picked.$2];
 
+    // The dock's zones, while a dock runs to edit.
+    final dockLayout = kitDock.layout;
+    final dockZones = _dockZones;
+    var dockPicked = _dockPicked;
+    if (dockPicked != null &&
+        (dockZones == null ||
+            dockPicked.$2 >= dockZones[dockPicked.$1].length)) {
+      dockPicked = null;
+    }
+    final dockPickedId = dockPicked == null || dockZones == null
+        ? null
+        : dockZones[dockPicked.$1][dockPicked.$2];
+    final dockPalette = <String>[
+      if (dockZones != null)
+        for (final id in kitParts.idsFor(KitHostKind.dock))
+          if (!(kitParts[id]?.single ?? true) ||
+              !dockZones.any((zone) => zone.contains(id)))
+            id,
+    ];
+
     final palette = <String>[
       for (final id in BarPart.all)
         if (id != BarPart.gap &&
@@ -167,25 +315,34 @@ class _LayoutPageState extends ConsumerState<_LayoutPage> {
           children: <Widget>[
             Padding(
               padding: const EdgeInsets.all(10),
-              child: Row(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: <Widget>[
-                  for (final preset in ShellPreset.all) ...<Widget>[
-                    if (preset != ShellPreset.all.first)
-                      const SizedBox(width: 8),
-                    Expanded(
-                      child: _PresetCard(
-                        preset: preset,
-                        selected: preset.id == current.id,
-                        modified: preset.id == current.id && modified,
-                        onTap: () {
-                          setState(() => _picked = null);
-                          applyShellPreset(ref, preset);
-                        },
-                      ),
-                    ),
-                  ],
-                ],
+              // Four to a row, so a card stays wide enough to read.
+              child: LayoutBuilder(
+                builder: (context, constraints) {
+                  const gap = 8.0;
+                  final width = (constraints.maxWidth - gap * 3) / 4;
+                  return Wrap(
+                    spacing: gap,
+                    runSpacing: 6,
+                    children: <Widget>[
+                      for (final preset in ShellPreset.all)
+                        SizedBox(
+                          width: width,
+                          child: _PresetCard(
+                            preset: preset,
+                            selected: preset.id == current.id,
+                            modified: preset.id == current.id && modified,
+                            onTap: () {
+                              setState(() {
+                                _picked = null;
+                                _dockPicked = null;
+                              });
+                              applyShellPreset(ref, preset);
+                            },
+                          ),
+                        ),
+                    ],
+                  );
+                },
               ),
             ),
           ],
@@ -491,6 +648,194 @@ class _LayoutPageState extends ConsumerState<_LayoutPage> {
           ],
         ),
         _Group(
+          title: context.lt('Top bar'),
+          note: context.lt(
+            'With the bar hidden or reduced to its island, a Dock that always shows keeps its edge free of windows.',
+          ),
+          children: <Widget>[
+            _Row(
+              label: context.lt('Top bar'),
+              trailing: _Segments<KitBarMode>(
+                value: kitBarMode.value,
+                options: <(KitBarMode, String)>[
+                  (KitBarMode.shown, context.lt('Shown')),
+                  (KitBarMode.islandOnly, context.lt('Island only')),
+                  (KitBarMode.hidden, context.lt('Hidden')),
+                ],
+                onChanged: (mode) => setState(() => kitBarMode.value = mode),
+              ),
+            ),
+          ],
+        ),
+        if (dockZones != null && dockLayout != null)
+          _Group(
+            title: context.lt('Dock parts'),
+            note: context.lt(
+              'What sits before and after the applications. Parts of the bar placed here open their panels from the Dock.',
+            ),
+            children: <Widget>[
+              for (var zone = 0; zone < 2; zone++)
+                Padding(
+                  padding: const EdgeInsets.fromLTRB(12, 8, 10, 8),
+                  child: Row(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: <Widget>[
+                      SizedBox(
+                        width: 52,
+                        child: Padding(
+                          padding: const EdgeInsets.only(top: 6),
+                          child: Text(
+                            context.lt(_dockZoneNames[zone]),
+                            style: BarType.caption.copyWith(
+                              fontSize: 12,
+                              color: theme.colors.textSecondary,
+                            ),
+                          ),
+                        ),
+                      ),
+                      Expanded(
+                        child: dockZones[zone].isEmpty
+                            ? Padding(
+                                padding: const EdgeInsets.only(top: 6),
+                                child: Text(
+                                  context.tr('Empty'),
+                                  style: BarType.caption.copyWith(
+                                    fontSize: 12,
+                                    color: theme.colors.textTertiary,
+                                  ),
+                                ),
+                              )
+                            : Wrap(
+                                spacing: 6,
+                                runSpacing: 6,
+                                children: <Widget>[
+                                  for (
+                                    var at = 0;
+                                    at < dockZones[zone].length;
+                                    at++
+                                  )
+                                    _PartChip(
+                                      id: dockZones[zone][at],
+                                      selected: dockPicked == (zone, at),
+                                      // Placed, but no running plugin
+                                      // offers it.
+                                      dimmed:
+                                          kitParts[dockZones[zone][at]] == null,
+                                      onTap: () => setState(
+                                        () => _dockPicked =
+                                            dockPicked == (zone, at)
+                                            ? null
+                                            : (zone, at),
+                                      ),
+                                    ),
+                                ],
+                              ),
+                      ),
+                    ],
+                  ),
+                ),
+              _Row(
+                label: dockPickedId == null
+                    ? context.tr('No part picked')
+                    : context.lt(_partInfo(dockPickedId).$1),
+                enabled: dockPickedId != null,
+                trailing: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: <Widget>[
+                    _IconButton(
+                      icon: BarIcons.chevronLeft,
+                      onTap: () => _dockMove(-1),
+                    ),
+                    const SizedBox(width: 6),
+                    _IconButton(
+                      icon: BarIcons.chevronRight,
+                      onTap: () => _dockMove(1),
+                    ),
+                    const SizedBox(width: 6),
+                    SizedBox(
+                      width: 72,
+                      child: _TextButton(
+                        label: context.tr('Remove'),
+                        onTap: _dockRemove,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              Padding(
+                padding: const EdgeInsets.fromLTRB(12, 8, 10, 10),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: <Widget>[
+                    Row(
+                      children: <Widget>[
+                        Expanded(
+                          child: Text(
+                            context.tr('Add to'),
+                            style: BarType.menuRow.copyWith(
+                              color: theme.colors.textPrimary,
+                            ),
+                          ),
+                        ),
+                        _Segments<int>(
+                          value: _dockTarget,
+                          options: <(int, String)>[
+                            for (var zone = 0; zone < 2; zone++)
+                              (zone, context.lt(_dockZoneNames[zone])),
+                          ],
+                          onChanged: (zone) =>
+                              setState(() => _dockTarget = zone),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 8),
+                    Wrap(
+                      spacing: 6,
+                      runSpacing: 6,
+                      children: <Widget>[
+                        for (final id in dockPalette)
+                          _PartChip(
+                            id: id,
+                            add: true,
+                            onTap: () => _dockAdd(id),
+                          ),
+                      ],
+                    ),
+                  ],
+                ),
+              ),
+              _Pair(
+                choice<String>(
+                  context.lt('Dock'),
+                  dockLayout['shape'] == 'bar' ? 'bar' : 'floating',
+                  <(String, String)>[
+                    ('floating', context.tr('Floating')),
+                    ('bar', context.lt('Edge bar')),
+                  ],
+                  (v) => kitDock.apply(<String, Object?>{'shape': v}),
+                ),
+                choice<String>(
+                  context.lt('Applications'),
+                  '${dockLayout['align'] ?? 'packed'}',
+                  <(String, String)>[
+                    ('packed', context.lt('One group')),
+                    ('center', context.lt('Centred')),
+                    ('start', context.lt('At the start')),
+                  ],
+                  (v) => kitDock.apply(<String, Object?>{'align': v}),
+                  enabled: dockLayout['shape'] == 'bar',
+                ),
+              ),
+              _Switch(
+                label: context.lt('Always show'),
+                value: dockLayout['visibility'] == 'always',
+                onChanged: (v) => kitDock.apply(<String, Object?>{
+                  'visibility': v ? 'always' : 'smart',
+                }),
+              ),
+            ],
+          ),
+        _Group(
           note: context.tr(
             'The Dock is a plugin of its own. This switch works under every preset, and no preset changes it.',
           ),
@@ -682,7 +1027,7 @@ class _PartChip extends StatelessWidget {
               BarGlyph(add ? BarIcons.plus : icon, size: 11, color: ink),
               const SizedBox(width: 5),
               Text(
-                context.tr(label),
+                context.lt(label),
                 maxLines: 1,
                 style: BarType.caption.copyWith(fontSize: 12, color: ink),
               ),
