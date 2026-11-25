@@ -12,6 +12,7 @@ import 'package:denial_flutter_sdk/system_services.dart' show WifiNetwork;
 import 'package:denial_flutter_sdk/theme.dart';
 import 'package:denial_flutter_sdk/wallpaper.dart';
 import 'package:denial_shell_kit/kit_motion.dart';
+import 'package:denial_shell_kit/shell_preset.dart';
 import 'package:denial_shell_kit/kit_part.dart';
 import 'package:denial_shell_kit/kit_requests.dart';
 import 'package:flutter/material.dart';
@@ -264,6 +265,10 @@ class _TopBarSurfaceState extends ConsumerState<TopBarSurface> {
     switch (words.first) {
       case 'close':
         closeKitPanel();
+      case 'preset':
+        if (words.length > 1) {
+          applyShellPreset(ref, ShellPreset.byId(words[1]));
+        }
       case 'cc':
         status.onControlCenter();
       case 'clock':
