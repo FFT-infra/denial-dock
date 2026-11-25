@@ -11,6 +11,8 @@ import 'package:denial_shell_kit/kit_motion.dart';
 import 'package:denial_shell_kit/kit_springs.dart';
 import 'package:denial_shell_kit/kit_style.dart';
 import 'package:flutter/foundation.dart';
+import 'package:flutter/gestures.dart';
+import 'package:flutter/rendering.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter/widgets.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -33,17 +35,49 @@ const double notificationCenterWidth = NcLook.width;
 /// Opens the column of notifications and widgets at the bar's far end. There
 /// is no slab under it: every card and every widget is a piece of its own on
 /// the wallpaper, which is dimmed behind the column so the text reads.
+///
+/// A look with solid panels shows the same content another way: a framed
+/// panel hanging under [anchor], the bar item that opened it, as wide as the
+/// column and scrolling once it is taller than its share of the screen.
 void showNotificationCenter({
   required WidgetRef ref,
   required ShellServices services,
   required PanelEdge side,
   required double barHeight,
+  GlobalKey? anchor,
   bool notifications = true,
   bool widgets = true,
   String panelId = 'clock',
 }) {
   if (kitOpenPanel.value == panelId) {
     closeKitPanel();
+    return;
+  }
+  if (anchor != null &&
+      NcMotion.hangs(opaque: kitStyle.value.opaque, anchored: true)) {
+    showBarPanel(
+      ref: ref,
+      panelId: panelId,
+      anchor: anchor,
+      side: side,
+      barHeight: barHeight,
+      placement: BarPanelAnchor.centred,
+      width: NcMotion.hangWidth(
+        plate: NcLook.width,
+        reach: NcCard.reach,
+        sceneWidth:
+            MediaQuery.maybeSizeOf(ref.context)?.width ?? double.infinity,
+      ),
+      builder: (context, close) => _Column(
+        services: services,
+        side: side,
+        barHeight: barHeight,
+        notifications: notifications,
+        widgets: widgets,
+        framed: true,
+        onClose: close,
+      ),
+    );
     return;
   }
   showKitLayer(
@@ -78,8 +112,11 @@ class _Column extends ConsumerStatefulWidget {
     required this.notifications,
     required this.widgets,
     required this.onClose,
+    this.framed = false,
   });
 
+  /// Hung in a framed panel under a bar item; see [NcHost.framed].
+  final bool framed;
   final ShellServices services;
   final PanelEdge side;
   final double barHeight;
@@ -159,13 +196,21 @@ class _ColumnState extends ConsumerState<_Column>
   VoidCallback get onClose => widget.onClose;
 
   @override
+  bool get framed => widget.framed;
+
+  @override
   void initState() {
     super.initState();
     debugCommand.addListener(_debug);
-    _slide
-      ..value = _liveValue.clamp(0.0, 1.0)
-      ..velocity = _liveVelocity;
-    _live = this;
+    if (framed) {
+      // The panel that frames it does the coming and going.
+      _slide.value = 1;
+    } else {
+      _slide
+        ..value = _liveValue.clamp(0.0, 1.0)
+        ..velocity = _liveVelocity;
+      _live = this;
+    }
     _springs
       ..addListener(_place)
       ..onRest = _rested;
@@ -244,6 +289,10 @@ class _ColumnState extends ConsumerState<_Column>
       _ => null,
     };
     if (open == null) return;
+    if (framed) {
+      if (_closing == open) setState(() => _closing = !open);
+      return;
+    }
     // The same spring both ways: a close while the column is still coming in
     // turns it round from where it is, at the speed it has.
     _slide.target = open ? 1 : 0;
@@ -691,8 +740,8 @@ class _ColumnState extends ConsumerState<_Column>
                 style: BarType.title.copyWith(
                   fontSize: 22,
                   fontWeight: FontWeight.w700,
-                  color: NcLook.onWallpaper,
-                  shadows: NcLook.onWallpaperShadow,
+                  color: ncGroundInk(context),
+                  shadows: ncGroundShadow(context),
                 ),
               ),
             ),
@@ -761,7 +810,16 @@ class _ColumnState extends ConsumerState<_Column>
     // The cards are [plate] wide and stand [NcLook.edge] from the screen's
     // edge. The column's own box is wider by what a card's close dot reaches
     // past its plate.
-    final plate = math.min(NcLook.width, scene.width - NcLook.edge * 2);
+    final plate = framed
+        ? NcMotion.hangPlate(
+            width: NcMotion.hangWidth(
+              plate: NcLook.width,
+              reach: NcCard.reach,
+              sceneWidth: scene.width,
+            ),
+            reach: NcCard.reach,
+          )
+        : math.min(NcLook.width, scene.width - NcLook.edge * 2);
     final width = plate + NcCard.reach * 2;
     final inset = NcLook.edge - NcCard.reach;
     final onLeft = side == PanelEdge.left;
@@ -792,8 +850,8 @@ class _ColumnState extends ConsumerState<_Column>
               child: Text(
                 context.tr('No Notifications'),
                 style: BarType.menuRow.copyWith(
-                  color: NcLook.onWallpaperDim,
-                  shadows: NcLook.onWallpaperShadow,
+                  color: ncGroundInk(context, dim: true),
+                  shadows: ncGroundShadow(context),
                 ),
               ),
             ),
@@ -860,6 +918,130 @@ class _ColumnState extends ConsumerState<_Column>
     };
     final menu = _menu;
 
+    // One reading of the screen for every card's blur.
+    final list = BackdropGroup(
+      // What scrolls is cut above and below, where the column ends. Its
+      // sides are open: a card dragged away leaves across the screen's
+      // edge, and a shadow is not cut off beside its card.
+      child: ClipRect(
+        clipper: const NcBandClip(),
+        // From the first row's top to the last one's bottom the whole
+        // width scrolls, under a wheel or a drag, the space between the
+        // cards included. On the wallpaper a tap in that space closes the
+        // column, as a press beside it does; in a framed panel the space is
+        // the panel's and does nothing.
+        child: _GapTap(
+          onTap: framed ? null : onClose,
+          child: CustomScrollView(
+            controller: _scroll,
+            shrinkWrap: true,
+            clipBehavior: Clip.none,
+            hitTestBehavior: HitTestBehavior.opaque,
+            slivers: <Widget>[
+              SliverPadding(
+                padding: const EdgeInsets.only(bottom: 4),
+                sliver: SliverList(
+                  // Every row keeps the repaint boundary the delegate gives
+                  // it, so a scroll moves painted cards.
+                  delegate: SliverChildBuilderDelegate(
+                    (context, index) =>
+                        _Row(key: rows[index].key, child: rows[index]),
+                    childCount: rows.length,
+                    findChildIndexCallback: (key) => places[key],
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+    final layers = <Widget>[
+      if (menu != null && !_closing)
+        Positioned.fill(
+          child: NcMenu(
+            anchor: menu.anchor,
+            items: menu.items,
+            keyboard: _keys.value,
+            onClose: _closeMenu,
+          ),
+        ),
+    ];
+
+    final Widget body;
+    if (framed) {
+      // The panel around it is the frame, the fill and the motion; this is
+      // only the list, held to its share of the screen.
+      body = ConstrainedBox(
+        constraints: BoxConstraints(
+          maxHeight: NcMotion.hangHeight(scene.height),
+        ),
+        child: IgnorePointer(
+          ignoring: _closing,
+          child: Stack(
+            key: _sceneKey,
+            children: <Widget>[
+              Padding(
+                padding: const EdgeInsets.all(NcMotion.hangPad),
+                child: list,
+              ),
+              ...layers,
+            ],
+          ),
+        ),
+      );
+    } else {
+      body = Stack(
+        key: _sceneKey,
+        fit: StackFit.expand,
+        children: <Widget>[
+          // The wallpaper darkens toward the edge the column is at. It is
+          // paint only, and follows the slide without a build.
+          Positioned(
+            left: onLeft ? 0 : null,
+            right: onLeft ? null : 0,
+            top: 0,
+            bottom: 0,
+            width: math.min(
+              scene.width,
+              width +
+                  inset +
+                  NcLook.dimReach +
+                  (onLeft || side == PanelEdge.right ? barHeight : 0),
+            ),
+            child: IgnorePointer(
+              child: RepaintBoundary(
+                child: CustomPaint(
+                  painter: _DimPainter(shown: _shown, fromLeft: onLeft),
+                ),
+              ),
+            ),
+          ),
+          Positioned(
+            left: onLeft ? barHeight + inset : null,
+            right: onLeft
+                ? null
+                : (side == PanelEdge.right ? barHeight + inset : inset),
+            top: side == PanelEdge.top ? barHeight + 8 : 10,
+            bottom: side == PanelEdge.bottom ? barHeight + 8 : 10,
+            width: width,
+            // The slide moves a layer that is already painted: no frame of
+            // it builds, lays out or paints the column again.
+            child: CompositedTranslation(
+              translation: _shift,
+              devicePixelRatio: MediaQuery.devicePixelRatioOf(context),
+              // A column on its way out takes no more input.
+              child: IgnorePointer(
+                ignoring: _closing,
+                child: Align(alignment: Alignment.topCenter, child: list),
+              ),
+            ),
+          ),
+          ...layers,
+        ],
+      );
+    }
+
     return NcScope(
       host: this,
       child: FocusScope(
@@ -868,103 +1050,78 @@ class _ColumnState extends ConsumerState<_Column>
         child: FocusTraversalGroup(
           child: Listener(
             onPointerDown: (_) => _keys.value = false,
-            child: Stack(
-              key: _sceneKey,
-              fit: StackFit.expand,
-              children: <Widget>[
-                // The wallpaper darkens toward the edge the column is at.
-                // It is paint only, and follows the slide without a build.
-                Positioned(
-                  left: onLeft ? 0 : null,
-                  right: onLeft ? null : 0,
-                  top: 0,
-                  bottom: 0,
-                  width: math.min(
-                    scene.width,
-                    width +
-                        inset +
-                        NcLook.dimReach +
-                        (onLeft || side == PanelEdge.right ? barHeight : 0),
-                  ),
-                  child: IgnorePointer(
-                    child: RepaintBoundary(
-                      child: CustomPaint(
-                        painter: _DimPainter(shown: _shown, fromLeft: onLeft),
-                      ),
-                    ),
-                  ),
-                ),
-                Positioned(
-                  left: onLeft ? barHeight + inset : null,
-                  right: onLeft
-                      ? null
-                      : (side == PanelEdge.right ? barHeight + inset : inset),
-                  top: side == PanelEdge.top ? barHeight + 8 : 10,
-                  bottom: side == PanelEdge.bottom ? barHeight + 8 : 10,
-                  width: width,
-                  // The slide moves a layer that is already painted: no
-                  // frame of it builds, lays out or paints the column again.
-                  child: CompositedTranslation(
-                    translation: _shift,
-                    devicePixelRatio: MediaQuery.devicePixelRatioOf(context),
-                    // A column on its way out takes no more input.
-                    child: IgnorePointer(
-                      ignoring: _closing,
-                      child: Align(
-                        alignment: Alignment.topCenter,
-                        // One reading of the screen for every card's blur.
-                        child: BackdropGroup(
-                          // What scrolls is cut above and below, where the
-                          // column ends. Its sides are open: a card dragged
-                          // away leaves across the screen's edge, and a
-                          // shadow is not cut off beside its card.
-                          child: ClipRect(
-                            clipper: const NcBandClip(),
-                            child: CustomScrollView(
-                              controller: _scroll,
-                              shrinkWrap: true,
-                              clipBehavior: Clip.none,
-                              // Only what a row draws takes a press. The
-                              // space between the cards belongs to the
-                              // wallpaper, and a press there reaches the
-                              // layer, which closes the column.
-                              hitTestBehavior: HitTestBehavior.deferToChild,
-                              slivers: <Widget>[
-                                SliverPadding(
-                                  padding: const EdgeInsets.only(bottom: 4),
-                                  sliver: SliverList(
-                                    // Every row keeps the repaint boundary
-                                    // the delegate gives it, so a scroll
-                                    // moves painted cards.
-                                    delegate: SliverChildBuilderDelegate(
-                                      (context, index) => rows[index],
-                                      childCount: rows.length,
-                                      findChildIndexCallback: (key) =>
-                                          places[key],
-                                    ),
-                                  ),
-                                ),
-                              ],
-                            ),
-                          ),
-                        ),
-                      ),
-                    ),
-                  ),
-                ),
-                if (menu != null && !_closing)
-                  NcMenu(
-                    anchor: menu.anchor,
-                    items: menu.items,
-                    keyboard: _keys.value,
-                    onClose: _closeMenu,
-                  ),
-              ],
-            ),
+            child: body,
           ),
         ),
       ),
     );
+  }
+}
+
+/// Marks a row of the column, so a press can be told from one that fell in
+/// the space between rows.
+class _Row extends SingleChildRenderObjectWidget {
+  const _Row({required Widget super.child, super.key});
+
+  @override
+  RenderObject createRenderObject(BuildContext context) => _RenderRow();
+}
+
+class _RenderRow extends RenderProxyBox {}
+
+/// Tells a tap in the space between the rows below it from everything else.
+///
+/// The list under it takes every press in its box, so a wheel or a drag
+/// scrolls from anywhere in the column. A press that reached no row is in a
+/// gap: it joins the same contest as the list's drag, and counts as a tap
+/// only if the pointer comes up without having scrolled.
+class _GapTap extends SingleChildRenderObjectWidget {
+  const _GapTap({required this.onTap, required Widget super.child});
+
+  final VoidCallback? onTap;
+
+  @override
+  RenderObject createRenderObject(BuildContext context) =>
+      _RenderGapTap()..onTap = onTap;
+
+  @override
+  void updateRenderObject(BuildContext context, _RenderGapTap renderObject) =>
+      renderObject.onTap = onTap;
+}
+
+class _RenderGapTap extends RenderProxyBox {
+  final TapGestureRecognizer _tap = TapGestureRecognizer(
+    debugOwner: 'notification centre gap',
+  );
+
+  VoidCallback? get onTap => _tap.onTap;
+  set onTap(VoidCallback? value) => _tap.onTap = value;
+
+  @override
+  bool hitTest(BoxHitTestResult result, {required Offset position}) {
+    if (!size.contains(position)) return false;
+    final before = result.path.length;
+    final taken = hitTestChildren(result, position: position);
+    final onRow = result.path
+        .skip(before)
+        .any((entry) => entry.target is _RenderRow);
+    // Only a press in a gap is this box's own; one on a row belongs to the
+    // row, and what it leaves alone stays alone.
+    if (taken && !onRow && onTap != null) {
+      result.add(BoxHitTestEntry(this, position));
+    }
+    return taken;
+  }
+
+  @override
+  void handleEvent(PointerEvent event, BoxHitTestEntry entry) {
+    if (event is PointerDownEvent) _tap.addPointer(event);
+  }
+
+  @override
+  void dispose() {
+    _tap.dispose();
+    super.dispose();
   }
 }
 
@@ -1014,8 +1171,10 @@ class _Surface extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final theme = context.shellTheme;
+    final style = KitStyle.of(context);
+    final framed = NcScope.of(context).framed;
     final shape = ContinuousCorners(
-      radius: KitStyle.of(context).radius(theme, NcLook.widgetRadius),
+      radius: style.radius(theme, NcLook.widgetRadius),
     );
     return Listener(
       behavior: HitTestBehavior.opaque,
@@ -1023,14 +1182,16 @@ class _Surface extends StatelessWidget {
         decoration: ShapeDecoration(
           shape: shape,
           color: fill ?? NcLook.widgetFill(theme),
-          shadows: NcLook.widgetShadow(theme),
+          shadows: framed ? null : style.cast(NcLook.widgetShadow(theme)),
         ),
         child: DecoratedBox(
           position: DecorationPosition.foreground,
           decoration: ShapeDecoration(
             shape: ContinuousCorners(
               radius: shape.radius,
-              side: BorderSide(color: theme.colors.hairlineSoft, width: 0.5),
+              side: style.flat
+                  ? BorderSide(color: theme.colors.hairline)
+                  : BorderSide(color: theme.colors.hairlineSoft, width: 0.5),
             ),
           ),
           child: child,
@@ -1138,8 +1299,10 @@ class _GroupStackState extends State<_GroupStack>
   void _aim() {
     _fold
       ..tune(
-        ncSpring(
-          KitStyle.of(context).liquid ? NcMotion.unfoldLiquid : NcMotion.unfold,
+        ncTuning(
+          context,
+          plain: NcMotion.unfold,
+          liquid: NcMotion.unfoldLiquid,
         ),
       )
       ..target = _open ? 1 : 0;
@@ -1262,8 +1425,8 @@ class _GroupStackState extends State<_GroupStack>
                       style: BarType.title.copyWith(
                         fontSize: 15,
                         fontWeight: FontWeight.w700,
-                        color: NcLook.onWallpaper,
-                        shadows: NcLook.onWallpaperShadow,
+                        color: ncGroundInk(context),
+                        shadows: ncGroundShadow(context),
                       ),
                     ),
                   ),

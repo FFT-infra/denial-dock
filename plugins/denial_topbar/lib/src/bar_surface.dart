@@ -398,6 +398,8 @@ class _TopBarSurfaceState extends ConsumerState<TopBarSurface> {
       services: _services,
       side: _side,
       barHeight: _bodyHeight,
+      // What a look with solid panels hangs the centre from.
+      anchor: id == 'notifications' ? _notificationsKey : _clockKey,
       panelId: id,
       notifications: merged || id == 'notifications',
       widgets: id == 'clock',

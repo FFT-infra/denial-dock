@@ -7,6 +7,41 @@ typedef NcTuning = ({double stiffness, double dampingRatio});
 /// The numbers behind the notification centre's motion and gestures, kept
 /// free of Flutter so they run as an ordinary Dart test.
 abstract final class NcMotion {
+  // ── How the centre is shown ──────────────────────────────────────────────
+  /// Whether the centre hangs as a framed panel under the item that opened
+  /// it, instead of sliding in as a column at the screen's edge. A look with
+  /// solid panels takes the panel, since loose cards on a dimmed wallpaper
+  /// are a glass idea; without an item to hang from there is only the column.
+  static bool hangs({required bool opaque, required bool anchored}) =>
+      opaque && anchored;
+
+  /// The share of the screen's height a hanging panel may take before its
+  /// content scrolls.
+  static const double hangShare = 0.7;
+
+  /// The room between a hanging panel's frame and its cards.
+  static const double hangPad = 6;
+
+  /// How tall a hanging panel may be on a screen [sceneHeight] tall.
+  static double hangHeight(double sceneHeight) =>
+      math.max(0.0, sceneHeight * hangShare);
+
+  /// How wide a hanging panel is for cards [plate] wide whose controls reach
+  /// [reach] past them, held inside a screen [sceneWidth] wide.
+  static double hangWidth({
+    required double plate,
+    required double reach,
+    required double sceneWidth,
+    double margin = 8,
+  }) => math.max(
+    0.0,
+    math.min(plate + (reach + hangPad) * 2, sceneWidth - margin * 2),
+  );
+
+  /// The width of the cards inside a hanging panel [width] wide.
+  static double hangPlate({required double width, required double reach}) =>
+      math.max(0.0, width - (reach + hangPad) * 2);
+
   // ── Springs ──────────────────────────────────────────────────────────────
   /// The column sliding in and out. One spring for both directions, so a
   /// close during the opening turns round from where the column is.

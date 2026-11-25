@@ -20,6 +20,22 @@ import 'nc_motion.dart';
 KitSpringTuning ncSpring(NcTuning tuning) =>
     KitSpringTuning(tuning.stiffness, tuning.dampingRatio);
 
+/// One of the centre's springs in the look in force: the [liquid] tuning
+/// where the look pours, the [plain] one otherwise, and never slower or
+/// livelier than the look's own popups where those are brisker still.
+KitSpringTuning ncTuning(
+  BuildContext context, {
+  required NcTuning plain,
+  required NcTuning liquid,
+}) {
+  final style = KitStyle.of(context);
+  if (style.liquid) return ncSpring(liquid);
+  final own = ncSpring(plain);
+  return style.pace > 1 && style.panelGrow.stiffness > own.stiffness
+      ? style.panelGrow
+      : own;
+}
+
 /// What the pieces of the notification centre ask of the column they are in.
 abstract class NcHost {
   /// Whether the keyboard is what the user is steering with. Focus only
@@ -45,7 +61,26 @@ abstract class NcHost {
   /// what is behind them; while the column slides they are plain fills, so
   /// no frame of the slide reads the screen back.
   ValueListenable<bool> get glass;
+
+  /// Whether the column hangs in a framed panel under the item that opened
+  /// it, rather than standing on the wallpaper at the screen's edge. Its
+  /// cards then lie on the panel: flat, with a thin line and no shadow.
+  bool get framed;
 }
+
+/// Ink for what the column writes on its ground: light on the dimmed
+/// wallpaper, the theme's own in a framed panel.
+Color ncGroundInk(BuildContext context, {bool dim = false}) {
+  if (!NcScope.of(context).framed) {
+    return dim ? NcLook.onWallpaperDim : NcLook.onWallpaper;
+  }
+  final colors = context.shellTheme.colors;
+  return dim ? colors.textSecondary : colors.textPrimary;
+}
+
+/// The shadow that lifts such ink off a picture; a panel needs none.
+List<Shadow>? ncGroundShadow(BuildContext context) =>
+    NcScope.of(context).framed ? null : NcLook.onWallpaperShadow;
 
 /// What the centre looks like, where the kit's look has no field for it.
 /// Corners still go through [KitStyle.radius] and colours through the theme;
@@ -102,6 +137,14 @@ abstract final class NcLook {
       theme.brightness == Brightness.dark
       ? theme.colors.surfaceContainerLow.withValues(alpha: 1)
       : const Color(0xffffffff);
+
+  /// A card's fill in a framed panel: the panel's own colour a shade
+  /// lifted, so the card reads on it without a shadow.
+  static Color framedFill(ShellThemeData theme, Color panel) =>
+      Color.alphaBlend(
+        theme.colors.textPrimary.withValues(alpha: 0.06),
+        panel.withValues(alpha: 1),
+      );
 
   static List<BoxShadow> widgetShadow(ShellThemeData theme) => <BoxShadow>[
     BoxShadow(
@@ -260,6 +303,10 @@ class _NcTapState extends State<NcTap> {
   }
 }
 
+/// Taller than any pill of the column, so half of it rounds their ends
+/// whole.
+const double ncPillHeight = 1998;
+
 /// A small pill with a label: Show Less, Edit Widgets, an action.
 class NcChip extends StatelessWidget {
   const NcChip({
@@ -297,7 +344,9 @@ class NcChip extends StatelessWidget {
       enabled: enabled,
       builder: (context, hovered, pressed, focused) => DecoratedBox(
         decoration: BoxDecoration(
-          borderRadius: BorderRadius.circular(999),
+          borderRadius: BorderRadius.circular(
+            KitStyle.of(context).pill(ncPillHeight),
+          ),
           color: solid
               ? ncSolidFill(theme, hovered: hovered || pressed)
               : ncFloatFill(theme, hovered: hovered || pressed),
@@ -358,7 +407,9 @@ class NcDot extends StatelessWidget {
       enabled: enabled,
       builder: (context, hovered, pressed, focused) => DecoratedBox(
         decoration: BoxDecoration(
-          borderRadius: BorderRadius.circular(extent / 2),
+          borderRadius: BorderRadius.circular(
+            KitStyle.of(context).pill(extent),
+          ),
           color: floating
               ? ncFloatFill(theme, hovered: hovered || pressed)
               : ncSolidFill(theme, hovered: hovered || pressed),
@@ -441,8 +492,10 @@ class NcPlate extends StatelessWidget {
   Widget build(BuildContext context) {
     final theme = context.shellTheme;
     final style = KitStyle.of(context);
+    final framed = NcScope.of(context).framed;
     final radius = style.radius(theme, NcLook.cardRadius);
-    final fill = GlassCard.fillOf(theme);
+    final panel = style.panelFill(GlassCard.fillOf(theme));
+    final fill = framed ? NcLook.framedFill(theme, panel) : panel;
     final solid = fill.a < NcLook.solid
         ? fill.withValues(alpha: NcLook.solid)
         : fill;
@@ -457,8 +510,13 @@ class NcPlate extends StatelessWidget {
       radius: radius,
       fill: fill,
       solid: solid,
-      hairline: theme.colors.hairline,
-      shadow: theme.colors.shadow.withValues(alpha: NcLook.shadow),
+      // On the wallpaper a card is a panel of its own and takes the look's
+      // line; in a framed panel the frame has that, and a card a hairline.
+      line: framed ? theme.colors.hairline : style.border(theme),
+      lineWidth: framed ? 1 : style.borderWidth,
+      shadow: theme.colors.shadow.withValues(
+        alpha: framed ? 0 : NcLook.shadow * style.shadow,
+      ),
       ring: ring ? style.accent(theme) : null,
       repaint: repaint,
     );
@@ -492,7 +550,8 @@ class _PlatePainter extends CustomPainter {
     required this.radius,
     required this.fill,
     required this.solid,
-    required this.hairline,
+    required this.line,
+    required this.lineWidth,
     required this.shadow,
     required this.ring,
     required Listenable repaint,
@@ -507,7 +566,8 @@ class _PlatePainter extends CustomPainter {
   final double radius;
   final Color fill;
   final Color solid;
-  final Color hairline;
+  final Color line;
+  final double lineWidth;
   final Color shadow;
   final Color? ring;
 
@@ -602,13 +662,17 @@ class _PlatePainter extends CustomPainter {
       shape,
       Paint()..color = tone.withValues(alpha: tone.a * at.strength),
     );
-    if (whole) {
+    if (whole && lineWidth > 0) {
+      final half = lineWidth / 2;
       canvas.drawPath(
-        continuousRoundedRectPath(rect.deflate(0.5), math.max(0, radius - 0.5)),
+        continuousRoundedRectPath(
+          rect.deflate(half),
+          math.max(0, radius - half),
+        ),
         Paint()
           ..style = PaintingStyle.stroke
-          ..strokeWidth = 1
-          ..color = hairline,
+          ..strokeWidth = lineWidth
+          ..color = line,
       );
     }
     final ring = this.ring;
@@ -634,7 +698,8 @@ class _PlatePainter extends CustomPainter {
       old.radius != radius ||
       old.fill != fill ||
       old.solid != solid ||
-      old.hairline != hairline ||
+      old.line != line ||
+      old.lineWidth != lineWidth ||
       old.shadow != shadow ||
       old.ring != ring;
 }
@@ -732,7 +797,7 @@ class _NcPresenceState extends State<NcPresence> with TickerProviderStateMixin {
   }
 
   void _tune() => _room.tune(
-    ncSpring(KitStyle.of(context).liquid ? NcMotion.gapLiquid : NcMotion.gap),
+    ncTuning(context, plain: NcMotion.gap, liquid: NcMotion.gapLiquid),
   );
 
   void _enter() {
@@ -935,14 +1000,17 @@ class _NcMenuState extends State<NcMenu> {
                       style.radius(theme, 11),
                     ),
                     color: ncSolidFill(theme),
-                    border: Border.all(color: theme.colors.hairline, width: 1),
-                    boxShadow: <BoxShadow>[
+                    border: Border.all(
+                      color: style.border(theme),
+                      width: style.borderWidth,
+                    ),
+                    boxShadow: style.cast(<BoxShadow>[
                       BoxShadow(
                         color: theme.colors.shadow.withValues(alpha: 0.26),
                         blurRadius: 18,
                         offset: const Offset(0, 6),
                       ),
-                    ],
+                    ]),
                   ),
                   child: Padding(
                     padding: const EdgeInsets.all(5),

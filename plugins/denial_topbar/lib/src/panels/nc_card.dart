@@ -5,6 +5,7 @@ import 'package:denial_flutter_sdk/services.dart';
 import 'package:denial_flutter_sdk/theme.dart';
 import 'package:denial_shell_kit/kit_motion.dart';
 import 'package:denial_shell_kit/kit_springs.dart';
+import 'package:denial_shell_kit/kit_style.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/gestures.dart';
 import 'package:flutter/services.dart';
@@ -851,7 +852,9 @@ class _Trailing extends StatelessWidget {
                     width: 24,
                     height: 16,
                     decoration: BoxDecoration(
-                      borderRadius: BorderRadius.circular(8),
+                      borderRadius: BorderRadius.circular(
+                        KitStyle.of(context).pill(16),
+                      ),
                       color: ncChipFill(theme, hovered: hovered || pressed),
                       border: focused
                           ? ncChipBorder(context, focused: true)
@@ -890,7 +893,9 @@ class _MorePill extends StatelessWidget {
       },
       builder: (context, hovered, pressed, focused) => DecoratedBox(
         decoration: BoxDecoration(
-          borderRadius: BorderRadius.circular(999),
+          borderRadius: BorderRadius.circular(
+            KitStyle.of(context).pill(ncPillHeight),
+          ),
           color: ncSolidFill(theme, hovered: hovered || pressed),
           border: ncChipBorder(context, focused: focused),
         ),

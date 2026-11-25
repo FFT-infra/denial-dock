@@ -331,4 +331,37 @@ void main() {
     NcMotion.actionsThatFit(const <double>[200], 200) == 1,
     'a single action that just fits needs no button',
   );
+
+  // ── How the centre is shown ──
+  _expect(
+    NcMotion.hangs(opaque: true, anchored: true),
+    'a look with solid panels hangs the centre from its item',
+  );
+  _expect(
+    !NcMotion.hangs(opaque: false, anchored: true),
+    'a glass look keeps the column',
+  );
+  _expect(
+    !NcMotion.hangs(opaque: true, anchored: false),
+    'with nothing to hang from there is only the column',
+  );
+  _expect(_near(NcMotion.hangHeight(1000), 700), 'at most 70% of the screen');
+  _expect(NcMotion.hangHeight(-5) == 0, 'never a negative height');
+  final hung = NcMotion.hangWidth(plate: 372, reach: 6, sceneWidth: 2000);
+  _expect(_near(hung, 372 + (6 + NcMotion.hangPad) * 2), 'frame around cards');
+  _expect(
+    _near(NcMotion.hangPlate(width: hung, reach: 6), 372),
+    'the cards inside are as wide as the column\'s',
+  );
+  final tight = NcMotion.hangWidth(plate: 372, reach: 6, sceneWidth: 320);
+  _expect(_near(tight, 304), 'a narrow screen keeps a margin either side');
+  _expect(
+    _near(NcMotion.hangPlate(width: tight, reach: 6), 304 - 24),
+    'and the cards narrow with it',
+  );
+  _expect(
+    NcMotion.hangWidth(plate: 372, reach: 6, sceneWidth: 0) == 0 &&
+        NcMotion.hangPlate(width: 0, reach: 6) == 0,
+    'no room is no width, not a negative one',
+  );
 }
