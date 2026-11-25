@@ -1,0 +1,76 @@
+import 'dart:math' as math;
+
+import 'dock_launch.dart';
+import 'dock_math.dart';
+import 'dock_settings.dart';
+
+/// How the dock's own animations advance.
+///
+/// Everything the dock body animates by itself goes through here: the values
+/// its tickers chase, its timed glides, its hops and the durations of its
+/// implicit position and size animations. With the system's reduced-motion
+/// setting on, positions and sizes are at their targets at once and nothing
+/// hops; what a hop was saying is said by a change of opacity instead. The
+/// setting is honoured here so that the call sites do not each have to ask.
+///
+/// Kept free of Flutter so the rules can be tested without a shell.
+class DockMotion {
+  const DockMotion({required this.reduced});
+
+  /// The system asks for less motion.
+  final bool reduced;
+
+  /// [DockMath.advance], or [target] itself with reduced motion.
+  double advance(
+    double current,
+    double target,
+    double deltaSeconds, {
+    required double responseSeconds,
+  }) => reduced
+      ? target
+      : DockMath.advance(
+          current,
+          target,
+          deltaSeconds,
+          responseSeconds: responseSeconds,
+        );
+
+  /// Progress of a glide that lasts [seconds], another [deltaSeconds] later.
+  /// With reduced motion the glide is over as soon as it is asked about. The
+  /// result may pass one; the caller clamps it.
+  double glide(double progress, double deltaSeconds, double seconds) =>
+      reduced ? 1.0 : progress + deltaSeconds / seconds;
+
+  /// How long an implicit animation of a position or a size runs.
+  Duration duration(Duration full) => reduced ? Duration.zero : full;
+
+  /// The launch feedback in effect. The hop is movement, so with reduced
+  /// motion a launch shows as the pulse: it says the same and nothing travels.
+  DockLaunchFeedback launchFeedback(DockLaunchFeedback chosen) =>
+      reduced && chosen == DockLaunchFeedback.hop
+      ? DockLaunchFeedback.pulse
+      : chosen;
+
+  /// The share of an attention period the hop takes; the rest is a pause.
+  static const double attentionHopShare = 0.4;
+
+  /// How high the attention hop goes, in icon sizes.
+  static const double attentionHeightRatio = 0.22;
+
+  /// The attention signal for [phase] in 0..1 of its period, from zero to one
+  /// and back: one hop at the start of each period, then a rest.
+  static double attentionWave(double phase) =>
+      phase > 0 && phase < attentionHopShare
+      ? math.sin(phase / attentionHopShare * math.pi)
+      : 0.0;
+
+  /// How far an icon that asks for attention is off the row, in logical
+  /// pixels away from the screen edge.
+  double attentionLift(double phase, double iconSize) =>
+      reduced ? 0.0 : attentionWave(phase) * iconSize * attentionHeightRatio;
+
+  /// With reduced motion the icon stays on the row and dims in the rhythm it
+  /// would have hopped in, down to the floor the launch pulse uses.
+  double attentionOpacity(double phase) =>
+      reduced ? 1.0 - (1.0 - DockLaunch.pulseFloor) * attentionWave(phase) : 1.0;
+}

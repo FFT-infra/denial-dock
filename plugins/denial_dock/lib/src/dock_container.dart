@@ -39,8 +39,8 @@ import 'package:denial_shell_kit/launcher_entry.dart';
 import 'package:denial_shell_kit/launcher_entry_bus.dart';
 
 import 'dock_layout.dart';
-import 'dock_math.dart';
 import 'dock_menu.dart';
+import 'dock_motion.dart';
 import 'dock_preferences.dart';
 import 'dock_scroll.dart';
 import 'dock_sections.dart';
@@ -85,6 +85,11 @@ class _DockContainerState extends ConsumerState<DockContainer>
 
   late final Ticker _ticker;
   Duration _lastTick = Duration.zero;
+
+  /// How the dock's own animations advance: every value the ticker chases and
+  /// every timed move of an icon goes through it, so the system's
+  /// reduced-motion setting is honoured in one place.
+  DockMotion _motion = const DockMotion(reduced: false);
 
   /// Pointer position along the dock's main axis, in surface coordinates.
   /// Storing surface coordinates keeps the target valid while the capsule
@@ -302,6 +307,15 @@ class _DockContainerState extends ConsumerState<DockContainer>
   }
 
   @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    // The same signal the settings panel and the stack view read. Depending
+    // on it here means a change of the setting reaches a running dock.
+    final reduced = MediaQuery.maybeDisableAnimationsOf(context) ?? false;
+    if (reduced != _motion.reduced) _motion = DockMotion(reduced: reduced);
+  }
+
+  @override
   void dispose() {
     _hideTimer?.cancel();
     _revealTimer?.cancel();
@@ -341,7 +355,7 @@ class _DockContainerState extends ConsumerState<DockContainer>
     }
     final dt = (elapsed - _lastTick).inMicroseconds / 1000000.0;
     _lastTick = elapsed;
-    final pointer = DockMath.advance(
+    final pointer = _motion.advance(
       _pointer,
       _pointerTarget,
       dt,
@@ -349,13 +363,13 @@ class _DockContainerState extends ConsumerState<DockContainer>
       // a few frames instead of trailing it.
       responseSeconds: 0.026,
     );
-    final hover = DockMath.advance(
+    final hover = _motion.advance(
       _hover,
       _hoverTarget,
       dt,
       responseSeconds: 0.055,
     );
-    final reveal = DockMath.advance(
+    final reveal = _motion.advance(
       _reveal,
       _revealTarget,
       dt,
@@ -365,7 +379,7 @@ class _DockContainerState extends ConsumerState<DockContainer>
     var dragDy = _dragDy;
     var settleFinished = false;
     if (_settling) {
-      _settleT += dt / DockSettings.dragSettleSeconds;
+      _settleT = _motion.glide(_settleT, dt, DockSettings.dragSettleSeconds);
       final t = _settleT.clamp(0.0, 1.0);
       final eased = Curves.easeOutCubic.transform(t);
       dragDx = _settleFrom.dx + (_settleTo.dx - _settleFrom.dx) * eased;
@@ -796,6 +810,16 @@ class _DockContainerState extends ConsumerState<DockContainer>
     }
     unawaited(notifier.movePin(from, to));
     _beginSettle(to);
+  }
+
+  /// Puts a picked-up icon back where it came from. [_endDrag] is for a
+  /// pointer that let go over the dock: it keeps the dock awake under that
+  /// pointer until it leaves. A finger that held an icon and lifted off is
+  /// gone, and no leave event follows it, so the dock would stay awake for
+  /// good.
+  void _cancelDrag() {
+    if (_settling) return;
+    _finishDrag();
   }
 
   /// Commit the order, then glide the source from its release position into the
@@ -1358,7 +1382,9 @@ class _DockContainerState extends ConsumerState<DockContainer>
                     // and turns translucent while held, as in the reference.
                     child: TweenAnimationBuilder<double>(
                       tween: Tween(begin: 0.0, end: 1.0),
-                      duration: const Duration(milliseconds: 120),
+                      duration: _motion.duration(
+                        const Duration(milliseconds: 120),
+                      ),
                       curve: Curves.easeOutCubic,
                       builder: (context, t, child) => Transform.scale(
                         scale: 1 + 0.10 * t,
@@ -1739,7 +1765,9 @@ class _DockContainerState extends ConsumerState<DockContainer>
     // is a flat white or black chosen by the glass appearance setting, so on a
     // dark wallpaper it turned the dock into a pale bar nothing else on screen
     // shared. The surface colour already follows the light or dark appearance.
-    final alpha = theme.effectivePanelOpacity.clamp(0.55, 0.86).toDouble();
+    // Its opacity is the system's panel opacity over the whole range, so the
+    // dock is as clear or as solid as every other panel.
+    final alpha = theme.effectivePanelOpacity;
     return ShellBackdropBlur(
       blur: theme.effectivePanelOpacity < 1,
       separateChild: true,
@@ -1835,6 +1863,9 @@ class _DockContainerState extends ConsumerState<DockContainer>
     final lift = (slot.scale - 1.0) * _iconSize * DockSettings.liftRatio;
     // Neighbours ease into their new slot while an icon is being dragged,
     // matching the reorder animation in the reference docks.
+    final shuffle = _motion.duration(
+      dragging ? const Duration(milliseconds: 180) : Duration.zero,
+    );
     Widget slotAt({
       required double cross,
       required double mainExtent,
@@ -1844,7 +1875,7 @@ class _DockContainerState extends ConsumerState<DockContainer>
     }) => switch (_position) {
       DockPosition.bottom => AnimatedPositioned(
         key: key,
-        duration: dragging ? const Duration(milliseconds: 180) : Duration.zero,
+        duration: shuffle,
         curve: Curves.easeOutCubic,
         left: main,
         bottom: cross,
@@ -1854,7 +1885,7 @@ class _DockContainerState extends ConsumerState<DockContainer>
       ),
       DockPosition.left => AnimatedPositioned(
         key: key,
-        duration: dragging ? const Duration(milliseconds: 180) : Duration.zero,
+        duration: shuffle,
         curve: Curves.easeOutCubic,
         top: main,
         left: cross,
@@ -1864,7 +1895,7 @@ class _DockContainerState extends ConsumerState<DockContainer>
       ),
       DockPosition.right => AnimatedPositioned(
         key: key,
-        duration: dragging ? const Duration(milliseconds: 180) : Duration.zero,
+        duration: shuffle,
         curve: Curves.easeOutCubic,
         top: main,
         right: cross,
@@ -2073,7 +2104,8 @@ class _DockContainerState extends ConsumerState<DockContainer>
               scrollGate: _scrollGate,
               scrollReversed: settings.scrollReversed,
               scrollWraps: settings.scrollWraps,
-              launchFeedback: settings.launchFeedback,
+              motion: _motion,
+              launchFeedback: _motion.launchFeedback(settings.launchFeedback),
               indicatorStyle: settings.indicatorStyle,
               previewStyle: settings.previewStyle,
               previewHover: settings.previewHover,
@@ -2102,6 +2134,7 @@ class _DockContainerState extends ConsumerState<DockContainer>
                         _startDrag(entry, entryIndex, pinIndex, pointer),
               onDragUpdate: settings.lockItems ? null : _updateDrag,
               onDragEnd: settings.lockItems ? null : _endDrag,
+              onDragCancel: settings.lockItems ? null : _cancelDrag,
             ),
           ),
         );
