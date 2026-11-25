@@ -1063,7 +1063,13 @@ class _DockItemWidgetState extends State<DockItemWidget>
     required bool front,
   }) {
     final metrics = widget.metrics;
-    final thickness = metrics.markerSize;
+    final bar =
+        style == DockIndicatorStyle.line ||
+        style == DockIndicatorStyle.segments;
+    // A bar as thick as a dot would be a slab.
+    final thickness = bar
+        ? math.min(metrics.markerSize, 3.0)
+        : metrics.markerSize;
     // How far past the icon's edge the marker's far side lies.
     final reach = widget.markerOffset + thickness / 2;
     final horizontal = widget.position == DockPosition.bottom;
@@ -1091,8 +1097,7 @@ class _DockItemWidgetState extends State<DockItemWidget>
         child: child,
       ),
     };
-    if (style == DockIndicatorStyle.line ||
-        style == DockIndicatorStyle.segments) {
+    if (bar) {
       final pieces = style == DockIndicatorStyle.segments
           ? math.min(4, math.max(1, count))
           : 1;

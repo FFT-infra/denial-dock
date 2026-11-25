@@ -10,6 +10,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'dock_extras.dart';
 import 'dock_look.dart';
 import 'dock_look_style.dart';
+import 'dock_metrics.dart';
 import 'dock_preferences.dart';
 import 'dock_stack_files.dart' show DockStackFiles;
 import 'dock_stack_view.dart' show stackFileColor, stackFileIcon;
@@ -395,6 +396,8 @@ class _DockSettingsPanelState extends ConsumerState<DockSettingsPanel> {
     final hides = settings.visibility != DockVisibilityMode.always;
     const gap = SizedBox(height: 22);
     final look = dockLookNow(settings);
+    final fit = dockMetricsNow(settings, look.shape);
+    final followLabel = _zh ? '跟随外观' : 'Follow the look';
     final floating = look.shape == DockShape.floating;
     String px(double value) => '${value.round()}';
     String percent(double value) => '${(value * 100).round()}%';
@@ -688,26 +691,44 @@ class _DockSettingsPanelState extends ConsumerState<DockSettingsPanel> {
             children: [
               _SliderRow(
                 label: _zh ? '大小' : 'Size',
-                value: settings.iconSize,
+                value: fit.iconSize,
                 min: DockSettings.minIconSize,
                 max: DockSettings.maxIconSize,
                 divisions:
                     ((DockSettings.maxIconSize - DockSettings.minIconSize) /
                             DockSettings.iconSizeStep)
                         .round(),
-                display: '${settings.iconSize.round()}',
+                display: '${fit.iconSize.round()}',
                 describe: (value) => '${value.round()}',
                 onChanged: (value) => _controller.setIconSize(value),
+                resetLabel: followLabel,
+                onReset: settings.chosen.contains(DockMetrics.iconSizeKey)
+                    ? () => _controller.followLook(const [
+                        DockMetrics.iconSizeKey,
+                      ])
+                    : null,
+                reserveReset: true,
               ),
-              _ToggleRow(
-                label: _zh ? '放大' : 'Magnification',
-                value: settings.magnification,
-                onChanged: (value) =>
-                    _controller.setMagnification(magnification: value),
+              _SegmentedField<int>(
+                label: _zh ? '悬停反馈' : 'Under the pointer',
+                value: fit.magnify
+                    ? 0
+                    : fit.highlight
+                    ? 1
+                    : 2,
+                options: [
+                  (0, _zh ? '放大' : 'Magnify', Icons.zoom_in),
+                  (1, _zh ? '高亮' : 'Highlight', Icons.highlight_alt),
+                  (2, _zh ? '无' : 'None', Icons.block),
+                ],
+                onChanged: (value) => _controller.setHoverFeedback(
+                  magnify: value == 0,
+                  highlight: value == 1,
+                ),
               ),
               _SliderRow(
                 label: _zh ? '放大程度' : 'Magnification amount',
-                value: settings.magnificationAmount,
+                value: fit.magnifyAmount,
                 min: DockSettings.minMagnificationAmount,
                 max: DockSettings.maxMagnificationAmount,
                 divisions:
@@ -715,14 +736,21 @@ class _DockSettingsPanelState extends ConsumerState<DockSettingsPanel> {
                                 DockSettings.minMagnificationAmount) /
                             DockSettings.magnificationAmountStep)
                         .round(),
-                display: settings.magnificationAmount == 0
+                display: fit.magnifyAmount == 0
                     ? (_zh ? '关闭' : 'Off')
-                    : '${(settings.magnificationAmount * 100).round()}%',
+                    : '${(fit.magnifyAmount * 100).round()}%',
                 describe: (value) => value == 0
                     ? (_zh ? '关闭' : 'Off')
                     : '${(value * 100).round()}%',
-                enabled: settings.magnification,
+                enabled: fit.magnify,
                 onChanged: (value) => _controller.setMagnificationAmount(value),
+                resetLabel: followLabel,
+                onReset: settings.chosen.contains(DockMetrics.magnifyAmountKey)
+                    ? () => _controller.followLook(const [
+                        DockMetrics.magnifyAmountKey,
+                      ])
+                    : null,
+                reserveReset: true,
               ),
               _lookSlider(
                 settings,
@@ -733,7 +761,19 @@ class _DockSettingsPanelState extends ConsumerState<DockSettingsPanel> {
                 max: DockLook.maxMagnifyRange,
                 step: DockLook.magnifyRangeStep,
                 text: px,
-                enabled: settings.magnification,
+                enabled: fit.magnify,
+              ),
+              _ActionRow(
+                icon: Icons.style_outlined,
+                label: _zh
+                    ? '大小与悬停反馈跟随外观'
+                    : 'Let size and pointer feedback follow the look',
+                onTap: () => _controller.followLook(const [
+                  DockMetrics.iconSizeKey,
+                  DockMetrics.magnifyKey,
+                  DockMetrics.magnifyAmountKey,
+                  DockMetrics.highlightKey,
+                ]),
               ),
             ],
           ),
@@ -848,6 +888,15 @@ class _DockSettingsPanelState extends ConsumerState<DockSettingsPanel> {
                 ],
                 onChanged: (value) =>
                     _controller.setLook(DockLook.shapeKey, value.name),
+              ),
+              _ToggleRow(
+                label: _zh
+                    ? '通栏上显示窗口标题'
+                    : 'Show window titles on an edge bar',
+                value: fit.taskTitles,
+                enabled: look.shape == DockShape.bar,
+                onChanged: (value) =>
+                    _controller.setLook(DockMetrics.taskTitlesKey, value),
               ),
               _lookSlider(
                 settings,
@@ -1003,7 +1052,7 @@ class _DockSettingsPanelState extends ConsumerState<DockSettingsPanel> {
             children: [
               _SegmentedField<DockIndicatorStyle>(
                 label: _zh ? '运行标记' : 'Running marker',
-                value: settings.indicatorStyle,
+                value: fit.indicator,
                 options: [
                   (
                     DockIndicatorStyle.dot,
@@ -1014,6 +1063,11 @@ class _DockSettingsPanelState extends ConsumerState<DockSettingsPanel> {
                     DockIndicatorStyle.line,
                     _zh ? '横条' : 'Line',
                     Icons.horizontal_rule,
+                  ),
+                  (
+                    DockIndicatorStyle.pill,
+                    _zh ? '胶囊' : 'Pill',
+                    Icons.remove,
                   ),
                   (
                     DockIndicatorStyle.dashes,
@@ -1029,6 +1083,16 @@ class _DockSettingsPanelState extends ConsumerState<DockSettingsPanel> {
                 ],
                 onChanged: (value) => _controller.setIndicatorStyle(value),
               ),
+              if (settings.chosen.contains(DockMetrics.indicatorKey))
+                _ActionRow(
+                  icon: Icons.style_outlined,
+                  label: _zh
+                      ? '运行标记跟随外观'
+                      : 'Let the running marker follow the look',
+                  onTap: () => _controller.followLook(const [
+                    DockMetrics.indicatorKey,
+                  ]),
+                ),
               _SegmentedField<DockMarkerColor>(
                 label: _zh ? '标记颜色' : 'Marker colour',
                 value: look.markerColor,

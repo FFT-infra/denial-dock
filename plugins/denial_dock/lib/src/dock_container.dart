@@ -25,6 +25,7 @@ import 'package:denial_flutter_sdk/state.dart'
         shellControllerProvider;
 import 'package:denial_flutter_sdk/surfaces.dart';
 import 'package:denial_flutter_sdk/theme.dart';
+import 'package:denial_flutter_sdk/wallpaper.dart';
 import 'package:flutter/gestures.dart'
     show GestureBinding, PointerScrollEvent, PointerSignalEvent, kPrimaryButton;
 import 'package:flutter/material.dart';
@@ -43,6 +44,7 @@ import 'dock_icon.dart';
 import 'dock_mac_icons.dart';
 import 'dock_debug.dart';
 import 'dock_hotkeys.dart';
+import 'dock_ink.dart';
 import 'dock_item.dart';
 
 import 'package:denial_shell_kit/launcher_entry.dart';
@@ -157,6 +159,9 @@ class _DockContainerState extends ConsumerState<DockContainer>
 
   /// [_look] as the settings give it, before its spacing follows the icons.
   DockLook _baseLook = DockLook.denial;
+
+  /// The wallpaper's colour, which a translucent plate mostly shows.
+  Color _backdrop = const Color(0xFF000000);
 
   /// How much larger than the look's own the spacing is drawn.
   double _spacing = 1;
@@ -1355,6 +1360,7 @@ class _DockContainerState extends ConsumerState<DockContainer>
         : '';
     final recents = ref.watch(applicationRecentsProvider);
     _workspaceStatus = ref.watch(widget.services.workspace(widget.monitorId));
+    _backdrop = ref.watch(wallpaperAccentProvider).color;
     final environment = widget.environment;
     final theme = context.shellTheme;
     final colors = theme.colors;
@@ -1808,7 +1814,6 @@ class _DockContainerState extends ConsumerState<DockContainer>
   };
 
   Widget _buildDockMenu(BuildContext context, OverlayChildLayoutInfo layout) {
-    final theme = context.shellTheme;
     final chinese = Localizations.localeOf(context).languageCode == 'zh';
     final anchor = MatrixUtils.transformRect(
       layout.childPaintTransform,
@@ -2067,6 +2072,46 @@ class _DockContainerState extends ConsumerState<DockContainer>
       if (_labels[i]?.key == key) return i;
     }
     return null;
+  }
+
+  /// The ink a part of another plugin is drawn in on the plate. The theme's
+  /// own while it reads there; otherwise the opposite one, since a
+  /// translucent plate over a dark wallpaper is dark in a light appearance
+  /// too. The fill and its opacity are found the way [_capsuleSurface]
+  /// finds them.
+  Color _partInk(BuildContext context, ShellThemeData theme) {
+    final chosen = _settings.look;
+    final base = kitMaterialOf(context, KitTier.dock);
+    final own = base.fill.fixed
+        ? kitToneColor(base.fill, theme, KitStyle.of(context))
+        : null;
+    final surface = theme.colors.surfaceContainer;
+    final fill = own != null && !chosen.containsKey(DockLook.tintKey)
+        ? own
+        : switch (_look.tint) {
+            DockTint.theme => surface,
+            DockTint.accent => Color.alphaBlend(
+              theme.kitAccent.withValues(alpha: 0.30),
+              surface,
+            ),
+            DockTint.custom => Color.lerp(
+              const Color(0xFF000000),
+              const Color(0xFFFFFFFF),
+              _look.tintShade,
+            )!,
+          };
+    final alpha = own != null && !chosen.containsKey(DockLook.opacityKey)
+        ? own.a
+        : _look.opacity ?? theme.effectivePanelOpacity;
+    final dark = theme.brightness == Brightness.dark;
+    final light = DockInk.lightInk(
+      fill: DockInk.luminance(fill.r, fill.g, fill.b),
+      opacity: alpha,
+      backdrop: DockInk.luminance(_backdrop.r, _backdrop.g, _backdrop.b),
+      themeDark: dark,
+    );
+    if (light == dark) return theme.colors.textPrimary;
+    return light ? const Color(0xF2FFFFFF) : const Color(0xE6000000);
   }
 
   /// The capsule's plate: the dock material of the look in force, with what
@@ -2372,7 +2417,7 @@ class _DockContainerState extends ConsumerState<DockContainer>
               edge: _kitEdge,
               axis: _vertical ? Axis.vertical : Axis.horizontal,
               crossExtent: _iconSize,
-              ink: theme.colors.textPrimary,
+              ink: _partInk(context, theme),
               density: KitDensity.tile,
               host: KitHostKind.dock,
               // Where the capsule's far side rests, not where it is while

@@ -1,6 +1,7 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import 'dock_look.dart';
+import 'dock_metrics.dart';
 import 'dock_settings.dart';
 
 export 'dock_settings.dart';
@@ -97,6 +98,33 @@ class DockSettingsController extends AsyncNotifier<DockSettings> {
   Future<void> setIndicatorStyle(DockIndicatorStyle style) =>
       _update((current) => current.copyWith(indicatorStyle: style));
 
+  /// Puts values a look brings back on the look's own; [keys] are the
+  /// names [DockMetrics] knows them under.
+  Future<void> followLook(List<String> keys) => _update((current) {
+    var next = current;
+    var look = current.look;
+    for (final key in keys) {
+      next = next.following(key);
+      look = DockLook.withOverride(look, key, null);
+    }
+    return next.copyWith(look: look);
+  });
+
+  /// What the pointer does to an icon: grow it, light it up, or neither.
+  Future<void> setHoverFeedback({
+    required bool magnify,
+    required bool highlight,
+  }) => _update(
+    (current) => current.copyWith(
+      magnification: magnify,
+      look: DockLook.withOverride(
+        current.look,
+        DockMetrics.highlightKey,
+        highlight,
+      ),
+    ),
+  );
+
   Future<void> setPreviewStyle(DockPreviewStyle style) =>
       _update((current) => current.copyWith(previewStyle: style));
 
@@ -113,7 +141,9 @@ class DockSettingsController extends AsyncNotifier<DockSettings> {
 
   /// Puts the whole look back on the preset of the shell look in force.
   Future<void> resetLook() =>
-      _update((current) => current.copyWith(look: const {}));
+      _update(
+        (current) => current.copyWith(look: const {}, chosen: const {}),
+      );
 
   Future<void> setPreviewDelayMs(int delay) =>
       _update((current) => current.copyWith(previewDelayMs: delay));
