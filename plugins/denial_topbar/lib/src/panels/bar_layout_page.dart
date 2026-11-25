@@ -367,6 +367,14 @@ class _LayoutPageState extends ConsumerState<_LayoutPage> {
     zones[_dockTarget].add(id);
     setState(() => _dockPicked = (_dockTarget, zones[_dockTarget].length - 1));
     _setDockZones(zones);
+    // A part sits in one place: put in the dock, it leaves the bar. A bar
+    // that draws no strip keeps its layout for when it shows again.
+    if (kitBarModeInForce == KitBarMode.shown &&
+        !BarPart.repeats(id) &&
+        _s.zones.contains(id)) {
+      setState(() => _picked = null);
+      _setZones(_s.zones.without(id));
+    }
   }
 
   void _setZones(BarZones zones, {bool island = false}) => widget.save(
@@ -402,6 +410,17 @@ class _LayoutPageState extends ConsumerState<_LayoutPage> {
     final next = _s.zones.inserted(zone, id);
     setState(() => _picked = (zone, next.zone(zone).lastIndexOf(id)));
     _setZones(next, island: id == BarPart.island);
+    // And put in the bar, it leaves the dock.
+    final dock = _dockZones;
+    if (dock != null &&
+        !BarPart.repeats(id) &&
+        dock.any((zone) => zone.contains(id))) {
+      for (final zone in dock) {
+        zone.remove(id);
+      }
+      setState(() => _dockPicked = null);
+      _setDockZones(dock);
+    }
   }
 
   @override
@@ -892,7 +911,7 @@ class _LayoutPageState extends ConsumerState<_LayoutPage> {
               _Group(
                 title: context.tr('Dock parts'),
                 note: context.tr(
-                  'What sits before and after the applications. Parts of the bar placed here open their panels from the Dock.',
+                  'What sits before and after the applications. Parts of the bar placed here open their panels from the Dock. A part sits in one place: added here it leaves the bar, and added to the bar it leaves the Dock.',
                 ),
                 children: <Widget>[
                   for (var zone = 0; zone < 2; zone++)

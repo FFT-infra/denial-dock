@@ -311,7 +311,7 @@ const Map<String, String> zh = <String, String>{
   'At the start': '靠起始',
   'Dock parts': '程序坞部件',
   'With the bar hidden or reduced to its island, a Dock that always shows keeps its edge free of windows. Without a Dock the bar shows in full, so the settings stay within reach.': '栏体隐藏或只留灵动岛时，始终显示的程序坞会让窗口避开它所在的边。没有程序坞时顶栏照常完整显示，免得找不到设置入口。',
-  'What sits before and after the applications. Parts of the bar placed here open their panels from the Dock.': '应用图标前后放什么。放到这里的顶栏部件会从程序坞一侧展开面板。',
+  'What sits before and after the applications. Parts of the bar placed here open their panels from the Dock. A part sits in one place: added here it leaves the bar, and added to the bar it leaves the Dock.': '应用图标前后放什么。放到这里的顶栏部件会从程序坞一侧展开面板。一个部件只放在一处：加到这里就从顶栏移走，加回顶栏就从程序坞移走。',
   'Always show': '始终显示',
   'Application area': '应用区',
   'Enter the Wi‑Fi password': '请输入 Wi‑Fi 密码',
