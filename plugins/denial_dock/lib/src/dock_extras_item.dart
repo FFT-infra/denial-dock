@@ -10,6 +10,7 @@ import 'package:flutter/gestures.dart' show PointerDeviceKind, kPrimaryButton;
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
+import 'dock_look_style.dart';
 import 'dock_debug.dart';
 import 'dock_extras.dart';
 import 'dock_icon.dart';
@@ -250,7 +251,7 @@ class _DockAccessoryItemState extends State<DockAccessoryItem> {
                         ),
                         child: Text(
                           widget.badge > 99 ? '99+' : '${widget.badge}',
-                          style: theme.text.systemBarCaption.copyWith(
+                          style: theme.text.systemBarCaption.inLook.copyWith(
                             color: theme.colors.background,
                             fontSize: 9,
                             fontWeight: FontWeight.w700,
@@ -328,7 +329,7 @@ class _DockAccessoryItemState extends State<DockAccessoryItem> {
                               widget.label,
                               maxLines: 1,
                               overflow: TextOverflow.ellipsis,
-                              style: theme.text.systemBarCaption.copyWith(
+                              style: theme.text.systemBarCaption.inLook.copyWith(
                                 color: theme.colors.textTertiary,
                               ),
                             ),

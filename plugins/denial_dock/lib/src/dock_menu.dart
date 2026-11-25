@@ -12,6 +12,8 @@ import 'dock_settings.dart' show DockPosition;
 
 import 'package:denial_shell_kit/glass_card.dart';
 
+import 'dock_look_style.dart';
+
 /// Which side of a menu panel carries the pointer tail, mirroring the dock's
 /// edge. Menus open away from the screen edge, so the tail points back at it.
 enum DockMenuTail { none, down, left, right }
@@ -557,7 +559,7 @@ class _DockMenuSubmenuRowState extends State<DockMenuSubmenuRow> {
                     widget.label,
                     maxLines: 1,
                     overflow: TextOverflow.ellipsis,
-                    style: theme.text.systemBarCaption.copyWith(
+                    style: theme.text.systemBarCaption.inLook.copyWith(
                       color: row.ink,
                     ),
                   ),
@@ -631,7 +633,7 @@ class DockMenuSectionLabel extends StatelessWidget {
           label,
           maxLines: 1,
           overflow: TextOverflow.ellipsis,
-          style: theme.text.systemBarCaption.copyWith(
+          style: theme.text.systemBarCaption.inLook.copyWith(
             color: theme.colors.textTertiary,
           ),
         ),
@@ -698,7 +700,7 @@ class _DockMenuRowState extends State<DockMenuRow> {
                     widget.label,
                     maxLines: 1,
                     overflow: TextOverflow.ellipsis,
-                    style: theme.text.systemBarCaption.copyWith(
+                    style: theme.text.systemBarCaption.inLook.copyWith(
                       color: foreground,
                     ),
                   ),

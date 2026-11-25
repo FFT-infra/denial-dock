@@ -19,6 +19,9 @@ enum DockSlotKind {
 
   /// A hairline separator between groups.
   divider,
+
+  /// A part another plugin registered, drawn in a cell of its own.
+  part,
 }
 
 class DockSectionSlot {
@@ -26,39 +29,52 @@ class DockSectionSlot {
     : kind = DockSlotKind.app,
       folder = null,
       file = null,
-      dividerKey = null;
+      dividerKey = null,
+      partId = null;
 
   const DockSectionSlot.launcher()
     : kind = DockSlotKind.launcher,
       index = null,
       folder = null,
       file = null,
-      dividerKey = null;
+      dividerKey = null,
+      partId = null;
 
   const DockSectionSlot.folder(this.folder)
     : kind = DockSlotKind.folder,
       index = null,
       file = null,
-      dividerKey = null;
+      dividerKey = null,
+      partId = null;
 
   const DockSectionSlot.file(this.file)
     : kind = DockSlotKind.file,
       index = null,
       folder = null,
-      dividerKey = null;
+      dividerKey = null,
+      partId = null;
 
   const DockSectionSlot.trash()
     : kind = DockSlotKind.trash,
       index = null,
       folder = null,
       file = null,
-      dividerKey = null;
+      dividerKey = null,
+      partId = null;
 
   const DockSectionSlot.divider(this.dividerKey)
     : kind = DockSlotKind.divider,
       index = null,
       folder = null,
-      file = null;
+      file = null,
+      partId = null;
+
+  const DockSectionSlot.part(this.partId)
+    : kind = DockSlotKind.part,
+      index = null,
+      folder = null,
+      file = null,
+      dividerKey = null;
 
   final DockSlotKind kind;
 
@@ -75,7 +91,11 @@ class DockSectionSlot {
   /// which line moved.
   final String? dividerKey;
 
-  bool get growable => kind != DockSlotKind.divider;
+  /// The id of the part for [DockSlotKind.part].
+  final String? partId;
+
+  bool get growable =>
+      kind != DockSlotKind.divider && kind != DockSlotKind.part;
 }
 
 /// Places applications, the launcher, folders and the trash can into the macOS
@@ -103,28 +123,9 @@ abstract final class DockSections {
       (isPinned(i) ? pinned : running).add(DockSectionSlot.app(i));
     }
 
-    final launcher = settings.launcherSide == DockSide.hidden
-        ? null
-        : const DockSectionSlot.launcher();
-    final extras = <DockSectionSlot>[
-      if (settings.extrasSide != DockSide.hidden)
-        for (final folder in settings.folders) DockSectionSlot.folder(folder),
-      if (settings.extrasSide != DockSide.hidden)
-        for (final file in settings.files) DockSectionSlot.file(file),
-      if (settings.extrasSide != DockSide.hidden && settings.showTrash)
-        const DockSectionSlot.trash(),
-    ];
-
-    // Accessories lead or trail as a whole group; the trash stays last inside
-    // the group either way.
-    final leading = <DockSectionSlot>[
-      if (launcher != null && settings.launcherSide == DockSide.left) launcher,
-      if (settings.extrasSide == DockSide.left) ...extras,
-    ];
-    final trailing = <DockSectionSlot>[
-      if (settings.extrasSide == DockSide.right) ...extras,
-      if (launcher != null && settings.launcherSide == DockSide.right) launcher,
-    ];
+    final zones = settings.zones;
+    final leading = _zone('leading', zones.leading, settings);
+    final trailing = _zone('trailing', zones.trailing, settings);
 
     final slots = <DockSectionSlot>[...leading];
     if (appsEmpty(pinned, running) && trailing.isEmpty) return slots;
@@ -142,6 +143,62 @@ abstract final class DockSections {
     }
     slots.addAll(trailing);
     return slots;
+  }
+
+  /// The slots of one end. The two ends are data: each id of a zone stands
+  /// for the dock's own launcher, stacks, trash or a divider, or names a
+  /// part of another plugin.
+  static List<DockSectionSlot> _zone(
+    String name,
+    List<String> ids,
+    DockSettings settings,
+  ) {
+    final slots = <DockSectionSlot>[];
+    var dividers = 0;
+    for (final id in ids) {
+      switch (id) {
+        case DockPart.launcher:
+          slots.add(const DockSectionSlot.launcher());
+        case DockPart.stacks:
+          for (final folder in settings.folders) {
+            slots.add(DockSectionSlot.folder(folder));
+          }
+          for (final file in settings.files) {
+            slots.add(DockSectionSlot.file(file));
+          }
+        case DockPart.trash:
+          slots.add(const DockSectionSlot.trash());
+        case DockPart.divider:
+          slots.add(DockSectionSlot.divider('$name.${dividers++}'));
+        default:
+          if (!DockPart.own(id)) slots.add(DockSectionSlot.part(id));
+      }
+    }
+    // A divider with nothing on one side of it separates nothing.
+    while (slots.isNotEmpty && slots.first.kind == DockSlotKind.divider) {
+      slots.removeAt(0);
+    }
+    while (slots.isNotEmpty && slots.last.kind == DockSlotKind.divider) {
+      slots.removeLast();
+    }
+    return slots;
+  }
+
+  /// How many slots of a built row belong to its start and to its end, the
+  /// divider that parts each from the applications included. A dock that
+  /// lies along its whole edge holds these at the edge's two ends.
+  static ({int leading, int trailing}) ends({
+    required int entryCount,
+    required DockSettings settings,
+  }) {
+    final zones = settings.zones;
+    final leading = _zone('leading', zones.leading, settings).length;
+    final trailing = _zone('trailing', zones.trailing, settings).length;
+    final divided = entryCount > 0 ? 1 : 0;
+    return (
+      leading: leading == 0 ? 0 : leading + divided,
+      trailing: trailing == 0 ? 0 : trailing + divided,
+    );
   }
 
   static bool appsEmpty(

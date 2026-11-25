@@ -50,6 +50,7 @@ class DockLook {
     required this.shape,
     required this.markerColor,
     required this.magnifyRange,
+    this.accentBorder = false,
   });
 
   /// Denial's own capsule: the system's blur at full strength and the
@@ -95,6 +96,48 @@ class DockLook {
 
   /// The preset for the shell look called [styleId]; Denial's for any other.
   static DockLook preset(String? styleId) => styleId == 'mac' ? mac : denial;
+
+  /// [base] as a look of the shell draws its panels: the line around the
+  /// capsule as thick as the look's and in the accent when the look says
+  /// so, a solid fill with nothing blurred behind it for a look of opaque
+  /// panels, and as much of the shadow as the look casts. A look that
+  /// changes none of this gets [base] itself, so Denial and macOS keep
+  /// their presets value for value.
+  static DockLook styled(
+    DockLook base, {
+    double borderWidth = 1,
+    bool accentBorder = false,
+    bool opaque = false,
+    double shadow = 1,
+  }) {
+    if (borderWidth == 1 && !accentBorder && !opaque && shadow == 1) {
+      return base;
+    }
+    return DockLook(
+      blur: opaque ? 0 : base.blur,
+      opacity: opaque ? 1 : base.opacity,
+      tint: base.tint,
+      tintShade: base.tintShade,
+      radius: base.radius,
+      border: base.border,
+      borderWidth: (base.borderWidth * borderWidth)
+          .clamp(minBorderWidth, maxBorderWidth)
+          .toDouble(),
+      brightBorder: base.brightBorder && !accentBorder,
+      // An opaque plate with no blur needs something to lift it off the
+      // windows; a look that casts shadows gives the capsule a soft one.
+      shadow: ((opaque && base.shadow == 0 ? 0.3 : base.shadow) * shadow)
+          .clamp(minShadow, maxShadow)
+          .toDouble(),
+      padding: base.padding,
+      gap: base.gap,
+      edgeMargin: base.edgeMargin,
+      shape: base.shape,
+      markerColor: base.markerColor,
+      magnifyRange: base.magnifyRange,
+      accentBorder: accentBorder,
+    );
+  }
 
   // The ranges the settings offer. A value from a file is clamped into them.
   static const double minBlur = 0, maxBlur = 1, blurStep = 0.05;
@@ -149,6 +192,10 @@ class DockLook {
   /// A rim of white rather than the theme's hairline. Part of the preset; the
   /// settings do not offer it on its own.
   final bool brightBorder;
+
+  /// A rim in the accent, as a look that outlines its panels draws them.
+  /// Part of the preset, like [brightBorder].
+  final bool accentBorder;
 
   /// How strong the shadow under the capsule is; zero draws none.
   final double shadow;
@@ -216,6 +263,7 @@ class DockLook {
         maxBorderWidth,
       ),
       brightBorder: base.brightBorder,
+      accentBorder: base.accentBorder,
       shadow: number(shadowKey, base.shadow, minShadow, maxShadow),
       padding: number(paddingKey, base.padding, minPadding, maxPadding),
       gap: number(gapKey, base.gap, minGap, maxGap),

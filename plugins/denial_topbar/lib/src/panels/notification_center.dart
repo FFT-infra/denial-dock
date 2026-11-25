@@ -54,7 +54,7 @@ void showNotificationCenter({
     return;
   }
   if (anchor != null &&
-      NcMotion.hangs(opaque: kitStyle.value.opaque, anchored: true)) {
+      NcMotion.hangs(square: kitStyle.value.square, anchored: true)) {
     showBarPanel(
       ref: ref,
       panelId: panelId,

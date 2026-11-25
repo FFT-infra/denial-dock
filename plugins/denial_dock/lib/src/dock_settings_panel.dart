@@ -9,12 +9,14 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import 'dock_extras.dart';
 import 'dock_look.dart';
+import 'dock_look_style.dart';
 import 'dock_preferences.dart';
 import 'dock_stack_files.dart' show DockStackFiles;
 import 'dock_stack_view.dart' show stackFileColor, stackFileIcon;
 
 import 'package:denial_shell_kit/glass_card.dart';
 import 'package:denial_shell_kit/kit_motion.dart';
+import 'package:denial_shell_kit/kit_settings.dart';
 import 'package:denial_shell_kit/kit_style.dart';
 
 const double _rowHeight = 48;
@@ -50,15 +52,97 @@ TextStyle _valueStyle(ShellThemeData theme, Color color) =>
 
 /// Denial gives plugins no settings page, so the sheet is a managed shell popup
 /// with the scene barrier, focus, Escape and outside-tap dismissal for free.
+/// The dock's pages as the shell's settings window lists them, in the order
+/// of the panel's own pages.
+const List<({String id, String en, String zh, IconData icon})>
+dockSettingsPageInfo = [
+  (
+    id: 'dock.visibility',
+    en: 'Dock: Visibility',
+    zh: '程序坞：显示与隐藏',
+    icon: Icons.visibility_outlined,
+  ),
+  (
+    id: 'dock.clicks',
+    en: 'Dock: Clicks and wheel',
+    zh: '程序坞：点击与滚轮',
+    icon: Icons.mouse_outlined,
+  ),
+  (
+    id: 'dock.appearance',
+    en: 'Dock: Appearance',
+    zh: '程序坞：外观',
+    icon: Icons.palette_outlined,
+  ),
+  (
+    id: 'dock.backplate',
+    en: 'Dock: Backplate',
+    zh: '程序坞：底板',
+    icon: Icons.rounded_corner,
+  ),
+  (
+    id: 'dock.markers',
+    en: 'Dock: Markers and badges',
+    zh: '程序坞：标记与角标',
+    icon: Icons.circle_notifications_outlined,
+  ),
+  (
+    id: 'dock.windows',
+    en: 'Dock: Windows and menus',
+    zh: '程序坞：窗口与菜单',
+    icon: Icons.web_asset_outlined,
+  ),
+  (
+    id: 'dock.layout',
+    en: 'Dock: Layout',
+    zh: '程序坞：布局',
+    icon: Icons.dashboard_customize_outlined,
+  ),
+  (
+    id: 'dock.folders',
+    en: 'Dock: Folders',
+    zh: '程序坞：文件夹',
+    icon: Icons.folder_outlined,
+  ),
+];
+
+List<KitSettingsPage>? _dockPages;
+
+/// Offers the dock's pages to the shell's settings window, after those of
+/// the bar.
+void registerDockSettingsPages() {
+  final pages = _dockPages ??= [
+    for (final (index, info) in dockSettingsPageInfo.indexed)
+      KitSettingsPage(
+        id: info.id,
+        title: (context) =>
+            Localizations.maybeLocaleOf(context)?.languageCode == 'zh'
+            ? info.zh
+            : info.en,
+        icon: info.icon,
+        colour: const Color(0xff5e6ad2),
+        order: 300 + index * 10,
+        builder: (context) =>
+            DockSettingsPanel(onClose: () {}, embeddedPage: index),
+      ),
+  ];
+  kitSettingsPages.register(pages);
+}
+
 class DockSettingsPanel extends ConsumerStatefulWidget {
   const DockSettingsPanel({
     required this.onClose,
     this.initialPage = 0,
+    this.embeddedPage,
     super.key,
   });
 
   final VoidCallback onClose;
   final int initialPage;
+
+  /// When set, the panel is that one page with no sheet around it: the
+  /// shell's settings window supplies the list of pages and the title.
+  final int? embeddedPage;
 
   @override
   ConsumerState<DockSettingsPanel> createState() => _DockSettingsPanelState();
@@ -92,6 +176,29 @@ class _DockSettingsPanelState extends ConsumerState<DockSettingsPanel> {
   Widget build(BuildContext context) {
     final settings =
         ref.watch(dockSettingsProvider).value ?? DockSettings.defaults;
+    final embedded = widget.embeddedPage;
+    if (embedded != null) {
+      if (_browsePath != null) {
+        return Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            _ActionRow(
+              icon: Icons.arrow_back_rounded,
+              label: _zh ? '返回' : 'Back',
+              margin: const EdgeInsets.fromLTRB(14, 4, 14, 0),
+              radius: 8,
+              onTap: () => setState(() => _browsePath = null),
+            ),
+            Expanded(child: _buildBrowser(context)),
+          ],
+        );
+      }
+      final pages = _pages(settings);
+      return _pageScroll(
+        context,
+        pages[embedded.clamp(0, pages.length - 1)].sections,
+      );
+    }
     return LayoutBuilder(
       builder: (context, constraints) {
         final width = math.min(
@@ -287,7 +394,7 @@ class _DockSettingsPanelState extends ConsumerState<DockSettingsPanel> {
   ) {
     final hides = settings.visibility != DockVisibilityMode.always;
     const gap = SizedBox(height: 22);
-    final look = settings.lookFor(kitStyle.value.id);
+    final look = dockLookNow(settings);
     final floating = look.shape == DockShape.floating;
     String px(double value) => '${value.round()}';
     String percent(double value) => '${(value * 100).round()}%';
@@ -558,9 +665,18 @@ class _DockSettingsPanelState extends ConsumerState<DockSettingsPanel> {
               _SegmentedField<KitStyle>(
                 label: _zh ? '与顶栏共用' : 'Shared with the top bar',
                 value: kitStyle.value,
-                options: const [
-                  (KitStyle.denial, 'Denial', Icons.water_drop_outlined),
-                  (KitStyle.mac, 'macOS', Icons.laptop_mac_outlined),
+                options: [
+                  for (final style in KitStyle.presets)
+                    (
+                      style,
+                      style.label,
+                      switch (style.id) {
+                        'denial' => Icons.water_drop_outlined,
+                        'mac' => Icons.laptop_mac_outlined,
+                        'terminal' => Icons.terminal_outlined,
+                        _ => Icons.style_outlined,
+                      },
+                    ),
                 ],
                 onChanged: kitStyle.choose,
               ),
@@ -1132,6 +1248,31 @@ class _DockSettingsPanelState extends ConsumerState<DockSettingsPanel> {
                 label: _zh ? '显示回收站' : 'Show Trash',
                 value: settings.showTrash,
                 onChanged: (value) => _controller.setShowTrash(show: value),
+              ),
+              // Only an edge bar has room to spread its ends apart.
+              if (!floating)
+                _SegmentedField<DockAlign>(
+                label: _zh ? '贴边通栏里的应用' : 'Applications on an edge bar',
+                value: settings.align,
+                options: [
+                  (
+                    DockAlign.packed,
+                    _zh ? '整体居中' : 'One group',
+                    Icons.align_horizontal_center,
+                  ),
+                  (
+                    DockAlign.center,
+                    _zh ? '两端分开，居中' : 'Ends apart, centred',
+                    Icons.format_align_center,
+                  ),
+                  (
+                    DockAlign.start,
+                    _zh ? '两端分开，靠起始' : 'Ends apart, at the start',
+                    Icons.format_align_left,
+                  ),
+                ],
+                onChanged: (value) =>
+                    _controller.applyLayout({'align': value.key}),
               ),
               _ToggleRow(
                 label: _zh ? '锁定 Dock 内容' : 'Lock the dock',

@@ -334,15 +334,15 @@ void main() {
 
   // ── How the centre is shown ──
   _expect(
-    NcMotion.hangs(opaque: true, anchored: true),
-    'a look with solid panels hangs the centre from its item',
+    NcMotion.hangs(square: true, anchored: true),
+    'a look with square corners hangs the centre from its item',
   );
   _expect(
-    !NcMotion.hangs(opaque: false, anchored: true),
+    !NcMotion.hangs(square: false, anchored: true),
     'a glass look keeps the column',
   );
   _expect(
-    !NcMotion.hangs(opaque: true, anchored: false),
+    !NcMotion.hangs(square: true, anchored: false),
     'with nothing to hang from there is only the column',
   );
   _expect(_near(NcMotion.hangHeight(1000), 700), 'at most 70% of the screen');

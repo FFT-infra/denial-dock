@@ -23,6 +23,7 @@ void main() {
         DockSlotKind.file => 'file:${slot.file!.label}',
         DockSlotKind.trash => 'trash',
         DockSlotKind.divider => 'divider:${slot.dividerKey}',
+        DockSlotKind.part => 'part:${slot.partId}',
       },
   ];
 

@@ -4,7 +4,11 @@ import 'dart:ui' show PointerDeviceKind;
 import 'package:denial_flutter_sdk/settings.dart';
 import 'package:denial_flutter_sdk/services.dart';
 import 'package:denial_flutter_sdk/theme.dart';
+import 'package:denial_shell_kit/kit_dock_link.dart';
+import 'package:denial_shell_kit/kit_host.dart';
 import 'package:denial_shell_kit/kit_motion.dart';
+import 'package:denial_shell_kit/kit_part.dart';
+import 'package:denial_shell_kit/kit_settings.dart';
 import 'package:denial_shell_kit/kit_style.dart';
 import 'package:denial_shell_kit/shell_preset.dart';
 import 'package:flutter/widgets.dart';
@@ -26,6 +30,42 @@ part 'bar_layout_page.dart';
 
 const double barSettingsWidth = 700;
 
+/// The ids the bar's pages have in the shell's settings window, in the
+/// order of the panel's own pages.
+const List<String> barSettingsPageIds = <String>[
+  'bar.appearance',
+  'bar.layout',
+  'bar.island',
+  'bar.workspaces',
+  'bar.items',
+  'bar.clock',
+];
+
+List<KitSettingsPage>? _barPages;
+
+/// Offers the bar's pages to the shell's settings window. The look, the
+/// presets and the layout concern the whole shell, so they come first.
+void registerBarSettingsPages(ShellServices services) {
+  final pages = _barPages ??= <KitSettingsPage>[
+    for (var index = 0; index < barSettingsPageIds.length; index++)
+      KitSettingsPage(
+        id: barSettingsPageIds[index],
+        title: (context) =>
+            context.tr(_BarSettingsPanelState._pages[index].$1),
+        icon: _BarSettingsPanelState._pages[index].$2,
+        colour: _BarSettingsPanelState._pages[index].$3,
+        order: 100 + index * 10,
+        builder: (context) => BarSettingsPanel(
+          services: services,
+          embedded: index,
+          onClose: () {},
+          maxHeight: double.infinity,
+        ),
+      ),
+  ];
+  kitSettingsPages.register(pages);
+}
+
 typedef _Save = void Function(BarSettings Function(BarSettings) change);
 
 /// The bar's settings: a sidebar of pages on the left, the page on the right.
@@ -35,8 +75,13 @@ class BarSettingsPanel extends ConsumerStatefulWidget {
     required this.maxHeight,
     this.services,
     this.initialPage = 0,
+    this.embedded,
     super.key,
   });
+
+  /// When set, the panel is that one page with no window around it: the
+  /// shell's settings window supplies the sidebar and the title.
+  final int? embedded;
 
   /// Lists the tray's items when given.
   final ShellServices? services;
@@ -59,9 +104,21 @@ class _BarSettingsPanelState extends ConsumerState<BarSettingsPanel> {
         ('Clock & Notifications', BarIcons.clock, macRed),
       ];
 
-  late int _page = widget.initialPage.clamp(0, _pages.length - 1);
+  late int _page = (widget.embedded ?? widget.initialPage).clamp(
+    0,
+    _pages.length - 1,
+  );
 
   void _namesChanged() => setState(() {});
+
+  /// Puts the bar back as it came. The look and the preset live outside the
+  /// bar's own settings, and go back with them.
+  void _restore() {
+    applyShellPreset(ref, ShellPreset.denial);
+    ref
+        .read(barSettingsProvider.notifier)
+        .save((s) => BarSettings(recentsClearedAt: s.recentsClearedAt));
+  }
 
   @override
   void initState() {
@@ -91,6 +148,35 @@ class _BarSettingsPanelState extends ConsumerState<BarSettingsPanel> {
       4 => _items(context, settings, save),
       _ => _clock(context, settings, save),
     };
+
+    if (widget.embedded != null) {
+      return SingleChildScrollView(
+        padding: const EdgeInsets.fromLTRB(20, 6, 20, 22),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: <Widget>[
+            ...body,
+            // The window's own sidebar has no room for it, so the reset
+            // sits at the foot of the first page.
+            if (_page == 0)
+              _Group(
+                children: <Widget>[
+                  _Row(
+                    label: context.tr('Menu Bar'),
+                    trailing: SizedBox(
+                      width: 132,
+                      child: _TextButton(
+                        label: context.tr('Restore Defaults'),
+                        onTap: _restore,
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+          ],
+        ),
+      );
+    }
 
     return SizedBox(
       width: barSettingsWidth,
@@ -130,16 +216,7 @@ class _BarSettingsPanelState extends ConsumerState<BarSettingsPanel> {
                   padding: const EdgeInsets.all(12),
                   child: _TextButton(
                     label: context.tr('Restore Defaults'),
-                    onTap: () {
-                      // The look and the preset live outside the bar's own
-                      // settings, and go back with them.
-                      kitStyle.choose(KitStyle.denial);
-                      kitPreset.value = ShellPreset.denial.id;
-                      save(
-                        (s) =>
-                            BarSettings(recentsClearedAt: s.recentsClearedAt),
-                      );
-                    },
+                    onTap: _restore,
                   ),
                 ),
               ],

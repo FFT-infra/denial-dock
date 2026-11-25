@@ -64,5 +64,34 @@ void main() {
     next.center.join('+') == 'island+system' && at == 1,
     'a slot past the end is the end',
   );
+  // The dock's two zones move the same way.
+  final (dock, dockZone, dockAt) = PartDrop.movedIn(
+    const <List<String>>[
+      <String>['dock.launcher', 'clock'],
+      <String>['dock.trash'],
+    ],
+    0,
+    1,
+    1,
+    1,
+  );
+  _expect(
+    dock[0].join('+') == 'dock.launcher' &&
+        dock[1].join('+') == 'dock.trash+clock' &&
+        dockZone == 1 &&
+        dockAt == 1,
+    'a dock part crosses the applications',
+  );
+  final (same, _, sameAt) = PartDrop.movedIn(
+    const <List<String>>[
+      <String>['a'],
+      <String>[],
+    ],
+    0,
+    4,
+    1,
+    0,
+  );
+  _expect(same[0].join() == 'a' && sameAt == 4, 'nothing there, nothing moves');
   stdout.writeln('All part drop tests passed.');
 }

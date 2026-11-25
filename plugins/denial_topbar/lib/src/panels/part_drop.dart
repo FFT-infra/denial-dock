@@ -34,7 +34,35 @@ abstract final class PartDrop {
 
   /// Moves the part at [at] of zone [from] to [slot] of zone [to], where
   /// [slot] counts the chips before it with the part still in its old place.
-  /// Returns the zones and where the part is now. The island stays in the
+  /// Returns the zones and where the part is now.
+  static (List<List<String>>, int, int) movedIn(
+    List<List<String>> zones,
+    int from,
+    int at,
+    int to,
+    int slot,
+  ) {
+    final lists = <List<String>>[
+      for (final zone in zones) List<String>.of(zone),
+    ];
+    if (from < 0 ||
+        from >= lists.length ||
+        to < 0 ||
+        to >= lists.length ||
+        at < 0 ||
+        at >= lists[from].length) {
+      return (lists, from, at);
+    }
+    final id = lists[from].removeAt(at);
+    final place = (from == to && slot > at ? slot - 1 : slot).clamp(
+      0,
+      lists[to].length,
+    );
+    lists[to].insert(place, id);
+    return (lists, to, place);
+  }
+
+  /// [movedIn] for the bar's three zones, where the island stays in the
   /// centre.
   static (BarZones, int, int) moved(
     BarZones zones,
@@ -47,21 +75,17 @@ abstract final class PartDrop {
     if (at < 0 || at >= source.length || to < 0 || to >= BarZones.count) {
       return (zones, from, at);
     }
-    final id = source[at];
-    if (id == BarPart.island && to != 1) return (zones, from, at);
-    final lists = <List<String>>[
-      for (var index = 0; index < BarZones.count; index++)
-        List<String>.of(zones.zone(index)),
-    ];
-    lists[from].removeAt(at);
-    final place = (from == to && slot > at ? slot - 1 : slot).clamp(
-      0,
-      lists[to].length,
+    if (source[at] == BarPart.island && to != 1) return (zones, from, at);
+    final (lists, zone, place) = movedIn(
+      <List<String>>[zones.start, zones.center, zones.end],
+      from,
+      at,
+      to,
+      slot,
     );
-    lists[to].insert(place, id);
     return (
       BarZones(start: lists[0], center: lists[1], end: lists[2]),
-      to,
+      zone,
       place,
     );
   }

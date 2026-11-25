@@ -3,8 +3,10 @@ import 'dart:io';
 
 import 'dock_look.dart';
 import 'dock_visibility.dart';
+import 'dock_zones.dart';
 
 export 'dock_visibility.dart' show DockVisibility, DockVisibilityMode;
+export 'dock_zones.dart';
 
 /// Where a dock accessory group sits relative to the application row.
 enum DockSide {
@@ -550,6 +552,8 @@ class DockSettings {
     this.previewMiddleClose = false,
     this.avoidReservedEdge = true,
     this.look = const {},
+    this.explicitZones,
+    this.align = DockAlign.packed,
   });
 
   /// Base icon edge before magnification.
@@ -689,9 +693,11 @@ class DockSettings {
   /// map the file holds, so a key a newer build wrote is carried through.
   final Map<String, Object?> look;
 
-  /// The capsule's look under the shell look called [styleId].
-  DockLook lookFor(String? styleId) =>
-      DockLook.resolve(DockLook.preset(styleId), look);
+  /// The capsule's look under the shell look called [styleId]. [preset] is
+  /// that look's preset when the caller has worked it out from the look's
+  /// own values; without it the preset is found by name.
+  DockLook lookFor(String? styleId, {DockLook? preset}) =>
+      DockLook.resolve(preset ?? DockLook.preset(styleId), look);
 
   /// Draws the progress an application publishes through the Unity launcher
   /// API along the bottom of its icon.
@@ -718,6 +724,90 @@ class DockSettings {
   /// Moves the dock inward when something else, such as a bar, reserves the
   /// edge it sits on.
   final bool avoidReservedEdge;
+
+  /// What sits before and after the applications, once it has been set as
+  /// such. Null while the file holds none, and then [launcherSide],
+  /// [extrasSide] and [showTrash] decide as they always did.
+  final DockZones? explicitZones;
+
+  /// Where the applications sit along a dock that lies on its whole edge.
+  final DockAlign align;
+
+  static bool? _leads(DockSide side) => switch (side) {
+    DockSide.left => true,
+    DockSide.right => false,
+    DockSide.hidden => null,
+  };
+
+  static DockSide _sideOf(bool? leads) => switch (leads) {
+    true => DockSide.left,
+    false => DockSide.right,
+    null => DockSide.hidden,
+  };
+
+  /// The zones the dock draws.
+  DockZones get zones =>
+      explicitZones ??
+      DockZones.legacy(
+        launcherLeading: _leads(launcherSide),
+        extrasLeading: _leads(extrasSide),
+        trash: showTrash,
+      );
+
+  /// The dock's arrangement under the keys a shell preset names: what the
+  /// two ends hold, the shape, how the applications are aligned, and the two
+  /// switches a taskbar turns. [styleId] is the look of the shell in force,
+  /// which decides the shape the user has not set.
+  Map<String, Object?> layoutJson(String? styleId) => <String, Object?>{
+    'leading': zones.leading,
+    'trailing': zones.trailing,
+    'shape': lookFor(styleId).shape.name,
+    'align': align.key,
+    'magnification': magnification,
+    'visibility': visibility.key,
+  };
+
+  /// These settings with the layout keys [changes] names laid over them.
+  /// Keys it leaves out, and values of the wrong kind, change nothing. The
+  /// older side settings follow the zones, so the two never disagree.
+  DockSettings withLayout(Map<String, Object?> changes) {
+    var next = this;
+    if (changes['leading'] is List || changes['trailing'] is List) {
+      final placed = DockZones.stored(
+        changes['leading'],
+        changes['trailing'],
+        fallback: zones,
+      );
+      final extras = placed.leads(DockPart.stacks) ?? placed.leads(DockPart.trash);
+      next = next.copyWith(
+        zones: placed,
+        launcherSide: _sideOf(placed.leads(DockPart.launcher)),
+        extrasSide: _sideOf(extras),
+        showTrash: extras == null ? null : placed.contains(DockPart.trash),
+      );
+    }
+    final shape = changes['shape'];
+    if (shape == DockShape.bar.name || shape == DockShape.floating.name) {
+      final look = Map<String, Object?>.of(next.look);
+      // Floating is what every preset of the look is, so it needs no
+      // override; a stored one would only pin the shape against the look.
+      if (shape == DockShape.bar.name) {
+        look[DockLook.shapeKey] = shape;
+      } else {
+        look.remove(DockLook.shapeKey);
+      }
+      next = next.copyWith(look: look);
+    }
+    final magnify = changes['magnification'];
+    final visible = changes['visibility'];
+    return next.copyWith(
+      align: changes.containsKey('align')
+          ? DockAlign.parse(changes['align'])
+          : null,
+      magnification: magnify is bool ? magnify : null,
+      visibility: visible is String ? DockVisibilityMode.parse(visible) : null,
+    );
+  }
 
   static const int defaultRevealDelayMs = 90;
   static const int defaultHideDelayMs = 200;
@@ -797,6 +887,8 @@ class DockSettings {
     bool? currentWorkspaceOnly,
     bool? previewMiddleClose,
     bool? avoidReservedEdge,
+    DockZones? zones,
+    DockAlign? align,
   }) => DockSettings(
     pinned: pinned ?? this.pinned,
     visibility: visibility ?? this.visibility,
@@ -851,7 +943,35 @@ class DockSettings {
     previewMiddleClose: previewMiddleClose ?? this.previewMiddleClose,
     avoidReservedEdge: avoidReservedEdge ?? this.avoidReservedEdge,
     look: look ?? this.look,
+    explicitZones:
+        zones ??
+        _zonesAfter(
+          launcherSide: launcherSide,
+          extrasSide: extrasSide,
+          showTrash: showTrash,
+        ),
+    align: align ?? this.align,
   );
+
+  /// Stored zones after one of the side settings changed: the part the
+  /// setting speaks of moves, everything else keeps its place.
+  DockZones? _zonesAfter({
+    DockSide? launcherSide,
+    DockSide? extrasSide,
+    bool? showTrash,
+  }) {
+    var zones = explicitZones;
+    if (zones == null) return null;
+    if (launcherSide != null && launcherSide != this.launcherSide) {
+      zones = zones.withLauncher(leading: _leads(launcherSide));
+    }
+    final extras = extrasSide ?? this.extrasSide;
+    final trash = showTrash ?? this.showTrash;
+    if (extras != this.extrasSide || trash != this.showTrash) {
+      zones = zones.withExtras(leading: _leads(extras), trash: trash);
+    }
+    return zones;
+  }
 
   static double clampIconSize(double value) {
     if (!value.isFinite) return defaultIconSize;
@@ -1128,6 +1248,14 @@ class DockSettings {
           ? json['avoidReservedEdge'] as bool
           : true,
       look: DockLook.cleaned(json['look']),
+      explicitZones: json['leading'] is List || json['trailing'] is List
+          ? DockZones.stored(
+              json['leading'],
+              json['trailing'],
+              fallback: const DockZones(),
+            )
+          : null,
+      align: DockAlign.parse(json['align']),
     );
   }
 }
@@ -1243,6 +1371,21 @@ class DockPreferencesStore {
       json.remove('look');
     } else {
       json['look'] = settings.look;
+    }
+    // A dock that never had its zones set keeps a file without them, and so
+    // keeps following the side settings.
+    final zones = settings.explicitZones;
+    if (zones == null) {
+      json.remove('leading');
+      json.remove('trailing');
+    } else {
+      json['leading'] = zones.leading;
+      json['trailing'] = zones.trailing;
+    }
+    if (settings.align == DockAlign.packed) {
+      json.remove('align');
+    } else {
+      json['align'] = settings.align.key;
     }
     await file.parent.create(recursive: true);
     final temp = File('${file.path}.$pid.${_sequence++}.tmp');

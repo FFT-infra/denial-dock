@@ -22,6 +22,7 @@ import 'package:flutter/services.dart';
 
 import 'package:denial_shell_kit/glass_card.dart';
 
+import 'dock_look_style.dart';
 import 'dock_click.dart';
 import 'dock_debug.dart';
 import 'dock_desktop_actions.dart';
@@ -1313,7 +1314,7 @@ class _DockItemWidgetState extends State<DockItemWidget>
                               child: _Badge(
                                 count: widget.badge,
                                 size: math.max(16, size * 0.36),
-                                style: theme.text.systemBarCaption,
+                                style: theme.text.systemBarCaption.inLook,
                               ),
                             ),
                           if (progress != null && !widget.dragging)
@@ -1504,7 +1505,7 @@ class _DockItemWidgetState extends State<DockItemWidget>
                               widget.name,
                               maxLines: 1,
                               overflow: TextOverflow.ellipsis,
-                              style: theme.text.systemBarCaption.copyWith(
+                              style: theme.text.systemBarCaption.inLook.copyWith(
                                 color: colors.textTertiary,
                               ),
                             ),
@@ -1608,7 +1609,7 @@ class _DockItemWidgetState extends State<DockItemWidget>
                               padding: const EdgeInsets.fromLTRB(14, 6, 14, 8),
                               child: Text(
                                 error,
-                                style: theme.text.systemBarCaption.copyWith(
+                                style: theme.text.systemBarCaption.inLook.copyWith(
                                   color: colors.performanceWarning,
                                 ),
                               ),
@@ -1807,7 +1808,7 @@ class _DockItemWidgetState extends State<DockItemWidget>
                                           maxLines: 1,
                                           overflow: TextOverflow.ellipsis,
                                           textAlign: TextAlign.center,
-                                          style: theme.text.systemBarCaption
+                                          style: theme.text.systemBarCaption.inLook
                                               .copyWith(
                                                 color: theme.colors.textPrimary,
                                               ),
@@ -1944,7 +1945,7 @@ class _DockItemWidgetState extends State<DockItemWidget>
                             child: _PreviewRow(
                               window: window,
                               radius: theme.borderRadius(10),
-                              titleStyle: theme.text.systemBarCaption.copyWith(
+                              titleStyle: theme.text.systemBarCaption.inLook.copyWith(
                                 color: theme.colors.textPrimary,
                               ),
                               preview: widget.services.buildWindowPreview(

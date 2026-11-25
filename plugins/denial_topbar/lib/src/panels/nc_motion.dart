@@ -10,10 +10,10 @@ abstract final class NcMotion {
   // ── How the centre is shown ──────────────────────────────────────────────
   /// Whether the centre hangs as a framed panel under the item that opened
   /// it, instead of sliding in as a column at the screen's edge. A look with
-  /// solid panels takes the panel, since loose cards on a dimmed wallpaper
-  /// are a glass idea; without an item to hang from there is only the column.
-  static bool hangs({required bool opaque, required bool anchored}) =>
-      opaque && anchored;
+  /// square corners takes the panel, since a column of loose cards belongs
+  /// to rounder looks; without an item to hang from there is only the column.
+  static bool hangs({required bool square, required bool anchored}) =>
+      square && anchored;
 
   /// The share of the screen's height a hanging panel may take before its
   /// content scrolls.
