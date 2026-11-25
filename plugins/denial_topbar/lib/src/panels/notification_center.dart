@@ -766,7 +766,10 @@ class _ColumnState extends ConsumerState<_Column>
   }
 
   @override
-  Widget build(BuildContext context) {
+  Widget build(BuildContext context) =>
+      NcScope(host: this, child: Builder(builder: _body));
+
+  Widget _body(BuildContext context) {
     final scene = MediaQuery.sizeOf(context);
     final state = ref.watch(desktopNotificationsProvider);
     final groups = notifications
