@@ -12,6 +12,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'bar_panel.dart';
 import 'bar_settings.dart';
 import 'bar_type.dart';
+import 'debug_remote.dart';
 import 'workspace_overview.dart';
 import 'workspace_overview_layout.dart';
 
@@ -71,7 +72,18 @@ class _BarWorkspacesState extends ConsumerState<BarWorkspaces>
   double _swiped = 0;
 
   @override
+  void initState() {
+    super.initState();
+    debugCommand.addListener(_debug);
+  }
+
+  void _debug() {
+    if (mounted && debugWords().firstOrNull == 'spaces') _openSpaces();
+  }
+
+  @override
   void dispose() {
+    debugCommand.removeListener(_debug);
     _intent?.cancel();
     _springs.dispose();
     super.dispose();
