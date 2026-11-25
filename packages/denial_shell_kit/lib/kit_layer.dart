@@ -62,6 +62,7 @@ class KitLayer extends InheritedWidget {
     required this.dismiss,
     required super.child,
     this.interceptBack,
+    this.finish,
     super.key,
   });
 
@@ -72,6 +73,9 @@ class KitLayer extends InheritedWidget {
   /// closes it: answering true means the content stepped back a level itself
   /// (left a detail page, ended an edit) and the layer stays. Null clears it.
   final ValueChanged<bool Function()?>? interceptBack;
+  /// Set only on a layer shown with `contentEndsClose`: the content calls it
+  /// once its own exit has come to rest, and the layer goes away then.
+  final VoidCallback? finish;
 
   static KitLayer of(BuildContext context) =>
       context.dependOnInheritedWidgetOfExactType<KitLayer>()!;
@@ -85,6 +89,11 @@ class KitLayer extends InheritedWidget {
 /// and exit animation, so the host's fade is switched off.
 ///
 /// This is the one place the shell's plugins reach the host's popups.
+///
+/// With [contentEndsClose] the layer outlives its own exit animation and
+/// leaves when the content calls [KitLayer.finish]: for content that goes out
+/// on a spring, whose length the layer cannot know in advance. A layer whose
+/// content never answers still leaves after a moment.
 void showKitLayer({
   required WidgetRef ref,
   required String keyName,
@@ -95,6 +104,7 @@ void showKitLayer({
   Duration close = KitMotion.layerExit,
   bool dismissOnOutsideTap = true,
   bool passthrough = false,
+  bool contentEndsClose = false,
   Color? scrim,
 }) {
   final controller = ref.read(shellPopupControllerProvider.notifier);
@@ -127,6 +137,7 @@ void showKitLayer({
       open: open,
       close: close,
       dismissOnOutsideTap: dismissOnOutsideTap,
+      contentEndsClose: contentEndsClose,
       scrim: scrim,
       onClosed: popup.close,
       builder: builder,
@@ -141,6 +152,7 @@ class _KitLayerHost extends StatefulWidget {
     required this.open,
     required this.close,
     required this.dismissOnOutsideTap,
+    required this.contentEndsClose,
     required this.scrim,
     required this.onClosed,
     required this.builder,
@@ -151,6 +163,7 @@ class _KitLayerHost extends StatefulWidget {
   final Duration open;
   final Duration close;
   final bool dismissOnOutsideTap;
+  final bool contentEndsClose;
   final Color? scrim;
   final VoidCallback onClosed;
   final Widget Function(BuildContext context, VoidCallback close) builder;
@@ -172,6 +185,8 @@ class _KitLayerState extends State<_KitLayerHost>
   );
   bool _closing = false;
   bool Function()? _back;
+  bool _closed = false;
+  Timer? _closeGuard;
   StreamSubscription<Object?>? _outsideSub;
 
   bool _steppedBack() => !_closing && (_back?.call() ?? false);
@@ -193,6 +208,7 @@ class _KitLayerState extends State<_KitLayerHost>
   @override
   void dispose() {
     _outsideSub?.cancel();
+    _closeGuard?.cancel();
     _release();
     _controller.dispose();
     super.dispose();
@@ -210,9 +226,21 @@ class _KitLayerState extends State<_KitLayerHost>
     if (_closing) return;
     _closing = true;
     _release();
-    _controller.reverse().whenCompleteOrCancel(() {
-      if (mounted) widget.onClosed();
-    });
+    if (widget.contentEndsClose) {
+      // The content's exit decides; the guard only covers content that never
+      // reports back.
+      _closeGuard = Timer(const Duration(seconds: 3), _finish);
+      _controller.reverse();
+      return;
+    }
+    _controller.reverse().whenCompleteOrCancel(_finish);
+  }
+
+  void _finish() {
+    if (!_closing || _closed || !mounted) return;
+    _closed = true;
+    _closeGuard?.cancel();
+    widget.onClosed();
   }
 
   void _outside(Offset position) {
@@ -236,6 +264,7 @@ class _KitLayerState extends State<_KitLayerHost>
       return KitLayer(
         animation: _controller,
         dismiss: dismiss,
+        finish: widget.contentEndsClose ? _finish : null,
         child: Builder(builder: (context) => widget.builder(context, dismiss)),
       );
     }
@@ -269,6 +298,7 @@ class _KitLayerState extends State<_KitLayerHost>
             animation: _controller,
             dismiss: dismiss,
             interceptBack: (handler) => _back = handler,
+            finish: widget.contentEndsClose ? _finish : null,
             child: Builder(
               builder: (context) => widget.builder(context, dismiss),
             ),
