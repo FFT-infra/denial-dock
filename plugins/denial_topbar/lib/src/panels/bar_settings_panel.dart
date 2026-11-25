@@ -5,18 +5,22 @@ import 'package:denial_flutter_sdk/services.dart';
 import 'package:denial_flutter_sdk/theme.dart';
 import 'package:denial_shell_kit/kit_motion.dart';
 import 'package:denial_shell_kit/kit_style.dart';
+import 'package:denial_shell_kit/shell_preset.dart';
 import 'package:flutter/widgets.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../bar_icons.dart';
 import '../bar_panel.dart';
 import '../bar_preferences.dart';
+import '../bar_segments.dart';
 import '../bar_settings.dart';
 import '../bar_tokens.dart';
 import '../bar_type.dart';
 import '../tray_names.dart';
 import '../l10n.dart';
 import 'mac_kit.dart';
+
+part 'bar_layout_page.dart';
 
 const double barSettingsWidth = 700;
 
@@ -46,9 +50,10 @@ class _BarSettingsPanelState extends ConsumerState<BarSettingsPanel> {
   static const List<(String, IconData, Color)> _pages =
       <(String, IconData, Color)>[
         ('Appearance', BarIcons.paintbrushFill, macBlue),
+        ('Layout', BarIcons.rectangle3, Color(0xff30a46c)),
         ('Dynamic Island', BarIcons.capsuleFill, Color(0xff1c1c1e)),
         ('Workspaces', BarIcons.squareGrid, macPurple),
-        ('Menu Bar Items', BarIcons.rectangle3, Color(0xff8e8e93)),
+        ('Menu Bar Items', BarIcons.appBadgeFill, Color(0xff8e8e93)),
         ('Clock & Notifications', BarIcons.clock, macRed),
       ];
 
@@ -78,9 +83,10 @@ class _BarSettingsPanelState extends ConsumerState<BarSettingsPanel> {
 
     final body = switch (_page) {
       0 => _appearance(context, settings, save),
-      1 => _island(context, settings, save),
-      2 => _workspaces(context, settings, save),
-      3 => _items(context, settings, save),
+      1 => <Widget>[_LayoutPage(settings: settings, save: save)],
+      2 => _island(context, settings, save),
+      3 => _workspaces(context, settings, save),
+      4 => _items(context, settings, save),
       _ => _clock(context, settings, save),
     };
 
@@ -227,61 +233,6 @@ class _BarSettingsPanelState extends ConsumerState<BarSettingsPanel> {
                 onChanged: (speed) => kitSpeed.value = speed,
               ),
             ),
-            _Row(
-              label: context.tr('Layout'),
-              trailing: _Segments<BarShape>(
-                value: s.shape,
-                options: <(BarShape, String)>[
-                  (BarShape.strip, context.tr('Attached')),
-                  (BarShape.floating, context.tr('Floating')),
-                  (BarShape.islands, context.tr('Islands')),
-                ],
-                onChanged: (v) => save((s) => s.copyWith(shape: v)),
-              ),
-            ),
-            _Row(
-              label: context.tr('Background'),
-              trailing: _Segments<BarGround>(
-                value: s.ground,
-                options: <(BarGround, String)>[
-                  (BarGround.none, context.tr('None')),
-                  (BarGround.plate, context.tr('Plate')),
-                  (BarGround.glass, context.tr('Glass')),
-                ],
-                onChanged: (v) => save((s) => s.copyWith(ground: v)),
-              ),
-            ),
-            _Row(
-              label: context.tr('Background opacity'),
-              enabled: s.ground != BarGround.none,
-              trailing: SizedBox(
-                width: 190,
-                child: MacSlider(
-                  // This page scrolls, so the slider yields the wheel and
-                  // vertical drags to it.
-                  inList: true,
-                  value:
-                      (s.groundOpacity - BarTokens.plateOpacityMin) /
-                      (BarTokens.plateOpacityMax - BarTokens.plateOpacityMin),
-                  onChanged: (v) => save(
-                    (s) => s.copyWith(
-                      groundOpacity:
-                          BarTokens.plateOpacityMin +
-                          v *
-                              (BarTokens.plateOpacityMax -
-                                  BarTokens.plateOpacityMin),
-                    ),
-                  ),
-                ),
-              ),
-            ),
-            _Switch(
-              label: context.tr('Hairline under the bar'),
-              value: s.hairline,
-              onChanged: (v) => save(
-                (s) => s.copyWith(borderWidth: v ? BarMetric.hairline : 0),
-              ),
-            ),
           ],
         ),
         _Group(
@@ -325,8 +276,8 @@ class _BarSettingsPanelState extends ConsumerState<BarSettingsPanel> {
       children: <Widget>[
         _Switch(
           label: context.tr('Show Dynamic Island'),
-          value: s.islandEnabled,
-          onChanged: (v) => save((s) => s.copyWith(islandEnabled: v)),
+          value: s.showsIsland,
+          onChanged: (v) => save((s) => s.withPart(BarPart.island, v)),
         ),
         _Switch(
           label: context.tr('Open when the pointer rests on it'),
@@ -452,21 +403,26 @@ class _BarSettingsPanelState extends ConsumerState<BarSettingsPanel> {
   List<Widget> _workspaces(BuildContext context, BarSettings s, _Save save) {
     final layout = ref.watch(shellSettingsProvider.select((v) => v.layout));
     final shell = ref.read(shellSettingsProvider.notifier);
-    final shown = s.workspacePlacement != BarWorkspacePlacement.hidden;
+    final placement = s.workspacesShownIn;
+    final shown = placement != BarWorkspacePlacement.hidden;
     return <Widget>[
       _Group(
         children: <Widget>[
           _Row(
             label: context.tr('Show in'),
-            trailing: _Segments<BarWorkspacePlacement>(
-              value: s.workspacePlacement,
-              options: <(BarWorkspacePlacement, String)>[
+            // No option is lit while the layout page holds the switcher in
+            // the centre.
+            trailing: _Segments<BarWorkspacePlacement?>(
+              value: placement,
+              options: <(BarWorkspacePlacement?, String)>[
                 (BarWorkspacePlacement.island, context.tr('Island')),
                 (BarWorkspacePlacement.leading, context.tr('Left')),
                 (BarWorkspacePlacement.trailing, context.tr('Right')),
                 (BarWorkspacePlacement.hidden, context.tr('Hidden')),
               ],
-              onChanged: (v) => save((s) => s.copyWith(workspacePlacement: v)),
+              onChanged: (v) {
+                if (v != null) save((s) => s.withWorkspacePlacement(v));
+              },
             ),
           ),
           _Row(
@@ -599,13 +555,13 @@ class _BarSettingsPanelState extends ConsumerState<BarSettingsPanel> {
         children: <Widget>[
           _Switch(
             label: context.tr('System menu'),
-            value: s.showSystemMenu,
-            onChanged: (v) => save((s) => s.copyWith(showSystemMenu: v)),
+            value: s.hasPart(BarPart.system),
+            onChanged: (v) => save((s) => s.withPart(BarPart.system, v)),
           ),
           _Switch(
             label: context.tr('Application name'),
-            value: s.showAppMenu,
-            onChanged: (v) => save((s) => s.copyWith(showAppMenu: v)),
+            value: s.hasPart(BarPart.app),
+            onChanged: (v) => save((s) => s.withPart(BarPart.app, v)),
           ),
         ],
       ),

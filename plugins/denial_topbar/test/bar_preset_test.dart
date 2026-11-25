@@ -101,7 +101,7 @@ void main() {
     segments.shape == BarShape.islands &&
         segments.cap == BarCap.arrow &&
         BarZones.segments(segments.zones.center).length == 3 &&
-        segments.zones.loneStatusItems.single == 'tray',
+        segments.zones.end.single == 'status',
     'Segments is three runs of pointed segments',
   );
   final compact = defaults.withLayout(ShellPreset.compact.bar);

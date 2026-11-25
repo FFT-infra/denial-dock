@@ -50,11 +50,17 @@ final class DockPlugin implements ShellSurface {
 
   @override
   Widget build(BuildContext context, {required ShellSurfaceContext surface}) {
-    return DockContainer(
+    // Gone at once when switched off, without waiting to be placed again.
+    return ValueListenableBuilder<bool>(
       key: ValueKey(surface.environment.output.monitorId),
-      monitorId: surface.environment.output.monitorId,
-      services: surface.services,
-      environment: surface.environment,
+      valueListenable: kitDockEnabled,
+      builder: (context, shown, _) => shown
+          ? DockContainer(
+              monitorId: surface.environment.output.monitorId,
+              services: surface.services,
+              environment: surface.environment,
+            )
+          : const SizedBox.shrink(),
     );
   }
 }

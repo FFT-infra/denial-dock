@@ -102,7 +102,7 @@ class ShellPreset {
       'workspacePlacement': 'leading',
       'start': <String>['workspaces'],
       'center': <String>['system', 'separator', 'app', 'separator', 'clock'],
-      'end': <String>['status.tray', 'separator', 'status'],
+      'end': <String>['status'],
     }),
   );
 
