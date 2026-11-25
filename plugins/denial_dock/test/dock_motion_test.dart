@@ -103,8 +103,9 @@ void main() {
   _expect(DockMotion.attentionWave(0.4) == 0, 'the hop has landed');
   _expect(DockMotion.attentionWave(0.9) == 0, 'the rest is still');
   _expect(
-    (full.attentionLift(0.2, 48) - 48 * 0.22).abs() < 1e-9,
-    'the hop is 0.22 of an icon high',
+    (full.attentionLift(0.2, 48) - 48 * DockMotion.attentionHeightRatio).abs() <
+        1e-9,
+    'the hop reaches its height',
   );
   _expect(full.attentionOpacity(0.2) == 1, 'a hopping icon keeps its opacity');
 

@@ -28,16 +28,11 @@ import 'dock_desktop_actions.dart';
 import 'dock_drag.dart';
 import 'dock_icon.dart';
 import 'dock_launch.dart';
+import 'dock_look.dart';
 import 'dock_menu.dart';
 import 'dock_motion.dart';
 import 'dock_scroll.dart';
 import 'dock_settings.dart';
-
-/// Windows `MouseHoverTime`, 400 ms.
-const int previewHoverDelayMs = 400;
-
-/// The stack keeps the same wait as Windows' flyout.
-const int stackPreviewHoverDelayMs = 400;
 
 /// Windows `MouseHoverSize`, 4 px.
 const double _hoverRestExtent = 4;
@@ -70,8 +65,10 @@ class DockItemWidget extends StatefulWidget {
     required this.motion,
     required this.launchFeedback,
     required this.indicatorStyle,
+    this.markerColor = DockMarkerColor.auto,
     required this.previewStyle,
     required this.previewHover,
+    this.previewDelayMs = DockSettings.defaultPreviewDelayMs,
     required this.dimInactivePinned,
     required this.badge,
     required this.progress,
@@ -147,10 +144,16 @@ class DockItemWidget extends StatefulWidget {
   /// hop.
   final DockLaunchFeedback launchFeedback;
   final DockIndicatorStyle indicatorStyle;
+
+  /// What colour the running marker takes.
+  final DockMarkerColor markerColor;
   final DockPreviewStyle previewStyle;
 
   /// Focuses a previewed window when the pointer moves onto its row.
   final DockPreviewHover previewHover;
+
+  /// How long the pointer rests on the icon before its previews open.
+  final int previewDelayMs;
 
   /// Fades a pinned icon that has no window.
   final bool dimInactivePinned;
@@ -310,7 +313,7 @@ class _DockItemWidgetState extends State<DockItemWidget>
       vsync: this,
       // The attention rhythm is a loop, so only the speed scales it: under
       // reduced motion the icon holds still and dims in the same rhythm.
-      duration: KitMotion.now.scaled(const Duration(milliseconds: 1500)),
+      duration: KitMotion.now.scaled(DockMotion.attentionPeriod),
     );
     if (widget.attention) unawaited(_attention.repeat());
     widget.activation.addListener(_onActivation);
@@ -370,9 +373,7 @@ class _DockItemWidgetState extends State<DockItemWidget>
     }
     if (widget.motion.pace.speed != oldWidget.motion.pace.speed) {
       // A loop keeps its rhythm; only a new speed changes its period.
-      _attention.duration = KitMotion.now.scaled(
-        const Duration(milliseconds: 1500),
-      );
+      _attention.duration = KitMotion.now.scaled(DockMotion.attentionPeriod);
     }
     if (widget.launchId != oldWidget.launchId ||
         widget.appId != oldWidget.appId) {
@@ -444,7 +445,7 @@ class _DockItemWidgetState extends State<DockItemWidget>
         case DockScrollAction.nothing:
           return;
         case DockScrollAction.cycleWindows:
-          final windows = widget.windows;
+          final windows = _cycleWindows;
           final next = DockClick.scrollIndex(
             count: windows.length,
             activeIndex: DockClick.activeIndex(
@@ -470,13 +471,8 @@ class _DockItemWidgetState extends State<DockItemWidget>
     });
   }
 
-  /// Windows waits 400 ms before a thumbnail flyout, Omarchy's dock 300 ms
-  /// before its stack. The card row needs two windows to be worth opening; the
-  /// stack opens for a single window too, as Omarchy's does.
-  int get _previewDelayMs => widget.previewStyle == DockPreviewStyle.stack
-      ? stackPreviewHoverDelayMs
-      : previewHoverDelayMs;
-
+  /// The card row needs two windows to be worth opening; the stack opens for
+  /// a single window too, as Omarchy's does.
   bool get _wantsPreviews => widget.previewStyle == DockPreviewStyle.stack
       ? widget.windows.isNotEmpty
       : widget.windows.length > 1;
@@ -493,7 +489,7 @@ class _DockItemWidgetState extends State<DockItemWidget>
 
   void _armPreviewTimer() {
     _showPreviewTimer?.cancel();
-    _showPreviewTimer = Timer(Duration(milliseconds: _previewDelayMs), () {
+    _showPreviewTimer = Timer(Duration(milliseconds: widget.previewDelayMs), () {
       _showPreviewTimer = null;
       if (mounted && _wantsPreviews) _showPreviews();
     });
@@ -758,6 +754,11 @@ class _DockItemWidgetState extends State<DockItemWidget>
     });
   }
 
+  /// The application's windows in the order a click or a wheel turn steps
+  /// through them, which must not change as windows come to the front.
+  List<ApplicationWindow> get _cycleWindows =>
+      DockClick.stable(widget.windows, (window) => window.id);
+
   /// Clicking an application follows macOS: a stopped application starts, a
   /// front-most one minimizes or cycles to its next window, and one in the
   /// background comes forward.
@@ -770,7 +771,7 @@ class _DockItemWidgetState extends State<DockItemWidget>
       _launch();
       return;
     }
-    final windows = widget.windows;
+    final windows = _cycleWindows;
     final activeIndex = DockClick.activeIndex(
       windows.map((window) => window.active),
     );
@@ -1148,9 +1149,16 @@ class _DockItemWidgetState extends State<DockItemWidget>
     final indicator =
         running && widget.indicatorStyle != DockIndicatorStyle.none
         ? _buildIndicator(
-            color: active
-                ? theme.kitAccent
-                : colors.textPrimary.withValues(alpha: 0.55),
+            color: switch (widget.markerColor) {
+              DockMarkerColor.auto =>
+                active
+                    ? theme.kitAccent
+                    : colors.textPrimary.withValues(alpha: 0.55),
+              DockMarkerColor.accent => theme.kitAccent,
+              DockMarkerColor.ink => colors.textPrimary.withValues(
+                alpha: active ? 0.9 : 0.55,
+              ),
+            },
             count: widget.windows.length,
             style: widget.indicatorStyle,
           )
@@ -2131,6 +2139,9 @@ class _PreviewCloseButton extends StatelessWidget {
   }
 }
 
+/// One running marker. It grows in when its window appears, and its colour
+/// eases when the application comes to the front or leaves it, so the row of
+/// markers never blinks.
 class _Dot extends StatelessWidget {
   const _Dot({required this.width, required this.height, required this.color});
 
@@ -2139,12 +2150,28 @@ class _Dot extends StatelessWidget {
   final Color color;
 
   @override
-  Widget build(BuildContext context) => Container(
-    width: width,
-    height: height,
-    decoration: BoxDecoration(
-      borderRadius: BorderRadius.circular(math.min(width, height) / 2),
-      color: color,
+  Widget build(BuildContext context) => TweenAnimationBuilder<double>(
+    tween: Tween<double>(begin: 0, end: 1),
+    duration: KitMotion.duration(context, KitMotion.fill),
+    curve: KitMotion.outBack,
+    builder: (context, grown, child) => Transform.scale(
+      scale: grown,
+      child: Opacity(opacity: grown.clamp(0.0, 1.0), child: child),
+    ),
+    // Only the colour eases: the size follows the icon's magnification
+    // frame by frame and must not lag behind it.
+    child: TweenAnimationBuilder<Color?>(
+      tween: ColorTween(end: color),
+      duration: KitMotion.duration(context, KitMotion.fill),
+      curve: KitMotion.out,
+      builder: (context, shade, _) => Container(
+        width: width,
+        height: height,
+        decoration: BoxDecoration(
+          borderRadius: BorderRadius.circular(math.min(width, height) / 2),
+          color: shade ?? color,
+        ),
+      ),
     ),
   );
 }

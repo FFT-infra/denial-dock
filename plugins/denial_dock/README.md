@@ -29,8 +29,8 @@ turning it on.
   glides back down in 0.13 s, or pulses between full and 70% opacity, or stays
   still. The hop stops as soon as a window appears, and after 500 ms at the
   earliest; it gives up after 5 s, or immediately if the launch fails.
-- **Window previews.** Two layouts. The card row waits 400 ms, the delay
-  Windows uses for taskbar thumbnails; the stack waits the same 400 ms and
+- **Window previews.** Two layouts. The card row waits 600 ms by default,
+  adjustable in the settings from 0 to 1500 ms; the stack uses the same wait and
   opens for a single window too, with a close button on each row. The stack follows the
   pointer: moving to a neighbouring running icon hands it over without waiting
   out another dwell. Hover one preview for

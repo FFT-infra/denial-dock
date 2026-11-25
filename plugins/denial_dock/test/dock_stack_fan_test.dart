@@ -125,8 +125,14 @@ void main() {
   // The row count follows the screen instead of a fixed cap, on the same
   // fixed pitch a macOS stack keeps.
   _expect(
-    DockStackFan.fitRows(bottom: 1000, top: 0) == 14,
-    'a 1000 px screen fits 14 rows: ${DockStackFan.fitRows(bottom: 1000, top: 0)}',
+    DockStackFan.fitRows(bottom: 700, top: 0) == 10,
+    'a 700 px screen fits 10 rows: ${DockStackFan.fitRows(bottom: 700, top: 0)}',
+  );
+  // Every row turns a step further, so a tall screen stops at the cap rather
+  // than fanning names out past the angle they can be read at.
+  _expect(
+    DockStackFan.fitRows(bottom: 4000, top: 0) == DockStackFan.maxRows,
+    'a tall screen stops at the cap',
   );
   _expect(
     DockStackFan.fitRows(bottom: 200, top: 0) == 2,
@@ -140,9 +146,9 @@ void main() {
   // A turned label lifts its far end, so a tall fan loses rows to the tilt
   // before it runs out of steps. This is the bug that clipped the top row.
   final wide = List<double>.filled(20, 260);
-  final withTilt = DockStackFan.fitRows(bottom: 1200, top: 0, widths: wide);
+  final withTilt = DockStackFan.fitRows(bottom: 800, top: 0, widths: wide);
   final withoutTilt = DockStackFan.fitRows(
-    bottom: 1200,
+    bottom: 800,
     top: 0,
     widths: wide,
     tilt: 0,
@@ -159,8 +165,109 @@ void main() {
             DockStackFan.rowHeight / 2 * (math.cos(angle) - 1)) *
         DockStackFan.hoverScale;
     final rise = DockStackFan.rowStep * (i + 1) + lift;
-    _expect(rise <= 1200 - DockStackFan.gap + 0.01, 'row $i fits: $rise');
+    _expect(rise <= 800 - DockStackFan.gap + 0.01, 'row $i fits: $rise');
   }
+
+  // Each row sits one fixed pitch above the last and turns one fixed step
+  // further, while the sideways drift grows with the square of the slot.
+  final arc = DockStackFan.layout(
+    widths: List<double>.filled(6, 180),
+    anchorX: 400,
+    bottom: 900,
+  );
+  for (var i = 0; i < arc.length; i++) {
+    _expect(
+      (arc[i].iconY -
+                  (900 -
+                      DockStackFan.rowStep * (i + 1) +
+                      DockStackFan.rowHeight / 2))
+              .abs() <
+          1e-9,
+      'row $i sits on the pitch',
+    );
+    _expect(
+      (arc[i].iconX - (400 + DockStackFan.shift * i * i)).abs() < 1e-9,
+      'row $i drifts by the square of its slot',
+    );
+    _expect(
+      (arc[i].angle - DockStackFan.tiltDegrees * i * math.pi / 180).abs() <
+          1e-12,
+      'row $i turns $i steps',
+    );
+  }
+  // The drift stops at its ceiling however many rows there are.
+  final tall = DockStackFan.layout(
+    widths: List<double>.filled(14, 180),
+    anchorX: 400,
+    bottom: 2000,
+  );
+  _expect(
+    (tall.last.iconX - (400 + DockStackFan.shiftMax)).abs() < 1e-9,
+    'the drift is capped',
+  );
+
+  // The automatic view keeps the fan while every file and the row that opens
+  // the folder fit, and gives way to the grid as soon as one would be left
+  // out: by the screen's height, or by the cap on rows.
+  _expect(
+    DockStackFan.fits(files: 5, bottom: 1000, top: 0),
+    'five files and the open row fit a tall screen',
+  );
+  _expect(
+    DockStackFan.fits(
+      files: DockStackFan.maxRows - 1,
+      bottom: 4000,
+      top: 0,
+    ),
+    'the cap leaves room for the open row',
+  );
+  _expect(
+    !DockStackFan.fits(files: DockStackFan.maxRows, bottom: 4000, top: 0),
+    'one file past the cap falls back to the grid',
+  );
+  _expect(
+    !DockStackFan.fits(files: 5, bottom: 400, top: 0),
+    'a short screen falls back to the grid',
+  );
+  _expect(
+    DockStackFan.fits(files: 4, bottom: 360, top: 0) &&
+        !DockStackFan.fits(
+          files: 4,
+          bottom: 360,
+          top: 0,
+          widths: List<double>.filled(5, 320),
+        ),
+    'wide names cost a row once they are turned',
+  );
+  _expect(
+    DockStackFan.fits(files: 0, bottom: 100, top: 0),
+    'an empty folder still gets the row that opens it',
+  );
+
+  // The keyboard walks the rows from the end the arrow points away from, and
+  // stops at either end.
+  _expect(
+    DockStackFan.step(current: -1, count: 4, towardDock: false) == 0,
+    'the first step away from the dock lands on the nearest row',
+  );
+  _expect(
+    DockStackFan.step(current: -1, count: 4, towardDock: true) == 3,
+    'the first step toward the dock lands on the far row',
+  );
+  _expect(
+    DockStackFan.step(current: 1, count: 4, towardDock: false) == 2 &&
+        DockStackFan.step(current: 1, count: 4, towardDock: true) == 0,
+    'a step moves one row',
+  );
+  _expect(
+    DockStackFan.step(current: 3, count: 4, towardDock: false) == 3 &&
+        DockStackFan.step(current: 0, count: 4, towardDock: true) == 0,
+    'the ends hold',
+  );
+  _expect(
+    DockStackFan.step(current: 0, count: 0, towardDock: true) == -1,
+    'no rows, no selection',
+  );
 
   // A side dock stacks its rows vertically, centred on the icon, upright.
   final side = DockStackFan.layoutSide(

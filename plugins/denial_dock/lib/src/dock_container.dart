@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:math' as math;
 
 import 'package:denial_shell_kit/kit_motion.dart';
+import 'package:denial_shell_kit/kit_requests.dart';
 import 'package:denial_shell_kit/kit_style.dart';
 import 'package:denial_flutter_sdk/applications.dart'
     show applicationRecentsProvider;
@@ -40,6 +41,7 @@ import 'package:denial_shell_kit/launcher_entry.dart';
 import 'package:denial_shell_kit/launcher_entry_bus.dart';
 
 import 'dock_layout.dart';
+import 'dock_look.dart';
 import 'dock_menu.dart';
 import 'dock_motion.dart';
 import 'dock_preferences.dart';
@@ -82,7 +84,7 @@ class _DockContainerState extends ConsumerState<DockContainer>
   /// Distance from the screen edge to the capsule. A bar that reserves the
   /// dock's own edge adds its thickness, so the two never share pixels.
   double _reserved = 0;
-  double get _edgeInset => _baseInset + _reserved;
+  double get _edgeInset => _look.effectiveEdgeMargin + _reserved;
 
   late final Ticker _ticker;
   Duration _lastTick = Duration.zero;
@@ -125,6 +127,10 @@ class _DockContainerState extends ConsumerState<DockContainer>
   final OverlayPortalController _menuPortal = OverlayPortalController();
   double _menuAnchor = 0;
 
+  /// True when the dock menu was opened from the launcher icon, which adds
+  /// the system's own entries above the dock's.
+  bool _menuFromLauncher = false;
+
   /// One dwell timer gates the first name label; moving between icons keeps the
   /// visible label continuous instead of restarting the delay.
   Timer? _labelTimer;
@@ -132,6 +138,10 @@ class _DockContainerState extends ConsumerState<DockContainer>
   bool _labelShown = false;
 
   DockSettings _settings = DockSettings.defaults;
+
+  /// How the capsule is drawn and spaced: the preset of the shell look in
+  /// force with the user's own changes on top. Resolved once per build.
+  DockLook _look = DockLook.denial;
   WorkspaceStatus _workspaceStatus = WorkspaceStatus(
     count: 1,
     active: 1,
@@ -197,7 +207,7 @@ class _DockContainerState extends ConsumerState<DockContainer>
   bool _resizing = false;
 
   double get _iconSize => _dragIconSize ?? _settings.iconSize;
-  double get _capsuleHeight => _iconSize + DockSettings.padding * 2;
+  double get _capsuleHeight => _iconSize + _look.padding * 2;
   double get _halfIcon => _iconSize / 2;
 
   DockPosition get _position => _settings.position;
@@ -606,12 +616,13 @@ class _DockContainerState extends ConsumerState<DockContainer>
     return label?.key;
   }
 
-  void _openDockMenu(double surfaceMain) {
+  void _openDockMenu(double surfaceMain, {bool launcher = false}) {
     if (_menuOpen) {
       _closeDockMenu();
       return;
     }
     _menuAnchor = surfaceMain;
+    _menuFromLauncher = launcher;
     _menuOpen = true;
     _menuPortal.show();
     setState(() {});
@@ -683,7 +694,7 @@ class _DockContainerState extends ConsumerState<DockContainer>
     _dragDx = 0;
     _dragDy = 0;
     final mainCenter = slot?.center ?? _capsuleStart;
-    final crossCenter = _capsuleCross + DockSettings.padding + _halfIcon;
+    final crossCenter = _capsuleCross + _look.padding + _halfIcon;
     _dragOriginX = switch (_position) {
       DockPosition.bottom => _output.left + mainCenter,
       DockPosition.left => _output.left + crossCenter,
@@ -1055,12 +1066,12 @@ class _DockContainerState extends ConsumerState<DockContainer>
       for (final spec in specs)
         DockSlot(half: spec.half, growable: spec.growable),
     ],
-    padding: DockSettings.edgePadding,
-    gap: DockSettings.gap,
+    padding: _look.endPadding,
+    gap: _look.gap,
     pointer: _pointer,
     hover: hover,
     maxScale: _settings.effectiveMaxScale,
-    radius: DockSettings.magnificationRadius,
+    radius: _look.magnifyRange,
   );
 
   @override
@@ -1068,6 +1079,7 @@ class _DockContainerState extends ConsumerState<DockContainer>
     final storedSettings = ref.watch(dockSettingsProvider);
     final settings = storedSettings.value ?? DockSettings.defaults;
     _settings = settings;
+    _look = settings.lookFor(kitStyle.value.id);
     if (_dragIconSize != null &&
         (_dragIconSize! - settings.iconSize).abs() < 0.5) {
       _dragIconSize = null;
@@ -1224,10 +1236,10 @@ class _DockContainerState extends ConsumerState<DockContainer>
           // running entry can be dropped after every existing pin.
           final firstApp = _firstAppCenter(baseFrame, baseSpecs);
           final appendCenter = pinCenters.isNotEmpty
-              ? pinCenters.last + _iconSize + DockSettings.gap
+              ? pinCenters.last + _iconSize + _look.gap
               : firstApp ??
                     baseFrame.capsuleStart +
-                        DockSettings.edgePadding +
+                        _look.endPadding +
                         _halfIcon;
           _pinCenters = pinCenters;
           _appendCenter = appendCenter;
@@ -1266,7 +1278,7 @@ class _DockContainerState extends ConsumerState<DockContainer>
                   ),
                   bottom:
                       _capsuleCross +
-                      DockSettings.padding +
+                      _look.padding +
                       (labelSlot?.half ?? _halfIcon) * 2 +
                       labelLift +
                       6,
@@ -1328,6 +1340,17 @@ class _DockContainerState extends ConsumerState<DockContainer>
             fit: StackFit.expand,
             clipBehavior: Clip.none,
             children: [
+              // A bar lies along the whole edge, so its plate is drawn behind
+              // the capsule at the surface's full length; the capsule keeps
+              // its own extent and everything in it stays where it was.
+              if (_look.shape == DockShape.bar)
+                _placeInSurface(
+                  main: 0,
+                  cross: _capsuleCross,
+                  mainExtent: surfaceMain,
+                  crossExtent: _capsuleHeight,
+                  child: IgnorePointer(child: _capsuleSurface(context, theme)),
+                ),
               _placeInSurface(
                 main: _capsuleStart,
                 cross: _capsuleCross,
@@ -1353,7 +1376,9 @@ class _DockContainerState extends ConsumerState<DockContainer>
                                         ? details.localPosition.dy
                                         : details.localPosition.dx),
                               ),
-                              child: _capsuleSurface(context, theme),
+                              child: _look.shape == DockShape.bar
+                                  ? const SizedBox.expand()
+                                  : _capsuleSurface(context, theme),
                             ),
                           ),
                           for (var i = 0; i < specs.length; i++)
@@ -1628,6 +1653,34 @@ class _DockContainerState extends ConsumerState<DockContainer>
                         mainAxisSize: MainAxisSize.min,
                         crossAxisAlignment: CrossAxisAlignment.stretch,
                         children: [
+                          // The launcher's icon stands in for the system
+                          // menu, so its menu leads with that menu's entries.
+                          // The about box belongs to another plugin and is
+                          // asked for by name; without a listener the row
+                          // would do nothing, so it is left out.
+                          if (_menuFromLauncher) ...[
+                            if (KitRequests.answered)
+                              DockMenuRow(
+                                icon: Icons.info_outline,
+                                label: chinese ? '关于本机' : 'About This System',
+                                onTap: () {
+                                  _closeDockMenu();
+                                  KitRequests.send(
+                                    KitRequests.about,
+                                    monitorId: widget.monitorId,
+                                  );
+                                },
+                              ),
+                            DockMenuRow(
+                              icon: Icons.settings_outlined,
+                              label: chinese ? '系统设置…' : 'System Settings…',
+                              onTap: () {
+                                _closeDockMenu();
+                                widget.services.openPowerSettings();
+                              },
+                            ),
+                            const DockMenuSeparator(),
+                          ],
                           DockMenuRow(
                             icon: smart
                                 ? Icons.visibility_off_outlined
@@ -1730,7 +1783,7 @@ class _DockContainerState extends ConsumerState<DockContainer>
       final slot = frame.slots[i];
       final extent = slot.half * 2;
       // The slot's near edge, measured from the dock's own edge inward.
-      final near = _capsuleCross + DockSettings.padding;
+      final near = _capsuleCross + _look.padding;
       return switch (_position) {
         DockPosition.bottom => Rect.fromLTWH(
           _output.left + slot.center - slot.half,
@@ -1770,31 +1823,77 @@ class _DockContainerState extends ConsumerState<DockContainer>
     return null;
   }
 
+  /// The capsule's plate: a backdrop blur under a translucent fill, a rim
+  /// and a shadow, all taken from [_look].
   Widget _capsuleSurface(BuildContext context, ShellThemeData theme) {
-    final radius = theme.borderRadius(20);
-    // Mixed from the theme's own surface, not the glass backing: that backing
-    // is a flat white or black chosen by the glass appearance setting, so on a
-    // dark wallpaper it turned the dock into a pale bar nothing else on screen
-    // shared. The surface colour already follows the light or dark appearance.
-    // Its opacity is the system's panel opacity over the whole range, so the
-    // dock is as clear or as solid as every other panel.
-    final alpha = theme.effectivePanelOpacity;
-    return ShellBackdropBlur(
-      blur: theme.effectivePanelOpacity < 1,
+    final look = _look;
+    final corner = KitStyle.of(context).radius(theme, look.effectiveRadius);
+    final radius = BorderRadius.circular(corner);
+    // The theme's fill is mixed from its own surface, not the glass backing:
+    // that backing is a flat white or black chosen by the glass appearance
+    // setting, so on a dark wallpaper it turned the dock into a pale bar
+    // nothing else on screen shared. The surface colour already follows the
+    // light or dark appearance.
+    final surface = theme.colors.surfaceContainer;
+    final fill = switch (look.tint) {
+      DockTint.theme => surface,
+      DockTint.accent => Color.alphaBlend(
+        theme.kitAccent.withValues(alpha: 0.30),
+        surface,
+      ),
+      DockTint.custom => Color.lerp(
+        const Color(0xFF000000),
+        const Color(0xFFFFFFFF),
+        look.tintShade,
+      )!,
+    };
+    // A look that names no opacity takes the system's panel opacity over its
+    // whole range, so the dock is as clear or as solid as every other panel.
+    final alpha = look.opacity ?? theme.effectivePanelOpacity;
+    final dark = theme.brightness == Brightness.dark;
+    final rim = look.brightBorder
+        ? const Color(0xFFFFFFFF).withValues(alpha: dark ? 0.18 : 0.45)
+        : theme.colors.hairline.withValues(alpha: 0.7);
+    // A glass surface owns the fade so the backdrop and foreground can fade
+    // independently instead of being isolated in one opacity group.
+    final fade = ShellSurfacePresentation.opacityOf(context);
+    final plate = ShellBackdropBlur(
+      blur: alpha < 1 && look.blur > 0,
+      strength: look.blur,
       separateChild: true,
-      // A glass surface owns the fade so the backdrop and foreground can fade
-      // independently instead of being isolated in one opacity group.
-      opacity: ShellSurfacePresentation.opacityOf(context),
+      opacity: fade,
       borderRadius: radius,
       child: DecoratedBox(
         decoration: BoxDecoration(
           borderRadius: radius,
-          color: theme.colors.surfaceContainer.withValues(alpha: alpha),
-          border: Border.all(
-            color: theme.colors.hairline.withValues(alpha: 0.7),
-          ),
+          color: fill.withValues(alpha: alpha),
+          border: look.border
+              ? Border.all(color: rim, width: look.borderWidth)
+              : null,
         ),
       ),
+    );
+    if (look.shadow <= 0) return plate;
+    return Stack(
+      fit: StackFit.expand,
+      clipBehavior: Clip.none,
+      children: [
+        IgnorePointer(
+          child: FadeTransition(
+            opacity: fade,
+            child: CustomPaint(
+              painter: _CapsuleShadowPainter(
+                radius: corner,
+                color: theme.colors.shadow,
+                // A retracted dock keeps a strip of itself just past the
+                // edge, and its shadow would reach back onto the screen.
+                strength: look.shadow * _reveal.clamp(0.0, 1.0),
+              ),
+            ),
+          ),
+        ),
+        plate,
+      ],
     );
   }
 
@@ -1875,8 +1974,13 @@ class _DockContainerState extends ConsumerState<DockContainer>
     // Neighbours ease into their new slot while an icon is being dragged,
     // matching the reorder animation in the reference docks.
     final shuffle = _motion.duration(
-      dragging ? const Duration(milliseconds: 180) : Duration.zero,
+      dragging ? KitMotion.enter : Duration.zero,
     );
+    // A liquid look lets a neighbour run a hair past its new slot and come
+    // back; the other eases straight into it.
+    final shuffleCurve = KitStyle.of(context).liquid
+        ? KitMotion.spring
+        : KitMotion.outCubic;
     Widget slotAt({
       required double cross,
       required double mainExtent,
@@ -1887,7 +1991,7 @@ class _DockContainerState extends ConsumerState<DockContainer>
       DockPosition.bottom => AnimatedPositioned(
         key: key,
         duration: shuffle,
-        curve: Curves.easeOutCubic,
+        curve: shuffleCurve,
         left: main,
         bottom: cross,
         width: mainExtent,
@@ -1897,7 +2001,7 @@ class _DockContainerState extends ConsumerState<DockContainer>
       DockPosition.left => AnimatedPositioned(
         key: key,
         duration: shuffle,
-        curve: Curves.easeOutCubic,
+        curve: shuffleCurve,
         top: main,
         left: cross,
         height: mainExtent,
@@ -1907,7 +2011,7 @@ class _DockContainerState extends ConsumerState<DockContainer>
       DockPosition.right => AnimatedPositioned(
         key: key,
         duration: shuffle,
-        curve: Curves.easeOutCubic,
+        curve: shuffleCurve,
         top: main,
         right: cross,
         height: mainExtent,
@@ -1919,7 +2023,7 @@ class _DockContainerState extends ConsumerState<DockContainer>
     switch (spec.kind) {
       case _SlotKind.divider:
         final line = _iconSize * 0.52;
-        final inset = DockSettings.padding + _iconSize * 0.24;
+        final inset = _look.padding + _iconSize * 0.24;
         final handle = _dividerHandle(context.shellTheme.colors.hairline);
         return switch (_position) {
           DockPosition.bottom => AnimatedPositioned(
@@ -1955,7 +2059,7 @@ class _DockContainerState extends ConsumerState<DockContainer>
         // removes the divider and shifts this slot's index.
         return slotAt(
           key: const ValueKey('dock-launcher'),
-          cross: DockSettings.padding,
+          cross: _look.padding,
           mainExtent: extent,
           crossExtent: extent,
           child: _LauncherItem(
@@ -1965,7 +2069,7 @@ class _DockContainerState extends ConsumerState<DockContainer>
             appearance: _settings.appearance,
             label: launcherLabel,
             onTap: widget.services.toggleLauncher,
-            onOpenMenu: () => _openDockMenu(slot.center),
+            onOpenMenu: () => _openDockMenu(slot.center, launcher: true),
           ),
         );
       case _SlotKind.folder:
@@ -1973,7 +2077,7 @@ class _DockContainerState extends ConsumerState<DockContainer>
         if (folder == null) return null;
         return slotAt(
           key: ValueKey('dock-folder-${folder.path}'),
-          cross: DockSettings.padding,
+          cross: _look.padding,
           mainExtent: extent,
           crossExtent: extent,
           child: DockFolderItem(
@@ -2018,7 +2122,7 @@ class _DockContainerState extends ConsumerState<DockContainer>
         if (file == null) return null;
         return slotAt(
           key: ValueKey('dock-file-${file.path}'),
-          cross: DockSettings.padding,
+          cross: _look.padding,
           mainExtent: extent,
           crossExtent: extent,
           child: DockFileItem(
@@ -2041,7 +2145,7 @@ class _DockContainerState extends ConsumerState<DockContainer>
       case _SlotKind.trash:
         return slotAt(
           key: const ValueKey('dock-trash'),
-          cross: DockSettings.padding,
+          cross: _look.padding,
           mainExtent: extent,
           crossExtent: extent,
           child: DockTrashItem(
@@ -2091,7 +2195,7 @@ class _DockContainerState extends ConsumerState<DockContainer>
         }
         return slotAt(
           key: ValueKey('dock-${entry.appId}'),
-          cross: DockSettings.padding,
+          cross: _look.padding,
           mainExtent: extent,
           crossExtent: extent,
           child: Opacity(
@@ -2118,8 +2222,10 @@ class _DockContainerState extends ConsumerState<DockContainer>
               motion: _motion,
               launchFeedback: _motion.launchFeedback(settings.launchFeedback),
               indicatorStyle: settings.indicatorStyle,
+              markerColor: _look.markerColor,
               previewStyle: settings.previewStyle,
               previewHover: settings.previewHover,
+              previewDelayMs: settings.previewDelayMs,
               dimInactivePinned: settings.dimInactivePinned,
               badge: publishedCount > 0
                   ? publishedCount
@@ -2361,6 +2467,36 @@ class _DockLabelBubble extends StatelessWidget {
     final padH = (iconSize * 0.24).clamp(10.0, 14.0);
     final height = fontSize * 1.25 + padV * 2;
     final tailSize = (iconSize * 0.13).clamp(6.0, 9.0);
+    // The bubble grows out of its tail when it first appears. Sliding along
+    // the row keeps the same bubble, so it does not replay between icons.
+    return TweenAnimationBuilder<double>(
+      tween: Tween<double>(begin: 0, end: 1),
+      duration: KitMotion.duration(context, KitMotion.fade),
+      curve: KitMotion.outCubic,
+      builder: (context, shown, child) => Opacity(
+        opacity: shown,
+        child: Transform.scale(
+          scale: 0.9 + 0.1 * shown,
+          alignment: !horizontal
+              ? Alignment.bottomCenter
+              : tailLeading
+              ? Alignment.centerLeft
+              : Alignment.centerRight,
+          child: child,
+        ),
+      ),
+      child: _bubble(theme, fontSize, padV, padH, tailSize, height),
+    );
+  }
+
+  Widget _bubble(
+    ShellThemeData theme,
+    double fontSize,
+    double padV,
+    double padH,
+    double tailSize,
+    double height,
+  ) {
     return CustomPaint(
       painter: _BubblePainter(
         color: background,
@@ -2488,4 +2624,49 @@ class _LauncherGlyphPainter extends CustomPainter {
   @override
   bool shouldRepaint(covariant _LauncherGlyphPainter oldDelegate) =>
       oldDelegate.color != color;
+}
+
+/// The shadow under the capsule, drawn only outside it. The plate is
+/// translucent, so a plain box shadow would show through the fill and darken
+/// the glass it is meant to lift.
+class _CapsuleShadowPainter extends CustomPainter {
+  const _CapsuleShadowPainter({
+    required this.radius,
+    required this.color,
+    required this.strength,
+  });
+
+  final double radius;
+  final Color color;
+
+  /// From zero to one: how dark and how wide the shadow is.
+  final double strength;
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final plate = RRect.fromRectAndRadius(
+      Offset.zero & size,
+      Radius.circular(radius),
+    );
+    final spread = 10 + 14 * strength;
+    canvas
+      ..save()
+      ..clipPath(
+        Path()
+          ..fillType = PathFillType.evenOdd
+          ..addRect((Offset.zero & size).inflate(spread * 3))
+          ..addRRect(plate),
+      )
+      ..drawRRect(
+        plate.shift(Offset(0, 3 + 5 * strength)),
+        Paint()
+          ..color = color.withValues(alpha: 0.5 * strength)
+          ..maskFilter = MaskFilter.blur(BlurStyle.normal, spread),
+      )
+      ..restore();
+  }
+
+  @override
+  bool shouldRepaint(covariant _CapsuleShadowPainter old) =>
+      old.radius != radius || old.color != color || old.strength != strength;
 }

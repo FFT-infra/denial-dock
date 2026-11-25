@@ -1,6 +1,8 @@
 import 'dart:async';
 import 'dart:math' as math;
 
+import 'package:denial_shell_kit/kit_motion.dart';
+import 'package:denial_shell_kit/kit_springs.dart';
 import 'package:denial_shell_kit/kit_style.dart';
 import 'package:denial_flutter_sdk/effects.dart';
 import 'package:denial_flutter_sdk/theme.dart';
@@ -168,6 +170,7 @@ class DockMenuPanel extends StatelessWidget {
     this.maxHeight,
     this.tail = DockMenuTail.none,
     this.tailAlignment = 0.5,
+    this.origin,
     super.key,
   });
 
@@ -179,9 +182,36 @@ class DockMenuPanel extends StatelessWidget {
   /// Position of the tail along the panel edge, 0 = start, 1 = end.
   final double tailAlignment;
 
+  /// The point the panel grows out of. A panel with a tail grows out of the
+  /// tail's tip, so this is only for one without.
+  final Alignment? origin;
+
   @override
-  Widget build(BuildContext context) {
+  Widget build(BuildContext context) => _MenuEntrance(
+    alignment:
+        origin ??
+        switch (tail) {
+          DockMenuTail.down => Alignment(tailAlignment * 2 - 1, 1),
+          DockMenuTail.left => Alignment(-1, tailAlignment * 2 - 1),
+          DockMenuTail.right => Alignment(1, tailAlignment * 2 - 1),
+          DockMenuTail.none => Alignment.topCenter,
+        },
+    child: _panel(context),
+  );
+
+  Widget _panel(BuildContext context) {
     final theme = context.shellTheme;
+    // The rows arrive a moment after the plate, as the bar's menus do. Only
+    // the rows fade: the plate carries a backdrop blur, which an opacity
+    // layer around it would cut off from what it blurs.
+    final child = TweenAnimationBuilder<double>(
+      tween: Tween<double>(begin: 0, end: 1),
+      duration: KitMotion.duration(context, KitMotion.tap),
+      curve: KitMotion.out,
+      builder: (context, shown, child) =>
+          Opacity(opacity: shown, child: child),
+      child: this.child,
+    );
     // The outline is stroked over the panel and its tail as one shape, so the
     // hairline never crosses the tail's base the way a bottom border did.
     final outlined = tail != DockMenuTail.none;
@@ -248,6 +278,62 @@ class DockMenuPanel extends StatelessWidget {
         tailAlignment: tailAlignment,
       ),
       child: body,
+    );
+  }
+}
+
+/// A menu growing into its shape when it opens, on the spring the look gives
+/// every popup: Denial's stretches out of a bead and settles, macOS's barely
+/// moves. It runs once, when the panel is first shown; with reduced motion
+/// the panel is simply there.
+class _MenuEntrance extends StatefulWidget {
+  const _MenuEntrance({required this.alignment, required this.child});
+
+  final Alignment alignment;
+  final Widget child;
+
+  @override
+  State<_MenuEntrance> createState() => _MenuEntranceState();
+}
+
+class _MenuEntranceState extends State<_MenuEntrance>
+    with SingleTickerProviderStateMixin {
+  late final KitSpring _grow = KitSpring(0, KitStyle.denial.panelGrow);
+  late final KitSprings _springs = KitSprings(this, <KitSpring>[_grow]);
+  bool _started = false;
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    if (_started) return;
+    _started = true;
+    _grow
+      ..tune(KitStyle.of(context).panelGrow)
+      ..target = 1;
+    _springs.kick(reduceMotion: KitMotion.reduced(context));
+  }
+
+  @override
+  void dispose() {
+    _springs.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final bead = KitStyle.of(context).panelBead;
+    return AnimatedBuilder(
+      animation: _springs,
+      builder: (context, child) {
+        final grown = _grow.value;
+        return Transform.scale(
+          alignment: widget.alignment,
+          scaleX: bead.width + (1 - bead.width) * grown,
+          scaleY: bead.height + (1 - bead.height) * grown,
+          child: child,
+        );
+      },
+      child: widget.child,
     );
   }
 }
@@ -512,6 +598,7 @@ class _DockMenuSubmenuRowState extends State<DockMenuSubmenuRow> {
         onExit: (_) => _scheduleClose(),
         child: DockMenuPanel(
           radius: theme.borderRadius(13),
+          origin: opensRight ? Alignment.topLeft : Alignment.topRight,
           child: Padding(
             padding: const EdgeInsets.symmetric(vertical: 4),
             child: Column(

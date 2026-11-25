@@ -97,8 +97,14 @@ abstract final class DockStackFan {
   /// Gap between the label pill and the preview card.
   static const double thumbGap = 4;
 
-  /// The open-in-Files button at the top of a fan.
+  /// The round open-in-Files mark on the fan's top row, drawn where a file's
+  /// preview would be.
   static const double openSize = 44;
+
+  /// The most rows a fan draws, the open-in-Files row included. Every row
+  /// turns one step further, so past this the top names lean too far to read
+  /// however tall the screen is; a longer folder opens as a grid instead.
+  static const int maxRows = 12;
 
   /// Label width past which the text ellipsizes.
   static const double labelMaxWidth = 260;
@@ -127,7 +133,10 @@ abstract final class DockStackFan {
   }) {
     final room = bottom - top - gap;
     if (room <= 0) return 1;
-    final plain = math.max(1, (room / (rowStep * scale)).floor());
+    final plain = math.min(
+      maxRows,
+      math.max(1, (room / (rowStep * scale)).floor()),
+    );
     if (widths.isEmpty || tilt <= 0) return plain;
     final half = rowHeight / 2 * scale;
     var fits = 0;
@@ -140,6 +149,39 @@ abstract final class DockStackFan {
       fits = i + 1;
     }
     return math.max(1, fits);
+  }
+
+  /// Whether a folder of [files] entries opens as a fan: every file gets a row
+  /// and the open-in-Files row still fits above them. When it does not, the
+  /// automatic view falls back to the grid, which shows everything.
+  ///
+  /// [widths] are the rows' widths in slot order, the open row last; without
+  /// them only the pitch is counted.
+  static bool fits({
+    required int files,
+    required double bottom,
+    required double top,
+    List<double> widths = const [],
+    double scale = 1,
+  }) =>
+      files + 1 <= maxRows &&
+      fitRows(bottom: bottom, top: top, widths: widths, scale: scale) >=
+          files + 1;
+
+  /// The row a key press moves the selection to, or -1 when there is none.
+  ///
+  /// [current] is -1 before any key. [towardDock] is the arrow that points at
+  /// the dock; slot 0 is the row nearest it. The first press lands on the row
+  /// nearest the dock for the arrow pointing away, and on the far row for the
+  /// arrow pointing at it, so either key starts from the end it points from.
+  static int step({
+    required int current,
+    required int count,
+    required bool towardDock,
+  }) {
+    if (count <= 0) return -1;
+    if (current < 0 || current >= count) return towardDock ? count - 1 : 0;
+    return (current + (towardDock ? -1 : 1)).clamp(0, count - 1);
   }
 
   /// The rows for a settled fan, in slot order (0 nearest the dock).

@@ -1101,8 +1101,16 @@ class _DockFolderItemState extends State<DockFolderItem> {
       },
       child: DockAccessoryItem(
         label: widget.folder.label,
-        icon: Icons.folder_rounded,
-        fill: _preview == null
+        // While the stack is out the plain tile shows the same chevron the
+        // macOS-style face does, pointing at the rows.
+        icon: !_fanOpen
+            ? Icons.folder_rounded
+            : switch (widget.position) {
+                DockPosition.bottom => Icons.keyboard_arrow_down_rounded,
+                DockPosition.left => Icons.keyboard_arrow_right_rounded,
+                DockPosition.right => Icons.keyboard_arrow_left_rounded,
+              },
+        fill: _fanOpen || _preview == null
             ? null
             : Image.file(
                 File(_preview!),
@@ -1134,21 +1142,29 @@ class _DockFolderItemState extends State<DockFolderItem> {
                       ]
                     : const <DockStackPreview>[];
                 // While the stack is out its cards are in the rows, so the
-                // icon is a plate with a chevron pointing at them.
-                if (_fanOpen) {
-                  return DockStackOpenIcon(
-                    size: widget.size,
-                    quarterTurns: switch (widget.position) {
-                      DockPosition.bottom => 0,
-                      DockPosition.left => 3,
-                      DockPosition.right => 1,
-                    },
-                  );
-                }
-                return DockStackIcon(
-                  size: widget.size,
-                  previews: previews,
-                  pressed: pressed,
+                // icon is a plate with a chevron pointing at them. The two
+                // faces cross over rather than swap, so the pile is not gone
+                // for a frame before its cards have left it.
+                return AnimatedSwitcher(
+                  duration: KitMotion.duration(context, KitMotion.fade),
+                  switchInCurve: KitMotion.out,
+                  switchOutCurve: KitMotion.out,
+                  child: _fanOpen
+                      ? DockStackOpenIcon(
+                          key: const ValueKey('stack-open'),
+                          size: widget.size,
+                          quarterTurns: switch (widget.position) {
+                            DockPosition.bottom => 0,
+                            DockPosition.left => 3,
+                            DockPosition.right => 1,
+                          },
+                        )
+                      : DockStackIcon(
+                          key: const ValueKey('stack-pile'),
+                          size: widget.size,
+                          previews: previews,
+                          pressed: pressed,
+                        ),
                 );
               }
             : null,

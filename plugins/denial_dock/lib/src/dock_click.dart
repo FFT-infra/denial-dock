@@ -22,6 +22,16 @@ abstract final class DockClick {
     return [...restored, ...hidden];
   }
 
+  /// [windows] in an order that does not change when one of them comes to
+  /// the front: by id, which a window keeps for its whole life.
+  ///
+  /// Cycling steps to "the next window after the active one", which only
+  /// visits every window if the list holds still. A host that lists windows
+  /// front-most first moves the activated window to the head, and stepping
+  /// through that list bounces between the top two for ever.
+  static List<T> stable<T>(Iterable<T> windows, int Function(T window) idOf) =>
+      windows.toList()..sort((a, b) => idOf(a).compareTo(idOf(b)));
+
   /// What a click on a running application does. `index` is the window to
   /// bring forward or to minimize, and -1 where the outcome names no window.
   static ({DockClickKind kind, int index}) resolve({

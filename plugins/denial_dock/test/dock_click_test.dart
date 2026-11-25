@@ -206,6 +206,33 @@ void main() {
     DockSettings.defaults.scrollAction == DockScrollAction.nothing,
     'scroll default',
   );
+
+  // A host that lists windows front-most first moves the activated one to
+  // the head. Stepping through that list as it is bounces between two of
+  // three windows; stepping through the id order visits all of them.
+  for (final ordered in const [false, true]) {
+    var stack = [30, 10, 20];
+    final visited = <int>{};
+    for (var clicks = 0; clicks < 6; clicks++) {
+      final list = ordered ? DockClick.stable(stack, (id) => id) : stack;
+      final next = DockClick.nextIndex(
+        action: DockClickAction.cycle,
+        count: list.length,
+        activeIndex: list.indexOf(stack.first),
+      )!;
+      final raised = list[next];
+      visited.add(raised);
+      stack = [raised, ...stack.where((id) => id != raised)];
+    }
+    _expect(
+      visited.length == (ordered ? 3 : 2),
+      'cycling ${ordered ? 'by id' : 'by stacking'} visits ${visited.length}',
+    );
+  }
+  _expect(
+    DockClick.stable([3, 1, 2], (id) => id).join() == '123',
+    'the stable order is by id',
+  );
 }
 
 void _expect(bool condition, String message) {
