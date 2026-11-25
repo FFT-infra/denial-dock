@@ -22,7 +22,7 @@ Future<void> main() async {
   // edit or an older build cannot put the bar in a state the UI cannot draw.
   _expect(
     BarSettings.fromJson(<String, dynamic>{'groundOpacity': 3}).groundOpacity ==
-        0.85,
+        1,
     'opacity ceiling',
   );
   _expect(

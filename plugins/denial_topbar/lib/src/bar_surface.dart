@@ -12,6 +12,8 @@ import 'package:denial_flutter_sdk/system_services.dart' show WifiNetwork;
 import 'package:denial_flutter_sdk/theme.dart';
 import 'package:denial_flutter_sdk/wallpaper.dart';
 import 'package:denial_shell_kit/kit_motion.dart';
+import 'package:denial_shell_kit/kit_part.dart';
+import 'package:denial_shell_kit/kit_requests.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
@@ -23,7 +25,9 @@ import 'debug_remote.dart';
 import 'bar_icons.dart';
 import 'bar_menu.dart';
 import 'bar_panel.dart';
+import 'bar_parts.dart';
 import 'bar_preferences.dart';
+import 'bar_segments.dart';
 import 'bar_settings.dart';
 import 'bar_status.dart';
 import 'bar_tokens.dart';
@@ -92,14 +96,27 @@ class _TopBarSurfaceState extends ConsumerState<TopBarSurface> {
   void initState() {
     super.initState();
     kitOpenPanel.addListener(_panelChanged);
+    registerBarParts();
+    // Another plugin asks for the about box by name; it opens on the output
+    // the request names, or on every bar's when it names none.
+    _requests = KitRequests.stream.listen((request) {
+      if (!mounted || request.name != KitRequests.about) return;
+      final monitor = request.monitorId;
+      if (monitor == null || monitor == widget.monitorId) _openAbout();
+    });
     startDebugRemote();
     debugCommand.addListener(_debug);
   }
 
+  StreamSubscription<KitRequest>? _requests;
+
   final ValueNotifier<double> _islandReserved = ValueNotifier<double>(58);
 
   bool _hidden = false;
-  bool _overBar = false;
+
+  /// The plates the pointer is over; a bar of islands has one per zone.
+  final Set<int> _overPlates = <int>{};
+  bool get _overBar => _overPlates.isNotEmpty;
   bool _overIsland = false;
   bool _overSensor = false;
   Timer? _hideTimer;
@@ -154,6 +171,7 @@ class _TopBarSurfaceState extends ConsumerState<TopBarSurface> {
   void dispose() {
     _hideTimer?.cancel();
     _revealTimer?.cancel();
+    _requests?.cancel();
     kitOpenPanel.removeListener(_panelChanged);
     debugCommand.removeListener(_debug);
     _islandReserved.dispose();
@@ -173,14 +191,12 @@ class _TopBarSurfaceState extends ConsumerState<TopBarSurface> {
     final settings =
         ref.read(barSettingsProvider).value ?? BarSettings.defaults;
     final thickness = widget.environment.settings.layout.systemBarThickness;
-    return math.max(
-      BarTokens.height,
-      thickness -
-          (settings.layout == BarLayout.attached
-              ? 0
-              : BarTokens.floatingMargin * 2),
-    );
+    return math.max(BarTokens.height, thickness - _marginOf(settings) * 2);
   }
+
+  /// Room between the bar and the screen edge it sits on; a strip has none.
+  static double _marginOf(BarSettings settings) =>
+      settings.shape == BarShape.strip ? 0 : settings.edgeMargin;
 
   ShellServices get _services => widget.services;
 
@@ -331,7 +347,7 @@ class _TopBarSurfaceState extends ConsumerState<TopBarSurface> {
     final window = ref.read(shellControllerProvider).foregroundWindow;
     final frontName = window == null
         ? null
-        : _displayAppName(context, window, watch: false);
+        : _appName(ref.read(_services.applications), window);
     showBarMenu(
       ref: ref,
       panelId: 'system',
@@ -393,52 +409,26 @@ class _TopBarSurfaceState extends ConsumerState<TopBarSurface> {
     final settings =
         ref.watch(barSettingsProvider).value ?? BarSettings.defaults;
     final thickness = widget.environment.settings.layout.systemBarThickness;
-    final attached = settings.layout == BarLayout.attached;
-    final bodyHeight = math.max(
-      BarTokens.height,
-      thickness - (attached ? 0 : BarTokens.floatingMargin * 2),
-    );
+    final theme = context.shellTheme;
+    final attached = settings.shape == BarShape.strip;
+    final margin = _marginOf(settings);
+    final bodyHeight = math.max(BarTokens.height, thickness - margin * 2);
     final wallpaper = ref.watch(wallpaperAccentProvider).color;
-    final ink = BarGroundLayer.inkFor(wallpaper, settings);
+    final ink = BarGroundLayer.inkFor(wallpaper, settings, theme);
     final now = ref.watch(_services.clock).value ?? DateTime.now();
     final strings = _services.strings(context);
-    final workspacePlacement = settings.workspacePlacement;
-    final islandAvailable = _side == PanelEdge.top && settings.islandEnabled;
-    final showWorkspaces =
-        workspacePlacement != BarWorkspacePlacement.hidden &&
-        (workspacePlacement != BarWorkspacePlacement.island ||
-            !islandAvailable);
+    final zones = settings.zones;
+    final islandAvailable = _side == PanelEdge.top && settings.showsIsland;
+    final workspaceInIsland = settings.workspacesInIsland;
+    final gap = settings.partGap;
 
-    final workspace = BarWorkspaces(
-      services: _services,
-      monitorId: widget.monitorId,
-      ink: ink,
-      settings: settings,
-      vertical: !_horizontal,
-      side: _side,
-      barHeight: bodyHeight,
-    );
     final workspaceStatus = ref.watch(_services.workspace(widget.monitorId));
     final workspaceEnabled = ref.watch(_services.workspacesEnabled);
     final islandWorkspaceWidth = workspaceEnabled && workspaceStatus.count > 0
         ? workspacesExtent(workspaceStatus.count, settings.workspaceStyle) + 4.0
         : 0.0;
 
-    final systemMenu = settings.showSystemMenu
-        ? BarSystemMenu(
-            key: _systemKey,
-            glyph: _DistroGlyph(ink: ink),
-            open: _openPanelId == 'system',
-            ink: ink,
-            onToggle: _openSystemMenu,
-          )
-        : null;
-
-    final appMenu = settings.showAppMenu
-        ? _appMenu(context, ink, settings)
-        : null;
-
-    final clock = BarClock(
+    BarClock clockIn(Color ink) => BarClock(
       key: _clockKey,
       time: strings.time(now),
       date: clockDateLabel(
@@ -459,6 +449,7 @@ class _TopBarSurfaceState extends ConsumerState<TopBarSurface> {
         merged: settings.mergedNotificationCenter,
       ),
     );
+    final clock = clockIn(ink);
 
     BarButton.tips = settings.tooltips && _horizontal;
     _clockTap = clock.onTap;
@@ -469,6 +460,7 @@ class _TopBarSurfaceState extends ConsumerState<TopBarSurface> {
       ink: ink,
       horizontal: _horizontal,
       crossExtent: bodyHeight,
+      spacing: gap,
       wifiKey: _wifiKey,
       volumeKey: _volumeKey,
       batteryKey: _batteryKey,
@@ -533,7 +525,11 @@ class _TopBarSurfaceState extends ConsumerState<TopBarSurface> {
         _controlCenterKey,
         (_, close) => _controlCenterBody(close),
         width: controlCenterWidth,
-        placement: BarPanelAnchor.trailing,
+        // The sheet keeps its place at the screen's trailing side while its
+        // item is on that side, and hangs under the item anywhere else.
+        placement: _nearTrailingSide(_controlCenterKey)
+            ? BarPanelAnchor.trailing
+            : BarPanelAnchor.centred,
       ),
       onSettings: _openBarSettings,
     );
@@ -558,7 +554,7 @@ class _TopBarSurfaceState extends ConsumerState<TopBarSurface> {
             dateLabel: clock.date,
             onControlCenter: status.onControlCenter,
             onNotifications: clock.onTap,
-            workspace: workspacePlacement == BarWorkspacePlacement.island
+            workspace: workspaceInIsland
                 ? BarWorkspaces(
                     services: _services,
                     monitorId: widget.monitorId,
@@ -567,107 +563,306 @@ class _TopBarSurfaceState extends ConsumerState<TopBarSurface> {
                     barHeight: bodyHeight,
                   )
                 : null,
-            workspaceWidth: workspacePlacement == BarWorkspacePlacement.island
-                ? islandWorkspaceWidth
-                : 0.0,
+            workspaceWidth: workspaceInIsland ? islandWorkspaceWidth : 0.0,
           )
         : null;
 
-    final leading = <Widget>[
-      ?systemMenu,
-      if (settings.workspacePlacement == BarWorkspacePlacement.leading &&
-          showWorkspaces) ...<Widget>[
-        const SizedBox.square(dimension: BarTokens.clusterGap),
-        workspace,
-      ],
-      ?appMenu,
-    ];
-    final trailing = <Widget>[
-      if (settings.workspacePlacement == BarWorkspacePlacement.trailing &&
-          showWorkspaces) ...<Widget>[
-        workspace,
-        const SizedBox.square(dimension: BarTokens.statusSpacing),
-      ],
-      status,
-      const SizedBox.square(dimension: BarTokens.statusSpacing),
-      clock,
-    ];
-
-    final content = _BarRow(
-      horizontal: _horizontal,
-      leading: leading,
-      centre: island == null
-          ? null
-          : ValueListenableBuilder<double>(
-              valueListenable: _islandReserved,
-              builder: (context, width, _) => AnimatedContainer(
-                duration: KitMotion.duration(context, KitMotion.rebound),
-                curve: KitMotion.spring,
-                width: width,
-              ),
-            ),
-      trailing: trailing,
-      bodyHeight: bodyHeight,
-    );
-
-    final radius = attached
-        ? BorderRadius.zero
-        : BorderRadius.circular(BarTokens.floatingRadius);
-    // shell27: `leftRow.x: 8`, `rightRow.rightMargin: 6`.
-    final padding = !_horizontal
-        ? const EdgeInsets.symmetric(vertical: BarTokens.insetLeft)
-        : attached
-        ? const EdgeInsets.only(
-            left: BarTokens.insetLeft,
-            right: BarTokens.insetRight,
-          )
-        : const EdgeInsets.symmetric(horizontal: BarTokens.insetFloating);
-
-    Widget bar = Padding(
-      padding: padding,
-      child: BarGroundLayer(
-        settings: settings,
-        borderRadius: radius,
-        backdrop: wallpaper,
-        child: content,
+    // What each part draws in this bar. A part is given the ink of the spot
+    // it lands on, and keeps its anchor wherever that is.
+    final loneStatus = zones.loneStatusItems;
+    final builders = <String, BarPartBuilder>{
+      BarPart.system: (part) => BarSystemMenu(
+        key: _systemKey,
+        glyph: _DistroGlyph(ink: part.ink),
+        open: _openPanelId == 'system',
+        ink: part.ink,
+        onToggle: _openSystemMenu,
       ),
-    );
-
-    bar = ShellInputRegion(
-      debugLabel: 'denial_topbar.bar',
-      child: MouseRegion(
-        onEnter: (_) {
-          _overBar = true;
-          _hover();
-        },
-        onExit: (_) {
-          _overBar = false;
-          _hover();
-        },
-        child: Listener(
-          onPointerDown: (event) {
-            if (event.kind != PointerDeviceKind.mouse) {
-              _armHide(const Duration(seconds: 4));
-            }
-          },
-          child: GestureDetector(
-            behavior: HitTestBehavior.translucent,
-            onSecondaryTapUp: (details) => showBarMenu(
-              ref: ref,
-              panelId: 'context',
-              at: details.globalPosition,
-              entries: (context) => <BarMenuEntry>[
-                BarMenuItem(
-                  label: context.tr('Menu Bar Settings…'),
-                  onSelected: _openBarSettings,
-                ),
-              ],
-            ),
-            child: bar,
-          ),
+      BarPart.workspaces: (part) => BarWorkspaces(
+        services: _services,
+        monitorId: widget.monitorId,
+        ink: part.ink,
+        settings: settings,
+        vertical: !_horizontal,
+        side: _side,
+        barHeight: bodyHeight,
+      ),
+      BarPart.app: (part) => _AppMenuPart(bar: this, ink: part.ink),
+      BarPart.clock: (part) => part.ink == ink ? clock : clockIn(part.ink),
+      BarPart.status: (part) => status.view(ink: part.ink, omit: loneStatus),
+      for (final item in barStatusItems)
+        BarPart.statusItem(item): (part) =>
+            status.view(ink: part.ink, only: item),
+      // The island itself floats over the bar; in the row it only holds its
+      // width open.
+      BarPart.island: (_) => ValueListenableBuilder<double>(
+        valueListenable: _islandReserved,
+        builder: (context, width, _) => AnimatedContainer(
+          duration: KitMotion.duration(context, KitMotion.rebound),
+          curve: KitMotion.spring,
+          width: width,
         ),
       ),
+    };
+
+    /// The widgets of one zone, in order, with the bar's gaps between them.
+    /// [flexible] lets a spacer take the room left; a zone that sizes itself
+    /// to its content has none to give, so there a spacer is a wide gap.
+    List<Widget> row(
+      List<String> ids,
+      Color ink, {
+      required bool flexible,
+    }) {
+      final part = KitPartContext(
+        edge: _side.kitEdge,
+        axis: _horizontal ? Axis.horizontal : Axis.vertical,
+        crossExtent: bodyHeight,
+        ink: ink,
+      );
+      final widgets = <Widget>[];
+      for (var index = 0; index < ids.length; index++) {
+        final id = ids[index];
+        if (index > 0 && BarPart.gapBetween(ids[index - 1], id)) {
+          widgets.add(SizedBox.square(dimension: gap));
+        }
+        widgets.add(switch (id) {
+          BarPart.spacer =>
+            flexible
+                ? const Spacer()
+                : SizedBox.square(dimension: math.max(gap, 6) * 2),
+          BarPart.gap => SizedBox.square(dimension: gap),
+          BarPart.separator => _BarSeparator(
+            ink: ink,
+            horizontal: _horizontal,
+          ),
+          _ => KitPartView(id: id, part: part),
+        });
+      }
+      return widgets;
+    }
+
+    // The island takes the centre for itself: it grows from the middle of
+    // the screen, and a neighbour would push it off that line.
+    final centreIds = islandAvailable
+        ? const <String>[BarPart.island]
+        : <String>[
+            for (final id in zones.center)
+              if (id != BarPart.island) id,
+          ];
+
+    final axis = _horizontal ? Axis.horizontal : Axis.vertical;
+    // Points are cut along a horizontal bar; a side bar keeps its corners.
+    final arrow = settings.cap == BarCap.arrow && _horizontal && !attached;
+    final radius = attached || settings.cap == BarCap.square
+        ? BorderRadius.zero
+        : BorderRadius.circular(settings.cornerRadius);
+    final pad = settings.contentPadding;
+    EdgeInsets along(double before, double after) => _horizontal
+        ? EdgeInsets.only(left: before, right: after)
+        : EdgeInsets.only(top: before, bottom: after);
+
+    /// Reports the pointer and takes the bar's own menu over one plate.
+    Widget interactive(int plate, String label, Widget child) =>
+        ShellInputRegion(
+          debugLabel: label,
+          child: MouseRegion(
+            onEnter: (_) {
+              _overPlates.add(plate);
+              _hover();
+            },
+            onExit: (_) {
+              _overPlates.remove(plate);
+              _hover();
+            },
+            child: Listener(
+              onPointerDown: (event) {
+                if (event.kind != PointerDeviceKind.mouse) {
+                  _armHide(const Duration(seconds: 4));
+                }
+              },
+              child: GestureDetector(
+                behavior: HitTestBehavior.translucent,
+                onSecondaryTapUp: (details) => showBarMenu(
+                  ref: ref,
+                  panelId: 'context',
+                  at: details.globalPosition,
+                  entries: (context) => <BarMenuEntry>[
+                    BarMenuItem(
+                      label: context.tr('Menu Bar Settings…'),
+                      onSelected: _openBarSettings,
+                    ),
+                  ],
+                ),
+                child: child,
+              ),
+            ),
+          ),
+        );
+
+    final separate = settings.shape == BarShape.islands;
+    // A plate that went away under the pointer never reported it leaving.
+    _overPlates.removeWhere(
+      (plate) => separate
+          ? (plate == 1 ? centreIds : zones.zone(plate)).isEmpty
+          : plate != 0,
     );
+    final Widget content;
+    if (separate) {
+      final base = BarGroundLayer.baseFor(wallpaper, settings, theme);
+      final alternate = BarGroundLayer.alternateFor(base, theme);
+      final plain = settings.ground == BarGround.none;
+
+      /// One zone on a plate of its own, or on a run of pointed segments
+      /// that its separators cut it into.
+      Widget? zonePlate(int zone, List<String> ids) {
+        if (ids.isEmpty) return null;
+        final Widget plate;
+        if (arrow) {
+          final runs = BarZones.segments(ids);
+          if (runs.isEmpty) return null;
+          final edges = barZoneEdges(zone, runs.length);
+          final depth = barArrowDepth(bodyHeight);
+          plate = Row(
+            mainAxisSize: MainAxisSize.min,
+            // Every segment is as tall as the bar, so the points meet.
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: <Widget>[
+              for (var index = 0; index < runs.length; index++)
+                BarGroundLayer(
+                  settings: settings,
+                  borderRadius: BorderRadius.zero,
+                  backdrop: wallpaper,
+                  edges: edges[index],
+                  fill: index.isOdd ? alternate : null,
+                  child: Padding(
+                    padding: EdgeInsets.only(
+                      left: pad + barEdgeInset(edges[index].left, depth),
+                      right: pad + barEdgeInset(edges[index].right, depth),
+                    ),
+                    child: Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: row(
+                        runs[index],
+                        index.isOdd && !plain
+                            ? BarGroundLayer.inkOn(alternate)
+                            : ink,
+                        flexible: false,
+                      ),
+                    ),
+                  ),
+                ),
+            ],
+          );
+        } else {
+          plate = BarGroundLayer(
+            settings: settings,
+            borderRadius: radius,
+            backdrop: wallpaper,
+            child: Padding(
+              padding: along(pad, pad),
+              child: Flex(
+                direction: axis,
+                mainAxisSize: MainAxisSize.min,
+                children: row(ids, ink, flexible: false),
+              ),
+            ),
+          );
+        }
+        return interactive(
+          zone,
+          'denial_topbar.bar.$zone',
+          SizedBox(
+            width: _horizontal ? null : bodyHeight,
+            height: _horizontal ? bodyHeight : null,
+            child: plate,
+          ),
+        );
+      }
+
+      content = _BarRow(
+        horizontal: _horizontal,
+        leading: <Widget>[?zonePlate(0, zones.start)],
+        // The island is its own plate.
+        centre: islandAvailable
+            ? row(centreIds, ink, flexible: false).single
+            : zonePlate(1, centreIds),
+        trailing: <Widget>[?zonePlate(2, zones.end)],
+        bodyHeight: bodyHeight,
+      );
+    } else {
+      final centre = row(centreIds, ink, flexible: false);
+      content = _BarRow(
+        horizontal: _horizontal,
+        leading: row(zones.start, ink, flexible: true),
+        centre: centre.isEmpty
+            ? null
+            : centre.length == 1
+            ? centre.single
+            : Flex(
+                direction: axis,
+                mainAxisSize: MainAxisSize.min,
+                children: centre,
+              ),
+        trailing: row(zones.end, ink, flexible: true),
+        bodyHeight: bodyHeight,
+      );
+    }
+
+    // shell27: `leftRow.x: 8`, `rightRow.rightMargin: 6`.
+    final inset = settings.endInset;
+    final padding = !_horizontal
+        ? EdgeInsets.symmetric(vertical: inset ?? BarTokens.insetLeft)
+        : attached
+        ? EdgeInsets.only(
+            left: inset ?? BarTokens.insetLeft,
+            right: inset ?? BarTokens.insetRight,
+          )
+        : EdgeInsets.symmetric(
+            horizontal: inset ?? BarTokens.insetFloating,
+          );
+
+    Widget hosted = BarHost(builders: builders, child: content);
+    if (settings.textScale != 1) {
+      hosted = MediaQuery(
+        data: MediaQuery.of(
+          context,
+        ).copyWith(textScaler: TextScaler.linear(settings.textScale)),
+        child: hosted,
+      );
+    }
+
+    Widget bar;
+    if (separate) {
+      bar = Padding(padding: padding, child: hosted);
+    } else {
+      // One plate under the whole bar; pointed ends keep the content clear
+      // of the cut.
+      final ends = arrow
+          ? const (left: BarEdge.point, right: BarEdge.point)
+          : null;
+      final clear = arrow
+          ? barEdgeInset(BarEdge.point, barArrowDepth(bodyHeight))
+          : 0.0;
+      bar = interactive(
+        0,
+        'denial_topbar.bar',
+        Padding(
+          padding: padding,
+          child: BarGroundLayer(
+            settings: settings,
+            borderRadius: radius,
+            backdrop: wallpaper,
+            edges: ends,
+            child: pad + clear == 0
+                ? hosted
+                : Padding(
+                    padding: along(pad + clear, pad + clear),
+                    child: hosted,
+                  ),
+          ),
+        ),
+      );
+    }
 
     // shell27's `barFeather`: with no veil the type can land on a busy
     // wallpaper, so a short gradient sits under the strip.
@@ -686,9 +881,7 @@ class _TopBarSurfaceState extends ConsumerState<TopBarSurface> {
     final strip = Align(
       alignment: stripAlignment,
       child: Padding(
-        padding: attached
-            ? EdgeInsets.zero
-            : const EdgeInsets.all(BarTokens.floatingMargin),
+        padding: EdgeInsets.all(margin),
         child: KeyedSubtree(
           child: SizedBox(
             width: _horizontal ? double.infinity : bodyHeight,
@@ -714,9 +907,7 @@ class _TopBarSurfaceState extends ConsumerState<TopBarSurface> {
           Positioned(
             left: 0,
             right: 0,
-            top:
-                (attached ? 0 : BarTokens.floatingMargin) +
-                (bodyHeight - islandHeight) / 2,
+            top: margin + (bodyHeight - islandHeight) / 2,
             child: Align(
               alignment: Alignment.topCenter,
               child: MouseRegion(
@@ -792,73 +983,118 @@ class _TopBarSurfaceState extends ConsumerState<TopBarSurface> {
     );
   }
 
-  /// The focused application's name in bold, and nothing after it: the
-  /// compositor exposes no application menus, so the bar draws no titles it
-  /// could not open.
-  Widget _appMenu(BuildContext context, Color ink, BarSettings settings) {
+  /// Whether [key]'s item sits in the half of the bar nearer the screen's
+  /// trailing side, where a sheet may keep to the screen's edge.
+  bool _nearTrailingSide(GlobalKey key) {
+    if (!_horizontal) return true;
+    final rect = kitSceneRect(key);
+    if (rect == null) return true;
+    return rect.center.dx >= MediaQuery.sizeOf(context).width / 2;
+  }
+
+  /// The app's own name from the shell's catalog, falling back to the id's
+  /// last segment the way revo-shell does.
+  static String _appName(
+    Iterable<LaunchableApplication> applications,
+    DenialWindow window,
+  ) {
+    final appId = window.appId;
+    if (appId.isEmpty) return 'Denial';
+    final name = applications.firstWhere(
+      (application) =>
+          application.appId == appId ||
+          application.windowAppIds.contains(appId),
+      orElse: () => LaunchableApplication(
+        id: appId,
+        appId: appId,
+        name: '',
+        windowAppIds: const <String>[],
+      ),
+    );
+    if (name.name.isNotEmpty) return name.name;
+    final segment = appId.split('.').last;
+    if (segment.isEmpty) return 'Denial';
+    return segment[0].toUpperCase() + segment.substring(1);
+  }
+}
+
+/// The focused application's name in bold, and nothing after it: the
+/// compositor exposes no application menus, so the bar draws no titles it
+/// could not open.
+class _AppMenuPart extends ConsumerWidget {
+  const _AppMenuPart({required this.bar, required this.ink});
+
+  final _TopBarSurfaceState bar;
+  final Color ink;
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final services = bar._services;
+    final horizontal = bar._horizontal;
     final window = ref.watch(shellControllerProvider).foregroundWindow;
     if (window == null) {
-      return _horizontal
+      return horizontal
           ? BarTitle(label: 'Denial', ink: ink, bold: true)
           : const SizedBox.shrink();
     }
-    final appName = _displayAppName(context, window);
+    final appName = _TopBarSurfaceState._appName(
+      ref.watch(services.applications),
+      window,
+    );
     return KeyedSubtree(
-      key: _appKey,
+      key: bar._appKey,
       child: BarTitle(
         label: appName,
         ink: ink,
         bold: true,
-        icon: _horizontal
+        icon: horizontal
             ? null
-            : _services.buildApplicationIcon(context, window.appId),
-        open: _openPanelId == 'app',
+            : services.buildApplicationIcon(context, window.appId),
+        open: bar._openPanelId == 'app',
         onTap: () => showBarMenu(
           ref: ref,
           panelId: 'app',
-          anchor: _appKey,
-          vertical: !_horizontal,
-          fromRight: _side == PanelEdge.right,
+          anchor: bar._appKey,
+          vertical: !horizontal,
+          fromRight: bar._side == PanelEdge.right,
           entries: (context) => appMenuEntries(
             context,
             ref,
             window: window,
             appName: appName,
-            services: _services,
+            services: services,
           ),
         ),
       ),
     );
   }
+}
 
-  /// The app's own name from the shell's catalog, falling back to the id's
-  /// last segment the way revo-shell does.
-  String _displayAppName(
-    BuildContext context,
-    DenialWindow window, {
-    bool watch = true,
-  }) {
-    final appId = window.appId;
-    if (appId.isEmpty) return 'Denial';
-    final name =
-        (watch
-                ? ref.watch(_services.applications)
-                : ref.read(_services.applications))
-            .firstWhere(
-              (application) =>
-                  application.appId == appId ||
-                  application.windowAppIds.contains(appId),
-              orElse: () => LaunchableApplication(
-                id: appId,
-                appId: appId,
-                name: '',
-                windowAppIds: const <String>[],
-              ),
-            );
-    if (name.name.isNotEmpty) return name.name;
-    final segment = appId.split('.').last;
-    if (segment.isEmpty) return 'Denial';
-    return segment[0].toUpperCase() + segment.substring(1);
+/// A thin divider between two parts.
+class _BarSeparator extends StatelessWidget {
+  const _BarSeparator({required this.ink, required this.horizontal});
+
+  final Color ink;
+  final bool horizontal;
+
+  @override
+  Widget build(BuildContext context) {
+    final dark = BarGroundLayer.isDark(ink);
+    final line = ColoredBox(
+      color: ink.withValues(
+        alpha: dark ? BarTokens.separatorLight : BarTokens.separatorDark,
+      ),
+    );
+    return Padding(
+      padding: horizontal
+          ? const EdgeInsets.symmetric(horizontal: 6)
+          : const EdgeInsets.symmetric(vertical: 6),
+      child: SizedBox(
+        width: horizontal ? 1 : 14,
+        height: horizontal ? 14 : 1,
+        child: line,
+      ),
+    );
   }
 }
 
@@ -877,6 +1113,32 @@ class _BarRow extends StatelessWidget {
   final List<Widget> trailing;
   final double bodyHeight;
 
+  /// One side of the strip, clipped to its half so a long title list cannot
+  /// run under the centre.
+  Widget _side(List<Widget> children, Alignment alignment) {
+    // A spacer shares out the half's own width, so the row has to fill it.
+    if (children.any((child) => child is Spacer)) {
+      return Expanded(
+        child: ClipRect(child: Row(children: children)),
+      );
+    }
+    return Expanded(
+      child: ClipRect(
+        child: OverflowBox(
+          alignment: alignment,
+          // Without an explicit minimum the box passes the Expanded's
+          // tight width through, the Row stretches to it, and the
+          // alignment has nothing left to move.
+          minWidth: 0,
+          maxWidth: double.infinity,
+          // shell27's left row has no explicit spacing; the titles butt up
+          // against each other and each carries its own 20 pt of padding.
+          child: Row(mainAxisSize: MainAxisSize.min, children: children),
+        ),
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     if (!horizontal) {
@@ -892,43 +1154,14 @@ class _BarRow extends StatelessWidget {
     }
     // macOS centres the island on the camera housing, which is the middle of
     // the strip — not the middle of whatever space the two clusters leave.
-    // Equal flex on both sides puts the centre at the strip's own midpoint,
-    // and each cluster is clipped to its half so a long title list cannot run
-    // under the island.
+    // Equal flex on both sides puts the centre at the strip's own midpoint.
     return SizedBox(
       height: bodyHeight,
       child: Row(
         children: <Widget>[
-          Expanded(
-            child: ClipRect(
-              child: OverflowBox(
-                alignment: Alignment.centerLeft,
-                // Without an explicit minimum the box passes the Expanded's
-                // tight width through, the Row stretches to it, and the
-                // alignment has nothing left to move.
-                minWidth: 0,
-                maxWidth: double.infinity,
-                child: Row(
-                  mainAxisSize: MainAxisSize.min,
-                  // shell27's left row has no explicit spacing; the titles
-                  // butt up against each other and each carries its own
-                  // 20 pt of padding.
-                  children: leading,
-                ),
-              ),
-            ),
-          ),
+          _side(leading, Alignment.centerLeft),
           ?centre,
-          Expanded(
-            child: ClipRect(
-              child: OverflowBox(
-                alignment: Alignment.centerRight,
-                minWidth: 0,
-                maxWidth: double.infinity,
-                child: Row(mainAxisSize: MainAxisSize.min, children: trailing),
-              ),
-            ),
-          ),
+          _side(trailing, Alignment.centerRight),
         ],
       ),
     );

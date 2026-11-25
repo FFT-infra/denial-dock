@@ -1,3 +1,5 @@
+import 'package:denial_shell_kit/kit_style.dart';
+import 'package:denial_shell_kit/shell_preset.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import 'bar_settings.dart';
@@ -31,3 +33,17 @@ class BarSettingsController extends AsyncNotifier<BarSettings> {
     await _writes;
   }
 }
+
+/// Applies [preset]: the look for the whole shell, and the bar's layout.
+/// The bar's other settings stay as they are.
+void applyShellPreset(WidgetRef ref, ShellPreset preset) {
+  kitStyle.choose(KitStyle.byId(preset.look));
+  kitPreset.value = preset.id;
+  ref
+      .read(barSettingsProvider.notifier)
+      .save((settings) => settings.withLayout(preset.bar));
+}
+
+/// Whether the shell has been changed since [preset] was applied.
+bool shellPresetModified(ShellPreset preset, BarSettings settings) =>
+    !preset.matches(look: kitStyle.value.id, bar: settings.layoutJson());

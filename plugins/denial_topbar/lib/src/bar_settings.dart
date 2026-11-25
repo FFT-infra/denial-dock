@@ -1,6 +1,10 @@
 import 'dart:convert';
 import 'dart:io';
 
+import 'bar_zones.dart';
+
+export 'bar_zones.dart';
+
 /// Where the workspace switcher lives.
 ///
 /// macOS has no workspace switcher in its menu bar, so this is an addition.
@@ -66,6 +70,113 @@ enum BarLayout {
   };
 }
 
+/// The outline of the bar.
+enum BarShape {
+  /// Edge to edge along the screen.
+  strip,
+
+  /// One capsule, clear of the screen edge.
+  floating,
+
+  /// A plate of its own under every zone, with the wallpaper between them.
+  islands;
+
+  String get key => name;
+
+  /// Null when [value] names no shape, so a file from before shapes falls
+  /// back to its layout.
+  static BarShape? parse(Object? value) => switch (value) {
+    'strip' => BarShape.strip,
+    'floating' => BarShape.floating,
+    'islands' => BarShape.islands,
+    _ => null,
+  };
+}
+
+/// How a plate ends.
+enum BarCap {
+  round,
+  square,
+
+  /// Pointed; separators inside a zone become points too.
+  arrow;
+
+  String get key => name;
+
+  static BarCap parse(Object? value) => switch (value) {
+    'square' => BarCap.square,
+    'arrow' => BarCap.arrow,
+    _ => BarCap.round,
+  };
+}
+
+/// Where the plate takes its colour from.
+enum BarGroundTint {
+  /// The neutral that matches the wallpaper's lightness.
+  wallpaper,
+
+  /// The theme's panel colour.
+  panel,
+
+  /// The wallpaper's neutral with the accent washed in.
+  accent;
+
+  String get key => name;
+
+  static BarGroundTint parse(Object? value) => switch (value) {
+    'panel' => BarGroundTint.panel,
+    'accent' => BarGroundTint.accent,
+    _ => BarGroundTint.wallpaper,
+  };
+}
+
+enum BarBorderColour {
+  /// A faint line in the bar's ink.
+  ink,
+  accent;
+
+  String get key => name;
+
+  static BarBorderColour parse(Object? value) =>
+      value == 'accent' ? BarBorderColour.accent : BarBorderColour.ink;
+}
+
+/// The bar's adjustable measures: the least and most each may be, and what
+/// it is until changed. Every default is what the bar measured before the
+/// setting existed.
+abstract final class BarMetric {
+  static const double textScaleMin = 0.8;
+  static const double textScaleMax = 1.4;
+  static const double textScale = 1;
+
+  static const double partGapMin = 0;
+  static const double partGapMax = 16;
+  static const double partGap = 6;
+
+  static const double edgeMarginMin = 0;
+  static const double edgeMarginMax = 16;
+  static const double edgeMargin = 6;
+
+  static const double endInsetMin = 0;
+  static const double endInsetMax = 48;
+
+  static const double contentPaddingMin = 0;
+  static const double contentPaddingMax = 24;
+  static const double contentPadding = 0;
+
+  static const double cornerRadiusMin = 0;
+  static const double cornerRadiusMax = 20;
+  static const double cornerRadius = 14;
+
+  static const double borderWidthMin = 0;
+  static const double borderWidthMax = 3;
+  static const double hairline = 0.8;
+
+  static const double opacityMin = 0.05;
+  static const double opacityMax = 1;
+  static const double opacity = 0.55;
+}
+
 enum BarWorkspaceStyle { dots, numbers }
 
 const List<String> defaultControls = <String>[
@@ -84,18 +195,9 @@ const List<String> defaultControls = <String>[
 
 const List<String> defaultWidgets = <String>['calendar', 'worldclock'];
 
-const List<String> defaultStatusOrder = <String>[
-  'tray',
-  'wifi',
-  'bluetooth',
-  'volume',
-  'battery',
-  'search',
-  'clipboard',
-  'notifications',
-  'controlcenter',
-  'settings',
-];
+const List<String> defaultStatusOrder = barStatusItems;
+
+const Object _keep = Object();
 
 const int barAutoHideDelayMin = 0;
 const int barAutoHideDelayMax = 600;
@@ -107,10 +209,19 @@ int clampAutoHideDelay(Object? value) => value is num
 
 class BarSettings {
   const BarSettings({
-    this.layout = BarLayout.attached,
+    this.shape = BarShape.strip,
+    this.cap = BarCap.round,
     this.ground = BarGround.none,
-    this.groundOpacity = 0.55,
-    this.hairline = false,
+    this.groundOpacity = BarMetric.opacity,
+    this.groundTint = BarGroundTint.wallpaper,
+    this.borderWidth = 0,
+    this.borderColour = BarBorderColour.ink,
+    this.textScale = BarMetric.textScale,
+    this.partGap = BarMetric.partGap,
+    this.edgeMargin = BarMetric.edgeMargin,
+    this.endInset,
+    this.contentPadding = BarMetric.contentPadding,
+    this.cornerRadius = BarMetric.cornerRadius,
     this.islandEnabled = true,
     this.islandHoverPeek = true,
     this.islandHoverFade = false,
@@ -162,17 +273,49 @@ class BarSettings {
     this.controls = defaultControls,
     this.widgets = defaultWidgets,
     this.statusOrder = defaultStatusOrder,
+    this.explicitZones,
   });
 
   static const BarSettings defaults = BarSettings();
 
-  final BarLayout layout;
+  final BarShape shape;
 
-  /// Plate opacity. NextKDE's slider spans 5%..85%; XMacTahoe's Golden Gate
-  /// preset sits at 55.
+  /// How a plate ends; a strip has no ends to shape.
+  final BarCap cap;
+
+  /// The setting shapes replaced, for builds that know only it.
+  BarLayout get layout =>
+      shape == BarShape.strip ? BarLayout.attached : BarLayout.floating;
+
+  /// Plate opacity. XMacTahoe's Golden Gate preset sits at 55; a bar may now
+  /// be fully opaque.
   final BarGround ground;
   final double groundOpacity;
-  final bool hairline;
+  final BarGroundTint groundTint;
+
+  /// The line around a plate, 0 for none.
+  final double borderWidth;
+  final BarBorderColour borderColour;
+  bool get hairline => borderWidth > 0;
+
+  /// Scales the type in the bar.
+  final double textScale;
+
+  /// Room between two parts.
+  final double partGap;
+
+  /// Room between a floating bar and the screen edge it sits on.
+  final double edgeMargin;
+
+  /// Room between the bar's two ends and the screen's sides. Null keeps the
+  /// measures each shape had before this could be set.
+  final double? endInset;
+
+  /// Room between a plate's ends and its content.
+  final double contentPadding;
+
+  /// Corner radius of a floating plate with round caps.
+  final double cornerRadius;
 
   final bool islandEnabled;
   final bool islandHoverPeek;
@@ -261,13 +404,156 @@ class BarSettings {
   final List<String> widgets;
   final List<String> statusOrder;
 
+  /// The zones as the user arranged them, or null while the bar still
+  /// follows the older settings that placed its parts.
+  final BarZones? explicitZones;
+
+  /// What the bar draws in its start, centre and end.
+  BarZones get zones =>
+      explicitZones?.sanitized() ??
+      BarZones.legacy(
+        systemMenu: showSystemMenu,
+        appMenu: showAppMenu,
+        island: islandEnabled,
+        workspaces: workspacePlacement.key,
+      );
+
+  /// The island needs both its switch and a place in the centre.
+  bool get showsIsland =>
+      islandEnabled && zones.center.contains(BarPart.island);
+
+  /// The switcher rides inside the island unless a zone holds it.
+  bool get workspacesInIsland =>
+      workspacePlacement == BarWorkspacePlacement.island &&
+      !zones.contains(BarPart.workspaces);
+
+  bool hasPart(String id) =>
+      id == BarPart.island ? showsIsland : zones.contains(id);
+
+  /// Shows or hides one of the parts that has had a switch of its own since
+  /// before zones: the switch is kept, and arranged zones follow it.
+  BarSettings withPart(String id, bool shown) {
+    final next = switch (id) {
+      BarPart.system => copyWith(showSystemMenu: shown),
+      BarPart.app => copyWith(showAppMenu: shown),
+      BarPart.island => copyWith(islandEnabled: shown),
+      _ => this,
+    };
+    final zones = explicitZones;
+    if (zones == null) return next;
+    if (!shown) {
+      // The island's switch alone hides it, so it keeps its place.
+      return id == BarPart.island
+          ? next
+          : next.copyWith(zones: zones.without(id));
+    }
+    if (zones.contains(id)) return next;
+    return next.copyWith(
+      zones: switch (id) {
+        BarPart.system => zones.inserted(0, id, 0),
+        BarPart.app => zones.inserted(0, id),
+        BarPart.island => zones.inserted(1, id, 0),
+        _ => zones.inserted(2, id),
+      },
+    );
+  }
+
+  /// Where the switcher shows, as the older setting names it. Null when an
+  /// arranged bar holds it in the centre, which that setting cannot say.
+  BarWorkspacePlacement? get workspacesShownIn {
+    final zones = explicitZones;
+    if (zones == null) return workspacePlacement;
+    return switch (zones.sanitized().zoneOf(BarPart.workspaces)) {
+      0 => BarWorkspacePlacement.leading,
+      2 => BarWorkspacePlacement.trailing,
+      1 => null,
+      _ =>
+        workspacePlacement == BarWorkspacePlacement.island
+            ? BarWorkspacePlacement.island
+            : BarWorkspacePlacement.hidden,
+    };
+  }
+
+  BarSettings withWorkspacePlacement(BarWorkspacePlacement placement) {
+    final next = copyWith(workspacePlacement: placement);
+    final zones = explicitZones?.without(BarPart.workspaces);
+    if (zones == null) return next;
+    return next.copyWith(
+      zones: switch (placement) {
+        BarWorkspacePlacement.leading => zones.inserted(
+          0,
+          BarPart.workspaces,
+          zones.start.contains(BarPart.system) ? 1 : 0,
+        ),
+        BarWorkspacePlacement.trailing => zones.inserted(
+          2,
+          BarPart.workspaces,
+          0,
+        ),
+        _ => zones,
+      },
+    );
+  }
+
+  /// The settings a preset decides, under the keys they are stored by, as
+  /// the bar draws them now: the zones are the ones in force whether or not
+  /// they were ever arranged, and an island that is switched off is not in
+  /// them.
+  Map<String, Object?> layoutJson() {
+    final zones = this.zones;
+    return <String, Object?>{
+      'shape': shape.key,
+      'cap': cap.key,
+      'ground': ground.key,
+      'groundOpacity': groundOpacity,
+      'groundTint': groundTint.key,
+      'borderWidth': borderWidth,
+      'borderColour': borderColour.key,
+      'textScale': textScale,
+      'partGap': partGap,
+      'edgeMargin': edgeMargin,
+      'endInset': endInset,
+      'contentPadding': contentPadding,
+      'cornerRadius': cornerRadius,
+      'workspaceStyle': workspaceStyle.name,
+      'workspacePlacement': workspacesShownIn?.key,
+      'start': zones.start,
+      'center': <String>[
+        for (final id in zones.center)
+          if (id != BarPart.island || islandEnabled) id,
+      ],
+      'end': zones.end,
+    };
+  }
+
+  /// These settings with a preset's layout keys laid over them. Everything
+  /// the preset does not name stays, and an island the preset places is
+  /// switched on.
+  BarSettings withLayout(Map<String, Object?> layout) {
+    final json = <String, dynamic>{};
+    writeJson(json);
+    final next = BarSettings.fromJson(<String, dynamic>{...json, ...layout});
+    return next.zones.center.contains(BarPart.island)
+        ? next.copyWith(islandEnabled: true)
+        : next;
+  }
+
   Duration get islandNoticeHold => Duration(seconds: islandNoticeSeconds);
 
   BarSettings copyWith({
-    BarLayout? layout,
+    BarShape? shape,
+    BarCap? cap,
     BarGround? ground,
     double? groundOpacity,
-    bool? hairline,
+    BarGroundTint? groundTint,
+    double? borderWidth,
+    BarBorderColour? borderColour,
+    double? textScale,
+    double? partGap,
+    double? edgeMargin,
+    Object? endInset = _keep,
+    double? contentPadding,
+    double? cornerRadius,
     bool? islandEnabled,
     bool? islandHoverPeek,
     bool? islandHoverFade,
@@ -319,11 +605,21 @@ class BarSettings {
     List<String>? controls,
     List<String>? widgets,
     List<String>? statusOrder,
+    Object? zones = _keep,
   }) => BarSettings(
-    layout: layout ?? this.layout,
+    shape: shape ?? this.shape,
+    cap: cap ?? this.cap,
     ground: ground ?? this.ground,
     groundOpacity: groundOpacity ?? this.groundOpacity,
-    hairline: hairline ?? this.hairline,
+    groundTint: groundTint ?? this.groundTint,
+    borderWidth: borderWidth ?? this.borderWidth,
+    borderColour: borderColour ?? this.borderColour,
+    textScale: textScale ?? this.textScale,
+    partGap: partGap ?? this.partGap,
+    edgeMargin: edgeMargin ?? this.edgeMargin,
+    endInset: identical(endInset, _keep) ? this.endInset : endInset as double?,
+    contentPadding: contentPadding ?? this.contentPadding,
+    cornerRadius: cornerRadius ?? this.cornerRadius,
     islandEnabled: islandEnabled ?? this.islandEnabled,
     islandHoverPeek: islandHoverPeek ?? this.islandHoverPeek,
     islandHoverFade: islandHoverFade ?? this.islandHoverFade,
@@ -376,15 +672,18 @@ class BarSettings {
     controls: controls ?? this.controls,
     widgets: widgets ?? this.widgets,
     statusOrder: statusOrder ?? this.statusOrder,
+    explicitZones: identical(zones, _keep)
+        ? explicitZones
+        : zones as BarZones?,
   );
 
   factory BarSettings.fromJson(Map<String, dynamic> json) {
     bool flag(String key, bool fallback) =>
         json[key] is bool ? json[key] as bool : fallback;
-    double ratio(String key, double fallback) {
+    double within(String key, double min, double max, double fallback) {
       final value = json[key];
-      if (value is! num) return fallback;
-      return value.toDouble().clamp(0.05, 0.85);
+      if (value is! num || value.isNaN) return fallback;
+      return value.toDouble().clamp(min, max);
     }
 
     List<String> ids(String key, List<String> fallback) {
@@ -396,11 +695,77 @@ class BarSettings {
       }.toList();
     }
 
+    List<String> parts(String key) => <String>[
+      if (json[key] case final List<dynamic> list)
+        for (final id in list)
+          if (id is String) id,
+    ];
+
     return BarSettings(
-      layout: BarLayout.parse(json['layout']),
+      explicitZones:
+          json['start'] is List || json['center'] is List || json['end'] is List
+          ? BarZones(
+              start: parts('start'),
+              center: parts('center'),
+              end: parts('end'),
+            ).sanitized()
+          : null,
+      // A file from before shapes says attached or floating.
+      shape:
+          BarShape.parse(json['shape']) ??
+          (BarLayout.parse(json['layout']) == BarLayout.floating
+              ? BarShape.floating
+              : BarShape.strip),
+      cap: BarCap.parse(json['cap']),
       ground: BarGround.parse(json['ground']),
-      groundOpacity: ratio('groundOpacity', 0.55),
-      hairline: flag('hairline', false),
+      groundOpacity: within(
+        'groundOpacity',
+        BarMetric.opacityMin,
+        BarMetric.opacityMax,
+        BarMetric.opacity,
+      ),
+      groundTint: BarGroundTint.parse(json['groundTint']),
+      // A file from before widths says only whether there is a hairline.
+      borderWidth: within(
+        'borderWidth',
+        BarMetric.borderWidthMin,
+        BarMetric.borderWidthMax,
+        flag('hairline', false) ? BarMetric.hairline : 0,
+      ),
+      borderColour: BarBorderColour.parse(json['borderColour']),
+      textScale: within(
+        'textScale',
+        BarMetric.textScaleMin,
+        BarMetric.textScaleMax,
+        BarMetric.textScale,
+      ),
+      partGap: within(
+        'partGap',
+        BarMetric.partGapMin,
+        BarMetric.partGapMax,
+        BarMetric.partGap,
+      ),
+      edgeMargin: within(
+        'edgeMargin',
+        BarMetric.edgeMarginMin,
+        BarMetric.edgeMarginMax,
+        BarMetric.edgeMargin,
+      ),
+      endInset: json['endInset'] is num
+          ? within('endInset', BarMetric.endInsetMin, BarMetric.endInsetMax, 0)
+          : null,
+      contentPadding: within(
+        'contentPadding',
+        BarMetric.contentPaddingMin,
+        BarMetric.contentPaddingMax,
+        BarMetric.contentPadding,
+      ),
+      cornerRadius: within(
+        'cornerRadius',
+        BarMetric.cornerRadiusMin,
+        BarMetric.cornerRadiusMax,
+        BarMetric.cornerRadius,
+      ),
       islandEnabled: flag('islandEnabled', true),
       islandHoverPeek: flag('islandHoverPeek', true),
       islandHoverFade: flag('islandHoverFade', false),
@@ -466,10 +831,25 @@ class BarSettings {
   }
 
   void writeJson(Map<String, dynamic> json) {
+    json['shape'] = shape.key;
     json['layout'] = layout.key;
+    json['cap'] = cap.key;
     json['ground'] = ground.key;
     json['groundOpacity'] = groundOpacity;
+    json['groundTint'] = groundTint.key;
+    json['borderWidth'] = borderWidth;
     json['hairline'] = hairline;
+    json['borderColour'] = borderColour.key;
+    json['textScale'] = textScale;
+    json['partGap'] = partGap;
+    json['edgeMargin'] = edgeMargin;
+    if (endInset == null) {
+      json.remove('endInset');
+    } else {
+      json['endInset'] = endInset;
+    }
+    json['contentPadding'] = contentPadding;
+    json['cornerRadius'] = cornerRadius;
     json['islandEnabled'] = islandEnabled;
     json['islandHoverPeek'] = islandHoverPeek;
     json['islandHoverFade'] = islandHoverFade;
@@ -521,6 +901,19 @@ class BarSettings {
     json['widgets'] = widgets;
     json['statusOrder'] = statusOrder;
     json['workspaceStyle'] = workspaceStyle.name;
+    // A bar that was never arranged keeps no zones, so it goes on following
+    // the settings above.
+    final zones = explicitZones;
+    if (zones == null) {
+      json
+        ..remove('start')
+        ..remove('center')
+        ..remove('end');
+    } else {
+      json['start'] = zones.start;
+      json['center'] = zones.center;
+      json['end'] = zones.end;
+    }
   }
 }
 

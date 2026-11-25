@@ -1,6 +1,9 @@
 import 'package:denial_flutter_sdk/effects.dart';
+import 'package:denial_flutter_sdk/theme.dart';
+import 'package:denial_shell_kit/kit_style.dart';
 import 'package:flutter/widgets.dart';
 
+import 'bar_segments.dart';
 import 'bar_settings.dart';
 import 'bar_tokens.dart';
 
@@ -22,6 +25,8 @@ class BarGroundLayer extends StatelessWidget {
     required this.borderRadius,
     required this.backdrop,
     required this.child,
+    this.edges,
+    this.fill,
     super.key,
   });
 
@@ -30,6 +35,12 @@ class BarGroundLayer extends StatelessWidget {
 
   /// Dominant wallpaper colour, used to pick the plate and the ink.
   final Color backdrop;
+
+  /// Cuts the plate's two sides into points instead of rounding its corners.
+  final BarSegmentEdges? edges;
+
+  /// The plate's colour when it is not the bar's own, without its opacity.
+  final Color? fill;
   final Widget child;
 
   static double luminanceOf(Color color) =>
@@ -44,70 +55,155 @@ class BarGroundLayer extends StatelessWidget {
       ? const Color(BarTokens.plateDark)
       : const Color(BarTokens.plateLight);
 
+  /// The plate's colour before its opacity, from where the settings say it
+  /// comes.
+  static Color baseFor(
+    Color backdrop,
+    BarSettings settings,
+    ShellThemeData theme,
+  ) => switch (settings.groundTint) {
+    BarGroundTint.wallpaper => plateFor(backdrop),
+    BarGroundTint.panel => theme.colors.panelBackground.withValues(alpha: 1),
+    BarGroundTint.accent =>
+      Color.lerp(plateFor(backdrop), theme.kitAccent, 0.22) ??
+          plateFor(backdrop),
+  };
+
+  /// The second colour of a bar whose segments alternate.
+  static Color alternateFor(Color base, ShellThemeData theme) =>
+      Color.lerp(base, theme.kitAccent, 0.62) ?? base;
+
+  /// Black or white, whichever reads on [ground].
+  static Color inkOn(Color ground) =>
+      isDark(ground) ? const Color(0xffffffff) : const Color(0xff000000);
+
   /// The ink the type is drawn in.
   ///
   /// macOS flips black/white against what sits under the bar, so this reads
   /// the backdrop when there is no veil and the veil's own lightness when
   /// there is one.
-  static Color inkFor(Color backdrop, BarSettings settings) {
-    final dark = switch (settings.ground) {
-      BarGround.none => isDark(backdrop),
-      BarGround.plate || BarGround.glass => isDark(plateFor(backdrop)),
-    };
-    return dark ? const Color(0xffffffff) : const Color(0xff000000);
-  }
-
-  /// What the strip actually looks like, for callers that need to match it.
-  static Color stripColour(Color backdrop, BarSettings settings) {
-    final plate = plateFor(backdrop);
-    return Color.lerp(backdrop, plate, settings.groundOpacity) ?? plate;
-  }
+  static Color inkFor(
+    Color backdrop,
+    BarSettings settings,
+    ShellThemeData theme,
+  ) => inkOn(
+    settings.ground == BarGround.none
+        ? backdrop
+        : baseFor(backdrop, settings, theme),
+  );
 
   @override
   Widget build(BuildContext context) {
     final ground = settings.ground;
-    final dark = isDark(plateFor(backdrop));
+    if (ground == BarGround.none) return child;
+    final theme = context.shellTheme;
+    final base = fill ?? baseFor(backdrop, settings, theme);
+    final colour = base.withValues(alpha: settings.groundOpacity);
+    final dark = isDark(base);
+    final line = settings.borderColour == BarBorderColour.accent
+        ? theme.kitAccent
+        : dark
+        ? const Color(0xffffffff).withValues(alpha: 0.12)
+        : const Color(0xff000000).withValues(alpha: 0.08);
 
-    Widget surface = child;
-    if (ground == BarGround.plate) {
-      surface = DecoratedBox(
-        decoration: BoxDecoration(
-          color: plateFor(backdrop).withValues(alpha: settings.groundOpacity),
-          borderRadius: borderRadius,
-          border: settings.hairline
-              ? Border.all(
-                  color: dark
-                      ? const Color(0xffffffff).withValues(alpha: 0.12)
-                      : const Color(0xff000000).withValues(alpha: 0.08),
-                  width: 0.8,
-                )
-              : null,
+    final edges = this.edges;
+    if (edges != null) {
+      final Widget plate = CustomPaint(
+        painter: _SegmentPainter(
+          edges: edges,
+          fill: colour,
+          line: line,
+          lineWidth: settings.borderWidth,
         ),
-        child: surface,
+        child: child,
       );
-    } else if (ground == BarGround.glass) {
-      surface = ShellBackdropBlur(
-        borderRadius: borderRadius,
-        blendMode: BlendMode.srcOver,
-        child: DecoratedBox(
-          decoration: BoxDecoration(
-            color: plateFor(backdrop).withValues(alpha: settings.groundOpacity),
-            borderRadius: borderRadius,
-            border: settings.hairline
-                ? Border.all(
-                    color: dark
-                        ? const Color(0xffffffff).withValues(alpha: 0.12)
-                        : const Color(0xff000000).withValues(alpha: 0.08),
-                    width: 0.8,
-                  )
-                : null,
-          ),
-          child: surface,
-        ),
+      if (ground != BarGround.glass) return plate;
+      return ClipPath(
+        clipper: _SegmentClipper(edges),
+        child: ShellBackdropBlur(blendMode: BlendMode.srcOver, child: plate),
       );
     }
-    return surface;
+
+    final Widget plate = DecoratedBox(
+      decoration: BoxDecoration(
+        color: colour,
+        borderRadius: borderRadius,
+        border: settings.borderWidth > 0
+            ? Border.all(color: line, width: settings.borderWidth)
+            : null,
+      ),
+      child: child,
+    );
+    if (ground != BarGround.glass) return plate;
+    return ShellBackdropBlur(
+      borderRadius: borderRadius,
+      blendMode: BlendMode.srcOver,
+      child: plate,
+    );
   }
+}
+
+Path _segmentPath(Size size, BarSegmentEdges edges) {
+  final points = barSegmentOutline(
+    width: size.width,
+    height: size.height,
+    depth: barArrowDepth(size.height),
+    left: edges.left,
+    right: edges.right,
+  );
+  final path = Path()..moveTo(points.first.x, points.first.y);
+  for (final point in points.skip(1)) {
+    path.lineTo(point.x, point.y);
+  }
+  return path..close();
+}
+
+class _SegmentPainter extends CustomPainter {
+  const _SegmentPainter({
+    required this.edges,
+    required this.fill,
+    required this.line,
+    required this.lineWidth,
+  });
+
+  final BarSegmentEdges edges;
+  final Color fill;
+  final Color line;
+  final double lineWidth;
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final path = _segmentPath(size, edges);
+    canvas.drawPath(path, Paint()..color = fill);
+    if (lineWidth <= 0) return;
+    canvas.drawPath(
+      path,
+      Paint()
+        ..style = PaintingStyle.stroke
+        ..strokeWidth = lineWidth
+        ..strokeJoin = StrokeJoin.round
+        ..color = line,
+    );
+  }
+
+  @override
+  bool shouldRepaint(_SegmentPainter old) =>
+      old.edges != edges ||
+      old.fill != fill ||
+      old.line != line ||
+      old.lineWidth != lineWidth;
+}
+
+class _SegmentClipper extends CustomClipper<Path> {
+  const _SegmentClipper(this.edges);
+
+  final BarSegmentEdges edges;
+
+  @override
+  Path getClip(Size size) => _segmentPath(size, edges);
+
+  @override
+  bool shouldReclip(_SegmentClipper oldClipper) => oldClipper.edges != edges;
 }
 
 /// The soft fade shell27 paints when the bar is completely clear.

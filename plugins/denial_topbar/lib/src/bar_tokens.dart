@@ -313,7 +313,7 @@ abstract final class BarTokens {
   static const int plateDark = 0xff1e1e1e;
   static const double plateOpacityDefault = 0.55;
   static const double plateOpacityMin = 0.05;
-  static const double plateOpacityMax = 0.85;
+  static const double plateOpacityMax = 1;
 
   /// Luminance threshold that decides the ink when no plate is drawn.
   static const double plateLuminanceThreshold = 0.5;

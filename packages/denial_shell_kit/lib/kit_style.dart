@@ -1,10 +1,9 @@
-import 'dart:convert';
-import 'dart:io';
-
 import 'package:denial_flutter_sdk/theme.dart';
 import 'package:flutter/widgets.dart';
 
 import 'kit_motion_pace.dart';
+import 'kit_store.dart';
+import 'shell_preset.dart';
 
 /// How a spring is tuned: stiffness and damping ratio, as Denial's liquid
 /// motion recipe writes them.
@@ -32,6 +31,14 @@ class KitStyle {
     required this.panelBead,
     required this.pressTuning,
     required this.accentMenuRows,
+    this.label = '',
+    this.fontPackage,
+    this.fontScale = 1,
+    this.cornerScale = 1,
+    this.borderWidth = 1,
+    this.borderFromAccent = false,
+    this.opaque = false,
+    this.shadow = 1,
   });
 
   /// Denial's own material: the wallpaper's accent, the shell's font and
@@ -39,6 +46,7 @@ class KitStyle {
   /// into its shape, a switch fills as the accent pours in.
   static const KitStyle denial = KitStyle(
     id: 'denial',
+    label: 'Denial',
     fixedAccent: null,
     fontFamily: null,
     scaleCorners: true,
@@ -54,8 +62,10 @@ class KitStyle {
   /// no overshoot.
   static const KitStyle mac = KitStyle(
     id: 'mac',
+    label: 'macOS',
     fixedAccent: Color(0xff0a84ff),
     fontFamily: 'Inter',
+    fontPackage: 'denial_topbar',
     scaleCorners: false,
     liquid: false,
     panelGrow: KitSpringTuning(620, 1),
@@ -65,12 +75,80 @@ class KitStyle {
     accentMenuRows: true,
   );
 
-  static const List<KitStyle> presets = <KitStyle>[denial, mac];
+  /// Solid rounded panels: the shell's accent and font, tighter corners, no
+  /// blur behind a panel and a lighter shadow under it, and motion that
+  /// settles without a bounce.
+  static const KitStyle soft = KitStyle(
+    id: 'soft',
+    label: 'Soft',
+    fixedAccent: null,
+    fontFamily: null,
+    scaleCorners: true,
+    liquid: false,
+    panelGrow: KitSpringTuning(520, 1),
+    panelShrink: KitSpringTuning(800, 1),
+    panelBead: Size(0.94, 0.94),
+    pressTuning: KitSpringTuning(620, 0.8),
+    accentMenuRows: false,
+    cornerScale: 0.6,
+    opaque: true,
+    shadow: 0.6,
+  );
+
+  /// A terminal's look: square corners, a 2 px line in the accent around
+  /// every panel, opaque fills with no blur and no shadow, fixed-width type,
+  /// and motion that is over at once.
+  static const KitStyle terminal = KitStyle(
+    id: 'terminal',
+    label: 'Terminal',
+    fixedAccent: null,
+    fontFamily: 'JetBrainsMono',
+    fontPackage: 'denial_flutter_sdk',
+    fontScale: 0.93,
+    scaleCorners: false,
+    liquid: false,
+    panelGrow: KitSpringTuning(1100, 1),
+    panelShrink: KitSpringTuning(1400, 1),
+    panelBead: Size(0.98, 0.98),
+    pressTuning: KitSpringTuning(1000, 1),
+    accentMenuRows: true,
+    cornerScale: 0,
+    borderWidth: 2,
+    borderFromAccent: true,
+    opaque: true,
+    shadow: 0,
+  );
+
+  static const List<KitStyle> presets = <KitStyle>[denial, mac, soft, terminal];
 
   static KitStyle byId(String? id) =>
       presets.firstWhere((style) => style.id == id, orElse: () => denial);
 
   final String id;
+
+  /// The look's name, as its makers write it.
+  final String label;
+
+  /// The package that carries [fontFamily].
+  final String? fontPackage;
+
+  /// Scales type set in [fontFamily], for a family that runs wide.
+  final double fontScale;
+
+  /// Multiplies every corner radius; 0 squares them all.
+  final double cornerScale;
+
+  /// The line around a panel.
+  final double borderWidth;
+
+  /// Whether that line takes the accent, or stays a hairline.
+  final bool borderFromAccent;
+
+  /// Whether panels are filled solid, which also leaves nothing to blur.
+  final bool opaque;
+
+  /// How much of the usual shadow a panel casts, 0 to 1.
+  final double shadow;
 
   /// The accent when the look brings its own; otherwise the shell's.
   final Color? fixedAccent;
@@ -142,7 +220,18 @@ class KitStyle {
   }
 
   double radius(ShellThemeData theme, double base) =>
-      scaleCorners ? theme.scaledRadius(base) : base;
+      (scaleCorners ? theme.scaledRadius(base) : base) * cornerScale;
+
+  /// A radius that does not follow the shell's roundness, such as a row's or
+  /// a button's, in this look.
+  double corner(double base) => base * cornerScale;
+
+  /// A panel's fill in this look.
+  Color panelFill(Color fill) => opaque ? fill.withValues(alpha: 1) : fill;
+
+  /// The colour of the line around a panel.
+  Color border(ShellThemeData theme) =>
+      borderFromAccent ? accent(theme) : theme.colors.hairline;
 
   /// The look in force. Both plugins run in one program, so this one value
   /// serves the dock and the top bar alike, popups included.
@@ -157,47 +246,6 @@ final KitStyleNotifier kitStyle = KitStyleNotifier._();
 /// program with both plugins has one value.
 final KitSpeedNotifier kitSpeed = KitSpeedNotifier._();
 
-File? _kitFile() {
-  final env = Platform.environment;
-  final configured = env['XDG_CONFIG_HOME'];
-  final home = env['HOME'];
-  final root = configured != null && configured.startsWith('/')
-      ? configured
-      : home != null && home.startsWith('/')
-      ? '$home/.config'
-      : null;
-  return root == null
-      ? null
-      : File('$root/denial/plugins/denial_shell_kit.json');
-}
-
-Map<String, dynamic> _readKitJson() {
-  final file = _kitFile();
-  if (file == null) return <String, dynamic>{};
-  try {
-    final json = jsonDecode(file.readAsStringSync());
-    return json is Map<String, dynamic> ? json : <String, dynamic>{};
-  } on Object {
-    return <String, dynamic>{};
-  }
-}
-
-/// Writes the keys given, keeping every other key the file already has: the
-/// look and the speed are separate settings in one file, and a newer build
-/// may have added more.
-void _writeKitJson(Map<String, dynamic> json) {
-  final file = _kitFile();
-  if (file == null) return;
-  try {
-    file.parent.createSync(recursive: true);
-    final temp = File('${file.path}.$pid.tmp')
-      ..writeAsStringSync('${jsonEncode(json)}\n');
-    temp.renameSync(file.path);
-  } on FileSystemException {
-    return;
-  }
-}
-
 /// Both settings reach most widgets without a subscription, and a switch is
 /// rare, so everything is built again.
 void _rebuildEverything() {
@@ -209,46 +257,22 @@ void _rebuildEverything() {
   WidgetsBinding.instance.rootElement?.visitChildren(visit);
 }
 
-/// The store's version, written on every save. A file without it was written
-/// when the store held only the look, which is what version 1 held; a file
-/// with a newer version is read but never written, so a build cannot drop
-/// settings it does not know.
-const int _storeVersion = 2;
-
-/// Whether this build may write the file, decided once from its version.
-final bool _mayWrite = (() {
-  final version = _readKitJson()['version'];
-  return version is! int || version <= _storeVersion;
-})();
-
-/// The file's keys in the shape this build writes them: the version it knows,
-/// and every key it did not write left as it was.
-Map<String, dynamic> _withVersion(Map<String, dynamic> json) =>
-    json..['version'] = _storeVersion;
-
 class KitStyleNotifier extends ValueNotifier<KitStyle> {
-  KitStyleNotifier._() : super(_read());
-
-  static KitStyle _read() {
-    final style = _readKitJson()['style'];
-    return KitStyle.byId(style is String ? style : null);
-  }
+  KitStyleNotifier._()
+    : super(KitStyle.byId(KitStore.textOf(kitStore.read(), 'style')));
 
   /// Switches the look and remembers it.
   void choose(KitStyle style) {
     if (style.id == value.id) return;
     value = style;
     _rebuildEverything();
-    if (!_mayWrite) return;
-    final json = _withVersion(_readKitJson())..['style'] = style.id;
-    _writeKitJson(json);
+    kitStore.put('style', style.id);
   }
 }
 
 class KitSpeedNotifier extends ValueNotifier<double> {
-  KitSpeedNotifier._() : super(_read());
-
-  static double _read() => KitMotionPace.clampSpeed(_readKitJson()['speed']);
+  KitSpeedNotifier._()
+    : super(KitMotionPace.clampSpeed(kitStore.read()['speed']));
 
   /// Sets the speed multiplier and remembers it. A missing value in a file
   /// written by an older build means normal speed; anything else lands on one
@@ -259,9 +283,40 @@ class KitSpeedNotifier extends ValueNotifier<double> {
     if (speed == super.value) return;
     super.value = speed;
     _rebuildEverything();
-    if (!_mayWrite) return;
-    final json = _withVersion(_readKitJson())..['speed'] = speed;
-    _writeKitJson(json);
+    kitStore.put('speed', speed);
+  }
+}
+
+/// Whether the dock shows at all. The dock reads it when the shell places
+/// its surfaces, so a change rebuilds everything to have them placed again.
+final KitDockNotifier kitDockEnabled = KitDockNotifier._();
+
+class KitDockNotifier extends ValueNotifier<bool> {
+  KitDockNotifier._() : super(KitStore.dockOf(kitStore.read()));
+
+  @override
+  set value(bool next) {
+    if (next == super.value) return;
+    super.value = next;
+    _rebuildEverything();
+    kitStore.put('dock', next);
+  }
+}
+
+/// The preset last applied, by id. It only names where the arrangement
+/// started from; the look and the bar's own settings are what is drawn.
+final KitPresetNotifier kitPreset = KitPresetNotifier._();
+
+class KitPresetNotifier extends ValueNotifier<String> {
+  KitPresetNotifier._()
+    : super(ShellPreset.byId(KitStore.textOf(kitStore.read(), 'preset')).id);
+
+  @override
+  set value(String next) {
+    final id = ShellPreset.byId(next).id;
+    if (id == super.value) return;
+    super.value = id;
+    kitStore.put('preset', id);
   }
 }
 
