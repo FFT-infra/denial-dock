@@ -1,7 +1,10 @@
 import 'dart:async';
 import 'dart:math' as math;
 
+import 'package:denial_flutter_sdk/effects.dart';
 import 'package:denial_flutter_sdk/theme.dart';
+import 'package:denial_shell_kit/continuous_corners.dart';
+import 'package:denial_shell_kit/glass_card.dart';
 import 'package:denial_shell_kit/kit_motion.dart';
 import 'package:denial_shell_kit/kit_springs.dart';
 import 'package:denial_shell_kit/kit_style.dart';
@@ -37,6 +40,76 @@ abstract class NcHost {
 
   /// Opens a small menu under [anchor], a rectangle in the scene.
   void showMenu(Rect anchor, List<NcMenuItem> items);
+
+  /// Whether the column stands still and open. Only then do the cards blur
+  /// what is behind them; while the column slides they are plain fills, so
+  /// no frame of the slide reads the screen back.
+  ValueListenable<bool> get glass;
+}
+
+/// What the centre looks like, where the kit's look has no field for it.
+/// Corners still go through [KitStyle.radius] and colours through the theme;
+/// these are the sizes and the few colours that are the centre's own.
+abstract final class NcLook {
+  /// The width of a card, and how far it stands from the screen's edge.
+  static const double width = 372;
+  static const double edge = 10;
+
+  /// Corners of a card and of a widget, at the shell's normal roundness.
+  static const double cardRadius = 22;
+  static const double widgetRadius = 22;
+
+  /// The application's icon on a card, and the space above each card.
+  static const double icon = 38;
+  static const double cardGap = 10;
+
+  /// How dark the wallpaper gets at the screen's edge behind the column,
+  /// and how far past the column that reaches before it is gone.
+  static const double dim = 0.36;
+  static const double dimReach = 180;
+
+  /// Ink for what is written straight on the dimmed wallpaper. The dimming
+  /// is dark in either theme, so this is light in either theme.
+  static const Color onWallpaper = Color(0xffffffff);
+  static const Color onWallpaperDim = Color(0xc7ffffff);
+  static const List<Shadow> onWallpaperShadow = <Shadow>[
+    Shadow(color: Color(0x59000000), blurRadius: 6, offset: Offset(0, 1)),
+  ];
+
+  /// The least a card's fill covers while it does not blur what is behind.
+  static const double solid = 0.9;
+
+  /// A card's shadow: its strength, softness and drop.
+  static const double shadow = 0.2;
+  static const double shadowBlur = 8;
+  static const double shadowDrop = 4;
+
+  /// The card of the world clock, dark in either theme, and its dials by
+  /// day and by night.
+  static const Color night = Color(0xff1c1c1e);
+  static const Color onNight = Color(0xffffffff);
+  static const Color onNightDim = Color(0x99ebebf5);
+  static const Color dialDay = Color(0xfff2f2f7);
+  static const Color dialNight = Color(0xff3a3a3c);
+  static const Color dialDayInk = Color(0xff1c1c1e);
+
+  /// A widget's own card: opaque, from the theme's surfaces.
+  static Color widgetFill(ShellThemeData theme) =>
+      theme.colors.surfaceContainer.withValues(alpha: 1);
+
+  /// Paper for the calendar: white by day, the deepest surface by night.
+  static Color paper(ShellThemeData theme) =>
+      theme.brightness == Brightness.dark
+      ? theme.colors.surfaceContainerLow.withValues(alpha: 1)
+      : const Color(0xffffffff);
+
+  static List<BoxShadow> widgetShadow(ShellThemeData theme) => <BoxShadow>[
+    BoxShadow(
+      color: theme.colors.shadow.withValues(alpha: 0.18),
+      blurRadius: 10,
+      offset: const Offset(0, 3),
+    ),
+  ];
 }
 
 class NcScope extends InheritedWidget {
@@ -57,10 +130,29 @@ bool ncActivates(KeyEvent event) =>
         event.logicalKey == LogicalKeyboardKey.numpadEnter ||
         event.logicalKey == LogicalKeyboardKey.space);
 
-/// The fill of a small control lying on the slab. No blur and no shadow of
-/// its own: the slab is the only glass in the column.
+/// The fill of a small control lying on a card.
 Color ncChipFill(ShellThemeData theme, {bool hovered = false}) =>
     theme.colors.textPrimary.withValues(alpha: hovered ? 0.17 : 0.10);
+
+/// The fill of a pill that floats on the wallpaper: nearly opaque, so its
+/// label reads over any picture without a blur of its own.
+Color ncFloatFill(ShellThemeData theme, {bool hovered = false}) =>
+    ncSolidFill(theme, hovered: hovered).withValues(alpha: 0.84);
+
+/// Cuts a row at its upper and lower edge only. A card's shadow, and a card
+/// dragged toward the screen's edge, reach past the row's sides.
+class NcBandClip extends CustomClipper<Rect> {
+  const NcBandClip();
+
+  static const double spill = 4096;
+
+  @override
+  Rect getClip(Size size) =>
+      Rect.fromLTRB(-spill, 0, size.width + spill, size.height);
+
+  @override
+  bool shouldReclip(NcBandClip old) => false;
+}
 
 /// The fill of a control that sits over a card's text, so it has to cover
 /// what is under it.
@@ -168,13 +260,14 @@ class _NcTapState extends State<NcTap> {
   }
 }
 
-/// A small pill with a label: Clear All, Show Less, Edit Widgets.
+/// A small pill with a label: Show Less, Edit Widgets, an action.
 class NcChip extends StatelessWidget {
   const NcChip({
     required this.label,
     required this.onTap,
     this.enabled = true,
     this.solid = false,
+    this.large = false,
     super.key,
   });
 
@@ -182,7 +275,11 @@ class NcChip extends StatelessWidget {
   final VoidCallback onTap;
   final bool enabled;
 
-  /// Covers what is under it, for a pill over a card's text.
+  /// The size of the pills that stand alone under the list.
+  final bool large;
+
+  /// Covers what is under it, for a pill over a card's text. Otherwise the
+  /// pill floats on the wallpaper.
   final bool solid;
 
   static TextStyle style(ShellThemeData theme) => BarType.caption.copyWith(
@@ -203,16 +300,18 @@ class NcChip extends StatelessWidget {
           borderRadius: BorderRadius.circular(999),
           color: solid
               ? ncSolidFill(theme, hovered: hovered || pressed)
-              : ncChipFill(theme, hovered: hovered || pressed),
+              : ncFloatFill(theme, hovered: hovered || pressed),
           border: ncChipBorder(context, focused: focused),
         ),
         child: Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+          padding: large
+              ? const EdgeInsets.symmetric(horizontal: 14, vertical: 6)
+              : const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
           child: Text(
             label,
             maxLines: 1,
             overflow: TextOverflow.ellipsis,
-            style: style(theme),
+            style: large ? style(theme).copyWith(fontSize: 13) : style(theme),
           ),
         ),
       ),
@@ -229,6 +328,8 @@ class NcDot extends StatelessWidget {
     this.label,
     this.open = false,
     this.enabled = true,
+    this.extent = size,
+    this.floating = false,
     super.key,
   });
 
@@ -240,6 +341,13 @@ class NcDot extends StatelessWidget {
   final bool open;
   final bool enabled;
 
+  /// Its diameter. The dot in a card's corner is [size]; the ones that
+  /// stand on the wallpaper are larger.
+  final double extent;
+
+  /// On the wallpaper rather than on a card.
+  final bool floating;
+
   @override
   Widget build(BuildContext context) {
     final theme = context.shellTheme;
@@ -250,8 +358,10 @@ class NcDot extends StatelessWidget {
       enabled: enabled,
       builder: (context, hovered, pressed, focused) => DecoratedBox(
         decoration: BoxDecoration(
-          borderRadius: BorderRadius.circular(size / 2),
-          color: ncSolidFill(theme, hovered: hovered || pressed),
+          borderRadius: BorderRadius.circular(extent / 2),
+          color: floating
+              ? ncFloatFill(theme, hovered: hovered || pressed)
+              : ncSolidFill(theme, hovered: hovered || pressed),
           border: ncChipBorder(context, focused: focused),
         ),
         child: AnimatedSize(
@@ -259,25 +369,26 @@ class NcDot extends StatelessWidget {
           curve: KitMotion.outCubic,
           alignment: Alignment.centerLeft,
           child: SizedBox(
-            height: size,
+            height: extent,
             child: Row(
               mainAxisSize: MainAxisSize.min,
               children: <Widget>[
                 SizedBox(
-                  width: size,
+                  width: extent,
                   child: BarGlyph(
                     icon,
-                    size: 9,
+                    size: extent * 0.45,
                     color: theme.colors.textPrimary,
                   ),
                 ),
                 if (label != null && (hovered || focused || open))
                   Padding(
-                    padding: const EdgeInsets.only(right: 8),
+                    padding: EdgeInsets.only(right: extent * 0.4),
                     child: Text(
                       label,
                       maxLines: 1,
-                      style: NcChip.style(theme).copyWith(fontSize: 11.5),
+                      style: NcChip.style(theme)
+                          .copyWith(fontSize: extent > size ? 12 : 11.5),
                     ),
                   ),
               ],
@@ -287,6 +398,245 @@ class NcDot extends StatelessWidget {
       ),
     );
   }
+}
+
+/// A card's plate: its shadow, the blur of what is behind it, its fill and
+/// its hairline. The front card of a folded stack also draws the lower edges
+/// of the cards behind it.
+///
+/// The blur is shared with every other plate under the column's
+/// [BackdropGroup], which is why plates must never lie over one another
+/// while they blur: [blur] is off for a card behind until its stack is open,
+/// and the edges of a folded stack are plain fills.
+class NcPlate extends StatelessWidget {
+  const NcPlate({
+    required this.index,
+    required this.unfold,
+    required this.glass,
+    required this.lift,
+    this.peeks = 0,
+    this.blur = true,
+    this.ring = false,
+    super.key,
+  });
+
+  /// The card's place in its stack, and how far the stack is open.
+  final int index;
+  final ValueListenable<double> unfold;
+
+  /// 0 while the plate is a plain fill, 1 once it blurs what is behind.
+  final Animation<double> glass;
+
+  /// The space above the plate, which a card behind starts out across.
+  final double lift;
+
+  /// How many cards show their lower edge under this one.
+  final int peeks;
+  final bool blur;
+
+  /// The keyboard is on the card.
+  final bool ring;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = context.shellTheme;
+    final style = KitStyle.of(context);
+    final radius = style.radius(theme, NcLook.cardRadius);
+    final fill = GlassCard.fillOf(theme);
+    final solid = fill.a < NcLook.solid
+        ? fill.withValues(alpha: NcLook.solid)
+        : fill;
+    final repaint = Listenable.merge(<Listenable>[unfold, glass]);
+    _PlatePainter layer(bool under) => _PlatePainter(
+      under: under,
+      index: index,
+      unfold: unfold,
+      glass: glass,
+      lift: lift,
+      peeks: peeks,
+      radius: radius,
+      fill: fill,
+      solid: solid,
+      hairline: theme.colors.hairline,
+      shadow: theme.colors.shadow.withValues(alpha: NcLook.shadow),
+      ring: ring ? style.accent(theme) : null,
+      repaint: repaint,
+    );
+    return CustomPaint(
+      painter: layer(true),
+      foregroundPainter: layer(false),
+      child: blur && fill.a < 1
+          ? ShellBackdropBlur(
+              grouped: true,
+              borderRadius: BorderRadius.circular(radius),
+              // Faded by the blur itself; at nothing it is not composited.
+              opacity: glass,
+              child: const SizedBox.expand(),
+            )
+          : null,
+    );
+  }
+}
+
+/// One of the two layers of a plate: what lies [under] the blur (the shadow
+/// and the edges of the cards behind), or what lies over it (the fill, the
+/// hairline and the keyboard's ring).
+class _PlatePainter extends CustomPainter {
+  _PlatePainter({
+    required this.under,
+    required this.index,
+    required this.unfold,
+    required this.glass,
+    required this.lift,
+    required this.peeks,
+    required this.radius,
+    required this.fill,
+    required this.solid,
+    required this.hairline,
+    required this.shadow,
+    required this.ring,
+    required Listenable repaint,
+  }) : super(repaint: repaint);
+
+  final bool under;
+  final int index;
+  final ValueListenable<double> unfold;
+  final Animation<double> glass;
+  final double lift;
+  final int peeks;
+  final double radius;
+  final Color fill;
+  final Color solid;
+  final Color hairline;
+  final Color shadow;
+  final Color? ring;
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final t = unfold.value.clamp(0.0, 1.0);
+    final at = NcMotion.plate(
+      index: index,
+      t: t,
+      width: size.width,
+      height: size.height,
+      lift: lift,
+    );
+    if (at.strength <= 0 || at.width <= 0 || at.height <= 0) return;
+    final rect = Rect.fromLTWH(at.left, at.top, at.width, at.height);
+    final whole = index == 0 || t >= 1;
+    final Path shape;
+    if (whole) {
+      shape = continuousRoundedRectPath(rect, radius);
+    } else {
+      // Folded, a card behind tucks straight under the one in front; it
+      // rounds its upper corners as it becomes a card of its own.
+      final corner = Radius.circular(radius);
+      final upper = Radius.circular(radius * t);
+      shape = Path()
+        ..addRRect(
+          RRect.fromRectAndCorners(
+            rect,
+            topLeft: upper,
+            topRight: upper,
+            bottomLeft: corner,
+            bottomRight: corner,
+          ),
+        );
+    }
+
+    if (under) {
+      // The shadow shows around the plate and not through it: the plate is
+      // glass, and a shadow under glass would only darken it.
+      final cast = index == 0 ? 1.0 : NcMotion.reveal(t);
+      if (cast > 0 && shadow.a > 0) {
+        // An even-odd path of a frame around the plate and the plate itself
+        // is everything but the plate. The shadow is a plain rounded
+        // rectangle, which is blurred without rasterising a mask.
+        final around = Path()
+          ..fillType = PathFillType.evenOdd
+          ..addRect(rect.inflate(NcLook.shadowBlur * 4))
+          ..addPath(shape, Offset.zero);
+        canvas
+          ..save()
+          ..clipPath(around)
+          ..drawRRect(
+            RRect.fromRectAndRadius(
+              rect.shift(const Offset(0, NcLook.shadowDrop)),
+              Radius.circular(radius),
+            ),
+            Paint()
+              ..color = shadow.withValues(alpha: shadow.a * cast)
+              ..maskFilter = const MaskFilter.blur(
+                BlurStyle.normal,
+                NcLook.shadowBlur,
+              ),
+          )
+          ..restore();
+      }
+      // The cards behind a folded stack. Each is cut where a card nearer
+      // the front lies over it, so the fills never add up.
+      var cover = shape;
+      for (var depth = 1; depth <= peeks; depth++) {
+        final behind = NcMotion.peek(
+          depth: depth,
+          width: size.width,
+          height: size.height,
+          tuck: radius + 2,
+        );
+        if (behind.width <= 0) break;
+        final card = continuousRoundedRectPath(
+          Rect.fromLTWH(behind.left, behind.top, behind.width, behind.height),
+          radius,
+        );
+        canvas.drawPath(
+          Path.combine(PathOperation.difference, card, cover),
+          Paint()..color = solid.withValues(alpha: solid.a * behind.strength),
+        );
+        cover = Path.combine(PathOperation.union, cover, card);
+      }
+      return;
+    }
+
+    final tone = Color.lerp(solid, fill, glass.value)!;
+    canvas.drawPath(
+      shape,
+      Paint()..color = tone.withValues(alpha: tone.a * at.strength),
+    );
+    if (whole) {
+      canvas.drawPath(
+        continuousRoundedRectPath(rect.deflate(0.5), math.max(0, radius - 0.5)),
+        Paint()
+          ..style = PaintingStyle.stroke
+          ..strokeWidth = 1
+          ..color = hairline,
+      );
+    }
+    final ring = this.ring;
+    if (ring != null) {
+      canvas.drawPath(
+        continuousRoundedRectPath(rect.deflate(1), math.max(0, radius - 1)),
+        Paint()
+          ..style = PaintingStyle.stroke
+          ..strokeWidth = 2
+          ..color = ring,
+      );
+    }
+  }
+
+  @override
+  bool shouldRepaint(_PlatePainter old) =>
+      old.under != under ||
+      old.index != index ||
+      old.unfold != unfold ||
+      old.glass != glass ||
+      old.lift != lift ||
+      old.peeks != peeks ||
+      old.radius != radius ||
+      old.fill != fill ||
+      old.solid != solid ||
+      old.hairline != hairline ||
+      old.shadow != shadow ||
+      old.ring != ring;
 }
 
 /// A row of the column that can come and go. Going, it shrinks a little and
@@ -448,7 +798,10 @@ class _NcPresenceState extends State<NcPresence> with TickerProviderStateMixin {
       animation: _springs,
       builder: (context, child) {
         final room = math.max(0.0, _room.value);
+        // Cut above and below only, so a shadow keeps its sides while the
+        // room opens.
         return ClipRect(
+          clipper: const NcBandClip(),
           clipBehavior: room < 0.999 ? Clip.hardEdge : Clip.none,
           child: Align(
             alignment: Alignment.topCenter,
@@ -476,7 +829,8 @@ class NcMenuItem {
 }
 
 /// A short menu over the column, for the actions a card has no room for. It
-/// is opaque: glass here would show the cards through it.
+/// is opaque: it lies over cards that blur, and a second blur over them
+/// would not share theirs.
 class NcMenu extends StatefulWidget {
   const NcMenu({
     required this.anchor,

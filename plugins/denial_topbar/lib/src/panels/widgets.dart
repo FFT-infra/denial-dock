@@ -16,11 +16,9 @@ import '../l10n.dart';
 import '../media_art.dart';
 import 'calendar_widget.dart';
 import 'mac_kit.dart';
+import 'nc_parts.dart';
 import 'tile_grid.dart';
 import 'world_clock_card.dart';
-
-const double widgetGap = 10;
-const double widgetCellHeight = 158;
 
 const List<TileChoice> widgetLibrary = <TileChoice>[
   TileChoice(id: 'calendar', icon: BarIcons.calendar, label: 'Calendar'),
@@ -46,19 +44,28 @@ TileSize? widgetSize(String id, {bool wide = false}) => switch (id) {
   _ => null,
 };
 
+/// The colour of a widget's card where the widget has one of its own; the
+/// rest take the theme's surface.
+Color? widgetPlate(String id, ShellThemeData theme) => switch (id) {
+  'calendar' => NcLook.paper(theme),
+  'worldclock' => NcLook.night,
+  _ => null,
+};
+
+/// Builds a widget for a grid whose cells are [cell] on a side.
 Widget buildBarWidget(
   String id,
   ShellServices services,
-  double fullWidth, {
+  double cell, {
   bool wide = false,
 }) => switch (id) {
-  'calendar' => CalendarWidget(width: fullWidth, height: widgetCellHeight),
+  'calendar' => const CalendarWidget(),
   'worldclock' => const WorldClockCard(),
   'date' => const _DateWidget(),
   'clock' => _ClockWidget(wide: wide),
   'battery' => _BatteryWidget(services: services, wide: wide),
   'cpu' => _CpuWidget(services: services, wide: wide),
-  'media' => _MediaWidget(services: services),
+  'media' => _MediaWidget(services: services, art: cell - 28),
   _ => const SizedBox.shrink(),
 };
 
@@ -529,9 +536,12 @@ class _CpuWidget extends ConsumerWidget {
 }
 
 class _MediaWidget extends ConsumerWidget {
-  const _MediaWidget({required this.services});
+  const _MediaWidget({required this.services, required this.art});
 
   final ShellServices services;
+
+  /// The side of the artwork: the card's height less its padding.
+  final double art;
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
@@ -562,11 +572,11 @@ class _MediaWidget extends ConsumerWidget {
         children: <Widget>[
           MediaArtwork(
             url: playback?.artUrl ?? '',
-            size: widgetCellHeight - 28,
+            size: art,
             radius: 14,
             fallback: Container(
-              width: widgetCellHeight - 28,
-              height: widgetCellHeight - 28,
+              width: art,
+              height: art,
               decoration: BoxDecoration(
                 color: ink.withValues(alpha: 0.10),
                 borderRadius: BorderRadius.circular(14),

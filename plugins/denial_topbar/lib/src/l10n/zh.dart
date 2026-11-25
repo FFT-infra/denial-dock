@@ -292,4 +292,5 @@ const Map<String, String> zh = <String, String>{
   'Start': '起始',
   'Centre': '中间',
   'End': '末尾',
+  '{} More Notifications': '还有 {} 个通知',
 };

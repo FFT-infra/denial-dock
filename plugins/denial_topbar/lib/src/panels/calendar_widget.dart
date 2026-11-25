@@ -7,29 +7,18 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../bar_icons.dart';
 
-import 'package:denial_shell_kit/continuous_corners.dart';
-
-/// Apple system red for the calendar widget.
+/// The red of the weekday and of today's date.
 const Color calendarRed = Color(0xffff453a);
 
-/// A macOS Medium Calendar Widget (338x158 standard, fitted to 352x158).
-///
-/// Faithfully ports `0-ss/MacShell`'s `CalendarWidget.qml` (macOS Tahoe style):
-/// - Left column: Weekday in red (Bold 13), huge day number (54 pt Light),
-///   and month/year at the bottom.
-/// - Vertical hairline divider.
-/// - Right column: Compact month grid with 7 weekday headers, where today
-///   sits in an accent red filled circle.
+/// The medium calendar widget, filling the card it is given:
+/// - Left column: the weekday in red, the day's number large, and the month
+///   and year at the bottom.
+/// - A hairline between the columns.
+/// - Right column: a compact month grid under seven weekday headers, with
+///   today in a filled circle.
 class CalendarWidget extends ConsumerStatefulWidget {
-  const CalendarWidget({
-    this.width = 352,
-    this.height = 158,
-    this.onTap,
-    super.key,
-  });
+  const CalendarWidget({this.onTap, super.key});
 
-  final double width;
-  final double height;
   final VoidCallback? onTap;
 
   @override
@@ -57,173 +46,149 @@ class _CalendarWidgetState extends ConsumerState<CalendarWidget> {
       cells.add(null);
     }
 
-    const radius = 20.0;
+    // The card under it is the grid's: this draws no plate of its own.
     return GestureDetector(
       onTap: widget.onTap,
-      child: SizedBox(
-        width: widget.width,
-        height: widget.height,
-        child: DecoratedBox(
-          decoration: ShapeDecoration(
-            shape: ContinuousCorners(radius: radius),
-            color: theme.colors.textPrimary.withValues(alpha: 0.05),
-            shadows: <BoxShadow>[
-              BoxShadow(
-                color: theme.colors.shadow.withValues(alpha: 0.08),
-                blurRadius: 12,
-                offset: const Offset(0, 4),
+      child: SizedBox.expand(
+        child: Padding(
+          padding: const EdgeInsets.fromLTRB(16, 14, 14, 14),
+          child: Row(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: <Widget>[
+              // ── Left Column: Day & Date summary ──
+              SizedBox(
+                width: 120,
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: <Widget>[
+                    Text(
+                      localizedWeekday(context.l10n, now.weekday).toUpperCase(),
+                      style: TextStyle(
+                        fontSize: 13,
+                        fontWeight: FontWeight.w700,
+                        color: calendarRed,
+                        letterSpacing: 0.5,
+                      ),
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                    ),
+                    const SizedBox(height: 6),
+                    Text(
+                      '${now.day}',
+                      style: TextStyle(
+                        fontSize: 52,
+                        fontWeight: FontWeight.w700,
+                        letterSpacing: -1.5,
+                        height: 1.0,
+                        color: theme.colors.textPrimary,
+                      ),
+                    ),
+                    const Spacer(),
+                    Text(
+                      '${localizedMonth(context.l10n, now.month)} ${now.year}',
+                      style: TextStyle(
+                        fontSize: 13,
+                        fontWeight: FontWeight.w600,
+                        color: theme.colors.textSecondary,
+                      ),
+                    ),
+                  ],
+                ),
               ),
-            ],
-          ),
-          child: Padding(
-            padding: const EdgeInsets.fromLTRB(16, 12, 14, 12),
-            child: Row(
-              crossAxisAlignment: CrossAxisAlignment.stretch,
-              children: <Widget>[
-                // ── Left Column: Day & Date summary ──
-                SizedBox(
-                  width: 120,
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: <Widget>[
-                      Text(
-                        localizedWeekday(
-                          context.l10n,
-                          now.weekday,
-                        ).toUpperCase(),
-                        style: TextStyle(
-                          fontSize: 13,
-                          fontWeight: FontWeight.w700,
-                          color: calendarRed,
-                          letterSpacing: 0.5,
-                        ),
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                      ),
-                      const SizedBox(height: 6),
-                      Text(
-                        '${now.day}',
-                        style: TextStyle(
-                          fontSize: 52,
-                          fontWeight: FontWeight.w700,
-                          letterSpacing: -1.5,
-                          height: 1.0,
-                          color: theme.colors.textPrimary,
-                        ),
-                      ),
-                      const Spacer(),
-                      Text(
-                        '${localizedMonth(context.l10n, now.month)} ${now.year}',
-                        style: TextStyle(
-                          fontSize: 13,
-                          fontWeight: FontWeight.w600,
-                          color: theme.colors.textSecondary,
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
 
-                // ── Vertical Hairline Divider ──
-                Container(
-                  width: 1,
-                  margin: const EdgeInsets.symmetric(
-                    horizontal: 10,
-                    vertical: 4,
-                  ),
-                  color: theme.colors.hairlineSoft.withValues(alpha: 0.6),
-                ),
+              // ── Vertical Hairline Divider ──
+              Container(
+                width: 1,
+                margin: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                color: theme.colors.hairlineSoft.withValues(alpha: 0.6),
+              ),
 
-                // ── Right Column: Compact Month Grid ──
-                Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.stretch,
-                    children: <Widget>[
-                      // Month title + pagination arrows
-                      SizedBox(
-                        height: 20,
-                        child: Row(
-                          children: <Widget>[
-                            Text(
-                              '${localizedMonth(context.l10n, shown.month)} ${shown.year}',
-                              style: TextStyle(
-                                fontSize: 12,
-                                fontWeight: FontWeight.w700,
-                                color: theme.colors.textPrimary,
-                              ),
-                            ),
-                            const Spacer(),
-                            _ChevronBtn(
-                              icon: BarIcons.chevronLeft,
-                              onTap: () => setState(() => _monthOffset--),
-                            ),
-                            const SizedBox(width: 2),
-                            _ChevronBtn(
-                              icon: BarIcons.chevronRight,
-                              onTap: () => setState(() => _monthOffset++),
-                            ),
-                          ],
-                        ),
-                      ),
-                      const SizedBox(height: 4),
-                      // Weekday headers
-                      Row(
+              // ── Right Column: Compact Month Grid ──
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: <Widget>[
+                    // Month title + pagination arrows
+                    SizedBox(
+                      height: 20,
+                      child: Row(
                         children: <Widget>[
-                          for (var i = 1; i <= 7; i++)
-                            Expanded(
-                              child: Center(
-                                child: Text(
-                                  _shortWeekday(context, i),
-                                  style: TextStyle(
-                                    fontSize: 10.5,
-                                    fontWeight: FontWeight.w600,
-                                    color: theme.colors.textPrimary.withValues(
-                                      alpha: 0.5,
-                                    ),
+                          Text(
+                            '${localizedMonth(context.l10n, shown.month)} ${shown.year}',
+                            style: TextStyle(
+                              fontSize: 12,
+                              fontWeight: FontWeight.w700,
+                              color: theme.colors.textPrimary,
+                            ),
+                          ),
+                          const Spacer(),
+                          _ChevronBtn(
+                            icon: BarIcons.chevronLeft,
+                            onTap: () => setState(() => _monthOffset--),
+                          ),
+                          const SizedBox(width: 2),
+                          _ChevronBtn(
+                            icon: BarIcons.chevronRight,
+                            onTap: () => setState(() => _monthOffset++),
+                          ),
+                        ],
+                      ),
+                    ),
+                    const SizedBox(height: 4),
+                    // Weekday headers
+                    Row(
+                      children: <Widget>[
+                        for (var i = 1; i <= 7; i++)
+                          Expanded(
+                            child: Center(
+                              child: Text(
+                                _shortWeekday(context, i),
+                                style: TextStyle(
+                                  fontSize: 10.5,
+                                  fontWeight: FontWeight.w600,
+                                  color: theme.colors.textPrimary.withValues(
+                                    alpha: 0.5,
                                   ),
                                 ),
                               ),
                             ),
-                        ],
-                      ),
-                      const SizedBox(height: 2),
-                      // Day rows (up to 6 rows)
-                      Expanded(
-                        child: LayoutBuilder(
-                          builder: (context, box) {
-                            final rows = cells.length ~/ 7;
-                            final size = (box.maxHeight / rows).clamp(
-                              10.0,
-                              18.0,
-                            );
-                            return Column(
-                              mainAxisAlignment: MainAxisAlignment.spaceEvenly,
-                              children: <Widget>[
-                                for (var r = 0; r < rows; r++)
-                                  Row(
-                                    children: <Widget>[
-                                      for (var c = 0; c < 7; c++)
-                                        Expanded(
-                                          child: Center(
-                                            child: _CompactDay(
-                                              date: cells[r * 7 + c],
-                                              today: now,
-                                              size: size,
-                                            ),
+                          ),
+                      ],
+                    ),
+                    const SizedBox(height: 2),
+                    // Day rows (up to 6 rows)
+                    Expanded(
+                      child: LayoutBuilder(
+                        builder: (context, box) {
+                          final rows = cells.length ~/ 7;
+                          final size = (box.maxHeight / rows).clamp(10.0, 18.0);
+                          return Column(
+                            mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+                            children: <Widget>[
+                              for (var r = 0; r < rows; r++)
+                                Row(
+                                  children: <Widget>[
+                                    for (var c = 0; c < 7; c++)
+                                      Expanded(
+                                        child: Center(
+                                          child: _CompactDay(
+                                            date: cells[r * 7 + c],
+                                            today: now,
+                                            size: size,
                                           ),
                                         ),
-                                    ],
-                                  ),
-                              ],
-                            );
-                          },
-                        ),
+                                      ),
+                                  ],
+                                ),
+                            ],
+                          );
+                        },
                       ),
-                    ],
-                  ),
+                    ),
+                  ],
                 ),
-              ],
-            ),
+              ),
+            ],
           ),
         ),
       ),

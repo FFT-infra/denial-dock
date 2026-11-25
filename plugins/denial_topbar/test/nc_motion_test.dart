@@ -203,6 +203,99 @@ void main() {
   plate = NcMotion.plate(index: 1, t: 1.08, width: 340, height: 70);
   _expect(plate.left == 0 && plate.width == 340, 'overshoot is held');
 
+  // Folded, the two cards behind show their lower edge under the front one.
+  var peek = NcMotion.peek(depth: 1, width: 372, height: 80, tuck: 24);
+  _expect(peek.left == 12 && peek.width == 348, 'the first is 12 in a side');
+  _expect(peek.top == 56, 'it starts under the front card');
+  _expect(peek.top + peek.height == 88, 'and ends 8 below it');
+  _expect(_near(peek.strength, 0.75), 'a little fainter');
+  peek = NcMotion.peek(depth: 2, width: 372, height: 80, tuck: 24);
+  _expect(peek.left == 24 && peek.width == 324, 'the second is 24 in');
+  _expect(peek.top + peek.height == 96, 'and ends 16 below');
+  _expect(_near(peek.strength, 0.5), 'fainter again');
+  // What shows below the front card is what the stack keeps room for, and
+  // what a card behind starts from when the stack opens.
+  for (final depth in <int>[1, 2]) {
+    final under = NcMotion.peek(depth: depth, width: 372, height: 80);
+    final start = NcMotion.plate(index: depth, t: 0, width: 372, height: 80);
+    _expect(
+      under.top + under.height - 80 == start.height &&
+          under.left == start.left &&
+          under.width == start.width &&
+          under.strength == start.strength,
+      'peek $depth is the strip card $depth opens from',
+    );
+    _expect(
+      under.top + under.height - 80 <= NcMotion.peekRoom(depth + 1, 0),
+      'peek $depth is inside the room kept for it',
+    );
+  }
+  // Each one shows whole below the one in front of it.
+  final first = NcMotion.peek(depth: 1, width: 372, height: 80);
+  final second = NcMotion.peek(depth: 2, width: 372, height: 80);
+  _expect(
+    second.left > first.left &&
+        second.left + second.width < first.left + first.width &&
+        second.top + second.height > first.top + first.height,
+    'the second is narrower and lower than the first',
+  );
+  // A front card shorter than the tuck: the card behind starts at its top
+  // and never above it.
+  peek = NcMotion.peek(depth: 1, width: 372, height: 16, tuck: 24);
+  _expect(peek.top == 0 && peek.height == 24, 'a short card hides no more');
+  // Deeper than the stack shows is drawn as the last one; too narrow a
+  // column gives no width and never a negative one.
+  peek = NcMotion.peek(depth: 7, width: 372, height: 80);
+  _expect(peek.left == 24, 'depth is held at the stack\'s');
+  peek = NcMotion.peek(depth: 2, width: 40, height: 80);
+  _expect(peek.width == 0, 'no negative width');
+
+  // ── Older notifications ──
+  _expect(NcMotion.groupsListed(3, all: false) == 3, 'a short list is whole');
+  _expect(NcMotion.groupsListed(6, all: false) == 6, 'one over is shown too');
+  _expect(NcMotion.groupsListed(9, all: false) == 5, 'more are folded away');
+  _expect(NcMotion.groupsListed(9, all: true) == 9, 'until asked for');
+  _expect(NcMotion.groupsListed(0, all: false) == 0, 'none is none');
+
+  // ── The widget grid ──
+  // 372 across with a gap of 12: two square cells of 180.
+  _expect(NcMotion.widgetCell(372) == 180, 'a cell is half less the gap');
+  var cell = NcMotion.widgetRect(col: 0, row: 0, w: 1, h: 1, width: 372);
+  _expect(
+    cell.left == 0 && cell.top == 0 && cell.width == 180 && cell.height == 180,
+    'a small widget is one square cell',
+  );
+  cell = NcMotion.widgetRect(col: 1, row: 0, w: 1, h: 1, width: 372);
+  _expect(cell.left == 192 && cell.left + cell.width == 372, 'the second');
+  cell = NcMotion.widgetRect(col: 0, row: 1, w: 2, h: 1, width: 372);
+  _expect(
+    cell.left == 0 &&
+        cell.top == 192 &&
+        cell.width == 372 &&
+        cell.height == 180,
+    'a medium widget is a row of two',
+  );
+  cell = NcMotion.widgetRect(col: 0, row: 2, w: 2, h: 2, width: 372);
+  _expect(
+    cell.top == 384 && cell.width == 372 && cell.height == 372,
+    'a large widget is two rows as well',
+  );
+  cell = NcMotion.widgetRect(col: 0, row: 0, w: 5, h: 0, width: 372);
+  _expect(
+    cell.width == 372 && cell.height == 180,
+    'sizes are held to the grid',
+  );
+  _expect(NcMotion.widgetsHeight(0, 372) == 0, 'no rows, no height');
+  _expect(NcMotion.widgetsHeight(1, 372) == 180, 'one row');
+  _expect(NcMotion.widgetsHeight(3, 372) == 564, 'three rows and two gaps');
+  // A grid's height is where its last row ends.
+  cell = NcMotion.widgetRect(col: 0, row: 2, w: 1, h: 1, width: 372);
+  _expect(
+    cell.top + cell.height == NcMotion.widgetsHeight(3, 372),
+    'the height is the last row\'s lower edge',
+  );
+  _expect(NcMotion.widgetCell(4) == 0, 'a column too narrow has no cell');
+
   _expect(NcMotion.reveal(0.5) == 0, 'no text in the first half');
   _expect(_near(NcMotion.reveal(0.75), 0.5), 'half way through the second');
   _expect(NcMotion.reveal(1.2) == 1 && NcMotion.reveal(-1) == 0, 'bounded');

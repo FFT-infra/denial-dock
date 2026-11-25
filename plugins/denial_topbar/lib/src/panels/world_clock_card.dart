@@ -1,11 +1,12 @@
 import 'dart:async';
 import 'dart:io';
+import 'dart:math' as math;
 
-import 'package:denial_flutter_sdk/theme.dart';
 import 'package:flutter/widgets.dart';
 
 import '../bar_type.dart';
 import '../l10n.dart';
+import 'nc_parts.dart';
 
 /// One city's local time, read through the host's own zoneinfo.
 ///
@@ -77,11 +78,9 @@ class WorldClock {
   }
 }
 
-/// The World Clock card the notification centre shows under its list.
-///
-/// macOS puts a 4-row world clock beside the calendar; this keeps the same
-/// two-line row: the city at 13, the offset hint at 11, and the time right
-/// aligned in tabular digits so the column does not jitter as minutes pass.
+/// The World Clock widget: four dials on a dark card, each with its city
+/// and the time there under it. A dial is light while it is day in its city
+/// and dark at night, so the row reads at a glance.
 class WorldClockCard extends StatefulWidget {
   const WorldClockCard({super.key});
 
@@ -97,7 +96,7 @@ class _WorldClockCardState extends State<WorldClockCard> {
   void initState() {
     super.initState();
     _refresh();
-    // Minute resolution is enough: the rows only show hours and minutes.
+    // Minute resolution is enough: the dials have no second hand.
     _tick = Timer.periodic(const Duration(seconds: 30), (_) => _refresh());
   }
 
@@ -116,67 +115,132 @@ class _WorldClockCardState extends State<WorldClockCard> {
   @override
   Widget build(BuildContext context) {
     if (_clocks.isEmpty) return const SizedBox.shrink();
-    final theme = context.shellTheme;
-    return SizedBox(
-      child: Padding(
-        padding: const EdgeInsets.fromLTRB(16, 12, 16, 10),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.stretch,
-          children: <Widget>[
-            Padding(
-              padding: const EdgeInsets.only(bottom: 4),
-              child: Text(
-                context.tr('World Clock'),
-                style: BarType.caption.copyWith(
-                  fontWeight: FontWeight.w600,
-                  color: theme.colors.textSecondary,
-                ),
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(12, 14, 12, 12),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: <Widget>[
+          for (final clock in _clocks)
+            Expanded(
+              child: Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 5),
+                child: _Dial(clock: clock),
               ),
             ),
-            for (final clock in _clocks)
-              SizedBox(
-                height: 28,
-                child: Row(
-                  children: <Widget>[
-                    Expanded(
-                      child: Text(
-                        clock.city,
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                        style: BarType.menuRow.copyWith(
-                          color: theme.colors.textPrimary,
-                        ),
-                      ),
-                    ),
-                    if (clock.dayDelta != 0)
-                      Padding(
-                        padding: const EdgeInsets.only(right: 6),
-                        child: Text(
-                          context.tr(
-                            clock.dayDelta < 0 ? 'Yesterday' : 'Tomorrow',
-                          ),
-                          style: BarType.caption.copyWith(
-                            fontSize: 10,
-                            color: theme.colors.textTertiary,
-                          ),
-                        ),
-                      ),
-                    Text(
-                      clock.time,
-                      style: BarType.menuRow.copyWith(
-                        color: theme.colors.textPrimary,
-                        fontFeatures: const <FontFeature>[
-                          FontFeature.tabularFigures(),
-                        ],
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-          ],
-        ),
+        ],
       ),
     );
   }
+}
+
+/// One city: its dial, its name, and the time in figures.
+class _Dial extends StatelessWidget {
+  const _Dial({required this.clock});
+
+  final WorldClock clock;
+
+  @override
+  Widget build(BuildContext context) {
+    final parts = clock.time.split(':');
+    final hour = parts.length == 2 ? int.tryParse(parts[0]) ?? 0 : 0;
+    final minute = parts.length == 2 ? int.tryParse(parts[1]) ?? 0 : 0;
+    final day = hour >= 6 && hour < 18;
+    return Column(
+      mainAxisAlignment: MainAxisAlignment.center,
+      children: <Widget>[
+        Flexible(
+          child: AspectRatio(
+            aspectRatio: 1,
+            child: CustomPaint(
+              painter: _DialPainter(
+                hour: hour,
+                minute: minute,
+                face: day ? NcLook.dialDay : NcLook.dialNight,
+                ink: day ? NcLook.dialDayInk : NcLook.onNight,
+              ),
+            ),
+          ),
+        ),
+        const SizedBox(height: 8),
+        Text(
+          context.tr(clock.city),
+          maxLines: 1,
+          overflow: TextOverflow.ellipsis,
+          style: BarType.caption.copyWith(
+            fontSize: 12,
+            fontWeight: FontWeight.w600,
+            color: NcLook.onNight,
+          ),
+        ),
+        Text(
+          clock.dayDelta == 0
+              ? clock.time
+              : '${context.tr(clock.dayDelta < 0 ? 'Yesterday' : 'Tomorrow')} '
+                    '${clock.time}',
+          maxLines: 1,
+          overflow: TextOverflow.ellipsis,
+          style: BarType.caption.copyWith(
+            color: NcLook.onNightDim,
+            fontFeatures: const <FontFeature>[FontFeature.tabularFigures()],
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+class _DialPainter extends CustomPainter {
+  const _DialPainter({
+    required this.hour,
+    required this.minute,
+    required this.face,
+    required this.ink,
+  });
+
+  final int hour;
+  final int minute;
+  final Color face;
+  final Color ink;
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final c = size.center(Offset.zero);
+    final r = size.shortestSide / 2;
+    canvas.drawCircle(c, r, Paint()..color = face);
+    Offset at(double turns, double length) =>
+        c +
+        Offset(math.sin(turns * 2 * math.pi), -math.cos(turns * 2 * math.pi)) *
+            length;
+    for (var i = 0; i < 12; i++) {
+      final quarter = i % 3 == 0;
+      canvas.drawLine(
+        at(i / 12, r * (quarter ? 0.78 : 0.84)),
+        at(i / 12, r * 0.91),
+        Paint()
+          ..color = ink.withValues(alpha: quarter ? 0.9 : 0.45)
+          ..strokeWidth = quarter ? 1.6 : 1
+          ..strokeCap = StrokeCap.round,
+      );
+    }
+    void hand(double turns, double length, double width) => canvas.drawLine(
+      c,
+      at(turns, r * length),
+      Paint()
+        ..color = ink
+        ..strokeWidth = width
+        ..strokeCap = StrokeCap.round,
+    );
+    hand((hour % 12 + minute / 60) / 12, 0.46, 3);
+    hand(minute / 60, 0.68, 2.2);
+    canvas.drawCircle(c, 2.4, Paint()..color = _pivot);
+  }
+
+  static const Color _pivot = Color(0xffff9f0a);
+
+  @override
+  bool shouldRepaint(_DialPainter old) =>
+      old.hour != hour ||
+      old.minute != minute ||
+      old.face != face ||
+      old.ink != ink;
 }

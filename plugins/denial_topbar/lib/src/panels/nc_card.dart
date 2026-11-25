@@ -5,7 +5,6 @@ import 'package:denial_flutter_sdk/services.dart';
 import 'package:denial_flutter_sdk/theme.dart';
 import 'package:denial_shell_kit/kit_motion.dart';
 import 'package:denial_shell_kit/kit_springs.dart';
-import 'package:denial_shell_kit/kit_style.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/gestures.dart';
 import 'package:flutter/services.dart';
@@ -36,12 +35,8 @@ String _when(BuildContext context, int timeMs) {
   return days == 1 ? context.tr('Yesterday') : context.tr('{}d ago', days);
 }
 
-/// The fill of a card's plate on the slab: flat, with no blur and no shadow
-/// of its own, just enough to separate it from the glass behind.
-Color ncPlateColor(ShellThemeData theme) =>
-    theme.colors.textPrimary.withValues(alpha: 0.055);
-
-/// A notification card.
+/// A notification card: a plate of glass of its own, straight on the
+/// wallpaper.
 ///
 /// Drag it toward the screen edge to clear it; the other way it gives a
 /// little and comes back. Under the pointer, or under the keyboard's focus,
@@ -60,11 +55,12 @@ class NcCard extends StatefulWidget {
     required this.onAction,
     this.unfold,
     this.more = 0,
+    this.peeks = 0,
     this.stacked = false,
+    this.settled = true,
     this.reachable = true,
     this.leaving = false,
     this.onUnfold,
-    this.shift,
     super.key,
   });
 
@@ -91,14 +87,22 @@ class NcCard extends StatefulWidget {
   final ValueChanged<String> onAction;
 
   /// How far the card's stack is open, 0 folded to 1 open. It moves the
-  /// plate of a card behind from its strip to its own shape.
+  /// plate of a card behind from the edge it shows to its own shape.
   final ValueListenable<double>? unfold;
 
   /// How many more cards the folded stack holds.
   final int more;
 
+  /// How many cards show their lower edge under this one while its stack is
+  /// folded. They are part of this card, so they go where it is dragged.
+  final int peeks;
+
   /// The front card of a folded stack: clearing it clears the stack.
   final bool stacked;
+
+  /// The card lies clear of the others, so it may blur what is behind it. A
+  /// card behind does not until its stack has come to rest open.
+  final bool settled;
 
   /// Whether the keyboard can land on it.
   final bool reachable;
@@ -106,10 +110,6 @@ class NcCard extends StatefulWidget {
 
   /// Opens the stack, from the chevron.
   final VoidCallback? onUnfold;
-
-  /// Where the card reports how far it has been dragged, for the strips of
-  /// a folded stack that travel with it.
-  final ValueNotifier<double>? shift;
 
   @override
   State<NcCard> createState() => _NcCardState();
@@ -128,6 +128,11 @@ class _NcCardState extends State<NcCard> with TickerProviderStateMixin {
   final ValueNotifier<double> _dx = ValueNotifier<double>(0);
   late final AnimationController _exit = AnimationController(vsync: this)
     ..addListener(_onExit);
+
+  /// How much of the plate is glass. It starts as a plain fill and turns
+  /// once the card is at rest in a column at rest.
+  late final AnimationController _glass = AnimationController(vsync: this);
+  bool _glassOn = false;
   late final KitSpring _home = KitSpring(0, ncSpring(NcMotion.rebound));
   late final KitSprings _springs = KitSprings(this, <KitSpring>[
     _home,
@@ -160,7 +165,7 @@ class _NcCardState extends State<NcCard> with TickerProviderStateMixin {
     super.initState();
     _read();
     _node.addListener(_onNode);
-    _dx.addListener(_publish);
+    _dx.addListener(_aimGlass);
     _springs.addListener(() {
       if (!_dragging && !_gone) _dx.value = _home.value;
     });
@@ -172,10 +177,13 @@ class _NcCardState extends State<NcCard> with TickerProviderStateMixin {
     final host = NcScope.of(context);
     if (host == _host) return;
     _host?.keys.removeListener(_onKeys);
+    _host?.glass.removeListener(_aimGlass);
     _host?.detach(widget.notification.id, _node);
     _host = host
       ..keys.addListener(_onKeys)
+      ..glass.addListener(_aimGlass)
       ..attach(widget.notification.id, _node);
+    _aimGlass();
   }
 
   @override
@@ -194,15 +202,17 @@ class _NcCardState extends State<NcCard> with TickerProviderStateMixin {
       _gone = false;
       _return();
     }
-    if (old.stacked && !widget.stacked) widget.shift?.value = 0;
+    _aimGlass();
   }
 
   @override
   void dispose() {
     _host?.keys.removeListener(_onKeys);
+    _host?.glass.removeListener(_aimGlass);
     _host?.detach(widget.notification.id, _node);
     _node.dispose();
     _exit.dispose();
+    _glass.dispose();
     _springs.dispose();
     _dx.dispose();
     super.dispose();
@@ -235,8 +245,27 @@ class _NcCardState extends State<NcCard> with TickerProviderStateMixin {
     if (_focused && mounted) setState(() {});
   }
 
-  void _publish() {
-    if (widget.stacked) widget.shift?.value = _dx.value;
+  /// Glass only while nothing moves the card: not while the column slides,
+  /// not while the card is dragged, on its way out, or still under another.
+  /// A plate that moves is a plain fill, which costs the frame nothing, and
+  /// the blur comes back across a short fade once it is home.
+  void _aimGlass() {
+    final on =
+        (_host?.glass.value ?? false) &&
+        widget.settled &&
+        !widget.leaving &&
+        !_dragging &&
+        !_gone &&
+        _dx.value == 0;
+    if (on == _glassOn || !mounted) return;
+    _glassOn = on;
+    _glass.animateTo(
+      on ? 1 : 0,
+      duration: KitMotion.duration(
+        context,
+        on ? KitMotion.fill : KitMotion.tap,
+      ),
+    );
   }
 
   double get _outward => _host?.outward ?? 1;
@@ -298,6 +327,7 @@ class _NcCardState extends State<NcCard> with TickerProviderStateMixin {
       ..target = 0;
     _raw = NcMotion.swipeRaw(_dx.value * _outward);
     setState(() {});
+    _aimGlass();
   }
 
   void _dragUpdate(DragUpdateDetails details) {
@@ -352,6 +382,7 @@ class _NcCardState extends State<NcCard> with TickerProviderStateMixin {
     if (!_dragging) return;
     setState(() => _dragging = false);
     if (!_gone) _return();
+    _aimGlass();
   }
 
   void _onExit() {
@@ -368,6 +399,7 @@ class _NcCardState extends State<NcCard> with TickerProviderStateMixin {
       ..velocity = 0
       ..target = 0;
     _springs.kick(reduceMotion: KitMotion.reduced(context));
+    _aimGlass();
   }
 
   // ── What fits ──
@@ -419,7 +451,6 @@ class _NcCardState extends State<NcCard> with TickerProviderStateMixin {
   @override
   Widget build(BuildContext context) {
     final theme = context.shellTheme;
-    final style = KitStyle.of(context);
     final host = NcScope.of(context);
     final ink = theme.colors.textPrimary;
     final note = widget.notification;
@@ -446,35 +477,38 @@ class _NcCardState extends State<NcCard> with TickerProviderStateMixin {
           onFocusChange: _onFocus,
           onKeyEvent: _key,
           child: MouseRegion(
+            // The card's box takes in the space above its plate and the
+            // reach at its sides. A press there is a press on the
+            // wallpaper, which closes the column, so the region lets it by.
+            opaque: false,
             onEnter: (_) => setState(() => _hovered = true),
             onExit: (_) => setState(() => _hovered = false),
             child: LayoutBuilder(
               builder: (context, box) {
                 final width = box.maxWidth - NcCard.reach * 2;
-                final textWidth = width - 24 - 36 - 10;
+                final textWidth = width - 26 - NcLook.icon - 10;
                 final canGrow =
                     _body.isNotEmpty &&
                     (_expanded || (hot && _cut(textWidth, bodyStyle)));
-                final chevron =
-                    hot && (widget.onUnfold != null || canGrow)
+                final chevron = hot && (widget.onUnfold != null || canGrow)
                     ? (widget.onUnfold ??
                           () => setState(() => _expanded = !_expanded))
                     : null;
 
                 final face = Padding(
-                  padding: const EdgeInsets.fromLTRB(12, 11, 12, 11),
+                  padding: const EdgeInsets.fromLTRB(12, 12, 14, 12),
                   child: Row(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: <Widget>[
                       Padding(
-                        padding: const EdgeInsets.only(top: 2),
+                        padding: const EdgeInsets.only(top: 1),
                         child: SizedBox(
-                          width: 36,
-                          height: 36,
+                          width: NcLook.icon,
+                          height: NcLook.icon,
                           child: iconId.isEmpty
                               ? BarGlyph(
                                   BarIcons.bellFill,
-                                  size: 22,
+                                  size: 24,
                                   color: theme.colors.textSecondary,
                                 )
                               : widget.services.buildApplicationIcon(
@@ -564,17 +598,14 @@ class _NcCardState extends State<NcCard> with TickerProviderStateMixin {
                 final plate = Stack(
                   children: <Widget>[
                     Positioned.fill(
-                      child: CustomPaint(
-                        painter: _PlatePainter(
-                          index: widget.index,
-                          unfold: unfold,
-                          lift: widget.gap,
-                          color: ncPlateColor(theme),
-                          radius: style.radius(theme, 16),
-                          ring: _primary && host.keys.value
-                              ? style.accent(theme)
-                              : null,
-                        ),
+                      child: NcPlate(
+                        index: widget.index,
+                        unfold: unfold,
+                        glass: _glass,
+                        lift: widget.gap,
+                        peeks: widget.peeks,
+                        blur: widget.settled,
+                        ring: _primary && host.keys.value,
                       ),
                     ),
                     // A card behind keeps to the room its stack has opened
@@ -651,17 +682,15 @@ class _NcCardState extends State<NcCard> with TickerProviderStateMixin {
                                     order: const NumericFocusOrder(50),
                                     child: _MorePill(
                                       enabled: hot,
-                                      onOpen: (anchor) => host.showMenu(
-                                        anchor,
-                                        <NcMenuItem>[
-                                          for (final action in rest)
-                                            NcMenuItem(
-                                              label: action.label,
-                                              onTap: () =>
-                                                  widget.onAction(action.key),
-                                            ),
-                                        ],
-                                      ),
+                                      onOpen: (anchor) =>
+                                          host.showMenu(anchor, <NcMenuItem>[
+                                            for (final action in rest)
+                                              NcMenuItem(
+                                                label: action.label,
+                                                onTap: () =>
+                                                    widget.onAction(action.key),
+                                              ),
+                                          ]),
                                     ),
                                   ),
                                 ),
@@ -733,9 +762,8 @@ class _NcCardState extends State<NcCard> with TickerProviderStateMixin {
 }
 
 /// How solid a card is once dragged [out] toward the edge.
-double ncSwipeOpacity(double out, double width) => out <= 0 || width <= 0
-    ? 1.0
-    : 1 - (out / width).clamp(0.0, 1.0) * 0.85;
+double ncSwipeOpacity(double out, double width) =>
+    out <= 0 || width <= 0 ? 1.0 : 1 - (out / width).clamp(0.0, 1.0) * 0.85;
 
 /// Starts a sideways drag after a short travel with a mouse, a trackpad or a
 /// pen. A finger keeps the platform's distance, because there the drag
@@ -887,73 +915,6 @@ class _MorePill extends StatelessWidget {
   }
 }
 
-/// A card's plate. The front card's is its own box; a card behind grows
-/// from the strip it shows as while its stack is folded.
-class _PlatePainter extends CustomPainter {
-  _PlatePainter({
-    required this.index,
-    required this.unfold,
-    required this.lift,
-    required this.color,
-    required this.radius,
-    required this.ring,
-  }) : super(repaint: unfold);
-
-  final int index;
-  final ValueListenable<double> unfold;
-  final double lift;
-  final Color color;
-  final double radius;
-  final Color? ring;
-
-  @override
-  void paint(Canvas canvas, Size size) {
-    final t = unfold.value.clamp(0.0, 1.0);
-    final at = NcMotion.plate(
-      index: index,
-      t: t,
-      width: size.width,
-      height: size.height,
-      lift: lift,
-    );
-    if (at.strength <= 0 || at.width <= 0 || at.height <= 0) return;
-    final corner = Radius.circular(radius);
-    // Folded, a strip tucks straight under the card in front; it rounds its
-    // upper corners as it becomes a card.
-    final upper = index == 0 ? corner : Radius.circular(radius * t);
-    final shape = RRect.fromRectAndCorners(
-      Rect.fromLTWH(at.left, at.top, at.width, at.height),
-      topLeft: upper,
-      topRight: upper,
-      bottomLeft: corner,
-      bottomRight: corner,
-    );
-    canvas.drawRRect(
-      shape,
-      Paint()..color = color.withValues(alpha: color.a * at.strength),
-    );
-    final ring = this.ring;
-    if (ring != null) {
-      canvas.drawRRect(
-        shape.deflate(0.75),
-        Paint()
-          ..style = PaintingStyle.stroke
-          ..strokeWidth = 1.5
-          ..color = ring,
-      );
-    }
-  }
-
-  @override
-  bool shouldRepaint(_PlatePainter old) =>
-      old.index != index ||
-      old.unfold != unfold ||
-      old.lift != lift ||
-      old.color != color ||
-      old.radius != radius ||
-      old.ring != ring;
-}
-
 /// Keeps a card behind to the height its stack has opened for it so far.
 class _RoomClip extends CustomClipper<Rect> {
   _RoomClip(this.unfold, this.gap) : super(reclip: unfold);
@@ -971,77 +932,4 @@ class _RoomClip extends CustomClipper<Rect> {
 
   @override
   bool shouldReclip(_RoomClip old) => old.unfold != unfold || old.gap != gap;
-}
-
-/// The strips a folded stack shows under its front card, as wide and as
-/// faint as the cards behind will start from. They travel with the front
-/// card while it is dragged, so it is plain the whole stack goes.
-class NcStrips extends StatelessWidget {
-  const NcStrips({required this.count, required this.shift, super.key});
-
-  final int count;
-  final ValueListenable<double> shift;
-
-  @override
-  Widget build(BuildContext context) {
-    final theme = context.shellTheme;
-    return CustomPaint(
-      painter: _StripsPainter(
-        count: count,
-        shift: shift,
-        outward: NcScope.of(context).outward,
-        color: ncPlateColor(theme),
-        radius: KitStyle.of(context).radius(theme, 16),
-      ),
-      child: const SizedBox(height: 0, width: double.infinity),
-    );
-  }
-}
-
-class _StripsPainter extends CustomPainter {
-  _StripsPainter({
-    required this.count,
-    required this.shift,
-    required this.outward,
-    required this.color,
-    required this.radius,
-  }) : super(repaint: shift);
-
-  final int count;
-  final ValueListenable<double> shift;
-  final double outward;
-  final Color color;
-  final double radius;
-
-  @override
-  void paint(Canvas canvas, Size size) {
-    final width = size.width - NcCard.reach * 2;
-    final dx = shift.value;
-    final fade = ncSwipeOpacity(dx * outward, width);
-    for (var index = count; index >= 1; index--) {
-      final at = NcMotion.plate(index: index, t: 0, width: width, height: 0);
-      if (at.width <= 0) continue;
-      canvas.drawRRect(
-        RRect.fromRectAndCorners(
-          Rect.fromLTWH(
-            NcCard.reach + at.left + dx,
-            at.top,
-            at.width,
-            at.height,
-          ),
-          bottomLeft: Radius.circular(radius),
-          bottomRight: Radius.circular(radius),
-        ),
-        Paint()..color = color.withValues(alpha: color.a * at.strength * fade),
-      );
-    }
-  }
-
-  @override
-  bool shouldRepaint(_StripsPainter old) =>
-      old.count != count ||
-      old.shift != shift ||
-      old.outward != outward ||
-      old.color != color ||
-      old.radius != radius;
 }
