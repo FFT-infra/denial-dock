@@ -173,7 +173,10 @@ class _BarWorkspacesState extends ConsumerState<BarWorkspaces> {
         final long = active ? _W.active : _W.dot;
         mark = AnimatedContainer(
           duration: KitMotion.duration(context, KitMotion.unfold),
-          curve: KitMotion.spring,
+          // A brisk look does not let the dot run past its length.
+          curve: KitStyle.of(context).pace > 1
+              ? KitMotion.outCubic
+              : KitMotion.spring,
           width: widget.vertical ? _W.dot : long,
           height: widget.vertical ? long : _W.dot,
           decoration: BoxDecoration(
