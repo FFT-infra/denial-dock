@@ -861,7 +861,7 @@ class _LayoutPageState extends ConsumerState<_LayoutPage> {
         _Group(
           title: context.tr('Top bar'),
           note: context.tr(
-            'With the bar hidden or reduced to its island, a Dock that always shows keeps its edge free of windows.',
+            'With the bar hidden or reduced to its island, a Dock that always shows keeps its edge free of windows. Without a Dock the bar shows in full, so the settings stay within reach.',
           ),
           children: <Widget>[
             _Row(

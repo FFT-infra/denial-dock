@@ -137,4 +137,13 @@ void main() {
   }
   _expect(KitBarMode.parse(null) == KitBarMode.shown, 'missing is shown');
   _expect(KitBarMode.parse('nope') == KitBarMode.shown, 'unknown is shown');
+
+  // With no dock on screen the bar draws in full, whatever was chosen.
+  for (final mode in KitBarMode.values) {
+    _expect(barModeInForce(mode, dock: true) == mode, '${mode.name} kept');
+    _expect(
+      barModeInForce(mode, dock: false) == KitBarMode.shown,
+      '${mode.name} without a dock is shown',
+    );
+  }
 }
