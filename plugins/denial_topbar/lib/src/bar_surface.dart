@@ -32,6 +32,7 @@ import 'bar_segments.dart';
 import 'bar_settings.dart';
 import 'bar_status.dart';
 import 'bar_tokens.dart';
+import 'bar_type.dart';
 import 'clock_label.dart';
 import 'island/island.dart';
 import 'l10n.dart';
@@ -44,6 +45,8 @@ import 'panels/popovers.dart';
 import 'panels/wifi_join_dialog.dart';
 import 'system_menu.dart';
 import 'workspaces.dart';
+
+part 'bar_actions.dart';
 
 /// How much of the surface the floating capsule needs past the strip so its
 /// shadow is not clipped.
@@ -71,21 +74,9 @@ class TopBarSurface extends ConsumerStatefulWidget {
   ConsumerState<TopBarSurface> createState() => _TopBarSurfaceState();
 }
 
-class _TopBarSurfaceState extends ConsumerState<TopBarSurface> {
-  final GlobalKey _systemKey = GlobalKey();
-  final GlobalKey _clockKey = GlobalKey();
-  final GlobalKey _wifiKey = GlobalKey();
-  final GlobalKey _volumeKey = GlobalKey();
-  final GlobalKey _clipboardKey = GlobalKey();
-  final GlobalKey _bluetoothKey = GlobalKey();
-  final GlobalKey _batteryKey = GlobalKey();
-  final GlobalKey _notificationsKey = GlobalKey();
-  final GlobalKey _controlCenterKey = GlobalKey();
-  final GlobalKey _settingsKey = GlobalKey();
-
+class _TopBarSurfaceState extends ConsumerState<TopBarSurface>
+    with _BarActions<TopBarSurface> {
   final GlobalKey _appKey = GlobalKey();
-
-  String? get _openPanelId => kitOpenPanel.value;
 
   void _panelChanged() {
     if (!mounted) return;
@@ -97,7 +88,7 @@ class _TopBarSurfaceState extends ConsumerState<TopBarSurface> {
   void initState() {
     super.initState();
     kitOpenPanel.addListener(_panelChanged);
-    registerBarParts();
+    registerBarParts(outside: _hostedBarPart);
     // Another plugin asks for the about box by name; it opens on the output
     // the request names, or on every bar's when it names none.
     _requests = KitRequests.stream.listen((request) {
@@ -179,15 +170,15 @@ class _TopBarSurfaceState extends ConsumerState<TopBarSurface> {
     super.dispose();
   }
 
+  @override
   PanelEdge get _side {
     final side = widget.environment.settings.layout.systemBarSide;
     return side == null || side == PanelEdge.hidden ? PanelEdge.top : side;
   }
 
-  bool get _horizontal => _side.isHorizontal;
-
   /// The strip's height as laid out, so a panel hangs from its real bottom
   /// edge rather than the reference token.
+  @override
   double get _bodyHeight {
     final settings =
         ref.read(barSettingsProvider).value ?? BarSettings.defaults;
@@ -199,60 +190,11 @@ class _TopBarSurfaceState extends ConsumerState<TopBarSurface> {
   static double _marginOf(BarSettings settings) =>
       settings.shape == BarShape.strip ? 0 : settings.edgeMargin;
 
+  @override
   ShellServices get _services => widget.services;
 
-  void _openPanel(
-    String id,
-    GlobalKey anchor,
-    Widget Function(BuildContext context, VoidCallback close) builder, {
-    double width = BarTokens.panelMaxWidth,
-    PanelEdge? side,
-    bool glass = true,
-    BarPanelAnchor placement = BarPanelAnchor.dropdown,
-    Color? fill,
-  }) {
-    showBarPanel(
-      ref: ref,
-      panelId: id,
-      anchor: anchor,
-      width: width,
-      side: side ?? _side,
-      glass: glass,
-      placement: placement,
-      fill: fill,
-      barHeight: _bodyHeight,
-      builder: builder,
-    );
-  }
-
-  /// Shows the "Join “SSID”" dialog for a secured network with no saved
-  /// profile.
-  ///
-  /// The reference closes the Wi-Fi list before opening it, because the dialog
-  /// is a system modal that has to own the keyboard; the list would otherwise
-  /// keep focus. `showKitDialog` puts the card on its own surface for the same
-  /// reason.
-  void _openWifiJoin(WifiNetwork network) {
-    showKitDialog(
-      ref: ref,
-      width: WifiJoinDialog.width,
-      builder: (_, close) => WifiJoinDialog(network: network, onClose: close),
-    );
-  }
-
-  void _openBarSettings({int page = 0}) {
-    showKitDialog(
-      ref: ref,
-      width: barSettingsWidth,
-      keyName: 'denial_topbar.settings',
-      builder: (context, close) => BarSettingsPanel(
-        services: _services,
-        initialPage: page,
-        onClose: close,
-        maxHeight: MediaQuery.sizeOf(context).height - 96,
-      ),
-    );
-  }
+  @override
+  ShellSurfaceEnvironment get _environment => widget.environment;
 
   BarStatusCluster? _status;
   VoidCallback? _clockTap;
@@ -292,123 +234,6 @@ class _TopBarSurfaceState extends ConsumerState<TopBarSurface> {
     }
   }
 
-  void _openAbout() {
-    showKitDialog(
-      ref: ref,
-      width: AboutSystemDialog.width,
-      builder: (context, close) => AboutSystemDialog(
-        mark: _DistroGlyph(
-          ink: context.shellTheme.colors.textPrimary,
-          size: 64,
-        ),
-        onClose: close,
-      ),
-    );
-  }
-
-  void _openForceQuit() {
-    showKitDialog(
-      ref: ref,
-      width: ForceQuitDialog.width,
-      builder: (context, close) =>
-          ForceQuitDialog(services: _services, onClose: close),
-    );
-  }
-
-  void _confirmPower(SessionPowerAction action) {
-    final (title, label) = switch (action) {
-      SessionPowerAction.reboot => (
-        'Are you sure you want to restart now?',
-        'Restart',
-      ),
-      SessionPowerAction.logout => (
-        'Are you sure you want to log out now?',
-        'Log Out',
-      ),
-      _ => ('Are you sure you want to shut down now?', 'Shut Down'),
-    };
-    final power = ref.read(sessionPowerProvider.notifier);
-    showKitDialog(
-      ref: ref,
-      width: ConfirmDialog.width,
-      builder: (context, close) => ConfirmDialog(
-        mark: _DistroGlyph(
-          ink: context.shellTheme.colors.textPrimary,
-          size: 52,
-        ),
-        title: context.tr(title),
-        detail: context.tr('Open windows will be closed.'),
-        action: context.tr(label),
-        onClose: close,
-        onConfirm: () async {
-          await power.request(action);
-          await power.confirm();
-        },
-      ),
-    );
-  }
-
-  void _openSystemMenu() {
-    final window = ref.read(shellControllerProvider).foregroundWindow;
-    final frontName = window == null
-        ? null
-        : _appName(ref.read(_services.applications), window);
-    showBarMenu(
-      ref: ref,
-      panelId: 'system',
-      anchor: _systemKey,
-      vertical: !_horizontal,
-      fromRight: _side == PanelEdge.right,
-      entries: (context) => systemMenuEntries(
-        context,
-        ref,
-        services: _services,
-        frontAppName: frontName,
-        onAbout: _openAbout,
-        onBarSettings: _openBarSettings,
-        onForceQuit: _openForceQuit,
-        onForceQuitFront: window == null
-            ? null
-            : () => closeApplication(ref, window.appId),
-        onConfirm: _confirmPower,
-      ),
-    );
-  }
-
-  Widget _controlCenterBody(VoidCallback close) {
-    return ControlCenterPanel(
-      onClose: close,
-      services: _services,
-      output: widget.environment.output,
-      onSettings: () {
-        close();
-        _services.openPowerSettings();
-      },
-      onJoinNetwork: (network) {
-        close();
-        _openWifiJoin(network);
-      },
-      onConfirmPower: _confirmPower,
-    );
-  }
-
-  void _openNotificationCenter(String id, {required bool merged}) {
-    showNotificationCenter(
-      ref: ref,
-      services: _services,
-      side: _side,
-      barHeight: _bodyHeight,
-      panelId: id,
-      notifications: merged || id == 'notifications',
-      widgets: id == 'clock',
-    );
-  }
-
-  void _openSettingsApp(VoidCallback close) {
-    close();
-    _services.openPowerSettings();
-  }
-
   @override
   Widget build(BuildContext context) {
     final settings =
@@ -433,110 +258,22 @@ class _TopBarSurfaceState extends ConsumerState<TopBarSurface> {
         ? workspacesExtent(workspaceStatus.count, settings.workspaceStyle) + 4.0
         : 0.0;
 
-    BarClock clockIn(Color ink) => BarClock(
-      key: _clockKey,
-      time: strings.time(now),
-      date: clockDateLabel(
-        weekday: settings.clockWeekday
-            ? localizedWeekday(context.l10n, now.weekday)
-            : '',
-        month: localizedMonth(context.l10n, now.month),
-        day: now.day,
-        monthNumber: now.month,
-      ).trim(),
-      showDate: settings.showClockDate,
-      vertical: !_horizontal,
-      crossExtent: bodyHeight,
+    BarClock clockIn(Color ink) => _clockFor(
+      context,
+      settings: settings,
       ink: ink,
-      open: _openPanelId == 'clock',
-      onTap: () => _openNotificationCenter(
-        'clock',
-        merged: settings.mergedNotificationCenter,
-      ),
+      now: now,
+      crossExtent: bodyHeight,
     );
     final clock = clockIn(ink);
 
     BarButton.tips = settings.tooltips && _horizontal;
     _clockTap = clock.onTap;
-    final status = BarStatusCluster(
-      services: _services,
+    final status = _statusFor(
       settings: settings,
-      openPanel: _openPanelId,
       ink: ink,
-      horizontal: _horizontal,
       crossExtent: bodyHeight,
       spacing: gap,
-      wifiKey: _wifiKey,
-      volumeKey: _volumeKey,
-      batteryKey: _batteryKey,
-      bluetoothKey: _bluetoothKey,
-      notificationsKey: _notificationsKey,
-      controlCenterKey: _controlCenterKey,
-      settingsKey: _settingsKey,
-      onWifi: () => _openPanel(
-        'wifi',
-        _wifiKey,
-        (_, close) => WifiPopover(
-          onSettings: () => _openSettingsApp(close),
-          onJoin: (network) {
-            close();
-            _openWifiJoin(network);
-          },
-        ),
-        width: popoverWidth,
-        placement: BarPanelAnchor.centred,
-      ),
-      onBluetooth: () => _openPanel(
-        'bluetooth',
-        _bluetoothKey,
-        (_, close) =>
-            BluetoothPopover(onSettings: () => _openSettingsApp(close)),
-        width: popoverWidth,
-        placement: BarPanelAnchor.centred,
-      ),
-      onVolume: () => _openPanel(
-        'volume',
-        _volumeKey,
-        (_, close) => SoundPopover(
-          services: _services,
-          onSettings: () => _openSettingsApp(close),
-        ),
-        width: popoverWidth,
-        placement: BarPanelAnchor.centred,
-      ),
-      onBattery: () => _openPanel(
-        'battery',
-        _batteryKey,
-        (_, close) => BatteryPopover(
-          services: _services,
-          onSettings: () => _openSettingsApp(close),
-        ),
-        width: popoverWidth,
-        placement: BarPanelAnchor.centred,
-      ),
-      onSearch: _services.toggleLauncher,
-      clipboardKey: _clipboardKey,
-      onClipboard: () => _openPanel(
-        'clipboard',
-        _clipboardKey,
-        (_, close) => ClipboardPopover(onClose: close),
-        width: popoverWidth,
-        placement: BarPanelAnchor.centred,
-      ),
-      onNotifications: () =>
-          _openNotificationCenter('notifications', merged: false),
-      onControlCenter: () => _openPanel(
-        'controlcenter',
-        _controlCenterKey,
-        (_, close) => _controlCenterBody(close),
-        width: controlCenterWidth,
-        // The sheet keeps its place at the screen's trailing side while its
-        // item is on that side, and hangs under the item anywhere else.
-        placement: _nearTrailingSide(_controlCenterKey)
-            ? BarPanelAnchor.trailing
-            : BarPanelAnchor.centred,
-      ),
-      onSettings: _openBarSettings,
     );
 
     // macOS measures 31 pt on a machine whose bar is taller than 24; on a
@@ -986,15 +723,6 @@ class _TopBarSurfaceState extends ConsumerState<TopBarSurface> {
         ),
       ],
     );
-  }
-
-  /// Whether [key]'s item sits in the half of the bar nearer the screen's
-  /// trailing side, where a sheet may keep to the screen's edge.
-  bool _nearTrailingSide(GlobalKey key) {
-    if (!_horizontal) return true;
-    final rect = kitSceneRect(key);
-    if (rect == null) return true;
-    return rect.center.dx >= MediaQuery.sizeOf(context).width / 2;
   }
 
   /// The app's own name from the shell's catalog, falling back to the id's
