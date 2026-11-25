@@ -1,17 +1,21 @@
 /// A whole arrangement of the shell under one name: the look every panel
-/// takes and how the top bar is laid out. Plain data, so a new preset is one
+/// takes, how the top bar is laid out, how much of itself the bar draws and
+/// what the dock holds at its two ends. Plain data, so a new preset is one
 /// more constant here.
 ///
 /// [bar] holds the top bar's layout settings under the keys its own
-/// preferences file uses. Applying a preset writes those keys and leaves the
-/// bar's other settings alone, such as which status items show. Whether the
-/// dock shows is a switch of its own and no preset touches it.
+/// preferences file uses, and [dock] the dock's layout under its keys.
+/// Applying a preset writes those keys and leaves every other setting alone,
+/// such as which status items show or which applications are pinned.
+/// Whether the dock shows is a switch of its own and no preset touches it.
 class ShellPreset {
   const ShellPreset({
     required this.id,
     required this.label,
     required this.look,
     required this.bar,
+    this.dock = _dock,
+    this.barMode = 'shown',
   });
 
   final String id;
@@ -20,6 +24,24 @@ class ShellPreset {
   /// The id of a look of the kit.
   final String look;
   final Map<String, Object?> bar;
+
+  /// The dock's layout: what its leading and trailing ends hold, its shape
+  /// and how its applications are aligned.
+  final Map<String, Object?> dock;
+
+  /// How much of itself the bar draws: `shown`, `islandOnly` or `hidden`.
+  final String barMode;
+
+  /// The dock as it has always been: a floating capsule with the launcher
+  /// before the applications and the stacks and the trash after them.
+  static const Map<String, Object?> _dock = <String, Object?>{
+    'leading': <String>['dock.launcher'],
+    'trailing': <String>['dock.stacks', 'dock.trash'],
+    'shape': 'floating',
+    'align': 'packed',
+    'magnification': true,
+    'visibility': 'smart',
+  };
 
   /// The bar as it has always been: a strip with no plate, the island in
   /// its centre with the workspace switcher inside.
@@ -127,12 +149,57 @@ class ShellPreset {
     }),
   );
 
+  /// One bar along the bottom edge and nothing at the top: the launcher and
+  /// the workspaces at its start, the applications after them, the tray, the
+  /// status items and the clock at its end. It stays on screen, so windows
+  /// keep clear of it.
+  static const ShellPreset taskbar = ShellPreset(
+    id: 'taskbar',
+    label: 'Taskbar',
+    look: 'soft',
+    bar: _bar,
+    barMode: 'hidden',
+    dock: <String, Object?>{
+      'leading': <String>['dock.launcher', 'workspaces'],
+      'trailing': <String>['status.tray', 'status', 'clock'],
+      'shape': 'bar',
+      'align': 'start',
+      'magnification': false,
+      'visibility': 'always',
+    },
+  );
+
+  /// A floating dock that also carries the clock and the status items, with
+  /// only the island left at the top of the screen.
+  static const ShellPreset unified = ShellPreset(
+    id: 'unified',
+    label: 'Unified',
+    look: 'mac',
+    bar: _bar,
+    barMode: 'islandOnly',
+    dock: <String, Object?>{
+      'leading': <String>['clock', 'dock.divider', 'dock.launcher'],
+      'trailing': <String>[
+        'dock.stacks',
+        'dock.trash',
+        'dock.divider',
+        'status',
+      ],
+      'shape': 'floating',
+      'align': 'packed',
+      'magnification': true,
+      'visibility': 'smart',
+    },
+  );
+
   static final List<ShellPreset> all = <ShellPreset>[
     denial,
     mac,
     omarchy,
     segments,
     compact,
+    taskbar,
+    unified,
   ];
 
   static ShellPreset byId(String? id) =>
@@ -141,9 +208,22 @@ class ShellPreset {
   /// Whether the shell is still as this preset set it: the same look, and
   /// every layout key of the preset unchanged in [bar]. Keys the preset does
   /// not name are the user's own and never count.
-  bool matches({required String look, required Map<String, Object?> bar}) =>
+  ///
+  /// [dock] and [barMode] are compared when given. A shell with no dock
+  /// running has no dock layout to have changed, so it passes null.
+  bool matches({
+    required String look,
+    required Map<String, Object?> bar,
+    Map<String, Object?>? dock,
+    String? barMode,
+  }) =>
       look == this.look &&
-      this.bar.entries.every((entry) => _same(entry.value, bar[entry.key]));
+      this.bar.entries.every((entry) => _same(entry.value, bar[entry.key])) &&
+      (barMode == null || barMode == this.barMode) &&
+      (dock == null ||
+          this.dock.entries.every(
+            (entry) => _same(entry.value, dock[entry.key]),
+          ));
 
   static bool _same(Object? a, Object? b) {
     if (a is List && b is List) {

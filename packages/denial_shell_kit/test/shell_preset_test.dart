@@ -33,6 +33,79 @@ void main() {
     );
   }
 
+  final dockKeys = ShellPreset.denial.dock.keys.toSet();
+  for (final preset in ShellPreset.all) {
+    _expect(
+      preset.dock.keys.toSet().containsAll(dockKeys) &&
+          dockKeys.containsAll(preset.dock.keys),
+      '${preset.id} names every dock key',
+    );
+    _expect(
+      const <String>{'shown', 'islandOnly', 'hidden'}.contains(preset.barMode),
+      '${preset.id} names a bar mode',
+    );
+  }
+  // The presets that were there before the dock had zones keep the dock and
+  // the bar as they were.
+  for (final id in const <String>['denial', 'mac', 'omarchy', 'compact']) {
+    final old = ShellPreset.byId(id);
+    _expect(old.barMode == 'shown', '$id shows the bar');
+    _expect(identical(old.dock, ShellPreset.denial.dock), '$id keeps the dock');
+  }
+  final denialDock = ShellPreset.denial.dock;
+  _expect(
+    (denialDock['leading']! as List).single == 'dock.launcher' &&
+        (denialDock['trailing']! as List).join(',') ==
+            'dock.stacks,dock.trash' &&
+        denialDock['shape'] == 'floating' &&
+        denialDock['align'] == 'packed',
+    'the usual dock is the dock as it was',
+  );
+  _expect(ShellPreset.taskbar.barMode == 'hidden', 'a taskbar has no bar');
+  _expect(
+    ShellPreset.taskbar.dock['shape'] == 'bar' &&
+        ShellPreset.taskbar.dock['visibility'] == 'always',
+    'a taskbar lies on its edge and stays',
+  );
+  _expect(ShellPreset.unified.barMode == 'islandOnly', 'unified keeps the island');
+
+  // The dock and the bar mode count only when they are given.
+  final task = ShellPreset.taskbar;
+  final taskBar = Map<String, Object?>.of(task.bar);
+  _expect(task.matches(look: 'soft', bar: taskBar), 'no dock, no bar mode');
+  _expect(
+    task.matches(
+      look: 'soft',
+      bar: taskBar,
+      dock: <String, Object?>{...task.dock, 'iconSize': 40},
+      barMode: 'hidden',
+    ),
+    'own dock and bar mode match, other keys do not count',
+  );
+  _expect(
+    !task.matches(look: 'soft', bar: taskBar, barMode: 'shown'),
+    'another bar mode differs',
+  );
+  _expect(
+    !task.matches(
+      look: 'soft',
+      bar: taskBar,
+      dock: <String, Object?>{...task.dock, 'align': 'center'},
+    ),
+    'a changed dock key differs',
+  );
+  _expect(
+    !task.matches(
+      look: 'soft',
+      bar: taskBar,
+      dock: <String, Object?>{
+        ...task.dock,
+        'trailing': <String>['clock', 'status'],
+      },
+    ),
+    'a reordered dock zone differs',
+  );
+
   // Matching: the look and the preset's own keys decide, by value.
   final preset = ShellPreset.omarchy;
   final bar = Map<String, Object?>.of(preset.bar);
