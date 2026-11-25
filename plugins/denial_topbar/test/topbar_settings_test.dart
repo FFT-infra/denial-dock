@@ -94,11 +94,11 @@ Future<void> main() async {
       reread.workspacePlacement == BarWorkspacePlacement.trailing,
       'read back workspace placement',
     );
-    _expect(reread.islandSplit && !reread.islandHome, 'new island defaults');
+    _expect(reread.islandSplit && reread.islandHome, 'new island defaults');
     _expect(reread.trayHidden.isEmpty && reread.showMic, 'new item defaults');
     await BarPreferencesStore(file).write(
       reread.copyWith(
-        islandHome: true,
+        islandHome: false,
         activityTimer: false,
         trayHidden: const <String>['nm-applet'],
         trayNever: const <String>['magpie'],
@@ -107,7 +107,7 @@ Future<void> main() async {
     );
     final again = await BarPreferencesStore(file).read();
     _expect(
-      again.islandHome && !again.activityTimer,
+      !again.islandHome && !again.activityTimer,
       'island switches persist',
     );
     _expect(
