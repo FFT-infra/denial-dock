@@ -249,4 +249,5 @@ const Map<String, String> zh = <String, String>{
   '{} remaining': '剩余 {}',
   '{} h': '{} 小时',
   '{} min': '{} 分钟',
+  '{} More Notifications': '还有 {} 个通知',
 };

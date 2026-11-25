@@ -147,6 +147,87 @@ abstract final class NcMotion {
     );
   }
 
+  /// The card [depth] places behind the front one of a folded stack, in the
+  /// front card's own coordinates: narrower on either side, lower by one
+  /// peek, and fainter. It reaches [tuck] up under the front card so that its
+  /// lower corners are whole; whoever draws it cuts the front card's shape
+  /// out, because the front card is glass and would show it through.
+  static ({
+    double left,
+    double top,
+    double width,
+    double height,
+    double strength,
+  })
+  peek({
+    required int depth,
+    required double width,
+    required double height,
+    double tuck = 24,
+  }) {
+    final d = depth.clamp(1, stackDepth);
+    final left = stackInset * d;
+    final top = math.max(0.0, height - math.max(0.0, tuck));
+    return (
+      left: left,
+      top: top,
+      width: math.max(0, width - 2 * left),
+      height: height - top + stackPeek * d,
+      strength: 1 - 0.25 * d,
+    );
+  }
+
+  // ── Older notifications ──────────────────────────────────────────────────
+  /// How many stacks the column lists before it folds the rest behind the
+  /// pill at the bottom of the list.
+  static const int groupsShown = 5;
+
+  /// How many of [total] stacks are listed. One left over is simply shown:
+  /// a pill that hides a single stack saves no room.
+  static int groupsListed(
+    int total, {
+    required bool all,
+    int limit = groupsShown,
+  }) => all || total <= limit + 1 ? math.max(0, total) : limit;
+
+  // ── Widgets ──────────────────────────────────────────────────────────────
+  /// The widgets sit on a grid two cells wide. A cell is square: a small
+  /// widget takes one, a medium one a row of two, a large one two rows.
+  static const int widgetColumns = 2;
+  static const double widgetGap = 12;
+
+  /// The side of one cell in a grid [width] across.
+  static double widgetCell(double width, {double gap = widgetGap}) =>
+      math.max(0, (width - (widgetColumns - 1) * gap) / widgetColumns);
+
+  /// Where a widget [w] cells wide and [h] tall sits, with its corner in
+  /// column [col] and row [row] of a grid [width] across.
+  static ({double left, double top, double width, double height}) widgetRect({
+    required int col,
+    required int row,
+    required int w,
+    required int h,
+    required double width,
+    double gap = widgetGap,
+  }) {
+    final cell = widgetCell(width, gap: gap);
+    final across = w.clamp(1, widgetColumns);
+    final down = math.max(1, h);
+    return (
+      left: col * (cell + gap),
+      top: row * (cell + gap),
+      width: across * cell + (across - 1) * gap,
+      height: down * cell + (down - 1) * gap,
+    );
+  }
+
+  /// The height of [rows] rows of the grid.
+  static double widgetsHeight(
+    int rows,
+    double width, {
+    double gap = widgetGap,
+  }) => rows <= 0 ? 0 : rows * widgetCell(width, gap: gap) + (rows - 1) * gap;
+
   /// A card behind keeps its text back until the stack is half open, so the
   /// plates separate before there is anything to read.
   static double reveal(double t) => ((t - 0.5) * 2).clamp(0.0, 1.0).toDouble();
