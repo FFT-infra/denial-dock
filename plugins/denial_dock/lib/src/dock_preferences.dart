@@ -198,6 +198,11 @@ class DockSettingsController extends AsyncNotifier<DockSettings> {
   Future<void> setAvoidReservedEdge({required bool avoid}) =>
       _update((current) => current.copyWith(avoidReservedEdge: avoid));
 
+  /// Lays a layout another plugin asked for, such as a shell preset, over
+  /// the settings. See [DockSettings.withLayout].
+  Future<void> applyLayout(Map<String, Object?> changes) =>
+      _update((current) => current.withLayout(changes));
+
   Future<void> setLauncherSide(DockSide side) =>
       _update((current) => current.copyWith(launcherSide: side));
 

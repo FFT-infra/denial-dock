@@ -1,7 +1,12 @@
 import 'dart:async';
 import 'dart:math' as math;
 
+import 'package:denial_shell_kit/kit_dock_link.dart';
+import 'package:denial_shell_kit/kit_host.dart';
+import 'package:denial_shell_kit/kit_layer.dart' show kitOpenPanel;
 import 'package:denial_shell_kit/kit_motion.dart';
+import 'package:denial_shell_kit/kit_panel_place.dart' show KitEdge;
+import 'package:denial_shell_kit/kit_part.dart';
 import 'package:denial_shell_kit/kit_requests.dart';
 import 'package:denial_shell_kit/kit_style.dart';
 import 'package:denial_flutter_sdk/applications.dart'
@@ -44,6 +49,7 @@ import 'dock_layout.dart';
 import 'dock_look.dart';
 import 'dock_menu.dart';
 import 'dock_motion.dart';
+import 'dock_part_cell.dart';
 import 'dock_preferences.dart';
 import 'dock_scroll.dart';
 import 'dock_sections.dart';
@@ -221,7 +227,62 @@ class _DockContainerState extends ConsumerState<DockContainer>
       _settingsOpen ||
       _menuOpen ||
       _edgeTapHold ||
-      _dragKey != null;
+      _dragKey != null ||
+      // A part of the dock opened a panel: the dock it hangs from stays.
+      (_hasParts && kitOpenPanel.value != null);
+
+  /// Whether the row holds parts of another plugin.
+  bool _hasParts = false;
+
+  /// The length each such part takes along the row, as last measured.
+  final Map<String, double> _partExtents = <String, double>{};
+
+  /// The slots of the last build, for telling what the pointer is over.
+  List<_SlotSpec> _builtSpecs = const [];
+
+  KitEdge get _kitEdge => switch (_position) {
+    DockPosition.bottom => KitEdge.bottom,
+    DockPosition.left => KitEdge.left,
+    DockPosition.right => KitEdge.right,
+  };
+
+  /// The dock that last told the shell about itself. One dock speaks for
+  /// the plugin, the one on the main output, and only it takes it back.
+  static _DockContainerState? _speaker;
+
+  void _onShellState() {
+    if (!mounted) return;
+    setState(() {});
+    _evaluateHide();
+  }
+
+  void _applyLayout(Map<String, Object?> changes) {
+    if (!mounted) return;
+    unawaited(ref.read(dockSettingsProvider.notifier).applyLayout(changes));
+  }
+
+  /// Tells the rest of the shell what this dock draws and how much of its
+  /// edge it holds. Run after the frame: listeners rebuild.
+  void _reportToShell(DockSettings settings) {
+    if (!mounted || !widget.environment.isMainOutput) return;
+    _speaker = this;
+    kitDock.publish(settings.layoutJson(kitStyle.value.id));
+    kitHosts.report(
+      KitHosts.dock,
+      KitHostState(
+        edge: _kitEdge,
+        thickness: _look.effectiveEdgeMargin + _capsuleHeight,
+        pinned: settings.visibility == DockVisibilityMode.always,
+      ),
+    );
+  }
+
+  void _measuredPart(String id, double extent) {
+    if (!mounted || !extent.isFinite) return;
+    final known = _partExtents[id];
+    if (known != null && (known - extent).abs() < 0.5) return;
+    setState(() => _partExtents[id] = extent);
+  }
 
   double get _dragCenterX => _dragOriginX + _dragDx;
   double get _dragCenterY => _dragOriginY + _dragDy;
@@ -257,6 +318,9 @@ class _DockContainerState extends ConsumerState<DockContainer>
     DockStackThumbs.sweepCache();
     _hotkeys = DockHotkeys.requests.listen(_onHotkey);
     _debug = DockDebug.commands.listen(_onDebug);
+    kitOpenPanel.addListener(_onShellState);
+    kitReservation.addListener(_onShellState);
+    if (widget.environment.isMainOutput) kitDock.attach(_applyLayout);
   }
 
   void _onSpeed() {
@@ -338,6 +402,16 @@ class _DockContainerState extends ConsumerState<DockContainer>
   @override
   void dispose() {
     kitSpeed.removeListener(_onSpeed);
+    kitOpenPanel.removeListener(_onShellState);
+    kitReservation.removeListener(_onShellState);
+    // Listeners rebuild, which they may not do while the tree is torn down.
+    scheduleMicrotask(() {
+      kitDock.detach(_applyLayout);
+      if (identical(_speaker, this)) {
+        _speaker = null;
+        kitHosts.report(KitHosts.dock, null);
+      }
+    });
     _hideTimer?.cancel();
     _revealTimer?.cancel();
     _labelTimer?.cancel();
@@ -498,12 +572,22 @@ class _DockContainerState extends ConsumerState<DockContainer>
   void _onHover(PointerHoverEvent event) {
     final local = _vertical ? event.localPosition.dy : event.localPosition.dx;
     _pointerTarget = _capsuleStart + local;
-    _hoverTarget = 1;
+    // A part is not an icon: over one the row stays at rest.
+    _hoverTarget = _overPart(_pointerTarget) ? 0 : 1;
     _insideCapsule = true;
     _revealTarget = 1;
     _ensureTicker();
     _syncLabel();
     _evaluateHide();
+  }
+
+  bool _overPart(double pointer) {
+    final nearest = _frame?.nearest(pointer);
+    if (nearest == null) return false;
+    final (index, slot, distance) = nearest;
+    return index < _builtSpecs.length &&
+        _builtSpecs[index].kind == _SlotKind.part &&
+        distance <= slot.half;
   }
 
   /// Wheel over the capsule background, which only sees events the icons did
@@ -1010,8 +1094,16 @@ class _DockContainerState extends ConsumerState<DockContainer>
             DockSlotKind.file => _SlotKind.file,
             DockSlotKind.trash => _SlotKind.trash,
             DockSlotKind.divider => _SlotKind.divider,
+            DockSlotKind.part => _SlotKind.part,
           },
-          half: section.kind == DockSlotKind.divider ? 0.5 : _iconSize / 2,
+          half: switch (section.kind) {
+            DockSlotKind.divider => 0.5,
+            // Until a part has been measured it holds one icon's room.
+            DockSlotKind.part =>
+              (_partExtents[section.partId] ?? _iconSize) / 2,
+            _ => _iconSize / 2,
+          },
+          partId: section.partId,
           entry: section.index,
           folder: section.folder,
           file: section.file,
@@ -1072,7 +1164,25 @@ class _DockContainerState extends ConsumerState<DockContainer>
     hover: hover,
     maxScale: _settings.effectiveMaxScale,
     radius: _look.magnifyRange,
+    spread: _spreadFor(specs),
   );
+
+  /// How a dock lying along its whole edge shares the edge out, or null for
+  /// one centred group: a floating capsule, and a bar set to stay packed.
+  DockSpread? _spreadFor(List<_SlotSpec> specs) {
+    if (_look.shape != DockShape.bar || _settings.align == DockAlign.packed) {
+      return null;
+    }
+    final ends = DockSections.ends(
+      entryCount: specs.where((spec) => spec.kind == _SlotKind.app).length,
+      settings: _settings,
+    );
+    return DockSpread(
+      leading: ends.leading,
+      trailing: ends.trailing,
+      centered: _settings.align == DockAlign.center,
+    );
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -1098,13 +1208,25 @@ class _DockContainerState extends ConsumerState<DockContainer>
             workspace: widget.environment.workspaceId,
           )
         : allWindows;
-    _reserved = settings.avoidReservedEdge
+    // Room kept free on the dock's edge is a bar's, unless the shell says
+    // the room is the dock's own or lies on another edge; then there is
+    // nothing to step aside for.
+    final held = kitReservation.value;
+    final foreign =
+        held == null ||
+        (held.owner == KitReserver.bar && held.edge == _kitEdge);
+    _reserved = settings.avoidReservedEdge && foreign
         ? DockAutoHide.reservedEdge(
             output: _output,
             workArea: widget.environment.workArea,
             position: settings.position,
           )
         : 0;
+    if (!storedSettings.isLoading) {
+      SchedulerBinding.instance.addPostFrameCallback(
+        (_) => _reportToShell(settings),
+      );
+    }
     final launcherEntries =
         settings.showBadges || settings.showProgress || settings.showAttention
         ? ref.watch(launcherEntriesProvider)
@@ -1167,6 +1289,8 @@ class _DockContainerState extends ConsumerState<DockContainer>
           specs = _specsFor(entries, settings);
         }
         _builtEntries = entries;
+        _builtSpecs = specs;
+        _hasParts = specs.any((spec) => spec.kind == _SlotKind.part);
         _saveRecentsOrder(settings, ready: !storedSettings.isLoading);
 
         final frame = _layout(
@@ -1194,7 +1318,8 @@ class _DockContainerState extends ConsumerState<DockContainer>
         final dockRect = DockAutoHide.visibleDockRect(
           output: _output,
           position: _position,
-          extent: frame.extent,
+          // A bar holds its whole edge, wherever its icons end.
+          extent: _look.shape == DockShape.bar ? surfaceMain : frame.extent,
           thickness: _capsuleHeight,
           inset: _edgeInset,
         );
@@ -2054,6 +2179,37 @@ class _DockContainerState extends ConsumerState<DockContainer>
             child: handle,
           ),
         };
+      case _SlotKind.part:
+        final id = spec.partId;
+        if (id == null) return null;
+        final theme = context.shellTheme;
+        return slotAt(
+          key: ValueKey('dock-part-$id'),
+          cross: _look.padding,
+          mainExtent: extent,
+          crossExtent: _iconSize,
+          child: DockPartCell(
+            id: id,
+            vertical: _vertical,
+            crossExtent: _iconSize,
+            onExtent: (value) => _measuredPart(id, value),
+            part: KitPartContext(
+              edge: _kitEdge,
+              axis: _vertical ? Axis.vertical : Axis.horizontal,
+              crossExtent: _iconSize,
+              ink: theme.colors.textPrimary,
+              density: KitDensity.tile,
+              host: KitHostKind.dock,
+              // Where the capsule's far side rests, not where it is while
+              // it slides: a panel hangs from the dock at rest.
+              hostExtent: _edgeInset + _capsuleHeight,
+              siblings: _settings.zones.parts.toList(growable: false),
+              monitorId: widget.monitorId,
+              services: widget.services,
+              environment: widget.environment,
+            ),
+          ),
+        );
       case _SlotKind.launcher:
         // A stable key keeps the launcher's menu state when a drag adds or
         // removes the divider and shifts this slot's index.
@@ -2301,12 +2457,12 @@ class _DockContainerState extends ConsumerState<DockContainer>
         name: chinese ? '回收站' : 'Trash',
         center: center,
       ),
-      _SlotKind.divider => null,
+      _SlotKind.divider || _SlotKind.part => null,
     };
   }
 }
 
-enum _SlotKind { app, launcher, folder, file, trash, divider }
+enum _SlotKind { app, launcher, folder, file, trash, divider, part }
 
 class _SlotSpec {
   const _SlotSpec({
@@ -2316,6 +2472,7 @@ class _SlotSpec {
     this.folder,
     this.file,
     this.dividerKey,
+    this.partId,
   });
 
   final _SlotKind kind;
@@ -2324,8 +2481,9 @@ class _SlotSpec {
   final DockFolder? folder;
   final DockFile? file;
   final String? dividerKey;
+  final String? partId;
 
-  bool get growable => kind != _SlotKind.divider;
+  bool get growable => kind != _SlotKind.divider && kind != _SlotKind.part;
 }
 
 class _DockEntry {
