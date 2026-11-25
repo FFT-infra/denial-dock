@@ -1,5 +1,4 @@
 import 'package:denial_flutter_sdk/services.dart';
-import 'package:denial_flutter_sdk/state.dart';
 import 'package:flutter/widgets.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
@@ -161,31 +160,7 @@ List<BarMenuEntry> systemMenuEntries(
   required VoidCallback onBarSettings,
   required VoidCallback onForceQuit,
   required VoidCallback? onForceQuitFront,
-  required ValueChanged<SessionPowerAction> onConfirm,
 }) {
-  final session = ref.read(sessionPowerProvider);
-  final power = ref.read(sessionPowerProvider.notifier);
-  bool can(SessionPowerAction action) =>
-      session.busyAction == null && session.availabilityFor(action).enabled;
-
-  BarMenuItem confirmed(
-    String label,
-    String direct,
-    SessionPowerAction action,
-  ) => BarMenuItem(
-    label: context.tr(label),
-    enabled: can(action),
-    onSelected: () => onConfirm(action),
-    alternate: BarMenuItem(
-      label: context.tr(direct),
-      enabled: can(action),
-      onSelected: () async {
-        await power.request(action);
-        await power.confirm();
-      },
-    ),
-  );
-
   return <BarMenuEntry>[
     BarMenuItem(
       label: context.tr('About This System'),
@@ -219,20 +194,8 @@ List<BarMenuEntry> systemMenuEntries(
               onSelected: onForceQuitFront,
             ),
     ),
-    const BarMenuSeparator(),
-    BarMenuItem(
-      label: context.tr('Sleep'),
-      enabled: can(SessionPowerAction.suspend),
-      onSelected: () => power.request(SessionPowerAction.suspend),
-    ),
-    confirmed('Restart…', 'Restart', SessionPowerAction.reboot),
-    confirmed('Shut Down…', 'Shut Down', SessionPowerAction.powerOff),
-    const BarMenuSeparator(),
-    BarMenuItem(
-      label: context.tr('Lock Screen'),
-      enabled: can(SessionPowerAction.lock),
-      onSelected: () => power.request(SessionPowerAction.lock),
-    ),
-    confirmed('Log Out…', 'Log Out', SessionPowerAction.logout),
+    // Sleep, restart, shut down, lock and log out live in the control centre:
+    // that panel is what is open when someone wants to stop work, and the
+    // system menu keeps to the things that act on windows and settings.
   ];
 }

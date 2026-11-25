@@ -42,6 +42,7 @@ class ControlCenterPanel extends ConsumerStatefulWidget {
     required this.output,
     required this.onSettings,
     required this.onJoinNetwork,
+    required this.onConfirmPower,
     required this.onClose,
     super.key,
   });
@@ -50,6 +51,10 @@ class ControlCenterPanel extends ConsumerStatefulWidget {
   final DisplayOutput output;
   final VoidCallback onSettings;
   final ValueChanged<WifiNetwork> onJoinNetwork;
+
+  /// Asks the bar to put the confirmation up for a power action. The bar owns
+  /// the dialog because the sheet closes behind it.
+  final ValueChanged<SessionPowerAction> onConfirmPower;
   final VoidCallback onClose;
 
   @override
@@ -563,6 +568,22 @@ class _ControlCenterPanelState extends ConsumerState<ControlCenterPanel> {
             ),
           ),
           const SizedBox(height: 12),
+          // Session actions live here rather than in the bar's system menu:
+          // this is the panel that is open when someone wants to stop work.
+          Padding(
+            padding: const EdgeInsets.only(bottom: 2),
+            child: _PowerRow(
+              onSleep: () => widget.onClose(),
+              confirm: (action) {
+                widget.onClose();
+                widget.onConfirmPower(action);
+              },
+              request: (action) {
+                widget.onClose();
+                ref.read(sessionPowerProvider.notifier).request(action);
+              },
+            ),
+          ),
           Row(
             mainAxisAlignment: MainAxisAlignment.center,
             children: <Widget>[
@@ -582,6 +603,116 @@ class _ControlCenterPanelState extends ConsumerState<ControlCenterPanel> {
           ),
         ],
       ),
+    );
+  }
+}
+
+/// Sleep, restart, shut down and lock, in one row at the foot of the panel.
+///
+/// Lock and sleep go at once; the three that end the session ask first,
+/// because none of them can be undone. An action the session cannot take is
+/// dimmed rather than hidden, so the row does not change shape.
+class _PowerRow extends ConsumerWidget {
+  const _PowerRow({
+    required this.onSleep,
+    required this.confirm,
+    required this.request,
+  });
+
+  /// Called before any action so the sheet is out of the way.
+  final VoidCallback onSleep;
+  final ValueChanged<SessionPowerAction> confirm;
+  final ValueChanged<SessionPowerAction> request;
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final session = ref.watch(sessionPowerProvider);
+    final power = ref.read(sessionPowerProvider.notifier);
+    bool can(SessionPowerAction action) =>
+        session.busyAction == null && session.availabilityFor(action).enabled;
+    final theme = context.shellTheme;
+    final ink = theme.colors.textPrimary;
+
+    Widget button(String label, IconData icon, VoidCallback? onTap) => Expanded(
+      child: Pressable(
+        onTap: onTap,
+        scale: 0.9,
+        child: Container(
+          height: 52,
+          decoration: BoxDecoration(
+            borderRadius: theme.borderRadius(14),
+            color: ink.withValues(alpha: 0.07),
+          ),
+          child: Column(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: <Widget>[
+              BarGlyph(
+                icon,
+                size: 17,
+                color: onTap == null
+                    ? ink.withValues(alpha: 0.35)
+                    : ink.withValues(alpha: 0.9),
+              ),
+              const SizedBox(height: 3),
+              Text(
+                label,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: BarType.caption.copyWith(
+                  fontSize: 10.5,
+                  fontWeight: FontWeight.w600,
+                  color: onTap == null
+                      ? ink.withValues(alpha: 0.35)
+                      : ink.withValues(alpha: 0.9),
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+
+    VoidCallback? at(SessionPowerAction action, VoidCallback run) =>
+        can(action) ? run : null;
+
+    return Row(
+      children: <Widget>[
+        button(
+          context.tr('Sleep'),
+          BarIcons.moonFill,
+          at(SessionPowerAction.suspend, () {
+            onSleep();
+            power.request(SessionPowerAction.suspend);
+          }),
+        ),
+        const SizedBox(width: 8),
+        button(
+          context.tr('Restart'),
+          BarIcons.arrowClockwise,
+          at(
+            SessionPowerAction.reboot,
+            () => confirm(SessionPowerAction.reboot),
+          ),
+        ),
+        const SizedBox(width: 8),
+        button(
+          context.tr('Shut Down'),
+          BarIcons.power,
+          at(
+            SessionPowerAction.powerOff,
+            () => confirm(SessionPowerAction.powerOff),
+          ),
+        ),
+        const SizedBox(width: 8),
+        button(
+          context.tr('Lock'),
+          BarIcons.lockFill,
+          at(SessionPowerAction.lock, () {
+            onSleep();
+            request(SessionPowerAction.lock);
+          }),
+        ),
+      ],
     );
   }
 }

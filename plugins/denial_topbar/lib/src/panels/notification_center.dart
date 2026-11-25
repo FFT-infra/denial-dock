@@ -245,6 +245,11 @@ class _ColumnState extends ConsumerState<_Column> {
     final width = math.min(notificationCenterWidth, scene.width - 20);
     final onLeft = side == PanelEdge.left;
     final theme = context.shellTheme;
+    // One slab behind the whole column, with the entries as flat cards on it:
+    // a column of separately floating cards reads as a pile of windows rather
+    // than as one centre.
+    Widget slab(Widget child) =>
+        KitCard(radius: 26, elevation: 0.9, child: child);
 
     return Stack(
       fit: StackFit.expand,
@@ -272,74 +277,75 @@ class _ColumnState extends ConsumerState<_Column> {
             child: Align(
               alignment: Alignment.topCenter,
               child: KitCardGroup(
-                child: SingleChildScrollView(
-                  clipBehavior: Clip.none,
-                  child: Column(
-                    mainAxisSize: MainAxisSize.min,
-                    crossAxisAlignment: CrossAxisAlignment.stretch,
-                    children: <Widget>[
-                      if (groups.isNotEmpty)
-                        Padding(
-                          padding: const EdgeInsets.fromLTRB(6, 0, 2, 8),
-                          child: Row(
-                            children: <Widget>[
-                              Expanded(
-                                child: Text(
-                                  context.tr('Notification Center'),
-                                  style: BarType.display.copyWith(
-                                    fontSize: 17,
-                                    fontWeight: FontWeight.w700,
-                                    color: const Color(0xffffffff),
-                                    shadows: const <Shadow>[
-                                      Shadow(
-                                        color: Color(0x66000000),
-                                        blurRadius: 8,
+                child: slab(
+                  Padding(
+                    padding: const EdgeInsets.fromLTRB(10, 10, 10, 10),
+                    child: SingleChildScrollView(
+                      clipBehavior: Clip.none,
+                      child: Column(
+                        mainAxisSize: MainAxisSize.min,
+                        crossAxisAlignment: CrossAxisAlignment.stretch,
+                        children: <Widget>[
+                          if (groups.isNotEmpty)
+                            Padding(
+                              padding: const EdgeInsets.fromLTRB(6, 2, 2, 6),
+                              child: Row(
+                                children: <Widget>[
+                                  Expanded(
+                                    child: Text(
+                                      context.tr('Notification Center'),
+                                      style: BarType.title.copyWith(
+                                        fontSize: 15,
+                                        fontWeight: FontWeight.w700,
+                                        color: theme.colors.textPrimary,
                                       ),
-                                    ],
+                                    ),
+                                  ),
+                                  _ClearChip(
+                                    label: context.tr('Clear All'),
+                                    onTap: controller.clearAll,
+                                  ),
+                                ],
+                              ),
+                            ),
+                          for (final group in groups)
+                            Padding(
+                              padding: const EdgeInsets.only(bottom: 6),
+                              child: _GroupStack(
+                                key: ValueKey<String>(group.key),
+                                group: group,
+                                services: services,
+                                onActivate: (id) {
+                                  controller.invokeDefaultAction(id);
+                                  onClose();
+                                },
+                                onDismiss: controller.dismissFromHistory,
+                                onAction: (id, key) {
+                                  controller.invokeAction(id, key);
+                                  onClose();
+                                },
+                                onDismissGroup: () => controller
+                                    .dismissGroupFromHistory(group.key),
+                              ),
+                            ),
+                          if (widgets) ...<Widget>[
+                            if (groups.isNotEmpty) const SizedBox(height: 4),
+                            ..._widgets(context, width),
+                          ] else if (groups.isEmpty)
+                            SizedBox(
+                              height: 72,
+                              child: Center(
+                                child: Text(
+                                  context.tr('No Notifications'),
+                                  style: BarType.menuRow.copyWith(
+                                    color: theme.colors.textSecondary,
                                   ),
                                 ),
                               ),
-                              _ClearChip(
-                                label: context.tr('Clear All'),
-                                onTap: controller.clearAll,
-                              ),
-                            ],
-                          ),
-                        ),
-                      for (final group in groups)
-                        Padding(
-                          padding: const EdgeInsets.only(bottom: 10),
-                          child: _GroupStack(
-                            key: ValueKey<String>(group.key),
-                            group: group,
-                            services: services,
-                            onActivate: (id) {
-                              controller.invokeDefaultAction(id);
-                              onClose();
-                            },
-                            onDismiss: controller.dismissFromHistory,
-                            onDismissGroup: () =>
-                                controller.dismissGroupFromHistory(group.key),
-                          ),
-                        ),
-                      if (widgets) ...<Widget>[
-                        if (groups.isNotEmpty) const SizedBox(height: 4),
-                        ..._widgets(context, width),
-                      ] else if (groups.isEmpty)
-                        _Surface(
-                          child: SizedBox(
-                            height: 72,
-                            child: Center(
-                              child: Text(
-                                context.tr('No Notifications'),
-                                style: BarType.menuRow.copyWith(
-                                  color: theme.colors.textSecondary,
-                                ),
-                              ),
                             ),
-                          ),
-                        ),
-                    ],
+                        ],
+                      ),
+                    ),
                   ),
                 ),
               ),
@@ -351,6 +357,41 @@ class _ColumnState extends ConsumerState<_Column> {
   }
 }
 
+/// A notification's action, as a small filled pill. The card itself is the
+/// default action; these are the extra ones a sender offers.
+class _ActionPill extends StatelessWidget {
+  const _ActionPill({required this.label, required this.onTap});
+
+  final String label;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = context.shellTheme;
+    return Pressable(
+      onTap: onTap,
+      scale: 0.94,
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+        decoration: BoxDecoration(
+          borderRadius: theme.borderRadius(10),
+          color: theme.colors.textPrimary.withValues(alpha: 0.10),
+        ),
+        child: Text(
+          label,
+          maxLines: 1,
+          overflow: TextOverflow.ellipsis,
+          style: BarType.caption.copyWith(
+            fontSize: 11.5,
+            fontWeight: FontWeight.w600,
+            color: theme.colors.textPrimary,
+          ),
+        ),
+      ),
+    );
+  }
+}
+
 class _Surface extends StatelessWidget {
   const _Surface({required this.child});
 
@@ -358,9 +399,18 @@ class _Surface extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    // On the slab, an entry is a flat plate: no second blur, no shadow of its
+    // own, just enough fill to separate it from the glass behind.
+    final theme = context.shellTheme;
     return Listener(
       behavior: HitTestBehavior.opaque,
-      child: KitCard(radius: 22, elevation: 0.6, child: child),
+      child: DecoratedBox(
+        decoration: BoxDecoration(
+          borderRadius: theme.borderRadius(16),
+          color: theme.colors.textPrimary.withValues(alpha: 0.055),
+        ),
+        child: child,
+      ),
     );
   }
 }
@@ -407,6 +457,7 @@ class _GroupStack extends StatefulWidget {
     required this.services,
     required this.onActivate,
     required this.onDismiss,
+    required this.onAction,
     required this.onDismissGroup,
     super.key,
   });
@@ -415,6 +466,7 @@ class _GroupStack extends StatefulWidget {
   final ShellServices services;
   final ValueChanged<int> onActivate;
   final ValueChanged<int> onDismiss;
+  final void Function(int id, String key) onAction;
   final VoidCallback onDismissGroup;
 
   @override
@@ -482,10 +534,13 @@ class _GroupStackState extends State<_GroupStack> {
                     height: 40,
                     child: Opacity(
                       opacity: 1 - index * 0.25,
-                      child: const KitCard(
-                        radius: 22,
-                        elevation: 0.3,
-                        child: SizedBox.expand(),
+                      child: DecoratedBox(
+                        decoration: BoxDecoration(
+                          borderRadius: context.shellTheme.borderRadius(16),
+                          color: context.shellTheme.colors.textPrimary
+                              .withValues(alpha: 0.055),
+                        ),
+                        child: const SizedBox.expand(),
                       ),
                     ),
                   ),
@@ -499,6 +554,7 @@ class _GroupStackState extends State<_GroupStack> {
                   onDismiss: group.stacked && !open
                       ? widget.onDismissGroup
                       : () => widget.onDismiss(newest.id),
+                  onAction: (key) => widget.onAction(newest.id, key),
                 ),
               ],
             ),
@@ -514,6 +570,8 @@ class _GroupStackState extends State<_GroupStack> {
                   more: 0,
                   onTap: () => widget.onActivate(record.notification.id),
                   onDismiss: () => widget.onDismiss(record.notification.id),
+                  onAction: (key) =>
+                      widget.onAction(record.notification.id, key),
                 ),
               ),
         ],
@@ -550,6 +608,7 @@ class _Card extends StatefulWidget {
     required this.more,
     required this.onTap,
     required this.onDismiss,
+    required this.onAction,
     super.key,
   });
 
@@ -559,9 +618,19 @@ class _Card extends StatefulWidget {
   final VoidCallback onTap;
   final VoidCallback onDismiss;
 
+  /// Runs one of the sender's actions by key.
+  final ValueChanged<String> onAction;
+
   @override
   State<_Card> createState() => _CardState();
 }
+
+/// The sender's actions other than the default one the card already is.
+List<DesktopNotificationAction> _extraActions(DesktopNotification note) =>
+    <DesktopNotificationAction>[
+      for (final action in note.actions)
+        if (action.key != 'default') action,
+    ];
 
 class _CardState extends State<_Card> with SingleTickerProviderStateMixin {
   late final AnimationController _slide = AnimationController.unbounded(
@@ -707,6 +776,30 @@ class _CardState extends State<_Card> with SingleTickerProviderStateMixin {
                                         style: BarType.caption.copyWith(
                                           color: theme.colors.textSecondary,
                                         ),
+                                      ),
+                                    ),
+                                  if (_extraActions(note).isNotEmpty)
+                                    Padding(
+                                      padding: const EdgeInsets.only(top: 6),
+                                      child: Row(
+                                        mainAxisAlignment:
+                                            MainAxisAlignment.end,
+                                        children: <Widget>[
+                                          for (final action in _extraActions(
+                                            note,
+                                          ).take(2))
+                                            Padding(
+                                              padding: const EdgeInsets.only(
+                                                left: 6,
+                                              ),
+                                              child: _ActionPill(
+                                                label: action.label,
+                                                onTap: () {
+                                                  widget.onAction(action.key);
+                                                },
+                                              ),
+                                            ),
+                                        ],
                                       ),
                                     ),
                                 ],

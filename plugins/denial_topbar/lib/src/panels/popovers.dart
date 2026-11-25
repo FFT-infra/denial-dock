@@ -1,17 +1,23 @@
 import 'package:denial_flutter_sdk/services.dart';
 import 'package:denial_flutter_sdk/state.dart';
 import 'package:denial_flutter_sdk/system_services.dart'
-    show AudioOutputDevice, BluetoothDeviceInfo, WifiNetwork;
+    show
+        AudioOutputDevice,
+        BluetoothDeviceInfo,
+        BluetoothPairingRequest,
+        WifiNetwork;
 import 'package:denial_flutter_sdk/theme.dart';
 import 'package:denial_shell_kit/kit_motion.dart';
-import 'package:flutter/widgets.dart';
+import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../bar_icons.dart';
+import '../bar_panel.dart';
 import '../bar_type.dart';
 import '../clipboard_history.dart';
 import '../clipboard_watch.dart';
 import '../l10n.dart';
+import 'dialogs.dart';
 import 'mac_kit.dart';
 
 const double popoverWidth = 300;
@@ -121,7 +127,7 @@ class _WifiPopoverState extends ConsumerState<WifiPopover> {
 
     Widget row(WifiNetwork network) {
       final busy = state.busyNetworks.contains(network.identity);
-      return MacRow(
+      final row = MacRow(
         leading: MacDisc(icon: BarIcons.wifi, on: network.connected),
         title: network.ssid,
         detail: busy ? context.tr('Connecting…') : null,
@@ -144,6 +150,15 @@ class _WifiPopoverState extends ConsumerState<WifiPopover> {
                   widget.onJoin(network);
                 }
               },
+      );
+      // A saved network opens the profile dialog on a hold (touch) or a
+      // right-click (pointer), because that dialog is where its password can
+      // be changed and where Forget lives; a plain tap still joins.
+      if (!network.saved) return row;
+      return GestureDetector(
+        onLongPress: busy ? null : () => widget.onJoin(network),
+        onSecondaryTap: busy ? null : () => widget.onJoin(network),
+        child: row,
       );
     }
 
@@ -224,18 +239,44 @@ IconData _bluetoothIcon(BluetoothDeviceInfo device) {
   return BarIcons.bluetooth;
 }
 
-class BluetoothPopover extends ConsumerWidget {
+class BluetoothPopover extends ConsumerStatefulWidget {
   const BluetoothPopover({required this.onSettings, this.onBack, super.key});
 
   final VoidCallback onSettings;
   final VoidCallback? onBack;
 
   @override
-  Widget build(BuildContext context, WidgetRef ref) {
+  ConsumerState<BluetoothPopover> createState() => _BluetoothPopoverState();
+}
+
+class _BluetoothPopoverState extends ConsumerState<BluetoothPopover> {
+  /// The scan runs while the popover is up and is stopped on the way out:
+  /// BlueZ keeps the radio advertising for its full window otherwise, and a
+  /// scan left running is how a battery dies.
+  @override
+  void initState() {
+    super.initState();
+    Future<void>.microtask(() {
+      final controller = ref.read(bluetoothProvider.notifier);
+      if (ref.read(bluetoothProvider).available &&
+          ref.read(bluetoothProvider).powered) {
+        controller.scan();
+      }
+    });
+  }
+
+  @override
+  void dispose() {
+    ref.read(bluetoothProvider.notifier).stopScan();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
     final state = ref.watch(bluetoothProvider);
     final controller = ref.read(bluetoothProvider.notifier);
     final on = state.available && state.powered;
-    final devices =
+    final known =
         state.devices
             .where((device) => device.name.isNotEmpty && device.paired)
             .toList()
@@ -243,11 +284,53 @@ class BluetoothPopover extends ConsumerWidget {
             if (a.connected != b.connected) return a.connected ? -1 : 1;
             return a.name.toLowerCase().compareTo(b.name.toLowerCase());
           });
+    // What the scan turned up that is not paired yet. A blocked device stays
+    // out of the list; it is one the user asked the system to ignore.
+    final found =
+        state.devices
+            .where(
+              (device) =>
+                  device.name.isNotEmpty &&
+                  !device.paired &&
+                  !device.blocked &&
+                  device.connected == false,
+            )
+            .toList()
+          ..sort((a, b) {
+            final left = a.signalStrength ?? -127;
+            final right = b.signalStrength ?? -127;
+            return right.compareTo(left);
+          });
+    Widget row(BluetoothDeviceInfo device, {required bool paired}) {
+      final busy = state.busyDevices.contains(device.objectPath);
+      final row = MacRow(
+        leading: MacDisc(icon: _bluetoothIcon(device), on: device.connected),
+        title: device.name,
+        detail: busy
+            ? context.tr(paired ? 'Connecting…' : 'Pairing…')
+            : device.connected
+            ? context.tr('Connected')
+            : null,
+        // Both kinds connect on a tap; an unpaired one is paired and trusted
+        // first by the same call.
+        onTap: busy ? null : () => controller.toggleConnection(device),
+      );
+      // A paired device can be forgotten where it is listed: hold it on a
+      // touch screen, right-click it with a pointer. A device that is only
+      // nearby cannot.
+      if (!paired) return row;
+      return GestureDetector(
+        onLongPress: busy ? null : () => _forgetDevice(context, ref, device),
+        onSecondaryTap: busy ? null : () => _forgetDevice(context, ref, device),
+        child: row,
+      );
+    }
+
     return _Popover(
       children: <Widget>[
         MacHeader(
           title: context.tr('Bluetooth'),
-          onBack: onBack,
+          onBack: widget.onBack,
           trailing: MacSwitch(
             value: on,
             busy: state.powerChanging,
@@ -260,38 +343,260 @@ class BluetoothPopover extends ConsumerWidget {
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: <Widget>[
               const MacDivider(),
-              MacSection(context.tr('Devices')),
-              if (devices.isEmpty)
+              MacSection(context.tr(known.isEmpty ? 'Devices' : 'My Devices')),
+              if (known.isEmpty)
                 _Note(context.tr('No paired devices'))
               else
                 _Scroll(
+                  maxHeight: 168,
                   children: <Widget>[
-                    for (final device in devices)
-                      MacRow(
-                        leading: MacDisc(
-                          icon: _bluetoothIcon(device),
-                          on: device.connected,
-                        ),
-                        title: device.name,
-                        detail: state.busyDevices.contains(device.objectPath)
-                            ? context.tr('Connecting…')
-                            : null,
-                        onTap: () => controller.toggleConnection(device),
-                      ),
+                    for (final device in known) row(device, paired: true),
                   ],
                 ),
+              const MacDivider(),
+              MacRow(
+                title: context.tr(
+                  state.scanning ? 'Scanning…' : 'Nearby Devices',
+                ),
+                height: 32,
+                trailing: state.scanning
+                    ? const SizedBox(width: 13, height: 13, child: _Spinner())
+                    : BarGlyph(
+                        BarIcons.arrowClockwise,
+                        size: 12,
+                        color: context.shellTheme.colors.textSecondary,
+                      ),
+                onTap: state.scanning ? null : controller.scan,
+              ),
+              Reveal(
+                open: found.isNotEmpty || state.scanning,
+                child: found.isEmpty
+                    ? _Note(context.tr('Looking for devices…'))
+                    : _Scroll(
+                        maxHeight: 168,
+                        children: <Widget>[
+                          for (final device in found)
+                            row(device, paired: false),
+                        ],
+                      ),
+              ),
             ],
           ),
         ),
+        if (on && state.pairingRequest != null)
+          _PairingPrompt(
+            request: state.pairingRequest!,
+            onRespond: controller.respondToPairing,
+          ),
         const MacDivider(),
         MacRow(
           title: context.tr('Bluetooth Settings…'),
           height: 32,
-          onTap: onSettings,
+          onTap: widget.onSettings,
         ),
       ],
     );
   }
+}
+
+/// BlueZ's question, asked in place: a confirmation or authorization needs a
+/// yes; a passkey may want the number checked, or typed when this side is the
+/// keyboard.
+class _PairingPrompt extends StatefulWidget {
+  const _PairingPrompt({required this.request, required this.onRespond});
+
+  final BluetoothPairingRequest request;
+  final void Function({required bool accepted, String? response}) onRespond;
+
+  @override
+  State<_PairingPrompt> createState() => _PairingPromptState();
+}
+
+class _PairingPromptState extends State<_PairingPrompt> {
+  final TextEditingController _typed = TextEditingController();
+  final FocusNode _focus = FocusNode();
+
+  @override
+  void dispose() {
+    _typed.dispose();
+    _focus.dispose();
+    super.dispose();
+  }
+
+  void _accept() {
+    final text = _typed.text.trim();
+    widget.onRespond(accepted: true, response: text.isEmpty ? null : text);
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = context.shellTheme;
+    final request = widget.request;
+    final wantsText = request.kind.needsTextInput;
+    final showsNumber =
+        request.passkey != null || (request.pinCode?.isNotEmpty ?? false);
+    final number = request.pinCode?.isNotEmpty ?? false
+        ? request.pinCode!
+        : request.passkey?.toString().padLeft(6, '0');
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(8, 8, 8, 4),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: <Widget>[
+          Text(
+            context.tr('Pair with “{}”?', request.deviceName),
+            style: BarType.title.copyWith(color: theme.colors.textPrimary),
+          ),
+          if (showsNumber && number != null)
+            Padding(
+              padding: const EdgeInsets.only(top: 6),
+              child: Text(
+                context.tr(
+                  'Check that the device shows this number: {}',
+                  number,
+                ),
+                style: BarType.caption.copyWith(
+                  color: theme.colors.textSecondary,
+                ),
+              ),
+            ),
+          if (showsNumber && number != null)
+            Padding(
+              padding: const EdgeInsets.only(top: 6),
+              child: Text(
+                number,
+                style: BarType.display.copyWith(
+                  fontSize: 26,
+                  letterSpacing: 6,
+                  color: theme.colors.textPrimary,
+                ),
+              ),
+            ),
+          if (wantsText)
+            Padding(
+              padding: const EdgeInsets.only(top: 8),
+              child: Container(
+                height: 34,
+                decoration: BoxDecoration(
+                  color: theme.colors.textPrimary.withValues(alpha: 0.06),
+                  borderRadius: theme.borderRadius(10),
+                ),
+                padding: const EdgeInsets.symmetric(horizontal: 10),
+                child: TextField(
+                  controller: _typed,
+                  focusNode: _focus,
+                  keyboardType: TextInputType.number,
+                  style: BarType.caption.copyWith(
+                    color: theme.colors.textPrimary,
+                  ),
+                  decoration: InputDecoration(
+                    isDense: true,
+                    border: InputBorder.none,
+                    hintText: context.tr('Code from the device'),
+                    hintStyle: BarType.caption.copyWith(
+                      color: theme.colors.textTertiary,
+                    ),
+                  ),
+                  onSubmitted: (_) => _accept(),
+                ),
+              ),
+            ),
+          Padding(
+            padding: const EdgeInsets.only(top: 8),
+            child: Row(
+              mainAxisAlignment: MainAxisAlignment.end,
+              children: <Widget>[
+                DialogButton(
+                  label: context.tr('Cancel'),
+                  onTap: () => widget.onRespond(accepted: false),
+                ),
+                const SizedBox(width: 8),
+                DialogButton(
+                  label: context.tr(wantsText ? 'OK' : 'Pair'),
+                  primary: true,
+                  onTap: _accept,
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+/// Asks before forgetting a device, the way the reference does: the title
+/// names it, the body says what it costs, and Forget is the second button.
+void _forgetDevice(
+  BuildContext context,
+  WidgetRef ref,
+  BluetoothDeviceInfo device,
+) {
+  final controller = ref.read(bluetoothProvider.notifier);
+  showKitDialog(
+    ref: ref,
+    width: 320,
+    builder: (context, close) => ConfirmDialog(
+      mark: const SizedBox.shrink(),
+      title: context.tr('Forget “{}”?', device.name),
+      detail: context.tr('The device will need to be paired again to be used.'),
+      action: context.tr('Forget Device'),
+      onClose: close,
+      onConfirm: () => controller.remove(device),
+    ),
+  );
+}
+
+/// A small ring that turns while a scan runs. Its period follows the shell's
+/// speed like every other loop.
+class _Spinner extends StatefulWidget {
+  const _Spinner();
+
+  @override
+  State<_Spinner> createState() => _SpinnerState();
+}
+
+class _SpinnerState extends State<_Spinner>
+    with SingleTickerProviderStateMixin {
+  late final AnimationController _turn = AnimationController(
+    vsync: this,
+    duration: KitMotion.now.scaled(const Duration(milliseconds: 900)),
+  )..repeat();
+
+  @override
+  void dispose() {
+    _turn.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = context.shellTheme;
+    return RotationTransition(
+      turns: _turn,
+      child: CustomPaint(painter: _RingPainter(theme.colors.textSecondary)),
+    );
+  }
+}
+
+class _RingPainter extends CustomPainter {
+  const _RingPainter(this.colour);
+
+  final Color colour;
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final rect = Offset.zero & size;
+    final paint = Paint()
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = 1.6
+      ..strokeCap = StrokeCap.round
+      ..color = colour.withValues(alpha: 0.75);
+    canvas.drawArc(rect.deflate(1), 0, 4.4, false, paint);
+  }
+
+  @override
+  bool shouldRepaint(_RingPainter oldDelegate) => oldDelegate.colour != colour;
 }
 
 final RegExp _profile = RegExp(
