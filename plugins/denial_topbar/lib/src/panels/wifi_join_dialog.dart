@@ -8,6 +8,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../bar_icons.dart';
 import '../bar_type.dart';
+import '../l10n.dart';
 
 /// The "Join “SSID”" dialog.
 ///
@@ -81,7 +82,7 @@ class _WifiJoinDialogState extends ConsumerState<WifiJoinDialog> {
     if (_busy) return;
     final password = _password.text;
     if (!_useSaved && password.isEmpty) {
-      setState(() => _error = 'Enter the Wi‑Fi password');
+      setState(() => _error = context.tr('Enter the Wi‑Fi password'));
       _focus.requestFocus();
       return;
     }
@@ -144,10 +145,10 @@ class _WifiJoinDialogState extends ConsumerState<WifiJoinDialog> {
 
     final ssid = widget.network.ssid;
     final subtitle = _busy
-        ? 'Joining this WLAN…'
+        ? context.tr('Joining this WLAN…')
         : (_useSaved
-              ? 'The saved password will be used to join this WLAN.'
-              : 'Enter the password to join this WLAN.');
+              ? context.tr('The saved password will be used to join this WLAN.')
+              : context.tr('Enter the password to join this WLAN.'));
 
     return SizedBox(
       width: WifiJoinDialog.width,
@@ -202,7 +203,7 @@ class _WifiJoinDialogState extends ConsumerState<WifiJoinDialog> {
               crossAxisAlignment: CrossAxisAlignment.stretch,
               children: <Widget>[
                 Text(
-                  'Join “$ssid”',
+                  context.tr('Join “{}”', ssid),
                   maxLines: 1,
                   overflow: TextOverflow.ellipsis,
                   style: BarType.title.copyWith(
@@ -226,7 +227,7 @@ class _WifiJoinDialogState extends ConsumerState<WifiJoinDialog> {
                     focusNode: _focus,
                     dark: dark,
                     ink: ink,
-                    hint: 'Password',
+                    hint: context.tr('Password'),
                     onSubmitted: _join,
                   )
                 else
@@ -249,7 +250,7 @@ class _WifiJoinDialogState extends ConsumerState<WifiJoinDialog> {
                 if (!_useSaved) ...<Widget>[
                   const SizedBox(height: 9),
                   Text(
-                    'The password will be stored securely by NetworkManager.',
+                    context.tr('The password will be stored securely by NetworkManager.'),
                     style: BarType.caption.copyWith(
                       fontSize: 12,
                       color: ink.withValues(alpha: 0.45),
@@ -477,7 +478,7 @@ class _SavedStrip extends StatelessWidget {
           const SizedBox(width: 13),
           Expanded(
             child: Text(
-              confirmForget ? 'Forget this network?' : '✓  Password saved',
+              confirmForget ? context.tr('Forget this network?') : context.tr('✓  Password saved'),
               maxLines: 1,
               overflow: TextOverflow.ellipsis,
               style: BarType.caption.copyWith(
@@ -488,13 +489,13 @@ class _SavedStrip extends StatelessWidget {
             ),
           ),
           _StripAction(
-            label: confirmForget ? 'Cancel' : 'Change',
+            label: confirmForget ? context.tr('Cancel') : context.tr('Change'),
             color: secondary,
             onTap: confirmForget ? onForget : onChange,
           ),
           const SizedBox(width: 14),
           _StripAction(
-            label: busy ? '…' : (confirmForget ? 'Confirm' : 'Forget'),
+            label: busy ? '…' : (confirmForget ? context.tr('Confirm') : context.tr('Forget')),
             color: confirmForget ? const Color(0xffd93025) : secondary,
             enabled: !busy,
             onTap: onForget,
