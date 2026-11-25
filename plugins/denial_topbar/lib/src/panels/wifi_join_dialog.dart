@@ -333,7 +333,7 @@ class _RingButtonState extends State<_RingButton> {
                         widget.fill,
                       )
                     : widget.fill,
-                shape: BoxShape.circle,
+                borderRadius: KitStyle.of(context).disc(30),
                 border: Border.all(color: widget.border),
               ),
               child: Center(
@@ -397,35 +397,44 @@ class _PasswordPillState extends State<_PasswordPill> {
 
   @override
   Widget build(BuildContext context) {
+    final theme = context.shellTheme;
+    final style = KitStyle.of(context);
     return Container(
       height: 42,
       decoration: BoxDecoration(
         color: widget.dark
             ? Colors.white.withValues(alpha: 0.10)
             : Colors.black.withValues(alpha: 0.05),
-        borderRadius: BorderRadius.circular(14),
+        borderRadius: BorderRadius.circular(style.corner(14)),
         border: Border.all(
           color: _focused
-              ? context.shellTheme.kitAccent.withValues(alpha: 0.80)
+              ? theme.kitAccent.withValues(alpha: 0.80)
+              : style.flat
+              ? theme.colors.hairline
               : Colors.transparent,
         ),
       ),
-      child: Padding(
-        padding: const EdgeInsets.symmetric(horizontal: 14),
-        child: TextField(
-          controller: widget.controller,
-          focusNode: widget.focusNode,
-          obscureText: true,
-          style: BarType.caption.copyWith(fontSize: 14, color: widget.ink),
-          cursorColor: context.shellTheme.kitAccent,
-          onSubmitted: (_) => widget.onSubmitted(),
-          decoration: InputDecoration(
-            isDense: true,
-            border: InputBorder.none,
-            hintText: widget.hint,
-            hintStyle: BarType.caption.copyWith(
-              fontSize: 14,
-              color: widget.ink.withValues(alpha: 0.45),
+      // A text field draws on a Material, and nothing above a dialog
+      // supplies one.
+      child: Material(
+        type: MaterialType.transparency,
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 14),
+          child: TextField(
+            controller: widget.controller,
+            focusNode: widget.focusNode,
+            obscureText: true,
+            style: BarType.caption.copyWith(fontSize: 14, color: widget.ink),
+            cursorColor: theme.kitAccent,
+            onSubmitted: (_) => widget.onSubmitted(),
+            decoration: InputDecoration(
+              isDense: true,
+              border: InputBorder.none,
+              hintText: widget.hint,
+              hintStyle: BarType.caption.copyWith(
+                fontSize: 14,
+                color: widget.ink.withValues(alpha: 0.45),
+              ),
             ),
           ),
         ),
@@ -460,7 +469,7 @@ class _SavedStrip extends StatelessWidget {
       height: 38,
       decoration: BoxDecoration(
         color: accent.withValues(alpha: 0.16),
-        borderRadius: BorderRadius.circular(14),
+        borderRadius: BorderRadius.circular(KitStyle.of(context).corner(14)),
         border: Border.all(color: accent.withValues(alpha: 0.36)),
       ),
       child: Row(

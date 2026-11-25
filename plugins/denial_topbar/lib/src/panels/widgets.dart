@@ -81,23 +81,27 @@ class _DateWidget extends ConsumerWidget {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: <Widget>[
-          Text(
-            localizedWeekday(context.l10n, now.weekday).toUpperCase(),
-            maxLines: 1,
-            style: BarType.section.copyWith(
-              fontSize: 13,
-              fontWeight: FontWeight.w700,
-              color: calendarRed,
+          _Fit(
+            child: Text(
+              localizedWeekday(context.l10n, now.weekday).toUpperCase(),
+              maxLines: 1,
+              style: BarType.section.copyWith(
+                fontSize: 13,
+                fontWeight: FontWeight.w700,
+                color: calendarRed,
+              ),
             ),
           ),
-          Text(
-            '${now.day}',
-            style: BarType.display.copyWith(
-              fontSize: 60,
-              height: 1.05,
-              fontWeight: FontWeight.w300,
-              letterSpacing: -2,
-              color: theme.colors.textPrimary,
+          _Fit(
+            child: Text(
+              '${now.day}',
+              style: BarType.display.copyWith(
+                fontSize: 60,
+                height: 1.05,
+                fontWeight: FontWeight.w300,
+                letterSpacing: -2,
+                color: theme.colors.textPrimary,
+              ),
             ),
           ),
           const Spacer(),
@@ -174,26 +178,30 @@ class _ClockWidgetState extends State<_ClockWidget> {
               mainAxisAlignment: MainAxisAlignment.center,
               crossAxisAlignment: CrossAxisAlignment.start,
               children: <Widget>[
-                Text(
-                  localizedWeekday(context.l10n, now.weekday).toUpperCase(),
-                  maxLines: 1,
-                  style: BarType.section.copyWith(
-                    fontSize: 13,
-                    fontWeight: FontWeight.w700,
-                    color: calendarRed,
+                _Fit(
+                  child: Text(
+                    localizedWeekday(context.l10n, now.weekday).toUpperCase(),
+                    maxLines: 1,
+                    style: BarType.section.copyWith(
+                      fontSize: 13,
+                      fontWeight: FontWeight.w700,
+                      color: calendarRed,
+                    ),
                   ),
                 ),
-                Text(
-                  '${two(now.hour)}:${two(now.minute)}',
-                  style: BarType.display.copyWith(
-                    fontSize: 40,
-                    height: 1.15,
-                    fontWeight: FontWeight.w300,
-                    letterSpacing: -1,
-                    color: theme.colors.textPrimary,
-                    fontFeatures: const <FontFeature>[
-                      FontFeature.tabularFigures(),
-                    ],
+                _Fit(
+                  child: Text(
+                    '${two(now.hour)}:${two(now.minute)}',
+                    style: BarType.display.copyWith(
+                      fontSize: 40,
+                      height: 1.15,
+                      fontWeight: FontWeight.w300,
+                      letterSpacing: -1,
+                      color: theme.colors.textPrimary,
+                      fontFeatures: const <FontFeature>[
+                        FontFeature.tabularFigures(),
+                      ],
+                    ),
                   ),
                 ),
                 Text(
@@ -382,16 +390,18 @@ class _Gauge extends StatelessWidget {
                 mainAxisAlignment: MainAxisAlignment.center,
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: <Widget>[
-                  Text(
-                    value,
-                    style: BarType.display.copyWith(
-                      fontSize: 34,
-                      height: 1.1,
-                      fontWeight: FontWeight.w500,
-                      color: theme.colors.textPrimary,
-                      fontFeatures: const <FontFeature>[
-                        FontFeature.tabularFigures(),
-                      ],
+                  _Fit(
+                    child: Text(
+                      value,
+                      style: BarType.display.copyWith(
+                        fontSize: 34,
+                        height: 1.1,
+                        fontWeight: FontWeight.w500,
+                        color: theme.colors.textPrimary,
+                        fontFeatures: const <FontFeature>[
+                          FontFeature.tabularFigures(),
+                        ],
+                      ),
                     ),
                   ),
                   for (final line in <String>[caption, ...lines])
@@ -432,14 +442,16 @@ class _Gauge extends StatelessWidget {
             ),
           ),
           const Spacer(),
-          Text(
-            value,
-            style: BarType.display.copyWith(
-              fontSize: 28,
-              height: 1.1,
-              fontWeight: FontWeight.w500,
-              color: theme.colors.textPrimary,
-              fontFeatures: const <FontFeature>[FontFeature.tabularFigures()],
+          _Fit(
+            child: Text(
+              value,
+              style: BarType.display.copyWith(
+                fontSize: 28,
+                height: 1.1,
+                fontWeight: FontWeight.w500,
+                color: theme.colors.textPrimary,
+                fontFeatures: const <FontFeature>[FontFeature.tabularFigures()],
+              ),
             ),
           ),
           Text(
@@ -573,13 +585,15 @@ class _MediaWidget extends ConsumerWidget {
           MediaArtwork(
             url: playback?.artUrl ?? '',
             size: art,
-            radius: 14,
+            radius: KitStyle.of(context).corner(14),
             fallback: Container(
               width: art,
               height: art,
               decoration: BoxDecoration(
                 color: ink.withValues(alpha: 0.10),
-                borderRadius: BorderRadius.circular(14),
+                borderRadius: BorderRadius.circular(
+                  KitStyle.of(context).corner(14),
+                ),
               ),
               child: BarGlyph(
                 BarIcons.playFill,
@@ -690,4 +704,19 @@ class _SparkPainter extends CustomPainter {
   @override
   bool shouldRepaint(_SparkPainter old) =>
       old.samples != samples || old.colour != colour;
+}
+
+/// Shrinks a line that is too wide for its card, such as a numeral in a
+/// look set in wider type; a line that fits is left as it is.
+class _Fit extends StatelessWidget {
+  const _Fit({required this.child});
+
+  final Widget child;
+
+  @override
+  Widget build(BuildContext context) => FittedBox(
+    fit: BoxFit.scaleDown,
+    alignment: Alignment.centerLeft,
+    child: child,
+  );
 }

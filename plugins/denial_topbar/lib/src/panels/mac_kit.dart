@@ -66,7 +66,7 @@ class Pressable extends StatefulWidget {
     this.scale = 0.96,
     this.builder,
     this.wash = false,
-    this.shape = const BorderRadius.all(Radius.circular(9)),
+    this.shape,
     this.onHighlight,
     super.key,
   });
@@ -88,8 +88,9 @@ class Pressable extends StatefulWidget {
   /// Lays a shade of the ink over the child while hovered and pressed.
   final bool wash;
 
-  /// The outline the wash and the focus ring follow.
-  final BorderRadius shape;
+  /// The outline the wash and the focus ring follow; a row's corners in the
+  /// look in force unless given.
+  final BorderRadius? shape;
 
   /// Reports the hover and pressed state to a parent that draws them.
   final void Function(bool hovered, bool pressed)? onHighlight;
@@ -178,7 +179,9 @@ class _PressableState extends State<Pressable> {
       ),
       foregroundDecoration: BoxDecoration(
         color: theme.colors.textPrimary.withValues(alpha: shade),
-        borderRadius: widget.shape,
+        borderRadius:
+            widget.shape ??
+            BorderRadius.circular(KitStyle.of(context).corner(9)),
         border: Border.all(
           color: theme.kitAccent.withValues(alpha: _ring ? 1 : 0),
           width: 2,
@@ -280,9 +283,9 @@ class _MacSwitchState extends State<MacSwitch>
 
   late final KitSpring _at = KitSpring(
     widget.value ? 1 : -1,
-    KitStyle.denial.pressTuning,
+    kitStyle.value.toggle,
   );
-  late final KitSpring _held = KitSpring(0, KitStyle.denial.pressTuning);
+  late final KitSpring _held = KitSpring(0, kitStyle.value.pressTuning);
   late final KitSprings _springs = KitSprings(this, <KitSpring>[_at, _held]);
 
   /// The knob's place while a finger drags it, -1 to 1.
@@ -360,13 +363,12 @@ class _MacSwitchState extends State<MacSwitch>
     final theme = context.shellTheme;
     final style = KitStyle.of(context);
     final enabled = _enabled;
-    _at.tune(
-      style.liquid
-          ? const KitSpringTuning(520, 0.6)
-          : const KitSpringTuning(620, 0.72),
-    );
+    _at.tune(style.toggle);
     _held.tune(style.pressTuning);
-    final knob = style.liquid ? 22.0 : 28.0;
+    // Ink on the fill for Denial's knob and for a flat look's block; a white
+    // bead with a shadow otherwise.
+    final inked = style.liquid || style.flat;
+    final knob = inked ? 22.0 : 28.0;
     final travel = _width - _pad * 2 - knob;
     final drag = _drag;
     final on = drag != null ? drag > 0 : _target;
@@ -433,7 +435,7 @@ class _MacSwitchState extends State<MacSwitch>
             child: DecoratedBox(
               position: DecorationPosition.foreground,
               decoration: BoxDecoration(
-                borderRadius: BorderRadius.circular(13),
+                borderRadius: BorderRadius.circular(style.pill(26)),
                 border: Border.all(
                   color: style.accent(theme).withValues(alpha: _ring ? 1 : 0),
                   width: 2,
@@ -448,8 +450,11 @@ class _MacSwitchState extends State<MacSwitch>
                   sideways: true,
                   color: style.accent(theme),
                   base: theme.colors.textPrimary.withValues(alpha: 0.18),
-                  radius: BorderRadius.circular(13),
-                  child: Padding(
+                  radius: BorderRadius.circular(style.pill(26)),
+                  child: Container(
+                    foregroundDecoration: BoxDecoration(
+                      border: style.controlLine(theme),
+                    ),
                     padding: const EdgeInsets.all(_pad),
                     child: AnimatedBuilder(
                       animation: _springs,
@@ -459,25 +464,23 @@ class _MacSwitchState extends State<MacSwitch>
                           width: knob + _swell * math.max(0, _held.value),
                           height: 22,
                           decoration: BoxDecoration(
-                            borderRadius: BorderRadius.circular(11),
-                            // Denial's knob is ink on the fill, the other
-                            // look's a white bead with a shadow.
-                            color: !style.liquid
+                            borderRadius: BorderRadius.circular(style.pill(22)),
+                            color: !inked
                                 ? const Color(0xffffffff)
                                 : on
                                 ? style.onAccent(theme)
                                 : theme.colors.textPrimary.withValues(
                                     alpha: 0.82,
                                   ),
-                            boxShadow: style.liquid
+                            boxShadow: inked
                                 ? null
-                                : const <BoxShadow>[
+                                : style.cast(const <BoxShadow>[
                                     BoxShadow(
                                       color: Color(0x33000000),
                                       blurRadius: 4,
                                       offset: Offset(0, 1),
                                     ),
-                                  ],
+                                  ]),
                           ),
                         ),
                       ),
@@ -519,14 +522,15 @@ class MacDisc extends StatelessWidget {
   Widget build(BuildContext context) {
     final theme = context.shellTheme;
     final style = KitStyle.of(context);
-    return SizedBox(
+    return Container(
       width: size,
       height: size,
+      foregroundDecoration: BoxDecoration(border: style.controlLine(theme)),
       child: LiquidFill(
         level: on ? 1 : 0,
         color: style.plate(theme, colour, meaning: meaning),
         base: theme.colors.textPrimary.withValues(alpha: 0.14),
-        radius: BorderRadius.circular(size / 2),
+        radius: style.disc(size),
         child: Center(
           child:
               child ??
@@ -672,7 +676,7 @@ class MacRow extends StatelessWidget {
                 ? 0.08
                 : 0,
           ),
-          borderRadius: BorderRadius.circular(9),
+          borderRadius: BorderRadius.circular(KitStyle.of(context).corner(9)),
         ),
         child: Row(
           children: <Widget>[
@@ -766,7 +770,7 @@ class _MacSliderState extends State<MacSlider>
     widget.value.clamp(0.0, 1.0).toDouble(),
     _follow,
   );
-  late final KitSpring _held = KitSpring(0, KitStyle.denial.pressTuning);
+  late final KitSpring _held = KitSpring(0, kitStyle.value.pressTuning);
   late final KitSprings _springs = KitSprings(this, <KitSpring>[_shown, _held]);
 
   /// Repaints after a value is put under the finger directly, when no
@@ -934,15 +938,19 @@ class _MacSliderState extends State<MacSlider>
 
   Widget _surface(BuildContext context) {
     final theme = context.shellTheme;
+    final style = KitStyle.of(context);
     final paint = CustomPaint(
       painter: _SliderPainter(
         repaint: Listenable.merge(<Listenable>[_springs, _poke]),
         shown: _shown,
         held: _held,
         knobHeight: widget.height,
-        accent: KitStyle.of(context).accent(theme),
+        accent: style.accent(theme),
         ink: theme.colors.textPrimary,
         ring: _ring,
+        square: style.square,
+        flat: style.flat,
+        shade: style.shadow,
       ),
       child: SizedBox(height: widget.height + 14, width: double.infinity),
     );
@@ -1043,6 +1051,9 @@ class _SliderPainter extends CustomPainter {
     required this.accent,
     required this.ink,
     required this.ring,
+    required this.square,
+    required this.flat,
+    required this.shade,
   }) : super(repaint: repaint);
 
   final KitSpring shown;
@@ -1051,6 +1062,12 @@ class _SliderPainter extends CustomPainter {
   final Color accent;
   final Color ink;
   final bool ring;
+
+  /// The look's own: square ends, a flat block for a knob with no lens, and
+  /// how much of the knob's shadow is cast.
+  final bool square;
+  final bool flat;
+  final double shade;
 
   static const Color _white = Color(0xffffffff);
   static const Color _black = Color(0xff000000);
@@ -1066,7 +1083,7 @@ class _SliderPainter extends CustomPainter {
     final centre = sliderCentreFor(shown.value, size.width, h * 1.5);
     final fill = Color.lerp(accent, _black, 0.24 * glass)!;
     final groove = ink.withValues(alpha: 0.16);
-    final radius = Radius.circular(track / 2);
+    final radius = Radius.circular(square ? 0 : track / 2);
 
     canvas.drawRRect(
       RRect.fromLTRBR(0, cy - track / 2, size.width, cy + track / 2, radius),
@@ -1085,8 +1102,16 @@ class _SliderPainter extends CustomPainter {
     );
     final knob = RRect.fromRectAndRadius(
       box,
-      Radius.circular(knobHeightNow / 2),
+      Radius.circular(square ? 0 : knobHeightNow / 2),
     );
+
+    if (flat) {
+      // A flat look's knob is a block of ink that takes the accent while it
+      // is held: no lens, no shadow, no rim.
+      canvas.drawRRect(knob, Paint()..color = Color.lerp(ink, accent, glass)!);
+      if (ring) _drawRing(canvas, knob);
+      return;
+    }
 
     // The shadow falls around the knob only: under a clear lens it would
     // read as dirt on the glass.
@@ -1102,7 +1127,7 @@ class _SliderPainter extends CustomPainter {
       ..drawRRect(
         knob.shift(const Offset(0, 1)),
         Paint()
-          ..color = _black.withValues(alpha: 0.26 - 0.08 * glass)
+          ..color = _black.withValues(alpha: (0.26 - 0.08 * glass) * shade)
           ..maskFilter = MaskFilter.blur(BlurStyle.normal, 2.5 + 2.5 * glass),
       )
       ..restore();
@@ -1159,23 +1184,26 @@ class _SliderPainter extends CustomPainter {
           ).createShader(box),
       );
     }
-    if (ring) {
-      canvas.drawRRect(
-        knob.inflate(3),
-        Paint()
-          ..style = PaintingStyle.stroke
-          ..strokeWidth = 2
-          ..color = accent,
-      );
-    }
+    if (ring) _drawRing(canvas, knob);
   }
+
+  void _drawRing(Canvas canvas, RRect knob) => canvas.drawRRect(
+    knob.inflate(3),
+    Paint()
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = 2
+      ..color = accent,
+  );
 
   @override
   bool shouldRepaint(_SliderPainter old) =>
       old.knobHeight != knobHeight ||
       old.accent != accent ||
       old.ink != ink ||
-      old.ring != ring;
+      old.ring != ring ||
+      old.square != square ||
+      old.flat != flat ||
+      old.shade != shade;
 }
 
 /// Fades and sizes between a collapsed and an expanded child.

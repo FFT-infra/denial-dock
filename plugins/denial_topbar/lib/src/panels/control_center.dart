@@ -91,6 +91,14 @@ class _ControlCenterPanelState extends ConsumerState<ControlCenterPanel>
   static const KitSpringTuning _liquidGrow = KitSpringTuning(300, 0.8);
   static const KitSpringTuning _plainGrow = KitSpringTuning(322, 1);
 
+  /// A look whose transitions run brisker than written takes its own popup
+  /// spring for the page as well, and lands as dead-beat as its popups do.
+  static KitSpringTuning _growTuning(KitStyle style) => style.liquid
+      ? _liquidGrow
+      : style.pace > 1
+      ? style.panelGrow
+      : _plainGrow;
+
   final GlobalKey _morphKey = GlobalKey();
   final Map<String, GlobalKey> _tileKeys = <String, GlobalKey>{};
   Rect? _from;
@@ -205,14 +213,17 @@ class _ControlCenterPanelState extends ConsumerState<ControlCenterPanel>
 
   /// Where the tile [id] sits in the panel, for its page to grow out of.
   void _measure(String id) {
+    final style = KitStyle.of(context);
     final tile = _tileKeys[id]?.currentContext?.findRenderObject();
     final panel = _morphKey.currentContext?.findRenderObject();
     if (tile is RenderBox && panel is RenderBox && tile.hasSize) {
       _from = tile.localToGlobal(Offset.zero, ancestor: panel) & tile.size;
-      _fromRadius = id == 'sound' ? _C.sliderRadius : tile.size.height / 2;
+      _fromRadius = id == 'sound'
+          ? style.corner(_C.sliderRadius)
+          : style.pill(tile.size.height);
     } else {
       _from = null;
-      _fromRadius = BarTokens.popoverRadius;
+      _fromRadius = BarTokens.popoverRadius * style.cornerScale;
     }
   }
 
@@ -229,7 +240,7 @@ class _ControlCenterPanelState extends ConsumerState<ControlCenterPanel>
       if (page.isNotEmpty) _shown = page;
     });
     _grow
-      ..tune(KitStyle.of(context).liquid ? _liquidGrow : _plainGrow)
+      ..tune(_growTuning(KitStyle.of(context)))
       ..target = page.isEmpty ? 0 : 1;
     _springs.kick(reduceMotion: KitMotion.reduced(context));
     // Focus follows only someone who is using the keys; a pointer leaves it
@@ -256,7 +267,9 @@ class _ControlCenterPanelState extends ConsumerState<ControlCenterPanel>
 
   @override
   Widget build(BuildContext context) {
-    final ink = context.shellTheme.colors.textPrimary;
+    final theme = context.shellTheme;
+    final style = KitStyle.of(context);
+    final ink = theme.colors.textPrimary;
     final Widget? detail = switch (_shown) {
       'wifi' => WifiPopover(
         onBack: () => _go(''),
@@ -303,9 +316,11 @@ class _ControlCenterPanelState extends ConsumerState<ControlCenterPanel>
               progress: _grow.value,
               from: _from,
               fromRadius: _fromRadius,
-              toRadius: BarTokens.popoverRadius,
+              toRadius: BarTokens.popoverRadius * style.cornerScale,
               plate: ink.withValues(alpha: 0.07),
-              rim: ink.withValues(alpha: 0.08),
+              rim: style.flat
+                  ? theme.colors.hairline
+                  : ink.withValues(alpha: 0.08),
               home: home,
               detail: page,
             ),
@@ -833,19 +848,22 @@ class _PowerRow extends ConsumerWidget {
     bool can(SessionPowerAction action) =>
         session.busyAction == null && session.availabilityFor(action).enabled;
     final theme = context.shellTheme;
+    final style = KitStyle.of(context);
     final ink = theme.colors.textPrimary;
+    final shape = theme.borderRadius(14) * style.cornerScale;
 
     Widget button(String label, IconData icon, VoidCallback? onTap) => Expanded(
       child: Pressable(
         onTap: onTap,
         scale: Pressable.large,
         wash: true,
-        shape: theme.borderRadius(14),
+        shape: shape,
         child: Container(
           height: 52,
           decoration: BoxDecoration(
-            borderRadius: theme.borderRadius(14),
+            borderRadius: shape,
             color: ink.withValues(alpha: 0.07),
+            border: style.controlLine(theme),
           ),
           child: Column(
             mainAxisAlignment: MainAxisAlignment.center,
@@ -929,6 +947,7 @@ class _Tile extends StatelessWidget {
     this.pressed = false,
   });
 
+  /// The corner radius as drawn: the caller has taken it through the look.
   final double radius;
   final Widget child;
 
@@ -954,9 +973,9 @@ class _Tile extends StatelessWidget {
               : 0.07,
         ),
         borderRadius: BorderRadius.circular(radius),
-        border: Border.all(
-          color: theme.colors.textPrimary.withValues(alpha: 0.08),
-        ),
+        border:
+            KitStyle.of(context).controlLine(theme) ??
+            Border.all(color: theme.colors.textPrimary.withValues(alpha: 0.08)),
       ),
       child: child,
     );
@@ -998,6 +1017,7 @@ class _CapsuleState extends State<_Capsule> {
   @override
   Widget build(BuildContext context) {
     final theme = context.shellTheme;
+    final style = KitStyle.of(context);
     final action = widget.onOpen ?? widget.onToggle;
     final detail = Text(
       widget.detail,
@@ -1013,7 +1033,7 @@ class _CapsuleState extends State<_Capsule> {
       onEnter: (_) => setState(() => _hovered = true),
       onExit: (_) => setState(() => _hovered = false),
       child: _Tile(
-        radius: _C.row / 2,
+        radius: style.pill(_C.row),
         hovered: _hovered && action != null,
         pressed: _pressed,
         child: Row(
@@ -1025,7 +1045,7 @@ class _CapsuleState extends State<_Capsule> {
                 onTap: widget.onToggle,
                 scale: Pressable.small,
                 wash: true,
-                shape: BorderRadius.circular(21),
+                shape: style.disc(42),
                 child: MacDisc(
                   icon: widget.icon,
                   on: widget.on,
@@ -1038,9 +1058,9 @@ class _CapsuleState extends State<_Capsule> {
               child: Pressable(
                 onTap: action,
                 scale: Pressable.large,
-                shape: const BorderRadius.horizontal(
-                  left: Radius.circular(10),
-                  right: Radius.circular(_C.row / 2),
+                shape: BorderRadius.horizontal(
+                  left: Radius.circular(style.corner(10)),
+                  right: Radius.circular(style.pill(_C.row)),
                 ),
                 onHighlight: (_, pressed) {
                   if (pressed != _pressed) setState(() => _pressed = pressed);
@@ -1153,7 +1173,7 @@ class _Round extends StatelessWidget {
   Widget build(BuildContext context) {
     final theme = context.shellTheme;
     final style = KitStyle.of(context);
-    const shape = BorderRadius.all(Radius.circular(_C.row / 2));
+    final shape = style.disc(_C.row);
     return Opacity(
       opacity: onTap == null ? 0.45 : 1,
       child: Pressable(
@@ -1167,9 +1187,11 @@ class _Round extends StatelessWidget {
           position: DecorationPosition.foreground,
           decoration: BoxDecoration(
             borderRadius: shape,
-            border: Border.all(
-              color: theme.colors.textPrimary.withValues(alpha: 0.08),
-            ),
+            border:
+                style.controlLine(theme) ??
+                Border.all(
+                  color: theme.colors.textPrimary.withValues(alpha: 0.08),
+                ),
           ),
           child: LiquidFill(
             level: on ? 1 : 0,
@@ -1202,13 +1224,14 @@ class _MediaTile extends ConsumerWidget {
     final commands = ref.watch(services.mediaCommands);
     final has = playback != null && playback.title.isNotEmpty;
     final ink = theme.colors.textPrimary;
+    final style = KitStyle.of(context);
 
     Widget control(IconData icon, bool enabled, VoidCallback onTap, double s) =>
         Pressable(
           onTap: enabled ? onTap : null,
           scale: Pressable.small,
           wash: true,
-          shape: BorderRadius.circular(16),
+          shape: BorderRadius.circular(style.pill(32)),
           child: SizedBox(
             width: 36,
             height: 32,
@@ -1221,7 +1244,7 @@ class _MediaTile extends ConsumerWidget {
         );
 
     return _Tile(
-      radius: 26,
+      radius: style.corner(26),
       child: Padding(
         padding: const EdgeInsets.fromLTRB(13, 13, 13, 7),
         child: Column(
@@ -1230,13 +1253,13 @@ class _MediaTile extends ConsumerWidget {
             MediaArtwork(
               url: playback?.artUrl ?? '',
               size: 42,
-              radius: 10,
+              radius: style.corner(10),
               fallback: Container(
                 width: 42,
                 height: 42,
                 decoration: BoxDecoration(
                   color: ink.withValues(alpha: 0.10),
-                  borderRadius: BorderRadius.circular(10),
+                  borderRadius: BorderRadius.circular(style.corner(10)),
                 ),
                 child: BarGlyph(
                   BarIcons.playFill,
@@ -1343,6 +1366,7 @@ class _MediaProgressState extends State<_MediaProgress> {
   @override
   Widget build(BuildContext context) {
     final ink = context.shellTheme.colors.textPrimary;
+    final ends = BorderRadius.circular(KitStyle.of(context).pill(3));
     final played = mediaProgress(
       widget.positionAt(DateTime.now()).inMicroseconds,
       widget.length.inMicroseconds,
@@ -1352,7 +1376,7 @@ class _MediaProgressState extends State<_MediaProgress> {
       child: DecoratedBox(
         decoration: BoxDecoration(
           color: ink.withValues(alpha: 0.14),
-          borderRadius: BorderRadius.circular(1.5),
+          borderRadius: ends,
         ),
         child: FractionallySizedBox(
           alignment: Alignment.centerLeft,
@@ -1360,7 +1384,7 @@ class _MediaProgressState extends State<_MediaProgress> {
           child: DecoratedBox(
             decoration: BoxDecoration(
               color: ink.withValues(alpha: 0.6),
-              borderRadius: BorderRadius.circular(1.5),
+              borderRadius: ends,
             ),
           ),
         ),
@@ -1394,7 +1418,7 @@ class _SliderTile extends StatelessWidget {
   Widget build(BuildContext context) {
     final theme = context.shellTheme;
     return _Tile(
-      radius: _C.sliderRadius,
+      radius: KitStyle.of(context).corner(_C.sliderRadius),
       child: Padding(
         padding: const EdgeInsets.fromLTRB(8, 7, 8, 1),
         child: Column(
@@ -1487,22 +1511,26 @@ class _TimerPage extends StatelessWidget {
   Widget build(BuildContext context) {
     final theme = context.shellTheme;
     final ink = theme.colors.textPrimary;
+    final style = KitStyle.of(context);
     Widget chip(String label, VoidCallback onTap, {Color? fill, Color? text}) =>
         Pressable(
           onTap: onTap,
           scale: Pressable.large,
           wash: true,
-          shape: BorderRadius.circular(17),
+          shape: BorderRadius.circular(style.pill(34)),
           child: Container(
-            width: 50,
+            constraints: const BoxConstraints(minWidth: 50),
             height: 34,
+            padding: const EdgeInsets.symmetric(horizontal: 8),
             alignment: Alignment.center,
             decoration: BoxDecoration(
               color: fill ?? ink.withValues(alpha: 0.08),
-              borderRadius: BorderRadius.circular(17),
+              borderRadius: BorderRadius.circular(style.pill(34)),
+              border: style.controlLine(theme),
             ),
             child: Text(
               label,
+              maxLines: 1,
               style: BarType.caption.copyWith(
                 fontSize: 12,
                 fontWeight: FontWeight.w600,
@@ -1553,8 +1581,8 @@ class _TimerPage extends StatelessWidget {
                     chip(
                       context.tr(islandTimer.paused ? 'Resume' : 'Pause'),
                       () => islandTimer.toggle(now),
-                      fill: KitStyle.of(context).plate(theme, macOrange),
-                      text: KitStyle.of(context).onPlate(theme),
+                      fill: style.plate(theme, macOrange),
+                      text: style.onPlate(theme),
                     ),
                     chip(context.tr('Cancel'), islandTimer.cancel),
                   ],

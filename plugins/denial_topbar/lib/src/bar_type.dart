@@ -35,6 +35,18 @@ abstract final class BarType {
     decoration: TextDecoration.none,
   );
 
+  /// The look's family and scale and nothing else, for text that keeps the
+  /// line height of the text style it is built under.
+  static TextStyle bare(double size, FontWeight weight) => TextStyle(
+    fontFamily: kitStyle.value.fontFamily,
+    package: kitStyle.value.fontFamily == null
+        ? null
+        : kitStyle.value.fontPackage,
+    fontFamilyFallback: _fallback,
+    fontSize: size * kitStyle.value.fontScale,
+    fontWeight: weight,
+  );
+
   /// A menu bar title: shell27 `font.pixelSize: 14`.
   static TextStyle get item => _style(14, FontWeight.w400);
 

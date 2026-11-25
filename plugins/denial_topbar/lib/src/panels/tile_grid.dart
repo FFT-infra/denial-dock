@@ -296,21 +296,22 @@ class _Badge extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final style = KitStyle.of(context);
     return Pressable(
       onTap: onTap,
       scale: Pressable.small,
-      shape: BorderRadius.circular(13),
+      shape: style.disc(26),
       child: Padding(
         padding: const EdgeInsets.all(3),
         child: Container(
           width: 20,
           height: 20,
           decoration: BoxDecoration(
-            shape: BoxShape.circle,
+            borderRadius: style.disc(20),
             color: colour ?? const Color(0xff8e8e93),
-            boxShadow: const <BoxShadow>[
+            boxShadow: style.cast(const <BoxShadow>[
               BoxShadow(color: Color(0x40000000), blurRadius: 4),
-            ],
+            ]),
           ),
           child: BarGlyph(icon, size: 11, color: const Color(0xffffffff)),
         ),
@@ -343,6 +344,7 @@ class TileLibrary extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final theme = context.shellTheme;
+    final style = KitStyle.of(context);
     if (choices.isEmpty) {
       return Padding(
         padding: const EdgeInsets.symmetric(vertical: 10),
@@ -363,13 +365,14 @@ class TileLibrary extends StatelessWidget {
             onTap: () => onAdd(choice.id),
             scale: Pressable.large,
             wash: true,
-            shape: BorderRadius.circular(17),
+            shape: BorderRadius.circular(style.pill(34)),
             child: Container(
               height: 34,
               padding: const EdgeInsets.only(left: 10, right: 5),
               decoration: BoxDecoration(
                 color: theme.colors.textPrimary.withValues(alpha: 0.08),
-                borderRadius: BorderRadius.circular(17),
+                borderRadius: BorderRadius.circular(style.pill(34)),
+                border: style.controlLine(theme),
               ),
               child: Row(
                 mainAxisSize: MainAxisSize.min,
@@ -420,29 +423,29 @@ class TileEditButton extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final theme = context.shellTheme;
+    final style = KitStyle.of(context);
     return Pressable(
       onTap: onTap,
       scale: Pressable.large,
       wash: true,
-      shape: BorderRadius.circular(14),
+      shape: BorderRadius.circular(style.pill(28)),
       child: Container(
         height: 28,
         padding: const EdgeInsets.symmetric(horizontal: 14),
         alignment: Alignment.center,
         decoration: BoxDecoration(
           color: strong
-              ? KitStyle.of(context).accent(context.shellTheme)
+              ? style.accent(theme)
               : theme.colors.textPrimary.withValues(alpha: 0.10),
-          borderRadius: BorderRadius.circular(14),
+          borderRadius: BorderRadius.circular(style.pill(28)),
+          border: strong ? null : style.controlLine(theme),
         ),
         child: Text(
           label,
           style: BarType.caption.copyWith(
             fontSize: 12,
             fontWeight: FontWeight.w600,
-            color: strong
-                ? KitStyle.of(context).onAccent(context.shellTheme)
-                : theme.colors.textPrimary,
+            color: strong ? style.onAccent(theme) : theme.colors.textPrimary,
           ),
         ),
       ),

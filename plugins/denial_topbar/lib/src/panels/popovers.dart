@@ -8,6 +8,7 @@ import 'package:denial_flutter_sdk/system_services.dart'
         WifiNetwork;
 import 'package:denial_flutter_sdk/theme.dart';
 import 'package:denial_shell_kit/kit_motion.dart';
+import 'package:denial_shell_kit/kit_style.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
@@ -483,7 +484,9 @@ class _PairingPromptState extends State<_PairingPrompt> {
                 height: 34,
                 decoration: BoxDecoration(
                   color: theme.colors.textPrimary.withValues(alpha: 0.06),
-                  borderRadius: theme.borderRadius(10),
+                  borderRadius:
+                      theme.borderRadius(10) * KitStyle.of(context).cornerScale,
+                  border: KitStyle.of(context).controlLine(theme),
                 ),
                 padding: const EdgeInsets.symmetric(horizontal: 10),
                 // A text field draws on a Material, and nothing above a

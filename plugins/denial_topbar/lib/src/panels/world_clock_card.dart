@@ -172,16 +172,20 @@ class _Dial extends StatelessWidget {
             color: NcLook.onNight,
           ),
         ),
-        Text(
-          clock.dayDelta == 0
-              ? clock.time
-              : '${context.tr(clock.dayDelta < 0 ? 'Yesterday' : 'Tomorrow')} '
-                    '${clock.time}',
-          maxLines: 1,
-          overflow: TextOverflow.ellipsis,
-          style: BarType.caption.copyWith(
-            color: NcLook.onNightDim,
-            fontFeatures: const <FontFeature>[FontFeature.tabularFigures()],
+        // Shrunk to the column rather than cut: the end of the line is the
+        // time itself.
+        FittedBox(
+          fit: BoxFit.scaleDown,
+          child: Text(
+            clock.dayDelta == 0
+                ? clock.time
+                : '${context.tr(clock.dayDelta < 0 ? 'Yesterday' : 'Tomorrow')} '
+                      '${clock.time}',
+            maxLines: 1,
+            style: BarType.caption.copyWith(
+              color: NcLook.onNightDim,
+              fontFeatures: const <FontFeature>[FontFeature.tabularFigures()],
+            ),
           ),
         ),
       ],

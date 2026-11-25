@@ -37,6 +37,7 @@ class _DialogButtonState extends State<DialogButton> {
   @override
   Widget build(BuildContext context) {
     final theme = context.shellTheme;
+    final style = KitStyle.of(context);
     final enabled = widget.onTap != null;
     final ink = theme.colors.textPrimary;
     final fill = widget.primary
@@ -63,7 +64,8 @@ class _DialogButtonState extends State<DialogButton> {
             alignment: Alignment.center,
             decoration: BoxDecoration(
               color: fill,
-              borderRadius: BorderRadius.circular(16),
+              borderRadius: BorderRadius.circular(style.pill(32)),
+              border: widget.primary ? null : style.controlLine(theme),
             ),
             child: Text(
               widget.label,
@@ -230,7 +232,9 @@ class _ForceQuitDialogState extends ConsumerState<ForceQuitDialog> {
             height: 224,
             decoration: BoxDecoration(
               color: ink.withValues(alpha: 0.05),
-              borderRadius: BorderRadius.circular(8),
+              borderRadius: BorderRadius.circular(
+                KitStyle.of(context).corner(8),
+              ),
               border: Border.all(color: theme.colors.hairline),
             ),
             clipBehavior: Clip.antiAlias,
@@ -340,7 +344,8 @@ class WindowHeader extends StatelessWidget {
                 height: 30,
                 decoration: BoxDecoration(
                   color: theme.kitAccent.withValues(alpha: 0.18),
-                  borderRadius: theme.borderRadius(8),
+                  borderRadius:
+                      theme.borderRadius(8) * KitStyle.of(context).cornerScale,
                   border: Border.all(
                     color: theme.kitAccent.withValues(alpha: 0.26),
                   ),
@@ -371,7 +376,9 @@ class WindowHeader extends StatelessWidget {
                     color: theme.colors.textPrimary.withValues(
                       alpha: hovered ? 0.10 : 0,
                     ),
-                    borderRadius: theme.borderRadius(7),
+                    borderRadius:
+                        theme.borderRadius(7) *
+                        KitStyle.of(context).cornerScale,
                   ),
                   child: BarGlyph(
                     BarIcons.xmark,

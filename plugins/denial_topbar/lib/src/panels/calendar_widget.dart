@@ -6,6 +6,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../bar_icons.dart';
+import '../bar_type.dart';
 
 /// The red of the weekday and of today's date.
 const Color calendarRed = Color(0xffff453a);
@@ -63,21 +64,17 @@ class _CalendarWidgetState extends ConsumerState<CalendarWidget> {
                   children: <Widget>[
                     Text(
                       localizedWeekday(context.l10n, now.weekday).toUpperCase(),
-                      style: TextStyle(
-                        fontSize: 13,
-                        fontWeight: FontWeight.w700,
-                        color: calendarRed,
-                        letterSpacing: 0.5,
-                      ),
+                      style: BarType.bare(
+                        13,
+                        FontWeight.w700,
+                      ).copyWith(color: calendarRed, letterSpacing: 0.5),
                       maxLines: 1,
                       overflow: TextOverflow.ellipsis,
                     ),
                     const SizedBox(height: 6),
                     Text(
                       '${now.day}',
-                      style: TextStyle(
-                        fontSize: 52,
-                        fontWeight: FontWeight.w700,
+                      style: BarType.bare(52, FontWeight.w700).copyWith(
                         letterSpacing: -1.5,
                         height: 1.0,
                         color: theme.colors.textPrimary,
@@ -86,11 +83,12 @@ class _CalendarWidgetState extends ConsumerState<CalendarWidget> {
                     const Spacer(),
                     Text(
                       '${localizedMonth(context.l10n, now.month)} ${now.year}',
-                      style: TextStyle(
-                        fontSize: 13,
-                        fontWeight: FontWeight.w600,
-                        color: theme.colors.textSecondary,
-                      ),
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: BarType.bare(
+                        13,
+                        FontWeight.w600,
+                      ).copyWith(color: theme.colors.textSecondary),
                     ),
                   ],
                 ),
@@ -113,15 +111,17 @@ class _CalendarWidgetState extends ConsumerState<CalendarWidget> {
                       height: 20,
                       child: Row(
                         children: <Widget>[
-                          Text(
-                            '${localizedMonth(context.l10n, shown.month)} ${shown.year}',
-                            style: TextStyle(
-                              fontSize: 12,
-                              fontWeight: FontWeight.w700,
-                              color: theme.colors.textPrimary,
+                          Expanded(
+                            child: Text(
+                              '${localizedMonth(context.l10n, shown.month)} ${shown.year}',
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                              style: BarType.bare(
+                                12,
+                                FontWeight.w700,
+                              ).copyWith(color: theme.colors.textPrimary),
                             ),
                           ),
-                          const Spacer(),
                           _ChevronBtn(
                             icon: BarIcons.chevronLeft,
                             onTap: () => setState(() => _monthOffset--),
@@ -143,13 +143,11 @@ class _CalendarWidgetState extends ConsumerState<CalendarWidget> {
                             child: Center(
                               child: Text(
                                 _shortWeekday(context, i),
-                                style: TextStyle(
-                                  fontSize: 10.5,
-                                  fontWeight: FontWeight.w600,
-                                  color: theme.colors.textPrimary.withValues(
-                                    alpha: 0.5,
-                                  ),
-                                ),
+                                style: BarType.bare(10.5, FontWeight.w600)
+                                    .copyWith(
+                                      color: theme.colors.textPrimary
+                                          .withValues(alpha: 0.5),
+                                    ),
                               ),
                             ),
                           ),
@@ -230,7 +228,7 @@ class _ChevronBtnState extends State<_ChevronBtn> {
           height: 18,
           alignment: Alignment.center,
           decoration: BoxDecoration(
-            shape: BoxShape.circle,
+            borderRadius: KitStyle.of(context).disc(18),
             color: _hovered
                 ? theme.colors.textPrimary.withValues(alpha: 0.1)
                 : Colors.transparent,
@@ -264,21 +262,23 @@ class _CompactDay extends StatelessWidget {
       height: size,
       alignment: Alignment.center,
       decoration: BoxDecoration(
-        shape: BoxShape.circle,
+        borderRadius: KitStyle.of(context).disc(size),
         color: isToday
             ? KitStyle.of(context).plate(theme, calendarRed)
             : Colors.transparent,
       ),
       child: Text(
         '${value.day}',
-        style: TextStyle(
-          fontSize: size < 16 ? 10 : 11,
-          height: 1,
-          fontWeight: isToday ? FontWeight.w700 : FontWeight.w400,
-          color: isToday
-              ? KitStyle.of(context).onPlate(theme)
-              : theme.colors.textPrimary,
-        ),
+        style:
+            BarType.bare(
+              size < 16 ? 10 : 11,
+              isToday ? FontWeight.w700 : FontWeight.w400,
+            ).copyWith(
+              height: 1,
+              color: isToday
+                  ? KitStyle.of(context).onPlate(theme)
+                  : theme.colors.textPrimary,
+            ),
       ),
     );
   }
