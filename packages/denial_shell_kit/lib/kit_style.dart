@@ -209,6 +209,23 @@ void _rebuildEverything() {
   WidgetsBinding.instance.rootElement?.visitChildren(visit);
 }
 
+/// The store's version, written on every save. A file without it was written
+/// when the store held only the look, which is what version 1 held; a file
+/// with a newer version is read but never written, so a build cannot drop
+/// settings it does not know.
+const int _storeVersion = 2;
+
+/// Whether this build may write the file, decided once from its version.
+final bool _mayWrite = (() {
+  final version = _readKitJson()['version'];
+  return version is! int || version <= _storeVersion;
+})();
+
+/// The file's keys in the shape this build writes them: the version it knows,
+/// and every key it did not write left as it was.
+Map<String, dynamic> _withVersion(Map<String, dynamic> json) =>
+    json..['version'] = _storeVersion;
+
 class KitStyleNotifier extends ValueNotifier<KitStyle> {
   KitStyleNotifier._() : super(_read());
 
@@ -222,7 +239,8 @@ class KitStyleNotifier extends ValueNotifier<KitStyle> {
     if (style.id == value.id) return;
     value = style;
     _rebuildEverything();
-    final json = _readKitJson()..['style'] = style.id;
+    if (!_mayWrite) return;
+    final json = _withVersion(_readKitJson())..['style'] = style.id;
     _writeKitJson(json);
   }
 }
@@ -240,9 +258,10 @@ class KitSpeedNotifier extends ValueNotifier<double> {
     final speed = KitMotionPace.clampSpeed(next);
     if (speed == super.value) return;
     super.value = speed;
-    final json = _readKitJson()..['speed'] = speed;
-    _writeKitJson(json);
     _rebuildEverything();
+    if (!_mayWrite) return;
+    final json = _withVersion(_readKitJson())..['speed'] = speed;
+    _writeKitJson(json);
   }
 }
 
