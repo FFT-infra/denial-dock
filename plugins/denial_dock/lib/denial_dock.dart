@@ -27,9 +27,11 @@ final class DockPlugin implements ShellSurface {
 
   @override
   ShellSurfacePlacement? place(ShellSurfaceEnvironment environment) {
-    // The shell's settings can switch the dock off; the kit rebuilds the
-    // shell when they do, which places the surfaces again.
-    if (environment.output.inputOnly || !kitDockEnabled.value) {
+    // A dock switched off in the shell's settings stays placed and draws
+    // nothing. Returning null here would drop the surface, and the host
+    // places surfaces again only when its own environment changes, so the
+    // dock would not come back until then.
+    if (environment.output.inputOnly) {
       return null;
     }
 
@@ -50,7 +52,8 @@ final class DockPlugin implements ShellSurface {
 
   @override
   Widget build(BuildContext context, {required ShellSurfaceContext surface}) {
-    // Gone at once when switched off, without waiting to be placed again.
+    // Switched off, the surface holds no widget and so no input region:
+    // nothing shows and every touch falls through to the windows.
     return ValueListenableBuilder<bool>(
       key: ValueKey(surface.environment.output.monitorId),
       valueListenable: kitDockEnabled,
