@@ -253,6 +253,8 @@ class _TopBarSurfaceState extends ConsumerState<TopBarSurface>
         if (words.length > 1) {
           applyShellPreset(ref, ShellPreset.byId(words[1]));
         }
+      case 'dock':
+        kitDockEnabled.value = words.length < 2 || words[1] != 'off';
       case 'cc':
         status.onControlCenter();
       case 'clock':
