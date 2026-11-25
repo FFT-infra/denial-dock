@@ -7,14 +7,21 @@ import 'package:denial_flutter_sdk/state.dart';
 import 'package:denial_flutter_sdk/system_services.dart'
     show PowerProfile, WifiNetwork, systemActionsServiceProvider;
 import 'package:denial_flutter_sdk/theme.dart';
+import 'package:denial_shell_kit/kit_control_math.dart';
+import 'package:denial_shell_kit/kit_entrance.dart';
+import 'package:denial_shell_kit/kit_layer.dart' show KitLayer;
+import 'package:denial_shell_kit/kit_morph.dart';
 import 'package:denial_shell_kit/kit_motion.dart';
+import 'package:denial_shell_kit/kit_springs.dart';
 import 'package:denial_shell_kit/kit_style.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter/widgets.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../bar_icons.dart';
 import '../bar_preferences.dart';
 import '../bar_settings.dart';
+import '../bar_tokens.dart';
 import '../bar_type.dart';
 import '../debug_remote.dart';
 import '../island/island_timer.dart';
@@ -31,6 +38,7 @@ abstract final class _C {
   static const double inset = 14;
   static const double gap = 12;
   static const double row = 64;
+  static const double sliderRadius = 22;
 }
 
 /// Control Centre: connectivity capsules beside Now Playing, the round
@@ -61,9 +69,78 @@ class ControlCenterPanel extends ConsumerStatefulWidget {
   ConsumerState<ControlCenterPanel> createState() => _ControlCenterPanelState();
 }
 
-class _ControlCenterPanelState extends ConsumerState<ControlCenterPanel> {
+class _ControlCenterPanelState extends ConsumerState<ControlCenterPanel>
+    with SingleTickerProviderStateMixin {
+  /// The page the panel is heading for; empty is the grid.
   String _page = '';
+
+  /// The detail page on screen, kept while it shrinks back into its tile.
+  String _shown = '';
   bool _editing = false;
+
+  /// One spring carries a detail page out of its tile and back: the frame,
+  /// its corners, the hand-over between the two faces and the panel's height
+  /// all read this value, so they cannot come apart. A new target keeps the
+  /// velocity, so turning back half way does not jump.
+  late final KitSpring _grow = KitSpring(0, _plainGrow);
+  late final KitSprings _springs = KitSprings(this, <KitSpring>[_grow])
+    ..onRest = _rested;
+
+  /// Denial lets the page pass its size by a hair; the other look lands
+  /// without overshoot.
+  static const KitSpringTuning _liquidGrow = KitSpringTuning(300, 0.8);
+  static const KitSpringTuning _plainGrow = KitSpringTuning(322, 1);
+
+  final GlobalKey _morphKey = GlobalKey();
+  final Map<String, GlobalKey> _tileKeys = <String, GlobalKey>{};
+  Rect? _from;
+  double _fromRadius = 0;
+
+  /// Its own scope, so Tab and the arrows stay inside the panel. Keys it
+  /// does not use, Escape above all, still travel up to the layer.
+  final FocusScopeNode _root = FocusScopeNode(debugLabel: 'control centre');
+  final FocusNode _detailFocus = FocusNode(
+    debugLabel: 'control centre detail',
+    skipTraversal: true,
+  );
+
+  /// The tile a detail page was opened from with the keyboard, which takes
+  /// the focus back when the page closes.
+  FocusNode? _opener;
+  ValueChanged<bool Function()?>? _intercept;
+
+  /// Tab walks the controls and the arrows jump to the nearest one that
+  /// way. A control that uses a key itself (a slider its arrows, a text
+  /// field everything) has already taken it by the time it gets here.
+  KeyEventResult _onKey(FocusNode node, KeyEvent event) {
+    if (event is KeyUpEvent) return KeyEventResult.ignored;
+    final focus = FocusManager.instance.primaryFocus;
+    final at = focus?.context;
+    if (focus == null || at == null) return KeyEventResult.ignored;
+    if (at.widget is EditableText ||
+        at.findAncestorWidgetOfExactType<EditableText>() != null) {
+      return KeyEventResult.ignored;
+    }
+    final key = event.logicalKey;
+    if (key == LogicalKeyboardKey.tab) {
+      HardwareKeyboard.instance.isShiftPressed
+          ? focus.previousFocus()
+          : focus.nextFocus();
+      return KeyEventResult.handled;
+    }
+    final direction = key == LogicalKeyboardKey.arrowLeft
+        ? TraversalDirection.left
+        : key == LogicalKeyboardKey.arrowRight
+        ? TraversalDirection.right
+        : key == LogicalKeyboardKey.arrowUp
+        ? TraversalDirection.up
+        : key == LogicalKeyboardKey.arrowDown
+        ? TraversalDirection.down
+        : null;
+    if (direction == null) return KeyEventResult.ignored;
+    focus.focusInDirection(direction);
+    return KeyEventResult.handled;
+  }
 
   ShellServices get services => widget.services;
 
@@ -72,28 +149,115 @@ class _ControlCenterPanelState extends ConsumerState<ControlCenterPanel> {
     super.initState();
     NightLight.sync();
     debugCommand.addListener(_debug);
+    // The keys land here first, so Tab and the arrows have somewhere to
+    // start from; Escape still travels up to the layer.
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) _root.requestFocus();
+    });
+  }
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    final hook = context
+        .dependOnInheritedWidgetOfExactType<KitLayer>()
+        ?.interceptBack;
+    if (hook != _intercept) {
+      _intercept?.call(null);
+      _intercept = hook;
+    }
+    hook?.call(_back);
   }
 
   @override
   void dispose() {
+    _intercept?.call(null);
     debugCommand.removeListener(_debug);
+    _springs.dispose();
+    _root.dispose();
+    _detailFocus.dispose();
     super.dispose();
   }
 
   void _debug() {
     final words = debugWords();
     if (words.length < 2 || words.first != 'ccpage') return;
+    final editing = words[1] == 'edit';
+    _go(editing || words[1] == 'home' ? '' : words[1]);
+    setState(() => _editing = editing);
+  }
+
+  /// Escape and a press outside come here before they close the panel: a
+  /// detail page goes back to the grid first, an edit ends first, and only a
+  /// panel at rest lets the layer close it.
+  bool _back() {
+    final step = panelBackStep(detail: _page.isNotEmpty, editing: _editing);
+    switch (step) {
+      case PanelBackStep.leaveDetail:
+        _go('');
+      case PanelBackStep.endEditing:
+        setState(() => _editing = false);
+      case PanelBackStep.close:
+        return false;
+    }
+    return true;
+  }
+
+  /// Where the tile [id] sits in the panel, for its page to grow out of.
+  void _measure(String id) {
+    final tile = _tileKeys[id]?.currentContext?.findRenderObject();
+    final panel = _morphKey.currentContext?.findRenderObject();
+    if (tile is RenderBox && panel is RenderBox && tile.hasSize) {
+      _from = tile.localToGlobal(Offset.zero, ancestor: panel) & tile.size;
+      _fromRadius = id == 'sound' ? _C.sliderRadius : tile.size.height / 2;
+    } else {
+      _from = null;
+      _fromRadius = BarTokens.popoverRadius;
+    }
+  }
+
+  void _go(String page) {
+    if (page == _page) return;
+    final keys = keyboardInput.value;
+    if (page.isNotEmpty) {
+      // A page opened while another shrinks keeps growing from that tile.
+      if (_shown.isEmpty) _measure(page);
+      _opener = keys ? FocusManager.instance.primaryFocus : null;
+    }
     setState(() {
-      _editing = words[1] == 'edit';
-      _page = _editing || words[1] == 'home' ? '' : words[1];
+      _page = page;
+      if (page.isNotEmpty) _shown = page;
+    });
+    _grow
+      ..tune(KitStyle.of(context).liquid ? _liquidGrow : _plainGrow)
+      ..target = page.isEmpty ? 0 : 1;
+    _springs.kick(reduceMotion: KitMotion.reduced(context));
+    // Focus follows only someone who is using the keys; a pointer leaves it
+    // where it was and no ring appears.
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      if (_page.isEmpty) {
+        final opener = _opener;
+        _opener = null;
+        if (keys && opener != null && opener.context != null) {
+          opener.requestFocus();
+        }
+      } else if (keys) {
+        _detailFocus.traversalDescendants.firstOrNull?.requestFocus();
+      }
     });
   }
 
-  void _go(String page) => setState(() => _page = page);
+  void _rested() {
+    if (_grow.target == 0 && _shown.isNotEmpty && mounted) {
+      setState(() => _shown = '');
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
-    final Widget body = switch (_page) {
+    final ink = context.shellTheme.colors.textPrimary;
+    final Widget? detail = switch (_shown) {
       'wifi' => WifiPopover(
         onBack: () => _go(''),
         onJoin: widget.onJoinNetwork,
@@ -109,25 +273,43 @@ class _ControlCenterPanelState extends ConsumerState<ControlCenterPanel> {
         onSettings: widget.onSettings,
       ),
       'timer' => _TimerPage(onBack: () => _go('')),
-      _ => _grid(context),
+      _ => null,
     };
+    final home = KeyedSubtree(
+      key: const ValueKey<String>('home'),
+      child: ExcludeFocus(
+        excluding: _page.isNotEmpty,
+        child: KitEntrance(child: _grid(context)),
+      ),
+    );
+    final page = detail == null
+        ? null
+        : Focus(
+            key: ValueKey<String>(_shown),
+            focusNode: _detailFocus,
+            skipTraversal: true,
+            child: detail,
+          );
     return SizedBox(
       width: controlCenterWidth,
-      child: AnimatedSize(
-        duration: KitMotion.loop(context, KitMotion.travel),
-        curve: KitMotion.outCubic,
-        alignment: Alignment.topCenter,
-        child: AnimatedSwitcher(
-          duration: KitMotion.duration(context, KitMotion.enter),
-          layoutBuilder: (current, previous) => Stack(
-            alignment: Alignment.topCenter,
-            children: <Widget>[
-              for (final child in previous)
-                Positioned(left: 0, right: 0, top: 0, child: child),
-              ?current,
-            ],
+      child: FocusScope(
+        node: _root,
+        onKeyEvent: _onKey,
+        child: FocusTraversalGroup(
+          child: AnimatedBuilder(
+            animation: _springs,
+            builder: (context, _) => KitMorph(
+              key: _morphKey,
+              progress: _grow.value,
+              from: _from,
+              fromRadius: _fromRadius,
+              toRadius: BarTokens.popoverRadius,
+              plate: ink.withValues(alpha: 0.07),
+              rim: ink.withValues(alpha: 0.08),
+              home: home,
+              detail: page,
+            ),
           ),
-          child: KeyedSubtree(key: ValueKey<String>(_page), child: body),
         ),
       ),
     );
@@ -455,6 +637,7 @@ class _ControlCenterPanelState extends ConsumerState<ControlCenterPanel> {
                 detail: islandTimer.active
                     ? clockSpan(islandTimer.remaining(now))
                     : context.tr('Off'),
+                ticking: islandTimer.active,
                 onToggle: () => islandTimer.active
                     ? islandTimer.cancel()
                     : islandTimer.start(const Duration(minutes: 5), now),
@@ -514,7 +697,20 @@ class _ControlCenterPanelState extends ConsumerState<ControlCenterPanel> {
         (state) => state.value?.controls ?? defaultControls,
       ),
     );
-    final tiles = <Tile>[for (final id in order) ?_tile(context, id)];
+    final tiles = <Tile>[
+      for (final id in order)
+        if (_tile(context, id) case final tile?)
+          // Keyed so a detail page can find the tile it grows out of.
+          Tile(
+            id: tile.id,
+            size: tile.size,
+            onResize: tile.onResize,
+            child: KeyedSubtree(
+              key: _tileKeys.putIfAbsent(id, GlobalKey.new),
+              child: tile.child,
+            ),
+          ),
+    ];
     final spare = <TileChoice>[
       for (final choice in _library)
         if (!order.contains(choice.id))
@@ -570,36 +766,42 @@ class _ControlCenterPanelState extends ConsumerState<ControlCenterPanel> {
           const SizedBox(height: 12),
           // Session actions live here rather than in the bar's system menu:
           // this is the panel that is open when someone wants to stop work.
-          Padding(
-            padding: const EdgeInsets.only(bottom: 2),
-            child: _PowerRow(
-              onSleep: () => widget.onClose(),
-              confirm: (action) {
-                widget.onClose();
-                widget.onConfirmPower(action);
-              },
-              request: (action) {
-                widget.onClose();
-                ref.read(sessionPowerProvider.notifier).request(action);
-              },
+          KitEntranceItem(
+            row: 4,
+            child: Padding(
+              padding: const EdgeInsets.only(bottom: 2),
+              child: _PowerRow(
+                onSleep: () => widget.onClose(),
+                confirm: (action) {
+                  widget.onClose();
+                  widget.onConfirmPower(action);
+                },
+                request: (action) {
+                  widget.onClose();
+                  ref.read(sessionPowerProvider.notifier).request(action);
+                },
+              ),
             ),
           ),
-          Row(
-            mainAxisAlignment: MainAxisAlignment.center,
-            children: <Widget>[
-              if (_editing) ...<Widget>[
+          KitEntranceItem(
+            row: 5,
+            child: Row(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: <Widget>[
+                if (_editing) ...<Widget>[
+                  TileEditButton(
+                    label: context.tr('Reset'),
+                    onTap: () => _saveControls(defaultControls),
+                  ),
+                  const SizedBox(width: 8),
+                ],
                 TileEditButton(
-                  label: context.tr('Reset'),
-                  onTap: () => _saveControls(defaultControls),
+                  label: context.tr(_editing ? 'Done' : 'Edit Controls'),
+                  strong: _editing,
+                  onTap: () => setState(() => _editing = !_editing),
                 ),
-                const SizedBox(width: 8),
               ],
-              TileEditButton(
-                label: context.tr(_editing ? 'Done' : 'Edit Controls'),
-                strong: _editing,
-                onTap: () => setState(() => _editing = !_editing),
-              ),
-            ],
+            ),
           ),
         ],
       ),
@@ -636,7 +838,9 @@ class _PowerRow extends ConsumerWidget {
     Widget button(String label, IconData icon, VoidCallback? onTap) => Expanded(
       child: Pressable(
         onTap: onTap,
-        scale: 0.9,
+        scale: Pressable.large,
+        wash: true,
+        shape: theme.borderRadius(14),
         child: Container(
           height: 52,
           decoration: BoxDecoration(
@@ -718,17 +922,37 @@ class _PowerRow extends ConsumerWidget {
 }
 
 class _Tile extends StatelessWidget {
-  const _Tile({required this.radius, required this.child});
+  const _Tile({
+    required this.radius,
+    required this.child,
+    this.hovered = false,
+    this.pressed = false,
+  });
 
   final double radius;
   final Widget child;
 
+  /// A tile that can be pressed as a whole lifts a shade under the pointer
+  /// and another under a press.
+  final bool hovered;
+  final bool pressed;
+
   @override
   Widget build(BuildContext context) {
     final theme = context.shellTheme;
-    return Container(
+    return AnimatedContainer(
+      duration: KitMotion.duration(
+        context,
+        pressed ? KitMotion.wash : KitMotion.enter,
+      ),
       decoration: BoxDecoration(
-        color: theme.colors.textPrimary.withValues(alpha: 0.07),
+        color: theme.colors.textPrimary.withValues(
+          alpha: pressed
+              ? 0.17
+              : hovered
+              ? 0.10
+              : 0.07,
+        ),
         borderRadius: BorderRadius.circular(radius),
         border: Border.all(
           color: theme.colors.textPrimary.withValues(alpha: 0.08),
@@ -739,7 +963,7 @@ class _Tile extends StatelessWidget {
   }
 }
 
-class _Capsule extends StatelessWidget {
+class _Capsule extends StatefulWidget {
   const _Capsule({
     required this.icon,
     required this.on,
@@ -748,6 +972,7 @@ class _Capsule extends StatelessWidget {
     required this.onToggle,
     this.onOpen,
     this.colour = macBlue,
+    this.ticking = false,
   });
 
   final IconData icon;
@@ -758,59 +983,150 @@ class _Capsule extends StatelessWidget {
   final VoidCallback? onOpen;
   final Color colour;
 
+  /// The detail is a running clock: it changes every second, and a fade on
+  /// each change would never finish.
+  final bool ticking;
+
+  @override
+  State<_Capsule> createState() => _CapsuleState();
+}
+
+class _CapsuleState extends State<_Capsule> {
+  bool _hovered = false;
+  bool _pressed = false;
+
   @override
   Widget build(BuildContext context) {
     final theme = context.shellTheme;
-    return _Tile(
-      radius: _C.row / 2,
-      child: Row(
-        children: <Widget>[
-          const SizedBox(width: 11),
-          Opacity(
-            opacity: onToggle == null ? 0.45 : 1,
-            child: Pressable(
-              onTap: onToggle,
-              scale: 0.88,
-              child: MacDisc(icon: icon, on: on, size: 42, colour: colour),
+    final action = widget.onOpen ?? widget.onToggle;
+    final detail = Text(
+      widget.detail,
+      key: widget.ticking ? null : ValueKey<String>(widget.detail),
+      maxLines: 1,
+      overflow: TextOverflow.ellipsis,
+      style: BarType.caption.copyWith(
+        fontSize: 12,
+        color: theme.colors.textSecondary,
+      ),
+    );
+    return MouseRegion(
+      onEnter: (_) => setState(() => _hovered = true),
+      onExit: (_) => setState(() => _hovered = false),
+      child: _Tile(
+        radius: _C.row / 2,
+        hovered: _hovered && action != null,
+        pressed: _pressed,
+        child: Row(
+          children: <Widget>[
+            const SizedBox(width: 11),
+            Opacity(
+              opacity: widget.onToggle == null ? 0.45 : 1,
+              child: Pressable(
+                onTap: widget.onToggle,
+                scale: Pressable.small,
+                wash: true,
+                shape: BorderRadius.circular(21),
+                child: MacDisc(
+                  icon: widget.icon,
+                  on: widget.on,
+                  size: 42,
+                  colour: widget.colour,
+                ),
+              ),
             ),
-          ),
-          Expanded(
-            child: Pressable(
-              onTap: onOpen ?? onToggle,
-              scale: 0.97,
-              child: Padding(
-                padding: const EdgeInsets.fromLTRB(9, 0, 10, 0),
-                child: SizedBox(
-                  height: _C.row,
-                  child: Column(
-                    mainAxisAlignment: MainAxisAlignment.center,
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: <Widget>[
-                      Text(
-                        title,
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                        style: BarType.title.copyWith(
-                          color: theme.colors.textPrimary,
-                        ),
-                      ),
-                      if (detail.isNotEmpty)
-                        Text(
-                          detail,
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
-                          style: BarType.caption.copyWith(
-                            fontSize: 12,
-                            color: theme.colors.textSecondary,
+            Expanded(
+              child: Pressable(
+                onTap: action,
+                scale: Pressable.large,
+                shape: const BorderRadius.horizontal(
+                  left: Radius.circular(10),
+                  right: Radius.circular(_C.row / 2),
+                ),
+                onHighlight: (_, pressed) {
+                  if (pressed != _pressed) setState(() => _pressed = pressed);
+                },
+                child: Padding(
+                  padding: const EdgeInsets.fromLTRB(9, 0, 12, 0),
+                  child: SizedBox(
+                    height: _C.row,
+                    child: Row(
+                      children: <Widget>[
+                        Expanded(
+                          child: Column(
+                            mainAxisAlignment: MainAxisAlignment.center,
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: <Widget>[
+                              Text(
+                                widget.title,
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
+                                style: BarType.title.copyWith(
+                                  color: theme.colors.textPrimary,
+                                ),
+                              ),
+                              if (widget.detail.isNotEmpty)
+                                AnimatedSwitcher(
+                                  duration: KitMotion.duration(
+                                    context,
+                                    KitMotion.swap,
+                                  ),
+                                  switchInCurve: KitMotion.outCubic,
+                                  switchOutCurve: KitMotion.inCubic,
+                                  layoutBuilder: (current, previous) => Stack(
+                                    alignment: Alignment.centerLeft,
+                                    children: <Widget>[...previous, ?current],
+                                  ),
+                                  child: detail,
+                                ),
+                            ],
                           ),
                         ),
-                    ],
+                        if (widget.onOpen != null) _OpenHint(hovered: _hovered),
+                      ],
+                    ),
                   ),
                 ),
               ),
             ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+/// The arrow that says a capsule opens a page. A pointer sees it slide in
+/// on hover; a finger cannot hover, so for touch it is always there, dimmer.
+class _OpenHint extends StatelessWidget {
+  const _OpenHint({required this.hovered});
+
+  final bool hovered;
+
+  @override
+  Widget build(BuildContext context) {
+    final colour = context.shellTheme.colors.textSecondary;
+    return ValueListenableBuilder<bool>(
+      valueListenable: touchInput,
+      builder: (context, touch, child) {
+        final duration = KitMotion.duration(context, KitMotion.fill);
+        return AnimatedOpacity(
+          duration: duration,
+          opacity: hovered
+              ? 1
+              : touch
+              ? 0.55
+              : 0,
+          child: AnimatedSlide(
+            duration: duration,
+            curve: KitMotion.outCubic,
+            offset: hovered || touch ? Offset.zero : const Offset(-0.5, 0),
+            child: child,
           ),
-        ],
+        );
+      },
+      child: Padding(
+        padding: const EdgeInsets.only(left: 4),
+        child: BarGlyph(BarIcons.chevronRight, size: 11, color: colour),
       ),
     );
   }
@@ -836,28 +1152,37 @@ class _Round extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final theme = context.shellTheme;
+    final style = KitStyle.of(context);
+    const shape = BorderRadius.all(Radius.circular(_C.row / 2));
     return Opacity(
       opacity: onTap == null ? 0.45 : 1,
       child: Pressable(
         onTap: onTap,
-        scale: 0.9,
-        child: AnimatedContainer(
-          duration: KitMotion.duration(context, KitMotion.enter),
+        scale: Pressable.small,
+        wash: true,
+        shape: shape,
+        // The same fill as a capsule's disc, so every switch in the panel
+        // turns on the same way.
+        child: DecoratedBox(
+          position: DecorationPosition.foreground,
           decoration: BoxDecoration(
-            shape: BoxShape.circle,
-            color: on
-                ? KitStyle.of(context).plate(theme, colour)
-                : theme.colors.textPrimary.withValues(alpha: 0.07),
+            borderRadius: shape,
             border: Border.all(
-              color: theme.colors.textPrimary.withValues(alpha: on ? 0 : 0.08),
+              color: theme.colors.textPrimary.withValues(alpha: 0.08),
             ),
           ),
-          child: BarGlyph(
-            icon,
-            size: 24,
-            color: on
-                ? KitStyle.of(context).onPlate(theme)
-                : theme.colors.textPrimary,
+          child: LiquidFill(
+            level: on ? 1 : 0,
+            color: style.plate(theme, colour),
+            base: theme.colors.textPrimary.withValues(alpha: 0.07),
+            radius: shape,
+            child: Center(
+              child: MacGlyph(
+                icon,
+                size: 24,
+                color: on ? style.onPlate(theme) : theme.colors.textPrimary,
+              ),
+            ),
           ),
         ),
       ),
@@ -881,7 +1206,9 @@ class _MediaTile extends ConsumerWidget {
     Widget control(IconData icon, bool enabled, VoidCallback onTap, double s) =>
         Pressable(
           onTap: enabled ? onTap : null,
-          scale: 0.82,
+          scale: Pressable.small,
+          wash: true,
+          shape: BorderRadius.circular(16),
           child: SizedBox(
             width: 36,
             height: 32,
@@ -896,7 +1223,7 @@ class _MediaTile extends ConsumerWidget {
     return _Tile(
       radius: 26,
       child: Padding(
-        padding: const EdgeInsets.fromLTRB(13, 13, 13, 8),
+        padding: const EdgeInsets.fromLTRB(13, 13, 13, 7),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: <Widget>[
@@ -918,7 +1245,7 @@ class _MediaTile extends ConsumerWidget {
                 ),
               ),
             ),
-            const SizedBox(height: 8),
+            const SizedBox(height: 7),
             Text(
               has ? playback.title : context.tr('Not Playing'),
               maxLines: 1,
@@ -937,6 +1264,13 @@ class _MediaTile extends ConsumerWidget {
                 ),
               ),
             const Spacer(),
+            if (has && playback.length > Duration.zero)
+              _MediaProgress(
+                playing: playback.playing,
+                length: playback.length,
+                positionAt: playback.positionAt,
+              ),
+            const SizedBox(height: 3),
             Row(
               mainAxisAlignment: MainAxisAlignment.spaceBetween,
               children: <Widget>[
@@ -969,6 +1303,72 @@ class _MediaTile extends ConsumerWidget {
   }
 }
 
+/// A hairline of how far the track has played. The system reports a position
+/// and when it was read; the line works out the rest from the clock, twice a
+/// second while something plays.
+class _MediaProgress extends StatefulWidget {
+  const _MediaProgress({
+    required this.playing,
+    required this.length,
+    required this.positionAt,
+  });
+
+  final bool playing;
+  final Duration length;
+  final Duration Function(DateTime now) positionAt;
+
+  @override
+  State<_MediaProgress> createState() => _MediaProgressState();
+}
+
+class _MediaProgressState extends State<_MediaProgress> {
+  late final Timer _tick = Timer.periodic(const Duration(milliseconds: 500), (
+    _,
+  ) {
+    if (widget.playing) setState(() {});
+  });
+
+  @override
+  void initState() {
+    super.initState();
+    _tick;
+  }
+
+  @override
+  void dispose() {
+    _tick.cancel();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final ink = context.shellTheme.colors.textPrimary;
+    final played = mediaProgress(
+      widget.positionAt(DateTime.now()).inMicroseconds,
+      widget.length.inMicroseconds,
+    );
+    return SizedBox(
+      height: 3,
+      child: DecoratedBox(
+        decoration: BoxDecoration(
+          color: ink.withValues(alpha: 0.14),
+          borderRadius: BorderRadius.circular(1.5),
+        ),
+        child: FractionallySizedBox(
+          alignment: Alignment.centerLeft,
+          widthFactor: played,
+          child: DecoratedBox(
+            decoration: BoxDecoration(
+              color: ink.withValues(alpha: 0.6),
+              borderRadius: BorderRadius.circular(1.5),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
 class _SliderTile extends StatelessWidget {
   const _SliderTile({
     required this.label,
@@ -994,7 +1394,7 @@ class _SliderTile extends StatelessWidget {
   Widget build(BuildContext context) {
     final theme = context.shellTheme;
     return _Tile(
-      radius: 22,
+      radius: _C.sliderRadius,
       child: Padding(
         padding: const EdgeInsets.fromLTRB(8, 7, 8, 1),
         child: Column(
@@ -1002,7 +1402,7 @@ class _SliderTile extends StatelessWidget {
           children: <Widget>[
             Pressable(
               onTap: onOpen,
-              scale: 0.98,
+              scale: Pressable.large,
               child: Padding(
                 padding: const EdgeInsets.symmetric(horizontal: 7),
                 child: Row(
@@ -1090,7 +1490,9 @@ class _TimerPage extends StatelessWidget {
     Widget chip(String label, VoidCallback onTap, {Color? fill, Color? text}) =>
         Pressable(
           onTap: onTap,
-          scale: 0.94,
+          scale: Pressable.large,
+          wash: true,
+          shape: BorderRadius.circular(17),
           child: Container(
             width: 50,
             height: 34,

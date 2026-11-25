@@ -1,6 +1,7 @@
 import 'dart:math' as math;
 
 import 'package:denial_flutter_sdk/theme.dart';
+import 'package:denial_shell_kit/kit_entrance.dart';
 import 'package:denial_shell_kit/kit_motion.dart';
 import 'package:denial_shell_kit/kit_style.dart';
 import 'package:flutter/gestures.dart';
@@ -236,6 +237,10 @@ class _TileGridState extends State<TileGrid>
           ],
         );
       }
+      // Inside a surface that stages its entrance the tiles arrive row by
+      // row; anywhere else this is the tile itself.
+      final cell = packed.cells[index];
+      body = KitEntranceItem(row: cell.row, col: cell.col, child: body);
       final at = dragging ? _dragAt : rect.topLeft;
       return AnimatedPositioned(
         key: ValueKey<String>(tile.id),
@@ -293,7 +298,8 @@ class _Badge extends StatelessWidget {
   Widget build(BuildContext context) {
     return Pressable(
       onTap: onTap,
-      scale: 0.8,
+      scale: Pressable.small,
+      shape: BorderRadius.circular(13),
       child: Padding(
         padding: const EdgeInsets.all(3),
         child: Container(
@@ -355,7 +361,9 @@ class TileLibrary extends StatelessWidget {
         for (final choice in choices)
           Pressable(
             onTap: () => onAdd(choice.id),
-            scale: 0.94,
+            scale: Pressable.large,
+            wash: true,
+            shape: BorderRadius.circular(17),
             child: Container(
               height: 34,
               padding: const EdgeInsets.only(left: 10, right: 5),
@@ -414,7 +422,9 @@ class TileEditButton extends StatelessWidget {
     final theme = context.shellTheme;
     return Pressable(
       onTap: onTap,
-      scale: 0.94,
+      scale: Pressable.large,
+      wash: true,
+      shape: BorderRadius.circular(14),
       child: Container(
         height: 28,
         padding: const EdgeInsets.symmetric(horizontal: 14),

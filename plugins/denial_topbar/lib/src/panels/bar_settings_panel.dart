@@ -256,6 +256,9 @@ class _BarSettingsPanelState extends ConsumerState<BarSettingsPanel> {
               trailing: SizedBox(
                 width: 190,
                 child: MacSlider(
+                  // This page scrolls, so the slider yields the wheel and
+                  // vertical drags to it.
+                  inList: true,
                   value:
                       (s.groundOpacity - BarTokens.plateOpacityMin) /
                       (BarTokens.plateOpacityMax - BarTokens.plateOpacityMin),

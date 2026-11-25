@@ -1,5 +1,8 @@
+import 'dart:math' as math;
+
 import 'package:denial_flutter_sdk/panels.dart';
 import 'package:denial_shell_kit/kit_layer.dart';
+import 'package:denial_shell_kit/kit_style.dart';
 import 'package:flutter/widgets.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
@@ -36,6 +39,10 @@ void showBarPanel({
   double barHeight = BarTokens.height,
 }) {
   final menu = placement == BarPanelAnchor.dropdown;
+  // The control centre is a sheet of round tiles and text, so it grows evenly
+  // from the corner under its icon; an uneven start would squash both.
+  final sheet = placement == BarPanelAnchor.trailing;
+  final bead = kitStyle.value.panelBead;
   showKitPanel(
     ref: ref,
     panelId: panelId,
@@ -60,6 +67,10 @@ void showBarPanel({
     },
     glass: glass,
     fill: fill,
+    bead: sheet
+        ? Size.square(math.max(0.94, math.max(bead.width, bead.height)))
+        : null,
+    cornerOrigin: sheet,
     builder: builder,
   );
 }

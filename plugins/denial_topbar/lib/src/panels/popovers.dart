@@ -486,22 +486,27 @@ class _PairingPromptState extends State<_PairingPrompt> {
                   borderRadius: theme.borderRadius(10),
                 ),
                 padding: const EdgeInsets.symmetric(horizontal: 10),
-                child: TextField(
-                  controller: _typed,
-                  focusNode: _focus,
-                  keyboardType: TextInputType.number,
-                  style: BarType.caption.copyWith(
-                    color: theme.colors.textPrimary,
-                  ),
-                  decoration: InputDecoration(
-                    isDense: true,
-                    border: InputBorder.none,
-                    hintText: context.tr('Code from the device'),
-                    hintStyle: BarType.caption.copyWith(
-                      color: theme.colors.textTertiary,
+                // A text field draws on a Material, and nothing above a
+                // popover supplies one.
+                child: Material(
+                  type: MaterialType.transparency,
+                  child: TextField(
+                    controller: _typed,
+                    focusNode: _focus,
+                    keyboardType: TextInputType.number,
+                    style: BarType.caption.copyWith(
+                      color: theme.colors.textPrimary,
                     ),
+                    decoration: InputDecoration(
+                      isDense: true,
+                      border: InputBorder.none,
+                      hintText: context.tr('Code from the device'),
+                      hintStyle: BarType.caption.copyWith(
+                        color: theme.colors.textTertiary,
+                      ),
+                    ),
+                    onSubmitted: (_) => _accept(),
                   ),
-                  onSubmitted: (_) => _accept(),
                 ),
               ),
             ),
@@ -651,7 +656,9 @@ class SoundPopover extends ConsumerWidget {
           padding: const EdgeInsets.symmetric(horizontal: 2),
           child: MacSlider(
             value: volume,
-            leading: BarIcons.speaker1Fill,
+            leading: volume <= 0.001
+                ? BarIcons.speakerSlashFill
+                : BarIcons.speaker1Fill,
             trailing: BarIcons.speaker3Fill,
             onChangeStart: services.beginVolumeInteraction,
             onChanged: services.setVolume,
@@ -705,6 +712,7 @@ class SoundPopover extends ConsumerWidget {
                       ),
                       MacSlider(
                         height: 14,
+                        inList: true,
                         value: stream.level,
                         onChanged: (value) => apps.setVolume(stream.id, value),
                         onChangeEnd: (value) =>

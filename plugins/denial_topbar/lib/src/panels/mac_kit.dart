@@ -1,7 +1,13 @@
+import 'dart:async';
+import 'dart:math' as math;
+
 import 'package:denial_flutter_sdk/theme.dart';
+import 'package:denial_shell_kit/kit_control_math.dart';
 import 'package:denial_shell_kit/kit_motion.dart';
 import 'package:denial_shell_kit/kit_springs.dart';
 import 'package:denial_shell_kit/kit_style.dart';
+import 'package:flutter/gestures.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter/widgets.dart';
 
 import '../bar_icons.dart';
@@ -14,7 +20,44 @@ const Color macYellow = Color(0xffffd60a);
 const Color macGreen = Color(0xff30d158);
 const Color macRed = Color(0xffff453a);
 
-/// Shrinks its child a little while a finger or button is down on it.
+/// Whether the last pointer seen was a finger. A hover hint has to be drawn
+/// all the time for a finger, which never hovers.
+final ValueNotifier<bool> touchInput = ValueNotifier<bool>(false);
+
+/// Whether the last input was a key rather than a pointer: the only time a
+/// focus ring shows, and the only time focus follows into a detail page.
+/// The framework's own highlight mode cannot say, since a mouse counts as
+/// "traditional" there just as a keyboard does.
+final ValueNotifier<bool> keyboardInput = ValueNotifier<bool>(false);
+
+bool _inputWatched = false;
+
+void _watchInput() {
+  if (_inputWatched) return;
+  _inputWatched = true;
+  GestureBinding.instance.pointerRouter.addGlobalRoute((event) {
+    if (event is PointerDownEvent) keyboardInput.value = false;
+    if (event is! PointerDownEvent && event is! PointerHoverEvent) return;
+    touchInput.value =
+        event.kind == PointerDeviceKind.touch ||
+        event.kind == PointerDeviceKind.stylus;
+  });
+  HardwareKeyboard.instance.addHandler((event) {
+    if (event is KeyDownEvent) keyboardInput.value = true;
+    return false;
+  });
+}
+
+const Map<ShortcutActivator, Intent> _activateKeys =
+    <ShortcutActivator, Intent>{
+      SingleActivator(LogicalKeyboardKey.enter): ActivateIntent(),
+      SingleActivator(LogicalKeyboardKey.numpadEnter): ActivateIntent(),
+      SingleActivator(LogicalKeyboardKey.space): ActivateIntent(),
+    };
+
+/// Answers a press: its child shrinks a little on the look's spring, and
+/// with [wash] dims or lifts a shade as well. It is a keyboard stop too:
+/// Enter or Space taps it, and it draws a ring while keys hold the focus.
 class Pressable extends StatefulWidget {
   const Pressable({
     required this.child,
@@ -22,8 +65,16 @@ class Pressable extends StatefulWidget {
     this.onLongPress,
     this.scale = 0.96,
     this.builder,
+    this.wash = false,
+    this.shape = const BorderRadius.all(Radius.circular(9)),
+    this.onHighlight,
     super.key,
   });
+
+  /// The two sizes of press a panel uses: a whole tile or a row of one
+  /// gives a little, a small round control gives more.
+  static const double large = 0.97;
+  static const double small = 0.88;
 
   final Widget child;
   final VoidCallback? onTap;
@@ -34,6 +85,15 @@ class Pressable extends StatefulWidget {
   final Widget Function(BuildContext context, bool hovered, bool pressed)?
   builder;
 
+  /// Lays a shade of the ink over the child while hovered and pressed.
+  final bool wash;
+
+  /// The outline the wash and the focus ring follow.
+  final BorderRadius shape;
+
+  /// Reports the hover and pressed state to a parent that draws them.
+  final void Function(bool hovered, bool pressed)? onHighlight;
+
   @override
   State<Pressable> createState() => _PressableState();
 }
@@ -41,19 +101,116 @@ class Pressable extends StatefulWidget {
 class _PressableState extends State<Pressable> {
   bool _hovered = false;
   bool _pressed = false;
+  bool _focused = false;
+  Timer? _release;
+  final Stopwatch _down = Stopwatch();
+
+  bool get _ring => _focused && keyboardInput.value;
+
+  void _inputChanged() {
+    if (_focused) setState(() {});
+  }
+
+  @override
+  void initState() {
+    super.initState();
+    _watchInput();
+    keyboardInput.addListener(_inputChanged);
+  }
+
+  @override
+  void dispose() {
+    keyboardInput.removeListener(_inputChanged);
+    _release?.cancel();
+    super.dispose();
+  }
+
+  void _set({bool? hovered, bool? pressed}) {
+    final h = hovered ?? _hovered;
+    final p = pressed ?? _pressed;
+    if (h == _hovered && p == _pressed) return;
+    setState(() {
+      _hovered = h;
+      _pressed = p;
+    });
+    widget.onHighlight?.call(h, p);
+  }
+
+  void _press() {
+    _release?.cancel();
+    _down
+      ..reset()
+      ..start();
+    _set(pressed: true);
+  }
+
+  /// A quick tap is over before the spring has moved, so the pressed state
+  /// is held for the length of a press's answer.
+  void _lift() {
+    final hold = KitMotion.duration(context, KitMotion.tap) - _down.elapsed;
+    _release?.cancel();
+    if (hold <= Duration.zero) {
+      _set(pressed: false);
+    } else {
+      _release = Timer(hold, () {
+        if (mounted) _set(pressed: false);
+      });
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
     final enabled = widget.onTap != null || widget.onLongPress != null;
-    return MouseRegion(
-      cursor: enabled ? SystemMouseCursors.click : MouseCursor.defer,
-      onEnter: (_) => setState(() => _hovered = true),
-      onExit: (_) => setState(() => _hovered = false),
+    final theme = context.shellTheme;
+    final shade = !widget.wash || !enabled
+        ? 0.0
+        : _pressed
+        ? 0.12
+        : _hovered
+        ? 0.05
+        : 0.0;
+    // Always in the tree, so a ring coming or going never rebuilds the child
+    // under a new parent.
+    final body = AnimatedContainer(
+      duration: KitMotion.duration(
+        context,
+        _pressed ? KitMotion.wash : KitMotion.enter,
+      ),
+      foregroundDecoration: BoxDecoration(
+        color: theme.colors.textPrimary.withValues(alpha: shade),
+        borderRadius: widget.shape,
+        border: Border.all(
+          color: theme.kitAccent.withValues(alpha: _ring ? 1 : 0),
+          width: 2,
+          strokeAlign: BorderSide.strokeAlignOutside,
+        ),
+      ),
+      child: widget.builder?.call(context, _hovered, _pressed) ?? widget.child,
+    );
+    return FocusableActionDetector(
+      enabled: enabled,
+      mouseCursor: enabled ? SystemMouseCursors.click : MouseCursor.defer,
+      shortcuts: _activateKeys,
+      actions: <Type, Action<Intent>>{
+        ActivateIntent: CallbackAction<ActivateIntent>(
+          onInvoke: (_) {
+            widget.onTap?.call();
+            return null;
+          },
+        ),
+      },
+      onShowHoverHighlight: (value) => _set(hovered: value),
+      onFocusChange: (value) {
+        if (value != _focused) setState(() => _focused = value);
+      },
       child: GestureDetector(
         behavior: HitTestBehavior.opaque,
-        onTapDown: enabled ? (_) => setState(() => _pressed = true) : null,
-        onTapUp: (_) => setState(() => _pressed = false),
-        onTapCancel: () => setState(() => _pressed = false),
+        onTapDown: enabled ? (_) => _press() : null,
+        onTapUp: (_) => _lift(),
+        onTapCancel: () {
+          _release?.cancel();
+          _set(pressed: false);
+        },
         onTap: widget.onTap,
         onLongPress: widget.onLongPress,
         child: Sprung(
@@ -61,15 +218,42 @@ class _PressableState extends State<Pressable> {
           tuning: KitStyle.of(context).pressTuning,
           builder: (context, value, child) =>
               Transform.scale(scale: value, child: child),
-          child:
-              widget.builder?.call(context, _hovered, _pressed) ?? widget.child,
+          child: body,
         ),
       ),
     );
   }
 }
 
-class MacSwitch extends StatelessWidget {
+/// A glyph whose colour eases to a new one instead of switching.
+class MacGlyph extends StatelessWidget {
+  const MacGlyph(
+    this.icon, {
+    required this.size,
+    required this.color,
+    super.key,
+  });
+
+  final IconData icon;
+  final double size;
+  final Color color;
+
+  @override
+  Widget build(BuildContext context) {
+    return TweenAnimationBuilder<Color?>(
+      tween: ColorTween(end: color),
+      duration: KitMotion.duration(context, KitMotion.enter),
+      curve: KitMotion.outCubic,
+      builder: (context, value, _) =>
+          BarGlyph(icon, size: size, color: value ?? color),
+    );
+  }
+}
+
+/// A switch whose knob stays under the finger: drag it across, flick it, or
+/// tap. While held the knob lengthens. It shows the new state at once and
+/// goes back if whatever it controls does not follow.
+class MacSwitch extends StatefulWidget {
   const MacSwitch({
     required this.value,
     required this.onChanged,
@@ -82,70 +266,223 @@ class MacSwitch extends StatelessWidget {
   final bool busy;
 
   @override
+  State<MacSwitch> createState() => _MacSwitchState();
+}
+
+class _MacSwitchState extends State<MacSwitch>
+    with SingleTickerProviderStateMixin {
+  static const double _width = 46;
+  static const double _pad = 2;
+  static const double _swell = 4;
+
+  /// How long the knob waits on the side it was put before giving up.
+  static const Duration _patience = Duration(milliseconds: 1200);
+
+  late final KitSpring _at = KitSpring(
+    widget.value ? 1 : -1,
+    KitStyle.denial.pressTuning,
+  );
+  late final KitSpring _held = KitSpring(0, KitStyle.denial.pressTuning);
+  late final KitSprings _springs = KitSprings(this, <KitSpring>[_at, _held]);
+
+  /// The knob's place while a finger drags it, -1 to 1.
+  double? _drag;
+
+  /// The state asked for and not yet confirmed.
+  bool? _wanted;
+  Timer? _giveUp;
+  bool _focused = false;
+
+  bool get _ring => _focused && keyboardInput.value;
+
+  void _inputChanged() {
+    if (_focused) setState(() {});
+  }
+
+  @override
+  void initState() {
+    super.initState();
+    _watchInput();
+    keyboardInput.addListener(_inputChanged);
+  }
+
+  bool get _target => _wanted ?? widget.value;
+  bool get _enabled => widget.onChanged != null && !widget.busy;
+
+  void _kick() => _springs.kick(reduceMotion: KitMotion.reduced(context));
+
+  void _head() {
+    _at.target = _drag ?? (_target ? 1 : -1);
+    _kick();
+  }
+
+  void _hold(bool held) {
+    _held.target = held ? 1 : 0;
+    _kick();
+  }
+
+  void _choose(bool next) {
+    _giveUp?.cancel();
+    if (next == widget.value) {
+      setState(() => _wanted = null);
+    } else {
+      setState(() => _wanted = next);
+      _giveUp = Timer(_patience, () {
+        if (!mounted) return;
+        setState(() => _wanted = null);
+        _head();
+      });
+      widget.onChanged?.call(next);
+    }
+    _head();
+  }
+
+  @override
+  void didUpdateWidget(MacSwitch old) {
+    super.didUpdateWidget(old);
+    if (old.value != widget.value) {
+      _wanted = null;
+      _giveUp?.cancel();
+    }
+    if (_drag == null) _head();
+  }
+
+  @override
+  void dispose() {
+    keyboardInput.removeListener(_inputChanged);
+    _giveUp?.cancel();
+    _springs.dispose();
+    super.dispose();
+  }
+
+  @override
   Widget build(BuildContext context) {
     final theme = context.shellTheme;
     final style = KitStyle.of(context);
-    final enabled = onChanged != null && !busy;
+    final enabled = _enabled;
+    _at.tune(
+      style.liquid
+          ? const KitSpringTuning(520, 0.6)
+          : const KitSpringTuning(620, 0.72),
+    );
+    _held.tune(style.pressTuning);
+    final knob = style.liquid ? 22.0 : 28.0;
+    final travel = _width - _pad * 2 - knob;
+    final drag = _drag;
+    final on = drag != null ? drag > 0 : _target;
     return Opacity(
       opacity: enabled ? 1 : 0.55,
-      child: GestureDetector(
-        behavior: HitTestBehavior.opaque,
-        onTap: enabled ? () => onChanged!(!value) : null,
-        onHorizontalDragEnd: enabled
-            ? (details) {
-                final right = (details.primaryVelocity ?? 0) > 0;
-                if (right != value) onChanged!(right);
-              }
-            : null,
-        child: MouseRegion(
-          cursor: enabled ? SystemMouseCursors.click : MouseCursor.defer,
-          child: SizedBox(
-            width: 46,
-            height: 26,
-            child: LiquidFill(
-              level: value ? 1 : 0,
-              sideways: true,
-              color: style.accent(theme),
-              base: theme.colors.textPrimary.withValues(alpha: 0.18),
-              radius: BorderRadius.circular(13),
-              child: Padding(
-                padding: const EdgeInsets.all(2),
-                child: Sprung(
-                  target: value ? 1 : -1,
-                  tuning: style.liquid
-                      ? const KitSpringTuning(520, 0.6)
-                      : const KitSpringTuning(620, 0.72),
-                  builder: (context, x, child) =>
-                      Align(alignment: Alignment(x, 0), child: child),
-                  child: style.liquid
-                      // Denial's knob is ink on the fill, not a white bead.
-                      ? Container(
-                          width: 22,
+      child: FocusableActionDetector(
+        enabled: enabled,
+        mouseCursor: enabled ? SystemMouseCursors.click : MouseCursor.defer,
+        shortcuts: _activateKeys,
+        actions: <Type, Action<Intent>>{
+          ActivateIntent: CallbackAction<ActivateIntent>(
+            onInvoke: (_) {
+              _choose(!_target);
+              return null;
+            },
+          ),
+        },
+        onFocusChange: (value) {
+          if (value != _focused) setState(() => _focused = value);
+        },
+        child: Listener(
+          onPointerDown: enabled ? (_) => _hold(true) : null,
+          onPointerUp: (_) => _hold(false),
+          onPointerCancel: (_) => _hold(false),
+          child: GestureDetector(
+            behavior: HitTestBehavior.opaque,
+            onTap: enabled ? () => _choose(!_target) : null,
+            onHorizontalDragStart: enabled
+                ? (_) => setState(
+                    () => _drag = _at.value.clamp(-1.0, 1.0).toDouble(),
+                  )
+                : null,
+            onHorizontalDragUpdate: enabled
+                ? (details) {
+                    final next = switchDragTo(
+                      _drag ?? _at.value,
+                      details.delta.dx,
+                      travel,
+                    );
+                    _at
+                      ..value = next
+                      ..target = next
+                      ..velocity = 0;
+                    setState(() => _drag = next);
+                  }
+                : null,
+            onHorizontalDragEnd: enabled
+                ? (details) {
+                    final at = _drag ?? _at.value;
+                    _drag = null;
+                    _choose(
+                      switchRelease(
+                        at: at,
+                        velocity: details.primaryVelocity ?? 0,
+                      ),
+                    );
+                  }
+                : null,
+            onHorizontalDragCancel: () {
+              if (_drag == null) return;
+              setState(() => _drag = null);
+              _head();
+            },
+            child: DecoratedBox(
+              position: DecorationPosition.foreground,
+              decoration: BoxDecoration(
+                borderRadius: BorderRadius.circular(13),
+                border: Border.all(
+                  color: style.accent(theme).withValues(alpha: _ring ? 1 : 0),
+                  width: 2,
+                  strokeAlign: BorderSide.strokeAlignOutside,
+                ),
+              ),
+              child: SizedBox(
+                width: _width,
+                height: 26,
+                child: LiquidFill(
+                  level: drag != null ? (drag + 1) / 2 : (_target ? 1 : 0),
+                  sideways: true,
+                  color: style.accent(theme),
+                  base: theme.colors.textPrimary.withValues(alpha: 0.18),
+                  radius: BorderRadius.circular(13),
+                  child: Padding(
+                    padding: const EdgeInsets.all(_pad),
+                    child: AnimatedBuilder(
+                      animation: _springs,
+                      builder: (context, _) => Align(
+                        alignment: Alignment(_at.value, 0),
+                        child: Container(
+                          width: knob + _swell * math.max(0, _held.value),
                           height: 22,
                           decoration: BoxDecoration(
-                            shape: BoxShape.circle,
-                            color: value
+                            borderRadius: BorderRadius.circular(11),
+                            // Denial's knob is ink on the fill, the other
+                            // look's a white bead with a shadow.
+                            color: !style.liquid
+                                ? const Color(0xffffffff)
+                                : on
                                 ? style.onAccent(theme)
                                 : theme.colors.textPrimary.withValues(
                                     alpha: 0.82,
                                   ),
-                          ),
-                        )
-                      : Container(
-                          width: 28,
-                          height: 22,
-                          decoration: BoxDecoration(
-                            color: const Color(0xffffffff),
-                            borderRadius: BorderRadius.circular(11),
-                            boxShadow: const <BoxShadow>[
-                              BoxShadow(
-                                color: Color(0x33000000),
-                                blurRadius: 4,
-                                offset: Offset(0, 1),
-                              ),
-                            ],
+                            boxShadow: style.liquid
+                                ? null
+                                : const <BoxShadow>[
+                                    BoxShadow(
+                                      color: Color(0x33000000),
+                                      blurRadius: 4,
+                                      offset: Offset(0, 1),
+                                    ),
+                                  ],
                           ),
                         ),
+                      ),
+                    ),
+                  ),
                 ),
               ),
             ),
@@ -193,7 +530,7 @@ class MacDisc extends StatelessWidget {
         child: Center(
           child:
               child ??
-              BarGlyph(
+              MacGlyph(
                 icon,
                 size: size * 0.5,
                 color: on
@@ -376,9 +713,13 @@ class MacRow extends StatelessWidget {
   }
 }
 
-/// A thin track with a blue fill and a white pill for a knob. While held,
-/// the knob swells into a clear lens that shows the track through it. Works
-/// with a drag or a tap anywhere along the track.
+/// A thin track with an accent fill and a white pill for a knob.
+///
+/// Under a finger the fill deepens and the knob grows a little into a clear
+/// lens: the track shows through it, magnified, inside a bright rim. Letting
+/// go springs it back. The knob is under the pointer from the first frame of
+/// a press; a value changed from outside eases over instead of jumping; a
+/// wheel and the arrow keys step it. The ends are hard, with no rubber band.
 class MacSlider extends StatefulWidget {
   const MacSlider({
     required this.value,
@@ -388,6 +729,7 @@ class MacSlider extends StatefulWidget {
     this.leading,
     this.trailing,
     this.height = 18,
+    this.inList = false,
     super.key,
   });
 
@@ -401,44 +743,260 @@ class MacSlider extends StatefulWidget {
   /// Height of the resting knob.
   final double height;
 
+  /// Inside a list that scrolls: the slider then waits to see which way a
+  /// drag goes before taking it, and leaves the wheel to the list.
+  final bool inList;
+
   @override
   State<MacSlider> createState() => _MacSliderState();
 }
 
-class _MacSliderState extends State<MacSlider> {
+class _MacSliderState extends State<MacSlider>
+    with SingleTickerProviderStateMixin {
+  /// A value arriving from outside: no overshoot, there in a quarter second.
+  static const KitSpringTuning _follow = KitSpringTuning(420, 1);
+
+  /// How long a value just set stands in for the one the system reports.
+  static const Duration _echoWait = Duration(milliseconds: 400);
+
+  /// How long after the last wheel notch or key the change counts as done.
+  static const Duration _stepWait = Duration(milliseconds: 300);
+
+  late final KitSpring _shown = KitSpring(
+    widget.value.clamp(0.0, 1.0).toDouble(),
+    _follow,
+  );
+  late final KitSpring _held = KitSpring(0, KitStyle.denial.pressTuning);
+  late final KitSprings _springs = KitSprings(this, <KitSpring>[_shown, _held]);
+
+  /// Repaints after a value is put under the finger directly, when no
+  /// spring is running to do it.
+  final ValueNotifier<int> _poke = ValueNotifier<int>(0);
+
+  /// The value under the finger.
   double? _pending;
-  bool _held = false;
 
-  double get _value => (_pending ?? widget.value).clamp(0.0, 1.0);
-  double get _knobWidth => widget.height * 1.5;
+  /// The value being stepped by the wheel or the keys.
+  double? _stepping;
+  Timer? _stepEnd;
 
-  void _set(double dx, double width) {
-    final knob = _knobWidth;
-    final next = ((dx - knob / 2) / (width - knob)).clamp(0.0, 1.0);
-    if (_pending == null) widget.onChangeStart?.call();
-    setState(() {
-      _pending = next;
-      _held = true;
+  /// The value just let go of, shown until the system reports it back, so
+  /// the knob does not twitch towards a stale reading.
+  double? _echo;
+  Timer? _echoEnd;
+
+  bool _dragging = false;
+  bool _focused = false;
+  double _width = 0;
+
+  bool get _ring => _focused && keyboardInput.value;
+
+  void _inputChanged() {
+    if (_focused) setState(() {});
+  }
+
+  @override
+  void initState() {
+    super.initState();
+    _watchInput();
+    keyboardInput.addListener(_inputChanged);
+  }
+
+  double get _knob => widget.height * 1.5;
+
+  void _kick() => _springs.kick(reduceMotion: KitMotion.reduced(context));
+
+  void _followTo(double value) {
+    final next = value.clamp(0.0, 1.0).toDouble();
+    if (_shown.target == next) return;
+    _shown.target = next;
+    _kick();
+  }
+
+  void _put(double value) {
+    _shown
+      ..value = value
+      ..target = value
+      ..velocity = 0;
+    _poke.value++;
+  }
+
+  void _expectEcho(double value) {
+    _echo = value;
+    _echoEnd?.cancel();
+    _echoEnd = Timer(_echoWait, () {
+      _echo = null;
+      if (mounted) _followTo(widget.value);
     });
+  }
+
+  void _grab(double dx) {
+    final next = sliderValueAt(dx, _width, _knob);
+    if (_pending == null) {
+      _finishSteps();
+      _echoEnd?.cancel();
+      _echo = null;
+      widget.onChangeStart?.call();
+      _held.target = 1;
+      _kick();
+    }
+    _pending = next;
+    _put(next);
     widget.onChanged(next);
   }
 
-  void _end() {
+  void _release() {
     final value = _pending;
-    setState(() {
-      _pending = null;
-      _held = false;
+    if (value == null) return;
+    _pending = null;
+    _expectEcho(value);
+    _held.target = 0;
+    _kick();
+    widget.onChangeEnd?.call(value);
+  }
+
+  void _step(double delta) {
+    if (_pending != null || delta == 0) return;
+    final from = _stepping ?? _echo ?? widget.value;
+    final next = sliderNudge(from, delta);
+    if (_stepping == null) {
+      _echoEnd?.cancel();
+      _echo = null;
+      widget.onChangeStart?.call();
+    }
+    _stepping = next;
+    _followTo(next);
+    widget.onChanged(next);
+    _stepEnd?.cancel();
+    _stepEnd = Timer(_stepWait, _finishSteps);
+  }
+
+  void _finishSteps() {
+    final value = _stepping;
+    _stepEnd?.cancel();
+    if (value == null) return;
+    _stepping = null;
+    if (mounted) _expectEcho(value);
+    widget.onChangeEnd?.call(value);
+  }
+
+  KeyEventResult _onKey(FocusNode node, KeyEvent event) {
+    if (event is KeyUpEvent) return KeyEventResult.ignored;
+    final key = event.logicalKey;
+    if (key == LogicalKeyboardKey.arrowLeft) {
+      _step(-sliderKeyStep);
+    } else if (key == LogicalKeyboardKey.arrowRight) {
+      _step(sliderKeyStep);
+    } else if (key == LogicalKeyboardKey.home) {
+      _step(-1);
+    } else if (key == LogicalKeyboardKey.end) {
+      _step(1);
+    } else {
+      return KeyEventResult.ignored;
+    }
+    return KeyEventResult.handled;
+  }
+
+  void _onSignal(PointerSignalEvent event) {
+    if (event is! PointerScrollEvent) return;
+    GestureBinding.instance.pointerSignalResolver.register(event, (event) {
+      final scroll = (event as PointerScrollEvent).scrollDelta;
+      _step(sliderWheelDelta(scroll.dx, scroll.dy));
     });
-    if (value != null) widget.onChangeEnd?.call(value);
+  }
+
+  @override
+  void didUpdateWidget(MacSlider old) {
+    super.didUpdateWidget(old);
+    if (_pending != null || _stepping != null) return;
+    final echo = _echo;
+    if (echo != null) {
+      if ((widget.value - echo).abs() > 0.015) return;
+      _echo = null;
+      _echoEnd?.cancel();
+    }
+    _followTo(widget.value);
+  }
+
+  @override
+  void dispose() {
+    keyboardInput.removeListener(_inputChanged);
+    _echoEnd?.cancel();
+    _stepEnd?.cancel();
+    // A change the wheel left open is closed, once the tree has settled.
+    final open = _stepping ?? _pending;
+    final end = widget.onChangeEnd;
+    if (open != null && end != null) scheduleMicrotask(() => end(open));
+    _springs.dispose();
+    _poke.dispose();
+    super.dispose();
+  }
+
+  Widget _surface(BuildContext context) {
+    final theme = context.shellTheme;
+    final paint = CustomPaint(
+      painter: _SliderPainter(
+        repaint: Listenable.merge(<Listenable>[_springs, _poke]),
+        shown: _shown,
+        held: _held,
+        knobHeight: widget.height,
+        accent: KitStyle.of(context).accent(theme),
+        ink: theme.colors.textPrimary,
+        ring: _ring,
+      ),
+      child: SizedBox(height: widget.height + 14, width: double.infinity),
+    );
+    if (widget.inList) {
+      return GestureDetector(
+        behavior: HitTestBehavior.opaque,
+        onTapDown: (d) => _grab(d.localPosition.dx),
+        onTapUp: (_) => _release(),
+        onTapCancel: () {
+          if (!_dragging) _release();
+        },
+        onHorizontalDragStart: (d) {
+          _dragging = true;
+          _grab(d.localPosition.dx);
+        },
+        onHorizontalDragUpdate: (d) => _grab(d.localPosition.dx),
+        onHorizontalDragEnd: (_) {
+          _dragging = false;
+          _release();
+        },
+        onHorizontalDragCancel: () {
+          _dragging = false;
+          _release();
+        },
+        child: paint,
+      );
+    }
+    // Taking the pointer on the way down is what puts the knob under it at
+    // once: a tap waits out a deadline and a drag a slop before they answer.
+    return Listener(
+      onPointerSignal: _onSignal,
+      child: RawGestureDetector(
+        behavior: HitTestBehavior.opaque,
+        gestures: <Type, GestureRecognizerFactory>{
+          _EagerSlide: GestureRecognizerFactoryWithHandlers<_EagerSlide>(
+            _EagerSlide.new,
+            (recognizer) {
+              recognizer
+                ..onDown = ((d) => _grab(d.localPosition.dx))
+                ..onUpdate = ((d) => _grab(d.localPosition.dx))
+                ..onEnd = ((_) => _release())
+                ..onCancel = _release;
+            },
+          ),
+        },
+        child: paint,
+      ),
+    );
   }
 
   @override
   Widget build(BuildContext context) {
     final theme = context.shellTheme;
-    final ink = theme.colors.textPrimary;
-    final h = widget.height;
-    final knob = _knobWidth;
-    final track = h / 3;
+    _held.tune(KitStyle.of(context).pressTuning);
     Widget glyph(IconData icon) => Padding(
       padding: const EdgeInsets.symmetric(horizontal: 6),
       child: BarGlyph(icon, size: 15, color: theme.colors.textSecondary),
@@ -447,101 +1005,177 @@ class _MacSliderState extends State<MacSlider> {
       children: <Widget>[
         if (widget.leading != null) glyph(widget.leading!),
         Expanded(
-          child: LayoutBuilder(
-            builder: (context, constraints) {
-              final width = constraints.maxWidth;
-              final centre = knob / 2 + _value * (width - knob);
-              return GestureDetector(
-                behavior: HitTestBehavior.opaque,
-                onTapDown: (d) => _set(d.localPosition.dx, width),
-                onTapUp: (_) => _end(),
-                onTapCancel: () {
-                  if (!_dragging) _end();
-                },
-                onHorizontalDragStart: (d) {
-                  _dragging = true;
-                  _set(d.localPosition.dx, width);
-                },
-                onHorizontalDragUpdate: (d) => _set(d.localPosition.dx, width),
-                onHorizontalDragEnd: (_) {
-                  _dragging = false;
-                  _end();
-                },
-                onHorizontalDragCancel: () {
-                  _dragging = false;
-                  _end();
-                },
-                child: SizedBox(
-                  height: h + 14,
-                  child: Stack(
-                    clipBehavior: Clip.none,
-                    alignment: Alignment.centerLeft,
-                    children: <Widget>[
-                      Container(
-                        height: track,
-                        decoration: BoxDecoration(
-                          color: ink.withValues(alpha: 0.16),
-                          borderRadius: BorderRadius.circular(track / 2),
-                        ),
-                      ),
-                      Container(
-                        width: centre,
-                        height: track,
-                        decoration: BoxDecoration(
-                          color: KitStyle.of(context).accent(theme),
-                          borderRadius: BorderRadius.circular(track / 2),
-                        ),
-                      ),
-                      Positioned(
-                        left: centre - knob / 2,
-                        child: AnimatedScale(
-                          duration: KitMotion.duration(
-                            context,
-                            _held ? KitMotion.ease : KitMotion.travel,
-                          ),
-                          curve: _held ? KitMotion.out : KitMotion.outBack,
-                          scale: _held ? 1.3 : 1,
-                          child: AnimatedContainer(
-                            duration: KitMotion.duration(
-                              context,
-                              KitMotion.fill,
-                            ),
-                            width: knob,
-                            height: h,
-                            decoration: BoxDecoration(
-                              color: const Color(0xffffffff)
-                                  .withValues(alpha: _held ? 0.22 : 1),
-                              borderRadius: BorderRadius.circular(h / 2),
-                              border: Border.all(
-                                color: const Color(0xffffffff)
-                                    .withValues(alpha: _held ? 0.85 : 0),
-                                width: 1.2,
-                              ),
-                              boxShadow: <BoxShadow>[
-                                BoxShadow(
-                                  color: const Color(0xff000000)
-                                      .withValues(alpha: _held ? 0.18 : 0.26),
-                                  blurRadius: _held ? 10 : 5,
-                                  offset: const Offset(0, 1),
-                                ),
-                              ],
-                            ),
-                          ),
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-              );
+          child: Focus(
+            onKeyEvent: _onKey,
+            onFocusChange: (focused) {
+              if (focused != _focused) setState(() => _focused = focused);
             },
+            child: LayoutBuilder(
+              builder: (context, constraints) {
+                _width = constraints.maxWidth;
+                return _surface(context);
+              },
+            ),
           ),
         ),
         if (widget.trailing != null) glyph(widget.trailing!),
       ],
     );
   }
+}
 
-  bool _dragging = false;
+/// Wins the pointer as it lands, so a slider answers a press at once and no
+/// tap deadline or drag slop stands between the finger and the knob.
+class _EagerSlide extends HorizontalDragGestureRecognizer {
+  @override
+  void addAllowedPointer(PointerDownEvent event) {
+    super.addAllowedPointer(event);
+    resolve(GestureDisposition.accepted);
+  }
+}
+
+class _SliderPainter extends CustomPainter {
+  _SliderPainter({
+    required Listenable repaint,
+    required this.shown,
+    required this.held,
+    required this.knobHeight,
+    required this.accent,
+    required this.ink,
+    required this.ring,
+  }) : super(repaint: repaint);
+
+  final KitSpring shown;
+  final KitSpring held;
+  final double knobHeight;
+  final Color accent;
+  final Color ink;
+  final bool ring;
+
+  static const Color _white = Color(0xffffffff);
+  static const Color _black = Color(0xff000000);
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final h = knobHeight;
+    // The size may ride the spring past its end; the colours may not.
+    final swell = held.value;
+    final glass = swell.clamp(0.0, 1.0).toDouble();
+    final cy = size.height / 2;
+    final track = h / 3;
+    final centre = sliderCentreFor(shown.value, size.width, h * 1.5);
+    final fill = Color.lerp(accent, _black, 0.24 * glass)!;
+    final groove = ink.withValues(alpha: 0.16);
+    final radius = Radius.circular(track / 2);
+
+    canvas.drawRRect(
+      RRect.fromLTRBR(0, cy - track / 2, size.width, cy + track / 2, radius),
+      Paint()..color = groove,
+    );
+    canvas.drawRRect(
+      RRect.fromLTRBR(0, cy - track / 2, centre, cy + track / 2, radius),
+      Paint()..color = fill,
+    );
+
+    final knobHeightNow = h + h / 6 * swell;
+    final box = Rect.fromCenter(
+      center: Offset(centre, cy),
+      width: h * 1.5 + h / 3 * swell,
+      height: knobHeightNow,
+    );
+    final knob = RRect.fromRectAndRadius(
+      box,
+      Radius.circular(knobHeightNow / 2),
+    );
+
+    // The shadow falls around the knob only: under a clear lens it would
+    // read as dirt on the glass.
+    canvas
+      ..save()
+      ..clipPath(
+        Path.combine(
+          PathOperation.difference,
+          Path()..addRect(box.inflate(24)),
+          Path()..addRRect(knob),
+        ),
+      )
+      ..drawRRect(
+        knob.shift(const Offset(0, 1)),
+        Paint()
+          ..color = _black.withValues(alpha: 0.26 - 0.08 * glass)
+          ..maskFilter = MaskFilter.blur(BlurStyle.normal, 2.5 + 2.5 * glass),
+      )
+      ..restore();
+
+    canvas
+      ..save()
+      ..clipRRect(knob);
+    if (glass > 0) {
+      // What the lens shows: the track beneath it, thicker than it is.
+      final thick = track * (1 + 1.5 * glass);
+      canvas
+        ..drawRect(
+          Rect.fromLTRB(centre, cy - thick / 2, box.right, cy + thick / 2),
+          Paint()..color = groove,
+        )
+        ..drawRect(
+          Rect.fromLTRB(box.left, cy - thick / 2, centre, cy + thick / 2),
+          Paint()..color = fill,
+        );
+    }
+    canvas.drawRect(
+      box,
+      Paint()..color = _white.withValues(alpha: 1 - 0.84 * glass),
+    );
+    if (glass > 0) {
+      canvas.drawRect(
+        Rect.fromLTRB(box.left, box.top, box.right, cy),
+        Paint()
+          ..shader = LinearGradient(
+            begin: Alignment.topCenter,
+            end: Alignment.bottomCenter,
+            colors: <Color>[
+              _white.withValues(alpha: 0.34 * glass),
+              _white.withValues(alpha: 0),
+            ],
+          ).createShader(box),
+      );
+    }
+    canvas.restore();
+
+    if (glass > 0) {
+      canvas.drawRRect(
+        knob.deflate(0.6),
+        Paint()
+          ..style = PaintingStyle.stroke
+          ..strokeWidth = 1.2
+          ..shader = LinearGradient(
+            begin: Alignment.topLeft,
+            end: Alignment.bottomRight,
+            colors: <Color>[
+              _white.withValues(alpha: 0.95 * glass),
+              _white.withValues(alpha: 0.4 * glass),
+            ],
+          ).createShader(box),
+      );
+    }
+    if (ring) {
+      canvas.drawRRect(
+        knob.inflate(3),
+        Paint()
+          ..style = PaintingStyle.stroke
+          ..strokeWidth = 2
+          ..color = accent,
+      );
+    }
+  }
+
+  @override
+  bool shouldRepaint(_SliderPainter old) =>
+      old.knobHeight != knobHeight ||
+      old.accent != accent ||
+      old.ink != ink ||
+      old.ring != ring;
 }
 
 /// Fades and sizes between a collapsed and an expanded child.
