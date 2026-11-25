@@ -4,6 +4,8 @@ import 'dart:math' as math;
 import 'package:denial_shell_kit/kit_dock_link.dart';
 import 'package:denial_shell_kit/kit_host.dart';
 import 'package:denial_shell_kit/kit_layer.dart' show kitOpenPanel;
+import 'package:denial_shell_kit/kit_glass.dart';
+import 'package:denial_shell_kit/kit_material.dart';
 import 'package:denial_shell_kit/kit_motion.dart';
 import 'package:denial_shell_kit/kit_panel_place.dart' show KitEdge;
 import 'package:denial_shell_kit/kit_part.dart';
@@ -12,7 +14,6 @@ import 'package:denial_shell_kit/kit_settings.dart';
 import 'package:denial_shell_kit/kit_style.dart';
 import 'package:denial_flutter_sdk/applications.dart'
     show applicationRecentsProvider;
-import 'package:denial_flutter_sdk/effects.dart';
 import 'package:denial_flutter_sdk/input.dart';
 import 'package:denial_flutter_sdk/popups.dart';
 import 'package:denial_flutter_sdk/services.dart';
@@ -1961,57 +1962,77 @@ class _DockContainerState extends ConsumerState<DockContainer>
     return null;
   }
 
-  /// The capsule's plate: a backdrop blur under a translucent fill, a rim
-  /// and a shadow, all taken from [_look].
+  /// The capsule's plate: the dock material of the look in force, with what
+  /// [_look] says laid over it. The preset's numbers and the user's own
+  /// settings both arrive through [_look]; the material gives what the
+  /// settings have no word for, such as the saturation and the shape of the
+  /// rim, and a fill of its own until the user picks a tint or an opacity.
   Widget _capsuleSurface(BuildContext context, ShellThemeData theme) {
     final look = _look;
+    final chosen = _settings.look;
     final corner = KitStyle.of(context).radius(theme, look.effectiveRadius);
-    final radius = BorderRadius.circular(corner);
+    final base = kitMaterialOf(context, KitTier.dock);
+    final own = base.fill.fixed
+        ? kitToneColor(base.fill, theme, KitStyle.of(context))
+        : null;
     // The theme's fill is mixed from its own surface, not the glass backing:
     // that backing is a flat white or black chosen by the glass appearance
     // setting, so on a dark wallpaper it turned the dock into a pale bar
     // nothing else on screen shared. The surface colour already follows the
     // light or dark appearance.
     final surface = theme.colors.surfaceContainer;
-    final fill = switch (look.tint) {
-      DockTint.theme => surface,
-      DockTint.accent => Color.alphaBlend(
-        theme.kitAccent.withValues(alpha: 0.30),
-        surface,
-      ),
-      DockTint.custom => Color.lerp(
-        const Color(0xFF000000),
-        const Color(0xFFFFFFFF),
-        look.tintShade,
-      )!,
-    };
+    final fill = own != null && !chosen.containsKey(DockLook.tintKey)
+        ? own
+        : switch (look.tint) {
+            DockTint.theme => surface,
+            DockTint.accent => Color.alphaBlend(
+              theme.kitAccent.withValues(alpha: 0.30),
+              surface,
+            ),
+            DockTint.custom => Color.lerp(
+              const Color(0xFF000000),
+              const Color(0xFFFFFFFF),
+              look.tintShade,
+            )!,
+          };
     // A look that names no opacity takes the system's panel opacity over its
     // whole range, so the dock is as clear or as solid as every other panel.
-    final alpha = look.opacity ?? theme.effectivePanelOpacity;
-    final dark = theme.brightness == Brightness.dark;
-    final rim = look.accentBorder
-        ? theme.kitAccent
-        : look.brightBorder
-        ? const Color(0xFFFFFFFF).withValues(alpha: dark ? 0.18 : 0.45)
-        : theme.colors.hairline.withValues(alpha: 0.7);
+    final alpha = own != null && !chosen.containsKey(DockLook.opacityKey)
+        ? own.a
+        : look.opacity ?? theme.effectivePanelOpacity;
+    final inner = base.inner;
+    final material = base.copyWith(
+      // A preset that counts its blur in pixels has it drawn at that sigma;
+      // any other is a share of the system's own blur.
+      sigma: look.blurSigma,
+      outer: look.border ? null : () => null,
+      inner: () => !look.border
+          ? null
+          : look.accentBorder
+          ? KitLine(
+              const KitTone.of(KitRole.border),
+              width: look.borderWidth,
+            )
+          : inner == null
+          ? null
+          : KitLine(
+              inner.tone,
+              width: look.borderWidth,
+              edges: inner.edges,
+              tail: inner.tail,
+              reach: inner.reach,
+            ),
+    );
     // A glass surface owns the fade so the backdrop and foreground can fade
     // independently instead of being isolated in one opacity group.
     final fade = ShellSurfacePresentation.opacityOf(context);
-    final plate = ShellBackdropBlur(
-      blur: alpha < 1 && look.blur > 0,
-      strength: look.blur,
-      separateChild: true,
-      opacity: fade,
-      borderRadius: radius,
-      child: DecoratedBox(
-        decoration: BoxDecoration(
-          borderRadius: radius,
-          color: fill.withValues(alpha: alpha),
-          border: look.border
-              ? Border.all(color: rim, width: look.borderWidth)
-              : null,
-        ),
-      ),
+    final plate = KitGlass(
+      material: material,
+      radius: corner,
+      fill: fill.withValues(alpha: alpha),
+      blurScale: look.blurSigma == null ? look.blur : 1,
+      separate: true,
+      fade: fade,
     );
     if (look.shadow <= 0) return plate;
     return Stack(

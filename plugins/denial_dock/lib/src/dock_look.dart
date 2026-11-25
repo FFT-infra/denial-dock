@@ -51,6 +51,7 @@ class DockLook {
     required this.markerColor,
     required this.magnifyRange,
     this.accentBorder = false,
+    this.blurFull,
   });
 
   /// Denial's own capsule: the system's blur at full strength and the
@@ -73,26 +74,39 @@ class DockLook {
     magnifyRange: 140,
   );
 
-  /// The macOS Dock: a light blur that leaves the wallpaper's shapes and
-  /// colours readable, a fill well under half opaque, a thin bright rim and a
-  /// soft shadow, sitting closer to the edge.
+  /// The macOS Dock, as measured on macOS: a blur of 1.6 logical pixels
+  /// that leaves the wallpaper's shapes readable, corners of 22, no shadow,
+  /// 5 from the edge. The fill, the rim and the saturation are the dock
+  /// material of the look, one for each appearance; [opacity] here is the
+  /// dark one's, which the light appearance replaces with its own until the
+  /// user sets one.
   static const DockLook mac = DockLook(
-    blur: 0.45,
-    opacity: 0.42,
+    blur: macBlurSigma / shellBlurSigma,
+    blurFull: shellBlurSigma,
+    opacity: 0.36,
     tint: DockTint.theme,
     tintShade: 0.12,
-    radius: 18,
+    radius: 22,
     border: true,
     borderWidth: 1,
     brightBorder: true,
-    shadow: 0.35,
+    shadow: 0,
     padding: 5,
     gap: 8,
-    edgeMargin: 6,
+    edgeMargin: 5,
     shape: DockShape.floating,
     markerColor: DockMarkerColor.ink,
     magnifyRange: 140,
   );
+
+  /// The blur of the macOS Dock, in logical pixels.
+  static const double macBlurSigma = 1.6;
+
+  /// The sigma of the shell's blur at the level it starts with. The macOS
+  /// preset counts [blur] against this, so a value kept from when it was a
+  /// share of the shell's blur draws what it drew then on every level but
+  /// the strongest, and no longer moves when the user changes level.
+  static const double shellBlurSigma = 6;
 
   /// The preset for the shell look called [styleId]; Denial's for any other.
   static DockLook preset(String? styleId) => styleId == 'mac' ? mac : denial;
@@ -171,8 +185,20 @@ class DockLook {
   static const String markerColorKey = 'markerColor';
   static const String magnifyRangeKey = 'magnifyRange';
 
-  /// Strength of the backdrop blur, as a share of the system's own.
+  /// Strength of the backdrop blur: a share of [blurFull], or of the
+  /// system's own blur where that is null.
   final double blur;
+
+  /// The sigma, in logical pixels, that a [blur] of 1 stands for. Null
+  /// follows the system's blur, whatever level the user chose. Part of the
+  /// preset; the settings do not offer it.
+  final double? blurFull;
+
+  /// The blur in logical pixels, for a preset that counts in them.
+  double? get blurSigma {
+    final full = blurFull;
+    return full == null ? null : blur * full;
+  }
 
   /// Opacity of the fill. Null follows the system's panel opacity, so the
   /// dock is as clear or as solid as every other panel.
@@ -264,6 +290,7 @@ class DockLook {
       ),
       brightBorder: base.brightBorder,
       accentBorder: base.accentBorder,
+      blurFull: base.blurFull,
       shadow: number(shadowKey, base.shadow, minShadow, maxShadow),
       padding: number(paddingKey, base.padding, minPadding, maxPadding),
       gap: number(gapKey, base.gap, minGap, maxGap),
