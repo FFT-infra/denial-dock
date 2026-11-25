@@ -9,6 +9,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import 'dock_extras.dart';
 import 'dock_look.dart';
+import 'dock_look_style.dart';
 import 'dock_preferences.dart';
 import 'dock_stack_files.dart' show DockStackFiles;
 import 'dock_stack_view.dart' show stackFileColor, stackFileIcon;
@@ -287,7 +288,7 @@ class _DockSettingsPanelState extends ConsumerState<DockSettingsPanel> {
   ) {
     final hides = settings.visibility != DockVisibilityMode.always;
     const gap = SizedBox(height: 22);
-    final look = settings.lookFor(kitStyle.value.id);
+    final look = dockLookNow(settings);
     final floating = look.shape == DockShape.floating;
     String px(double value) => '${value.round()}';
     String percent(double value) => '${(value * 100).round()}%';
@@ -558,9 +559,18 @@ class _DockSettingsPanelState extends ConsumerState<DockSettingsPanel> {
               _SegmentedField<KitStyle>(
                 label: _zh ? '与顶栏共用' : 'Shared with the top bar',
                 value: kitStyle.value,
-                options: const [
-                  (KitStyle.denial, 'Denial', Icons.water_drop_outlined),
-                  (KitStyle.mac, 'macOS', Icons.laptop_mac_outlined),
+                options: [
+                  for (final style in KitStyle.presets)
+                    (
+                      style,
+                      style.label,
+                      switch (style.id) {
+                        'denial' => Icons.water_drop_outlined,
+                        'mac' => Icons.laptop_mac_outlined,
+                        'terminal' => Icons.terminal_outlined,
+                        _ => Icons.style_outlined,
+                      },
+                    ),
                 ],
                 onChanged: kitStyle.choose,
               ),

@@ -47,6 +47,7 @@ import 'package:denial_shell_kit/launcher_entry_bus.dart';
 
 import 'dock_layout.dart';
 import 'dock_look.dart';
+import 'dock_look_style.dart';
 import 'dock_menu.dart';
 import 'dock_motion.dart';
 import 'dock_part_cell.dart';
@@ -1189,7 +1190,7 @@ class _DockContainerState extends ConsumerState<DockContainer>
     final storedSettings = ref.watch(dockSettingsProvider);
     final settings = storedSettings.value ?? DockSettings.defaults;
     _settings = settings;
-    _look = settings.lookFor(kitStyle.value.id);
+    _look = dockLookNow(settings);
     if (_dragIconSize != null &&
         (_dragIconSize! - settings.iconSize).abs() < 0.5) {
       _dragIconSize = null;
@@ -1976,7 +1977,9 @@ class _DockContainerState extends ConsumerState<DockContainer>
     // whole range, so the dock is as clear or as solid as every other panel.
     final alpha = look.opacity ?? theme.effectivePanelOpacity;
     final dark = theme.brightness == Brightness.dark;
-    final rim = look.brightBorder
+    final rim = look.accentBorder
+        ? theme.kitAccent
+        : look.brightBorder
         ? const Color(0xFFFFFFFF).withValues(alpha: dark ? 0.18 : 0.45)
         : theme.colors.hairline.withValues(alpha: 0.7);
     // A glass surface owns the fade so the backdrop and foreground can fade
@@ -2675,7 +2678,7 @@ class _DockLabelBubble extends StatelessWidget {
           text,
           maxLines: 1,
           overflow: TextOverflow.ellipsis,
-          style: theme.text.systemBarCaption.copyWith(
+          style: theme.text.systemBarCaption.inLook.copyWith(
             color: foreground,
             fontSize: fontSize,
             fontWeight: FontWeight.w600,

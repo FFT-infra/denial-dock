@@ -693,9 +693,11 @@ class DockSettings {
   /// map the file holds, so a key a newer build wrote is carried through.
   final Map<String, Object?> look;
 
-  /// The capsule's look under the shell look called [styleId].
-  DockLook lookFor(String? styleId) =>
-      DockLook.resolve(DockLook.preset(styleId), look);
+  /// The capsule's look under the shell look called [styleId]. [preset] is
+  /// that look's preset when the caller has worked it out from the look's
+  /// own values; without it the preset is found by name.
+  DockLook lookFor(String? styleId, {DockLook? preset}) =>
+      DockLook.resolve(preset ?? DockLook.preset(styleId), look);
 
   /// Draws the progress an application publishes through the Unity launcher
   /// API along the bottom of its icon.

@@ -8,6 +8,46 @@ void main() {
   _expect(identical(DockLook.preset(null), DockLook.denial), 'no look');
   _expect(identical(DockLook.preset('other'), DockLook.denial), 'unknown look');
 
+  // A look of the shell dresses the preset from its own values. One that
+  // changes nothing leaves the preset as it is, object for object.
+  _expect(
+    identical(DockLook.styled(DockLook.denial), DockLook.denial) &&
+        identical(DockLook.styled(DockLook.mac), DockLook.mac),
+    'a plain look keeps the preset',
+  );
+  // Opaque panels with a lighter shadow: a solid fill, nothing blurred.
+  final solid = DockLook.styled(DockLook.denial, opaque: true, shadow: 0.6);
+  _expect(solid.opacity == 1 && solid.blur == 0, 'solid fill, no blur');
+  _expect(solid.shadow > 0 && solid.shadow < 0.3, 'a light shadow');
+  _expect(
+    solid.radius == DockLook.denial.radius &&
+        solid.padding == DockLook.denial.padding &&
+        solid.edgeMargin == DockLook.denial.edgeMargin &&
+        !solid.accentBorder,
+    'the measures stay',
+  );
+  // A 2 px accent line, opaque, no shadow.
+  final lined = DockLook.styled(
+    DockLook.denial,
+    borderWidth: 2,
+    accentBorder: true,
+    opaque: true,
+    shadow: 0,
+  );
+  _expect(
+    lined.borderWidth == 2 &&
+        lined.accentBorder &&
+        lined.opacity == 1 &&
+        lined.shadow == 0,
+    'outlined in the accent',
+  );
+  // The user's overrides still lie on top, and the accent rim survives them.
+  final mine = DockLook.resolve(lined, const {'opacity': 0.5, 'shadow': 0.4});
+  _expect(
+    mine.opacity == 0.5 && mine.shadow == 0.4 && mine.accentBorder,
+    'overrides on a styled preset',
+  );
+
   // The macOS preset is the lighter material: less blur, a fill under half
   // opaque, a bright rim, a shadow, closer to the edge.
   _expect(DockLook.mac.blur < DockLook.denial.blur, 'mac blurs less');
