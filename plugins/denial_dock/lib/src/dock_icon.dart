@@ -1,4 +1,5 @@
 import 'package:denial_flutter_sdk/theme.dart';
+import 'package:denial_shell_kit/kit_motion.dart';
 import 'package:flutter/material.dart';
 
 import 'dock_settings.dart' show DockIconMode;
@@ -138,7 +139,7 @@ class DockTile extends StatelessWidget {
     final radius = theme.borderRadius(size * 0.24);
     final picture = fill;
     return AnimatedContainer(
-      duration: const Duration(milliseconds: 90),
+      duration: KitMotion.duration(context, const Duration(milliseconds: 90)),
       curve: Curves.easeOut,
       decoration: BoxDecoration(
         borderRadius: radius,

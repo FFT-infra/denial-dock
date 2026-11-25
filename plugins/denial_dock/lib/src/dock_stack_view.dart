@@ -1,6 +1,7 @@
 import 'dart:io';
 import 'dart:math' as math;
 
+import 'package:denial_shell_kit/kit_motion.dart';
 import 'package:denial_shell_kit/kit_style.dart';
 import 'package:denial_flutter_sdk/theme.dart';
 import 'package:flutter/gestures.dart'
@@ -101,7 +102,7 @@ class _DockStackViewState extends State<DockStackView>
     with SingleTickerProviderStateMixin {
   late final AnimationController _open = AnimationController(
     vsync: this,
-    duration: const Duration(milliseconds: 340),
+    duration: KitMotion.now.duration(const Duration(milliseconds: 340)),
   );
 
   bool _launched = false;
@@ -1160,7 +1161,10 @@ class _DockStackViewState extends State<DockStackView>
       rect: rect,
       child: IgnorePointer(
         child: AnimatedContainer(
-          duration: const Duration(milliseconds: 120),
+          duration: KitMotion.duration(
+            context,
+            const Duration(milliseconds: 120),
+          ),
           decoration: BoxDecoration(
             color: accent.withValues(alpha: _overTrash ? 0.26 : 0.10),
             borderRadius: BorderRadius.circular(14),

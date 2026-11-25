@@ -1,5 +1,7 @@
 import 'dart:math' as math;
 
+import 'package:denial_shell_kit/kit_motion_pace.dart';
+
 import 'dock_launch.dart';
 import 'dock_math.dart';
 import 'dock_settings.dart';
@@ -8,17 +10,23 @@ import 'dock_settings.dart';
 ///
 /// Everything the dock body animates by itself goes through here: the values
 /// its tickers chase, its timed glides, its hops and the durations of its
-/// implicit position and size animations. With the system's reduced-motion
-/// setting on, positions and sizes are at their targets at once and nothing
-/// hops; what a hop was saying is said by a change of opacity instead. The
-/// setting is honoured here so that the call sites do not each have to ask.
+/// implicit position and size animations. The shell's pace decides the speed
+/// and the system's reduced-motion setting decides whether anything travels;
+/// at normal speed with motion allowed every number is exactly what the dock
+/// always computed. With reduced motion on, positions and sizes are at their
+/// targets at once and nothing hops; what a hop was saying is said by a
+/// change of opacity instead. The pace is honoured here so that the call
+/// sites do not each have to ask.
 ///
 /// Kept free of Flutter so the rules can be tested without a shell.
 class DockMotion {
-  const DockMotion({required this.reduced});
+  const DockMotion({required this.pace});
+
+  /// The shell's speed and the system's reduced-motion flag.
+  final KitMotionPace pace;
 
   /// The system asks for less motion.
-  final bool reduced;
+  bool get reduced => pace.reduced;
 
   /// [DockMath.advance], or [target] itself with reduced motion.
   double advance(
@@ -31,7 +39,7 @@ class DockMotion {
       : DockMath.advance(
           current,
           target,
-          deltaSeconds,
+          deltaSeconds * pace.speed,
           responseSeconds: responseSeconds,
         );
 
@@ -39,10 +47,10 @@ class DockMotion {
   /// With reduced motion the glide is over as soon as it is asked about. The
   /// result may pass one; the caller clamps it.
   double glide(double progress, double deltaSeconds, double seconds) =>
-      reduced ? 1.0 : progress + deltaSeconds / seconds;
+      reduced ? 1.0 : progress + deltaSeconds * pace.speed / seconds;
 
   /// How long an implicit animation of a position or a size runs.
-  Duration duration(Duration full) => reduced ? Duration.zero : full;
+  Duration duration(Duration full) => pace.duration(full);
 
   /// The launch feedback in effect. The hop is movement, so with reduced
   /// motion a launch shows as the pulse: it says the same and nothing travels.
@@ -71,6 +79,7 @@ class DockMotion {
 
   /// With reduced motion the icon stays on the row and dims in the rhythm it
   /// would have hopped in, down to the floor the launch pulse uses.
-  double attentionOpacity(double phase) =>
-      reduced ? 1.0 - (1.0 - DockLaunch.pulseFloor) * attentionWave(phase) : 1.0;
+  double attentionOpacity(double phase) => reduced
+      ? 1.0 - (1.0 - DockLaunch.pulseFloor) * attentionWave(phase)
+      : 1.0;
 }

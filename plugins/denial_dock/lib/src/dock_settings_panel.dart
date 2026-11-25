@@ -13,6 +13,7 @@ import 'dock_stack_files.dart' show DockStackFiles;
 import 'dock_stack_view.dart' show stackFileColor, stackFileIcon;
 
 import 'package:denial_shell_kit/glass_card.dart';
+import 'package:denial_shell_kit/kit_motion.dart';
 import 'package:denial_shell_kit/kit_style.dart';
 
 const double _rowHeight = 48;
@@ -21,7 +22,7 @@ const double _sheetRadius = 22;
 const Duration _quick = Duration(milliseconds: 140);
 
 Duration _motion(BuildContext context, Duration duration) =>
-    MediaQuery.disableAnimationsOf(context) ? Duration.zero : duration;
+    KitMotion.duration(context, duration);
 
 TextStyle _labelStyle(ShellThemeData theme) => theme.text.cardTitle.copyWith(
   color: theme.colors.textPrimary,
@@ -1558,9 +1559,11 @@ class _SlidingSegmentsState<T> extends State<_SlidingSegments<T>>
   @override
   void initState() {
     super.initState();
+    // initState may not read MediaQuery, so the pace comes from the platform
+    // value the kit falls back to.
     _slide = AnimationController(
       vsync: this,
-      duration: const Duration(milliseconds: 360),
+      duration: KitMotion.now.duration(const Duration(milliseconds: 360)),
       value: _target,
     );
   }
@@ -1574,6 +1577,9 @@ class _SlidingSegmentsState<T> extends State<_SlidingSegments<T>>
   @override
   void didUpdateWidget(covariant _SlidingSegments<T> oldWidget) {
     super.didUpdateWidget(oldWidget);
+    // A speed change inside the sheet reaches the running controls too.
+    final duration = KitMotion.now.duration(const Duration(milliseconds: 360));
+    if (_slide.duration != duration) _slide.duration = duration;
     if (oldWidget.options.length != widget.options.length) {
       _slide.value = _target;
       return;
@@ -1930,7 +1936,7 @@ class _DockSwitchState extends State<_DockSwitch>
     super.initState();
     _slide = AnimationController(
       vsync: this,
-      duration: const Duration(milliseconds: 260),
+      duration: KitMotion.now.duration(const Duration(milliseconds: 260)),
       value: widget.value ? 1 : 0,
     );
   }
@@ -1944,6 +1950,8 @@ class _DockSwitchState extends State<_DockSwitch>
   @override
   void didUpdateWidget(covariant _DockSwitch oldWidget) {
     super.didUpdateWidget(oldWidget);
+    final duration = KitMotion.now.duration(const Duration(milliseconds: 260));
+    if (_slide.duration != duration) _slide.duration = duration;
     if (oldWidget.value == widget.value) return;
     final target = widget.value ? 1.0 : 0.0;
     if (MediaQuery.disableAnimationsOf(context)) {

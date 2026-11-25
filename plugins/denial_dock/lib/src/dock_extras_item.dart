@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:io';
 import 'dart:math' as math;
 
+import 'package:denial_shell_kit/kit_motion.dart';
 import 'package:denial_shell_kit/kit_style.dart';
 import 'package:denial_flutter_sdk/input.dart';
 import 'package:denial_flutter_sdk/theme.dart';
@@ -371,7 +372,8 @@ class _DownloadBarState extends State<_DownloadBar>
     with SingleTickerProviderStateMixin {
   late final AnimationController _sweep = AnimationController(
     vsync: this,
-    duration: const Duration(milliseconds: 1200),
+    // A loop: it keeps its rhythm and only the speed scales it.
+    duration: KitMotion.now.scaled(const Duration(milliseconds: 1200)),
   );
 
   @override

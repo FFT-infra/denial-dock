@@ -1,11 +1,13 @@
 import 'package:denial_dock/src/dock_launch.dart';
 import 'package:denial_dock/src/dock_math.dart';
+import 'package:denial_shell_kit/kit_motion_pace.dart';
 import 'package:denial_dock/src/dock_motion.dart';
 import 'package:denial_dock/src/dock_settings.dart';
 
 void main() {
-  const full = DockMotion(reduced: false);
-  const reduced = DockMotion(reduced: true);
+  const full = DockMotion(pace: KitMotionPace(speed: 1, reduced: false));
+  const reduced = DockMotion(pace: KitMotionPace(speed: 1, reduced: true));
+  const fast = DockMotion(pace: KitMotionPace(speed: 2, reduced: false));
   const frame = 1 / 60;
 
   // With full motion a chased value is exactly what the dock always computed.
@@ -48,6 +50,23 @@ void main() {
   // Implicit position and size animations keep their length or lose it.
   const shuffle = Duration(milliseconds: 180);
   _expect(full.duration(shuffle) == shuffle, 'full motion keeps durations');
+  // At speed 2 the same transition takes half the time; a chased value covers
+  // twice the ground in a frame, the same shape on a shorter clock; a glide
+  // adds up twice as fast.
+  _expect(
+    fast.duration(shuffle) ==
+        Duration(microseconds: shuffle.inMicroseconds ~/ 2),
+    'speed 2 halves a duration',
+  );
+  _expect(
+    fast.advance(0, 1, frame, responseSeconds: 0.055) ==
+        full.advance(0, 1, frame * 2, responseSeconds: 0.055),
+    'speed 2 advances like a double frame',
+  );
+  _expect(
+    (fast.glide(0, 0.03, 0.18) - 2 * full.glide(0, 0.03, 0.18)).abs() < 1e-12,
+    'speed 2 glides twice as far',
+  );
   _expect(
     reduced.duration(shuffle) == Duration.zero,
     'reduced motion has no durations',

@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'dart:math' as math;
 
+import 'package:denial_shell_kit/kit_motion.dart';
 import 'package:denial_shell_kit/kit_style.dart';
 import 'package:denial_flutter_sdk/input.dart';
 import 'package:denial_flutter_sdk/services.dart';
@@ -307,7 +308,9 @@ class _DockItemWidgetState extends State<DockItemWidget>
     _launchTicker = createTicker(_onLaunchTick);
     _attention = AnimationController(
       vsync: this,
-      duration: const Duration(milliseconds: 1500),
+      // The attention rhythm is a loop, so only the speed scales it: under
+      // reduced motion the icon holds still and dims in the same rhythm.
+      duration: KitMotion.now.scaled(const Duration(milliseconds: 1500)),
     );
     if (widget.attention) unawaited(_attention.repeat());
     widget.activation.addListener(_onActivation);
@@ -364,6 +367,12 @@ class _DockItemWidgetState extends State<DockItemWidget>
           ..stop()
           ..value = 0;
       }
+    }
+    if (widget.motion.pace.speed != oldWidget.motion.pace.speed) {
+      // A loop keeps its rhythm; only a new speed changes its period.
+      _attention.duration = KitMotion.now.scaled(
+        const Duration(milliseconds: 1500),
+      );
     }
     if (widget.launchId != oldWidget.launchId ||
         widget.appId != oldWidget.appId) {
@@ -880,6 +889,10 @@ class _DockItemWidgetState extends State<DockItemWidget>
     }
     final dt = (elapsed - _launchLastTick).inMicroseconds / 1000000.0;
     _launchLastTick = elapsed;
+    // The hop's own clock runs at the shell's speed; the release rule keeps
+    // its wall-clock floor, so a window appearing ends the feedback when it
+    // appears at any speed.
+    final hopDt = dt * KitMotion.speed;
 
     if (_launchHopping) {
       final started = _launchStartedAt ?? DateTime.now();
@@ -900,7 +913,7 @@ class _DockItemWidgetState extends State<DockItemWidget>
           setState(() {});
           return;
         }
-        _launchPhase = DockLaunch.advancePhase(_launchPhase, dt);
+        _launchPhase = DockLaunch.advancePhase(_launchPhase, hopDt);
         _launchLift = DockLaunch.hopLift(_launchPhase, widget.size);
         setState(() {});
         return;
@@ -920,7 +933,7 @@ class _DockItemWidgetState extends State<DockItemWidget>
     }
 
     if (_landingProgress < 1) {
-      _landingProgress = DockLaunch.advanceLanding(_landingProgress, dt);
+      _landingProgress = DockLaunch.advanceLanding(_landingProgress, hopDt);
       _launchLift = DockLaunch.landingLift(_landingStartLift, _landingProgress);
       setState(() {});
       return;
@@ -1266,7 +1279,10 @@ class _DockItemWidgetState extends State<DockItemWidget>
                         children: [
                           Positioned.fill(
                             child: AnimatedOpacity(
-                              duration: const Duration(milliseconds: 180),
+                              duration: KitMotion.duration(
+                                context,
+                                const Duration(milliseconds: 180),
+                              ),
                               curve: Curves.easeOut,
                               opacity:
                                   (inactivePin ? _inactivePinOpacity : 1.0) *
@@ -1335,7 +1351,10 @@ class _DockItemWidgetState extends State<DockItemWidget>
                           Positioned.fill(
                             child: IgnorePointer(
                               child: AnimatedOpacity(
-                                duration: const Duration(milliseconds: 90),
+                                duration: KitMotion.duration(
+                                  context,
+                                  const Duration(milliseconds: 90),
+                                ),
                                 curve: Curves.easeOut,
                                 opacity: _pressed ? 1 : 0,
                                 child: DecoratedBox(
@@ -1682,7 +1701,10 @@ class _DockItemWidgetState extends State<DockItemWidget>
           rect: panel,
           child: TweenAnimationBuilder<double>(
             tween: Tween<double>(begin: 0, end: 1),
-            duration: const Duration(milliseconds: 240),
+            duration: KitMotion.duration(
+              context,
+              const Duration(milliseconds: 240),
+            ),
             curve: Curves.easeOutCubic,
             builder: (context, t, child) => Opacity(
               opacity: t,
@@ -1876,7 +1898,10 @@ class _DockItemWidgetState extends State<DockItemWidget>
           rect: panel,
           child: TweenAnimationBuilder<double>(
             tween: Tween<double>(begin: 0, end: 1),
-            duration: const Duration(milliseconds: 240),
+            duration: KitMotion.duration(
+              context,
+              const Duration(milliseconds: 240),
+            ),
             curve: Curves.easeOutCubic,
             builder: (context, t, child) => Opacity(
               opacity: t,
@@ -2044,7 +2069,7 @@ class _PreviewFrame extends StatelessWidget {
   Widget build(BuildContext context) {
     return TweenAnimationBuilder<double>(
       tween: Tween<double>(begin: 0, end: hovered ? 1 : 0),
-      duration: const Duration(milliseconds: 120),
+      duration: KitMotion.duration(context, const Duration(milliseconds: 120)),
       curve: Curves.easeOutCubic,
       builder: (context, t, child) => Transform.scale(
         scale: 1 + 0.02 * t,

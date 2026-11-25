@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'dart:math' as math;
 
+import 'package:denial_shell_kit/kit_motion.dart';
 import 'package:denial_shell_kit/kit_style.dart';
 import 'package:denial_flutter_sdk/applications.dart'
     show applicationRecentsProvider;
@@ -87,9 +88,9 @@ class _DockContainerState extends ConsumerState<DockContainer>
   Duration _lastTick = Duration.zero;
 
   /// How the dock's own animations advance: every value the ticker chases and
-  /// every timed move of an icon goes through it, so the system's
-  /// reduced-motion setting is honoured in one place.
-  DockMotion _motion = const DockMotion(reduced: false);
+  /// every timed move of an icon goes through it, so the shell's speed and
+  /// the system's reduced-motion setting are honoured in one place.
+  DockMotion _motion = DockMotion(pace: KitMotion.now);
 
   /// Pointer position along the dock's main axis, in surface coordinates.
   /// Storing surface coordinates keeps the target valid while the capsule
@@ -237,6 +238,8 @@ class _DockContainerState extends ConsumerState<DockContainer>
   void initState() {
     super.initState();
     _ticker = createTicker(_onTick);
+    // The speed is a value, so a change of it reaches a running dock at once.
+    kitSpeed.addListener(_onSpeed);
     // The thumbnail index is built before a folder is opened, so the fan shows
     // previews on its first frame instead of a column of type icons, and stale
     // generated previews are dropped so the cache cannot grow without bound.
@@ -244,6 +247,10 @@ class _DockContainerState extends ConsumerState<DockContainer>
     DockStackThumbs.sweepCache();
     _hotkeys = DockHotkeys.requests.listen(_onHotkey);
     _debug = DockDebug.commands.listen(_onDebug);
+  }
+
+  void _onSpeed() {
+    if (mounted) setState(() {});
   }
 
   StreamSubscription<List<String>>? _debug;
@@ -310,13 +317,14 @@ class _DockContainerState extends ConsumerState<DockContainer>
   void didChangeDependencies() {
     super.didChangeDependencies();
     // The same signal the settings panel and the stack view read. Depending
-    // on it here means a change of the setting reaches a running dock.
-    final reduced = MediaQuery.maybeDisableAnimationsOf(context) ?? false;
-    if (reduced != _motion.reduced) _motion = DockMotion(reduced: reduced);
+    // on it here means a change of the setting reaches a running dock. The
+    // speed itself is read each frame, so a new pace costs nothing here.
+    _motion = DockMotion(pace: KitMotion.pace(context));
   }
 
   @override
   void dispose() {
+    kitSpeed.removeListener(_onSpeed);
     _hideTimer?.cancel();
     _revealTimer?.cancel();
     _labelTimer?.cancel();
