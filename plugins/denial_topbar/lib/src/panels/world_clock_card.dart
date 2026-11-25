@@ -35,34 +35,45 @@ class WorldClock {
     ('Beijing', 'Asia/Shanghai'),
   ];
 
+  /// What the last read found, so a card that opens again shows its rows
+  /// in its first frame.
+  static List<WorldClock> last = const <WorldClock>[];
+
   /// Reads every city, or returns an empty list when the host has no `date`.
-  static List<WorldClock> read(DateTime now) {
+  /// The processes run off the UI thread's time: started in the frame that
+  /// opens the notification centre, a blocking read would hold that frame
+  /// for as long as four of them take.
+  static Future<List<WorldClock>> read(DateTime now) async {
     final localDay = DateTime(now.year, now.month, now.day);
-    final clocks = <WorldClock>[];
-    for (final (city, zone) in cities) {
-      try {
-        final result = Process.runSync(
-          'date',
-          <String>['+%H:%M %Y-%m-%d'],
-          environment: <String, String>{'TZ': zone},
-        );
+    try {
+      final results = await Future.wait(<Future<ProcessResult>>[
+        for (final (_, zone) in cities)
+          Process.run(
+            'date',
+            <String>['+%H:%M %Y-%m-%d'],
+            environment: <String, String>{'TZ': zone},
+          ),
+      ]);
+      final clocks = <WorldClock>[];
+      for (var i = 0; i < cities.length; i++) {
+        final result = results[i];
         if (result.exitCode != 0) continue;
         final parts = (result.stdout as String).trim().split(' ');
         if (parts.length != 2) continue;
         final day = DateTime.tryParse(parts[1]);
         clocks.add(
           WorldClock(
-            city: city,
-            zone: zone,
+            city: cities[i].$1,
+            zone: cities[i].$2,
             time: parts[0],
             dayDelta: day == null ? 0 : day.difference(localDay).inDays,
           ),
         );
-      } on ProcessException {
-        return const <WorldClock>[];
       }
+      return last = clocks;
+    } on ProcessException {
+      return last = const <WorldClock>[];
     }
-    return clocks;
   }
 }
 
@@ -79,7 +90,7 @@ class WorldClockCard extends StatefulWidget {
 }
 
 class _WorldClockCardState extends State<WorldClockCard> {
-  List<WorldClock> _clocks = const <WorldClock>[];
+  List<WorldClock> _clocks = WorldClock.last;
   Timer? _tick;
 
   @override
@@ -96,8 +107,8 @@ class _WorldClockCardState extends State<WorldClockCard> {
     super.dispose();
   }
 
-  void _refresh() {
-    final clocks = WorldClock.read(DateTime.now());
+  Future<void> _refresh() async {
+    final clocks = await WorldClock.read(DateTime.now());
     if (!mounted) return;
     setState(() => _clocks = clocks);
   }

@@ -140,13 +140,17 @@ class _ClockWidgetState extends State<_ClockWidget> {
   Widget build(BuildContext context) {
     final theme = context.shellTheme;
     final now = DateTime.now();
-    final face = CustomPaint(
-      painter: _ClockPainter(
-        now: now,
-        ink: theme.colors.textPrimary,
-        dim: theme.colors.textSecondary,
+    // The hands move every second; on a layer of their own that repaints
+    // the face and nothing around it.
+    final face = RepaintBoundary(
+      child: CustomPaint(
+        painter: _ClockPainter(
+          now: now,
+          ink: theme.colors.textPrimary,
+          dim: theme.colors.textSecondary,
+        ),
+        child: const SizedBox.expand(),
       ),
-      child: const SizedBox.expand(),
     );
     if (!widget.wide) {
       return Padding(padding: const EdgeInsets.all(12), child: face);
