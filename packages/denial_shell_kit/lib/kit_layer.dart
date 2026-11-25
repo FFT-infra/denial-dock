@@ -61,11 +61,17 @@ class KitLayer extends InheritedWidget {
     required this.animation,
     required this.dismiss,
     required super.child,
+    this.interceptBack,
     super.key,
   });
 
   final Animation<double> animation;
   final VoidCallback dismiss;
+
+  /// Hands the layer a question it asks before Escape or a press outside
+  /// closes it: answering true means the content stepped back a level itself
+  /// (left a detail page, ended an edit) and the layer stays. Null clears it.
+  final ValueChanged<bool Function()?>? interceptBack;
 
   static KitLayer of(BuildContext context) =>
       context.dependOnInheritedWidgetOfExactType<KitLayer>()!;
@@ -165,7 +171,10 @@ class _KitLayerState extends State<_KitLayerHost>
     reverseDuration: KitMotion.now.duration(widget.close),
   );
   bool _closing = false;
+  bool Function()? _back;
   StreamSubscription<Object?>? _outsideSub;
+
+  bool _steppedBack() => !_closing && (_back?.call() ?? false);
 
   @override
   void initState() {
@@ -212,6 +221,7 @@ class _KitLayerState extends State<_KitLayerHost>
       target = resolve(position);
       if (target != null) break;
     }
+    if (target == null && _steppedBack()) return;
     dismiss();
     target?.call();
   }
@@ -235,7 +245,7 @@ class _KitLayerState extends State<_KitLayerHost>
       onKeyEvent: (_, event) {
         if (event is KeyDownEvent &&
             event.logicalKey == LogicalKeyboardKey.escape) {
-          dismiss();
+          if (!_steppedBack()) dismiss();
           return KeyEventResult.handled;
         }
         return KeyEventResult.ignored;
@@ -258,6 +268,7 @@ class _KitLayerState extends State<_KitLayerHost>
           KitLayer(
             animation: _controller,
             dismiss: dismiss,
+            interceptBack: (handler) => _back = handler,
             child: Builder(
               builder: (context) => widget.builder(context, dismiss),
             ),
@@ -291,6 +302,8 @@ void showKitPanel({
   bool glass = true,
   Color? fill,
   String? debugLabel,
+  Size? bead,
+  bool cornerOrigin = false,
 }) {
   if (closeKitPanel(panelId)) return;
   final menu = kind == KitPanelKind.menu;
@@ -313,6 +326,8 @@ void showKitPanel({
       alignOffset: alignOffset,
       glass: glass,
       fill: fill,
+      bead: bead,
+      cornerOrigin: cornerOrigin,
       child: builder(context, close),
     ),
   );
@@ -361,11 +376,15 @@ class KitSwell extends StatefulWidget {
     required this.alignment,
     required this.child,
     this.fadeOnly = false,
+    this.bead,
     super.key,
   });
 
   final Alignment alignment;
   final bool fadeOnly;
+
+  /// The share of its size the card starts from, in place of the look's.
+  final Size? bead;
   final Widget child;
 
   @override
@@ -416,7 +435,7 @@ class _KitSwellState extends State<KitSwell>
   @override
   Widget build(BuildContext context) {
     if (widget.fadeOnly) return widget.child;
-    final bead = KitStyle.of(context).panelBead;
+    final bead = widget.bead ?? KitStyle.of(context).panelBead;
     return AnimatedBuilder(
       animation: _springs,
       builder: (context, child) {
@@ -609,8 +628,17 @@ class KitPanelFrame extends StatelessWidget {
     this.alignOffset = 0,
     this.glass = true,
     this.fill,
+    this.bead,
+    this.cornerOrigin = false,
     super.key,
   });
+
+  /// See [KitSwell.bead].
+  final Size? bead;
+
+  /// Grows out of the panel's corner on the anchor's side, not out of the
+  /// anchor's own position along the edge.
+  final bool cornerOrigin;
 
   final Rect? anchor;
   final KitEdge edge;
@@ -667,8 +695,12 @@ class KitPanelFrame extends StatelessWidget {
                 maxHeight: place.maxHeight.clamp(120.0, scene.height),
               ),
               child: KitSwell(
-                alignment: Alignment(place.originX, place.originY),
+                alignment: Alignment(
+                  cornerOrigin ? (place.originX < 0 ? -1 : 1) : place.originX,
+                  place.originY,
+                ),
                 fadeOnly: menu,
+                bead: bead,
                 child: Listener(
                   behavior: HitTestBehavior.opaque,
                   child: KitCard(
