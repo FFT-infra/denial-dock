@@ -91,8 +91,57 @@ class BarStatusCluster extends ConsumerWidget {
     this.settingsKey,
     this.horizontal = true,
     this.crossExtent = BarTokens.height,
+    this.only,
+    this.omit = const <String>{},
+    this.spacing = BarTokens.statusSpacing,
     super.key,
   });
+
+  /// The same cluster drawn another way: in another [ink], as the one item
+  /// [only], or without the items in [omit] because the bar places those on
+  /// their own. Every view shares the anchors, so an item's popup opens from
+  /// wherever that item is drawn.
+  BarStatusCluster view({
+    required Color ink,
+    String? only,
+    Set<String> omit = const <String>{},
+  }) => BarStatusCluster(
+    services: services,
+    settings: settings,
+    openPanel: openPanel,
+    ink: ink,
+    onWifi: onWifi,
+    onVolume: onVolume,
+    onBluetooth: onBluetooth,
+    onSearch: onSearch,
+    onClipboard: onClipboard,
+    clipboardKey: clipboardKey,
+    onBattery: onBattery,
+    onNotifications: onNotifications,
+    onControlCenter: onControlCenter,
+    onSettings: onSettings,
+    wifiKey: wifiKey,
+    volumeKey: volumeKey,
+    bluetoothKey: bluetoothKey,
+    batteryKey: batteryKey,
+    notificationsKey: notificationsKey,
+    controlCenterKey: controlCenterKey,
+    settingsKey: settingsKey,
+    horizontal: horizontal,
+    crossExtent: crossExtent,
+    only: only,
+    omit: omit,
+    spacing: spacing,
+  );
+
+  /// Draws this one item and nothing else, indicators included.
+  final String? only;
+
+  /// Items left out of the cluster.
+  final Set<String> omit;
+
+  /// Room between two items.
+  final double spacing;
 
   final ShellServices services;
   final BarSettings settings;
@@ -387,7 +436,10 @@ class BarStatusCluster extends ConsumerWidget {
     final micUsers = settings.showMic
         ? ref.watch(_micProvider)
         : const <String>[];
-    final cells = <Widget>[
+    final only = this.only;
+    final cells = only != null
+        ? <Widget>[?byId[only]]
+        : <Widget>[
       if (micUsers.isNotEmpty)
         BarStatusCell(
           ink: ink,
@@ -427,7 +479,7 @@ class BarStatusCluster extends ConsumerWidget {
           ),
         ),
       for (final id in <String>{...settings.statusOrder, ...byId.keys})
-        if (byId[id] != null) byId[id]!,
+        if (byId[id] != null && !omit.contains(id)) byId[id]!,
     ];
 
     return Flex(
@@ -435,8 +487,7 @@ class BarStatusCluster extends ConsumerWidget {
       mainAxisSize: MainAxisSize.min,
       children: <Widget>[
         for (var index = 0; index < cells.length; index++) ...<Widget>[
-          if (index > 0)
-            const SizedBox.square(dimension: BarTokens.statusSpacing),
+          if (index > 0) SizedBox.square(dimension: spacing),
           cells[index],
         ],
       ],

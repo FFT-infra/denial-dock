@@ -1,6 +1,10 @@
 import 'dart:convert';
 import 'dart:io';
 
+import 'bar_zones.dart';
+
+export 'bar_zones.dart';
+
 /// Where the workspace switcher lives.
 ///
 /// macOS has no workspace switcher in its menu bar, so this is an addition.
@@ -84,18 +88,9 @@ const List<String> defaultControls = <String>[
 
 const List<String> defaultWidgets = <String>['calendar', 'worldclock'];
 
-const List<String> defaultStatusOrder = <String>[
-  'tray',
-  'wifi',
-  'bluetooth',
-  'volume',
-  'battery',
-  'search',
-  'clipboard',
-  'notifications',
-  'controlcenter',
-  'settings',
-];
+const List<String> defaultStatusOrder = barStatusItems;
+
+const Object _keep = Object();
 
 const int barAutoHideDelayMin = 0;
 const int barAutoHideDelayMax = 600;
@@ -162,6 +157,7 @@ class BarSettings {
     this.controls = defaultControls,
     this.widgets = defaultWidgets,
     this.statusOrder = defaultStatusOrder,
+    this.explicitZones,
   });
 
   static const BarSettings defaults = BarSettings();
@@ -261,6 +257,97 @@ class BarSettings {
   final List<String> widgets;
   final List<String> statusOrder;
 
+  /// The zones as the user arranged them, or null while the bar still
+  /// follows the older settings that placed its parts.
+  final BarZones? explicitZones;
+
+  /// What the bar draws in its start, centre and end.
+  BarZones get zones =>
+      explicitZones?.sanitized() ??
+      BarZones.legacy(
+        systemMenu: showSystemMenu,
+        appMenu: showAppMenu,
+        island: islandEnabled,
+        workspaces: workspacePlacement.key,
+      );
+
+  /// The island needs both its switch and a place in the centre.
+  bool get showsIsland =>
+      islandEnabled && zones.center.contains(BarPart.island);
+
+  /// The switcher rides inside the island unless a zone holds it.
+  bool get workspacesInIsland =>
+      workspacePlacement == BarWorkspacePlacement.island &&
+      !zones.contains(BarPart.workspaces);
+
+  bool hasPart(String id) =>
+      id == BarPart.island ? showsIsland : zones.contains(id);
+
+  /// Shows or hides one of the parts that has had a switch of its own since
+  /// before zones: the switch is kept, and arranged zones follow it.
+  BarSettings withPart(String id, bool shown) {
+    final next = switch (id) {
+      BarPart.system => copyWith(showSystemMenu: shown),
+      BarPart.app => copyWith(showAppMenu: shown),
+      BarPart.island => copyWith(islandEnabled: shown),
+      _ => this,
+    };
+    final zones = explicitZones;
+    if (zones == null) return next;
+    if (!shown) {
+      // The island's switch alone hides it, so it keeps its place.
+      return id == BarPart.island
+          ? next
+          : next.copyWith(zones: zones.without(id));
+    }
+    if (zones.contains(id)) return next;
+    return next.copyWith(
+      zones: switch (id) {
+        BarPart.system => zones.inserted(0, id, 0),
+        BarPart.app => zones.inserted(0, id),
+        BarPart.island => zones.inserted(1, id, 0),
+        _ => zones.inserted(2, id),
+      },
+    );
+  }
+
+  /// Where the switcher shows, as the older setting names it. Null when an
+  /// arranged bar holds it in the centre, which that setting cannot say.
+  BarWorkspacePlacement? get workspacesShownIn {
+    final zones = explicitZones;
+    if (zones == null) return workspacePlacement;
+    return switch (zones.sanitized().zoneOf(BarPart.workspaces)) {
+      0 => BarWorkspacePlacement.leading,
+      2 => BarWorkspacePlacement.trailing,
+      1 => null,
+      _ =>
+        workspacePlacement == BarWorkspacePlacement.island
+            ? BarWorkspacePlacement.island
+            : BarWorkspacePlacement.hidden,
+    };
+  }
+
+  BarSettings withWorkspacePlacement(BarWorkspacePlacement placement) {
+    final next = copyWith(workspacePlacement: placement);
+    final zones = explicitZones?.without(BarPart.workspaces);
+    if (zones == null) return next;
+    return next.copyWith(
+      zones: switch (placement) {
+        BarWorkspacePlacement.leading => zones.inserted(
+          0,
+          BarPart.workspaces,
+          zones.start.contains(BarPart.system) ? 1 : 0,
+        ),
+        BarWorkspacePlacement.trailing => zones.inserted(
+          2,
+          BarPart.workspaces,
+          0,
+        ),
+        _ => zones,
+      },
+    );
+  }
+
   Duration get islandNoticeHold => Duration(seconds: islandNoticeSeconds);
 
   BarSettings copyWith({
@@ -319,6 +406,7 @@ class BarSettings {
     List<String>? controls,
     List<String>? widgets,
     List<String>? statusOrder,
+    Object? zones = _keep,
   }) => BarSettings(
     layout: layout ?? this.layout,
     ground: ground ?? this.ground,
@@ -376,6 +464,9 @@ class BarSettings {
     controls: controls ?? this.controls,
     widgets: widgets ?? this.widgets,
     statusOrder: statusOrder ?? this.statusOrder,
+    explicitZones: identical(zones, _keep)
+        ? explicitZones
+        : zones as BarZones?,
   );
 
   factory BarSettings.fromJson(Map<String, dynamic> json) {
@@ -396,7 +487,21 @@ class BarSettings {
       }.toList();
     }
 
+    List<String> parts(String key) => <String>[
+      if (json[key] case final List<dynamic> list)
+        for (final id in list)
+          if (id is String) id,
+    ];
+
     return BarSettings(
+      explicitZones:
+          json['start'] is List || json['center'] is List || json['end'] is List
+          ? BarZones(
+              start: parts('start'),
+              center: parts('center'),
+              end: parts('end'),
+            ).sanitized()
+          : null,
       layout: BarLayout.parse(json['layout']),
       ground: BarGround.parse(json['ground']),
       groundOpacity: ratio('groundOpacity', 0.55),
@@ -521,6 +626,19 @@ class BarSettings {
     json['widgets'] = widgets;
     json['statusOrder'] = statusOrder;
     json['workspaceStyle'] = workspaceStyle.name;
+    // A bar that was never arranged keeps no zones, so it goes on following
+    // the settings above.
+    final zones = explicitZones;
+    if (zones == null) {
+      json
+        ..remove('start')
+        ..remove('center')
+        ..remove('end');
+    } else {
+      json['start'] = zones.start;
+      json['center'] = zones.center;
+      json['end'] = zones.end;
+    }
   }
 }
 
