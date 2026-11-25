@@ -708,7 +708,7 @@ class _IslandState extends ConsumerState<Island> with TickerProviderStateMixin {
     final settings = widget.settings;
     if (settings.islandHoverFade) {
       _dwell?.cancel();
-      _dwell = Timer(IslandDefaults.fadeDwell, () {
+      _dwell = Timer(settings.islandFadeDwell, () {
         if (!mounted || !_hovered) return;
         _dwelt = true;
         // Once the island gives up its input region the pointer belongs to
@@ -791,7 +791,7 @@ class _IslandState extends ConsumerState<Island> with TickerProviderStateMixin {
     _pressed = true;
     _held = false;
     _long?.cancel();
-    _long = Timer(IslandDefaults.longPress, () {
+    _long = Timer(widget.settings.islandLongPress, () {
       if (!mounted || !_pressed) return;
       // The open panel takes no taps of its own, so the release that ends
       // this press would never be reported.

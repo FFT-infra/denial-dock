@@ -13,13 +13,6 @@ import 'island_engine.dart';
 /// Values that stand in for settings the island does not have yet. Each one
 /// is read in a single place, so giving it a field later is one edit.
 abstract final class IslandDefaults {
-  /// How long the pointer rests on the compact island before it fades away,
-  /// where fading under the pointer is on. Long enough to arrive and click.
-  static const Duration fadeDwell = Duration(milliseconds: 600);
-
-  /// How long a press is held before it opens the panel.
-  static const Duration longPress = Duration(milliseconds: 280);
-
   /// A press elsewhere this soon after the panel opened is the press that
   /// opened it.
   static const Duration outsideGuard = Duration(milliseconds: 150);

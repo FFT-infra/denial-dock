@@ -145,6 +145,14 @@ enum BarBorderColour {
 /// it is until changed. Every default is what the bar measured before the
 /// setting existed.
 abstract final class BarMetric {
+  static const int islandFadeDelayMsMin = 200;
+  static const int islandFadeDelayMsMax = 2000;
+  static const int islandFadeDelayMs = 600;
+
+  static const int islandLongPressMsMin = 150;
+  static const int islandLongPressMsMax = 600;
+  static const int islandLongPressMs = 280;
+
   static const double textScaleMin = 0.8;
   static const double textScaleMax = 1.4;
   static const double textScale = 1;
@@ -226,6 +234,8 @@ class BarSettings {
     this.islandHoverPeek = true,
     this.islandHoverFade = false,
     this.islandNoticeSeconds = 5,
+    this.islandFadeDelayMs = BarMetric.islandFadeDelayMs,
+    this.islandLongPressMs = BarMetric.islandLongPressMs,
     this.activityMedia = true,
     this.activityCharging = true,
     this.activityNotifications = true,
@@ -326,6 +336,13 @@ class BarSettings {
 
   /// How long a notice or a track change keeps the island open, in seconds.
   final int islandNoticeSeconds;
+
+  /// How long the pointer rests on the compact island before it fades away,
+  /// where fading under the pointer is on.
+  final int islandFadeDelayMs;
+
+  /// How long a press is held before it opens the island.
+  final int islandLongPressMs;
 
   final bool activityMedia;
   final bool activityCharging;
@@ -540,6 +557,10 @@ class BarSettings {
 
   Duration get islandNoticeHold => Duration(seconds: islandNoticeSeconds);
 
+  Duration get islandFadeDwell => Duration(milliseconds: islandFadeDelayMs);
+
+  Duration get islandLongPress => Duration(milliseconds: islandLongPressMs);
+
   BarSettings copyWith({
     BarShape? shape,
     BarCap? cap,
@@ -558,6 +579,8 @@ class BarSettings {
     bool? islandHoverPeek,
     bool? islandHoverFade,
     int? islandNoticeSeconds,
+    int? islandFadeDelayMs,
+    int? islandLongPressMs,
     bool? activityMedia,
     bool? activityCharging,
     bool? activityNotifications,
@@ -624,6 +647,8 @@ class BarSettings {
     islandHoverPeek: islandHoverPeek ?? this.islandHoverPeek,
     islandHoverFade: islandHoverFade ?? this.islandHoverFade,
     islandNoticeSeconds: islandNoticeSeconds ?? this.islandNoticeSeconds,
+    islandFadeDelayMs: islandFadeDelayMs ?? this.islandFadeDelayMs,
+    islandLongPressMs: islandLongPressMs ?? this.islandLongPressMs,
     activityMedia: activityMedia ?? this.activityMedia,
     activityCharging: activityCharging ?? this.activityCharging,
     activityNotifications: activityNotifications ?? this.activityNotifications,
@@ -684,6 +709,12 @@ class BarSettings {
       final value = json[key];
       if (value is! num || value.isNaN) return fallback;
       return value.toDouble().clamp(min, max);
+    }
+
+    int whole(String key, int min, int max, int fallback) {
+      final value = json[key];
+      if (value is! num || !value.isFinite) return fallback;
+      return value.round().clamp(min, max);
     }
 
     List<String> ids(String key, List<String> fallback) {
@@ -772,6 +803,18 @@ class BarSettings {
       islandNoticeSeconds: (json['islandNoticeSeconds'] is num)
           ? (json['islandNoticeSeconds'] as num).round().clamp(2, 12)
           : 5,
+      islandFadeDelayMs: whole(
+        'islandFadeDelayMs',
+        BarMetric.islandFadeDelayMsMin,
+        BarMetric.islandFadeDelayMsMax,
+        BarMetric.islandFadeDelayMs,
+      ),
+      islandLongPressMs: whole(
+        'islandLongPressMs',
+        BarMetric.islandLongPressMsMin,
+        BarMetric.islandLongPressMsMax,
+        BarMetric.islandLongPressMs,
+      ),
       activityMedia: flag('activityMedia', true),
       activityCharging: flag('activityCharging', true),
       activityNotifications: flag('activityNotifications', true),
@@ -854,6 +897,8 @@ class BarSettings {
     json['islandHoverPeek'] = islandHoverPeek;
     json['islandHoverFade'] = islandHoverFade;
     json['islandNoticeSeconds'] = islandNoticeSeconds;
+    json['islandFadeDelayMs'] = islandFadeDelayMs;
+    json['islandLongPressMs'] = islandLongPressMs;
     json['activityMedia'] = activityMedia;
     json['activityCharging'] = activityCharging;
     json['activityNotifications'] = activityNotifications;

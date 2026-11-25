@@ -38,6 +38,36 @@ Future<void> main() async {
     'notice seconds ceiling',
   );
   _expect(
+    BarSettings.fromJson(<String, dynamic>{}).islandFadeDelayMs == 600 &&
+        BarSettings.fromJson(<String, dynamic>{}).islandLongPressMs == 280,
+    'island timings default in an older save',
+  );
+  _expect(
+    BarSettings.fromJson(<String, dynamic>{
+              'islandFadeDelayMs': 5,
+              'islandLongPressMs': 9000,
+            }).islandFadeDelayMs ==
+            200 &&
+        BarSettings.fromJson(<String, dynamic>{
+              'islandFadeDelayMs': 5,
+              'islandLongPressMs': 9000,
+            }).islandLongPressMs ==
+            600,
+    'island timings stay in range',
+  );
+  final timings = <String, dynamic>{};
+  const BarSettings(
+    islandFadeDelayMs: 900,
+    islandLongPressMs: 400,
+  ).writeJson(timings);
+  _expect(
+    BarSettings.fromJson(timings).islandFadeDwell ==
+            const Duration(milliseconds: 900) &&
+        BarSettings.fromJson(timings).islandLongPress ==
+            const Duration(milliseconds: 400),
+    'island timings round trip',
+  );
+  _expect(
     BarSettings.fromJson(<String, dynamic>{'autoHideDelayMs': -5})
             .autoHideDelayMs ==
         barAutoHideDelayMin,
