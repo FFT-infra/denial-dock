@@ -31,6 +31,7 @@ import 'dock_icon.dart';
 import 'dock_launch.dart';
 import 'dock_look.dart';
 import 'dock_menu.dart';
+import 'dock_metrics.dart';
 import 'dock_motion.dart';
 import 'dock_scroll.dart';
 import 'dock_settings.dart';
@@ -67,6 +68,10 @@ class DockItemWidget extends StatefulWidget {
     required this.launchFeedback,
     required this.indicatorStyle,
     this.markerColor = DockMarkerColor.auto,
+    this.metrics = DockMetrics.denial,
+    this.markerOffset = 2.5,
+    this.cellExtent,
+    this.title,
     required this.previewStyle,
     required this.previewHover,
     this.previewDelayMs = DockSettings.defaultPreviewDelayMs,
@@ -148,6 +153,21 @@ class DockItemWidget extends StatefulWidget {
 
   /// What colour the running marker takes.
   final DockMarkerColor markerColor;
+
+  /// The measures of the look in force: the marker's, and how an icon
+  /// answers a press.
+  final DockMetrics metrics;
+
+  /// From the icon's edge out to the middle of the running marker, which
+  /// rests on the plate under the icon.
+  final double markerOffset;
+
+  /// The length of this item's cell along the row when it is longer than
+  /// the icon, as a task button's is; null for a cell the size of the icon.
+  final double? cellExtent;
+
+  /// What a task button says beside its icon; null shows the icon alone.
+  final String? title;
   final DockPreviewStyle previewStyle;
 
   /// Focuses a previewed window when the pointer moves onto its row.
@@ -1032,22 +1052,58 @@ class _DockItemWidgetState extends State<DockItemWidget>
     release?.call();
   }
 
-  /// The running marker. Dots count windows, up to three, as macOS does; a line
-  /// is one bar the width of the icon, as GNOME and Plasma draw it.
+  /// The running marker, resting on the plate under the icon. Dots count
+  /// windows, up to three, as macOS does; a line is one bar the width of the
+  /// icon, as GNOME and Plasma draw it; a pill is one short capsule. The
+  /// marker of the application in front is longer where the look says so.
   Widget _buildIndicator({
     required Color color,
     required int count,
     required DockIndicatorStyle style,
+    required bool front,
   }) {
-    if (style == DockIndicatorStyle.line ||
-        style == DockIndicatorStyle.segments) {
-      final thickness = math.max(2.0, widget.size * 0.055);
+    final metrics = widget.metrics;
+    final bar =
+        style == DockIndicatorStyle.line ||
+        style == DockIndicatorStyle.segments;
+    // A bar as thick as a dot would be a slab.
+    final thickness = bar
+        ? math.min(metrics.markerSize, 3.0)
+        : metrics.markerSize;
+    // How far past the icon's edge the marker's far side lies.
+    final reach = widget.markerOffset + thickness / 2;
+    final horizontal = widget.position == DockPosition.bottom;
+    final square = KitStyle.of(context).square;
+    Widget along(Widget child, {double inset = 0}) => switch (widget.position) {
+      DockPosition.bottom => Positioned(
+        left: inset,
+        right: inset,
+        bottom: -reach,
+        height: thickness,
+        child: child,
+      ),
+      DockPosition.left => Positioned(
+        top: inset,
+        bottom: inset,
+        left: -reach,
+        width: thickness,
+        child: child,
+      ),
+      DockPosition.right => Positioned(
+        top: inset,
+        bottom: inset,
+        right: -reach,
+        width: thickness,
+        child: child,
+      ),
+    };
+    if (bar) {
       final pieces = style == DockIndicatorStyle.segments
           ? math.min(4, math.max(1, count))
           : 1;
       final piece = DecoratedBox(
         decoration: BoxDecoration(
-          borderRadius: BorderRadius.circular(thickness / 2),
+          borderRadius: BorderRadius.circular(square ? 0 : thickness / 2),
           color: color,
         ),
       );
@@ -1055,9 +1111,7 @@ class _DockItemWidgetState extends State<DockItemWidget>
       final bar = pieces == 1
           ? piece
           : Flex(
-              direction: widget.position == DockPosition.bottom
-                  ? Axis.horizontal
-                  : Axis.vertical,
+              direction: horizontal ? Axis.horizontal : Axis.vertical,
               children: [
                 for (var i = 0; i < pieces; i++) ...[
                   if (i > 0) SizedBox.square(dimension: thickness),
@@ -1065,78 +1119,39 @@ class _DockItemWidgetState extends State<DockItemWidget>
                 ],
               ],
             );
-      return switch (widget.position) {
-        DockPosition.bottom => Positioned(
-          left: widget.size * 0.22,
-          right: widget.size * 0.22,
-          bottom: -thickness,
-          height: thickness,
-          child: bar,
-        ),
-        DockPosition.left => Positioned(
-          top: widget.size * 0.22,
-          bottom: widget.size * 0.22,
-          left: -thickness,
-          width: thickness,
-          child: bar,
-        ),
-        DockPosition.right => Positioned(
-          top: widget.size * 0.22,
-          bottom: widget.size * 0.22,
-          right: -thickness,
-          width: thickness,
-          child: bar,
-        ),
-      };
+      // A task button's bar runs under the whole button.
+      return along(bar, inset: widget.title == null ? widget.size * 0.22 : 8);
     }
     final dashes = style == DockIndicatorStyle.dashes;
-    final dotCount = math.min(dashes ? 4 : 3, math.max(1, count));
-    // The marker scales with the icon: a 4 px dot under a magnified 76 px
-    // icon reads as a speck, and macOS keeps the dot in proportion.
-    final dotSize = widget.size * (dotCount >= 3 ? 0.085 : 0.10);
-    final spacing = dotSize * 0.45;
-    final length = dashes ? dotSize * 2.2 : dotSize;
-    return switch (widget.position) {
-      DockPosition.bottom => Positioned(
-        left: 0,
-        right: 0,
-        bottom: -dotSize,
-        child: Center(
-          child: SizedBox(
-            height: dotSize,
-            child: Row(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                for (var i = 0; i < dotCount; i++) ...[
-                  if (i > 0) SizedBox(width: spacing),
-                  _Dot(width: length, height: dotSize, color: color),
-                ],
-              ],
-            ),
-          ),
+    final pill = style == DockIndicatorStyle.pill;
+    final dotCount = pill ? 1 : math.min(dashes ? 4 : 3, math.max(1, count));
+    final stretch = front && dotCount == 1 ? metrics.markerFrontStretch : 1.0;
+    final length =
+        (dashes
+            ? thickness * 2.2
+            : pill
+            ? metrics.markerLength
+            : thickness) *
+        stretch;
+    final spacing = thickness * 0.45;
+    return along(
+      Center(
+        child: Flex(
+          direction: horizontal ? Axis.horizontal : Axis.vertical,
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            for (var i = 0; i < dotCount; i++) ...[
+              if (i > 0) SizedBox.square(dimension: spacing),
+              _Dot(
+                width: horizontal ? length : thickness,
+                height: horizontal ? thickness : length,
+                color: color,
+              ),
+            ],
+          ],
         ),
       ),
-      DockPosition.left || DockPosition.right => Positioned(
-        top: 0,
-        bottom: 0,
-        left: widget.position == DockPosition.left ? -dotSize : null,
-        right: widget.position == DockPosition.right ? -dotSize : null,
-        child: Center(
-          child: SizedBox(
-            width: dotSize,
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                for (var i = 0; i < dotCount; i++) ...[
-                  if (i > 0) SizedBox(height: spacing),
-                  _Dot(width: dotSize, height: length, color: color),
-                ],
-              ],
-            ),
-          ),
-        ),
-      ),
-    };
+    );
   }
 
   @override
@@ -1147,6 +1162,9 @@ class _DockItemWidgetState extends State<DockItemWidget>
     final inactivePin = widget.dimInactivePinned && widget.pinned && !running;
     final active = widget.windows.any((window) => window.active);
     final size = widget.size;
+    final dark = theme.brightness == Brightness.dark;
+    final liquid = KitStyle.of(context).liquid;
+    final title = widget.title;
     final indicator =
         running && widget.indicatorStyle != DockIndicatorStyle.none
         ? _buildIndicator(
@@ -1154,14 +1172,20 @@ class _DockItemWidgetState extends State<DockItemWidget>
               DockMarkerColor.auto =>
                 active
                     ? theme.kitAccent
-                    : colors.textPrimary.withValues(alpha: 0.55),
+                    : colors.textPrimary.withValues(
+                        alpha: widget.metrics.markerAlphaFor(dark: dark),
+                      ),
               DockMarkerColor.accent => theme.kitAccent,
               DockMarkerColor.ink => colors.textPrimary.withValues(
-                alpha: active ? 0.9 : 0.55,
+                alpha: widget.metrics.markerAlphaFor(
+                  dark: dark,
+                  front: active,
+                ),
               ),
             },
             count: widget.windows.length,
             style: widget.indicatorStyle,
+            front: active,
           )
         : null;
 
@@ -1259,7 +1283,16 @@ class _DockItemWidgetState extends State<DockItemWidget>
                           if (_pressKind == DockPointerKind.touch) return;
                           widget.onDragEnd!();
                         },
-                  child: AnimatedBuilder(
+                  child: SizedBox(
+                    width: widget.cellExtent ?? size,
+                    height: size,
+                    child: Stack(
+                      clipBehavior: Clip.none,
+                      children: [
+                        Positioned.fill(
+                          child: Row(
+                            children: [
+                              AnimatedBuilder(
                     animation: _attention,
                     builder: (context, child) => Transform.translate(
                       // One hop at the start of each period, then a rest.
@@ -1296,13 +1329,27 @@ class _DockItemWidgetState extends State<DockItemWidget>
                               opacity:
                                   (inactivePin ? _inactivePinOpacity : 1.0) *
                                   _launchPulse,
-                              child: DockIcon(
-                                mode: widget.iconMode,
-                                opacity: widget.iconOpacity,
-                                accent: widget.tintColor,
-                                child: widget.services.buildApplicationIcon(
+                              // A held icon gives a little, and a liquid
+                              // look lets it spring back past its size.
+                              child: AnimatedScale(
+                                scale: _pressed
+                                    ? widget.metrics.pressScale
+                                    : 1,
+                                duration: KitMotion.duration(
                                   context,
-                                  widget.appId,
+                                  liquid ? KitMotion.turn : KitMotion.tap,
+                                ),
+                                curve: liquid && !_pressed
+                                    ? KitMotion.outBack
+                                    : KitMotion.outCubic,
+                                child: DockIcon(
+                                  mode: widget.iconMode,
+                                  opacity: widget.iconOpacity,
+                                  accent: widget.tintColor,
+                                  child: widget.services.buildApplicationIcon(
+                                    context,
+                                    widget.appId,
+                                  ),
                                 ),
                               ),
                             ),
@@ -1356,7 +1403,6 @@ class _DockItemWidgetState extends State<DockItemWidget>
                                 ),
                               ),
                             ),
-                          ?indicator,
                           Positioned.fill(
                             child: IgnorePointer(
                               child: AnimatedOpacity(
@@ -1380,6 +1426,45 @@ class _DockItemWidgetState extends State<DockItemWidget>
                           ),
                         ],
                       ),
+                    ),
+                              ),
+                              if (title != null) ...[
+                                const SizedBox(width: 7),
+                                Expanded(
+                                  child: Text(
+                                    title,
+                                    maxLines: 1,
+                                    overflow: TextOverflow.ellipsis,
+                                    style: theme.text.systemBarCaption.inLook
+                                        .copyWith(
+                                          color: active
+                                              ? colors.textPrimary
+                                              : colors.textSecondary,
+                                          fontWeight: active
+                                              ? FontWeight.w600
+                                              : FontWeight.w500,
+                                        ),
+                                  ),
+                                ),
+                                // More than one window: say how many.
+                                if (widget.windows.length > 1)
+                                  Padding(
+                                    padding: const EdgeInsets.only(left: 4),
+                                    child: Text(
+                                      '${widget.windows.length}',
+                                      style: theme.text.systemBarCaption.inLook
+                                          .copyWith(
+                                            color: colors.textTertiary,
+                                          ),
+                                    ),
+                                  ),
+                                const SizedBox(width: 6),
+                              ],
+                            ],
+                          ),
+                        ),
+                        ?indicator,
+                      ],
                     ),
                   ),
                 ),
@@ -1453,7 +1538,10 @@ class _DockItemWidgetState extends State<DockItemWidget>
     final theme = context.shellTheme;
     final colors = theme.colors;
     final chinese = Localizations.localeOf(context).languageCode == 'zh';
-    final width = math.min(248.0, math.max(0.0, output.width - 16));
+    final width = math.min(
+      dockLookMetrics.menuWidth,
+      math.max(0.0, output.width - 16),
+    );
     final placement = dockMenuAnchor(
       anchor: geometry.anchor,
       output: output,
@@ -1464,7 +1552,7 @@ class _DockItemWidgetState extends State<DockItemWidget>
     final maxHeight = widget.position == DockPosition.bottom
         ? math.max(0.0, geometry.anchor.top - output.top - 16)
         : math.max(0.0, output.height - 16);
-    final radius = theme.borderRadius(13);
+    final radius = dockMenuRadius(context);
     return ShellInputRegion(
       debugLabel: 'Dock application menu',
       pointerPolicy: ShellPointerPolicy.fullScene,
@@ -2159,17 +2247,23 @@ class _Dot extends StatelessWidget {
       scale: grown,
       child: Opacity(opacity: grown.clamp(0.0, 1.0), child: child),
     ),
-    // Only the colour eases: the size follows the icon's magnification
-    // frame by frame and must not lag behind it.
     child: TweenAnimationBuilder<Color?>(
       tween: ColorTween(end: color),
       duration: KitMotion.duration(context, KitMotion.fill),
       curve: KitMotion.out,
-      builder: (context, shade, _) => Container(
+      // The length eases too, so the marker of an application coming to
+      // the front stretches into place; a liquid look lets it overshoot.
+      builder: (context, shade, _) => AnimatedContainer(
+        duration: KitMotion.duration(context, KitMotion.swap),
+        curve: KitStyle.of(context).liquid
+            ? KitMotion.outBack
+            : KitMotion.outCubic,
         width: width,
         height: height,
         decoration: BoxDecoration(
-          borderRadius: BorderRadius.circular(math.min(width, height) / 2),
+          borderRadius: BorderRadius.circular(
+            KitStyle.of(context).pill(math.min(width, height)),
+          ),
           color: shade ?? color,
         ),
       ),
