@@ -740,7 +740,7 @@ class _ColumnState extends ConsumerState<_Column>
                 style: BarType.title.copyWith(
                   fontSize: 22,
                   fontWeight: FontWeight.w700,
-                  color: ncGroundInk(context),
+                  color: ncGroundInk(context, framed: framed),
                   shadows: ncGroundShadow(context),
                 ),
               ),
@@ -850,7 +850,7 @@ class _ColumnState extends ConsumerState<_Column>
               child: Text(
                 context.tr('No Notifications'),
                 style: BarType.menuRow.copyWith(
-                  color: ncGroundInk(context, dim: true),
+                  color: ncGroundInk(context, dim: true, framed: framed),
                   shadows: ncGroundShadow(context),
                 ),
               ),

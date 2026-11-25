@@ -70,8 +70,8 @@ abstract class NcHost {
 
 /// Ink for what the column writes on its ground: light on the dimmed
 /// wallpaper, the theme's own in a framed panel.
-Color ncGroundInk(BuildContext context, {bool dim = false}) {
-  if (!NcScope.of(context).framed) {
+Color ncGroundInk(BuildContext context, {bool dim = false, bool? framed}) {
+  if (!(framed ?? NcScope.of(context).framed)) {
     return dim ? NcLook.onWallpaperDim : NcLook.onWallpaper;
   }
   final colors = context.shellTheme.colors;
