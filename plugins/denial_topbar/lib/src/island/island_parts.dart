@@ -1,15 +1,16 @@
 import 'dart:math' as math;
 
-import 'package:denial_flutter_sdk/services.dart';
 import 'package:denial_flutter_sdk/system_services.dart'
     show MprisPlaybackState;
 import 'package:denial_shell_kit/kit_motion.dart';
 import 'package:denial_shell_kit/kit_style.dart';
+import 'package:flutter/foundation.dart';
 import 'package:flutter/widgets.dart';
 
 import '../bar_icons.dart';
 import '../bar_type.dart';
 import '../media_art.dart';
+import 'island_motion.dart';
 import '../panels/mac_kit.dart' show Pressable;
 
 const Color _ink = Color(0xffffffff);
@@ -31,18 +32,26 @@ class IslandCover extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return MediaArtwork(
-      url: url,
-      size: size,
-      radius: radius,
-      fallback: Container(
-        width: size,
-        height: size,
-        decoration: BoxDecoration(
-          color: const Color(0xff2c2c2e),
-          borderRadius: BorderRadius.circular(radius),
+    // A new track's cover fades in over the old one.
+    return SizedBox.square(
+      dimension: size,
+      child: AnimatedSwitcher(
+        duration: KitMotion.duration(context, KitMotion.travel),
+        child: MediaArtwork(
+          key: ValueKey<String>(url),
+          url: url,
+          size: size,
+          radius: radius,
+          fallback: Container(
+            width: size,
+            height: size,
+            decoration: BoxDecoration(
+              color: const Color(0xff2c2c2e),
+              borderRadius: BorderRadius.circular(radius),
+            ),
+            child: BarGlyph(BarIcons.playFill, size: size * 0.45, color: _dim),
+          ),
         ),
-        child: BarGlyph(BarIcons.playFill, size: size * 0.45, color: _dim),
       ),
     );
   }
@@ -325,18 +334,55 @@ class _Control extends StatelessWidget {
 class IslandMediaCard extends StatelessWidget {
   const IslandMediaCard({
     required this.playback,
-    required this.commands,
+    required this.onPrevious,
+    required this.onPlayPause,
+    required this.onNext,
     required this.coverSlot,
     required this.padding,
     required this.nothing,
+    this.turn = 1,
+    this.subline,
     super.key,
   });
 
   final MprisPlaybackState? playback;
-  final MediaCommands commands;
+  final VoidCallback onPrevious;
+  final VoidCallback onPlayPause;
+  final VoidCallback onNext;
   final double coverSlot;
   final double padding;
   final String nothing;
+
+  /// Which way the track last changed: 1 forward, -1 back. The new title
+  /// comes in from that side.
+  final int turn;
+
+  /// A second line under the title, shown in the artist's place whenever
+  /// its source has one.
+  final ValueListenable<String?>? subline;
+
+  Widget _second(String artist) {
+    Widget line(String text) => Text(
+      text,
+      maxLines: 1,
+      overflow: TextOverflow.ellipsis,
+      style: BarType.islandCaption.copyWith(fontSize: 13, color: _dim),
+    );
+    final source = subline;
+    if (source == null) return line(artist);
+    return ValueListenableBuilder<String?>(
+      valueListenable: source,
+      builder: (context, value, _) {
+        final text = value == null || value.isEmpty ? artist : value;
+        return IslandSwap(
+          from: const Offset(0, 1),
+          distance: 6,
+          alignment: Alignment.centerLeft,
+          child: KeyedSubtree(key: ValueKey<String>(text), child: line(text)),
+        );
+      },
+    );
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -369,33 +415,31 @@ class IslandMediaCard extends StatelessWidget {
               children: <Widget>[
                 SizedBox(width: coverSlot + 12),
                 Expanded(
-                  child: Column(
-                    mainAxisAlignment: MainAxisAlignment.center,
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: <Widget>[
-                      Text(
-                        title,
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                        style: BarType.islandTitle.copyWith(
-                          fontSize: 15,
-                          color: _ink,
-                        ),
-                      ),
-                      if (artist.isNotEmpty)
-                        Padding(
-                          padding: const EdgeInsets.only(top: 2),
-                          child: Text(
-                            artist,
-                            maxLines: 1,
-                            overflow: TextOverflow.ellipsis,
-                            style: BarType.islandCaption.copyWith(
-                              fontSize: 13,
-                              color: _dim,
-                            ),
+                  child: IslandSwap(
+                    from: Offset(turn.toDouble(), 0),
+                    distance: 14,
+                    alignment: Alignment.centerLeft,
+                    child: Column(
+                      key: ValueKey<String>('$title\n$artist'),
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: <Widget>[
+                        Text(
+                          title,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: BarType.islandTitle.copyWith(
+                            fontSize: 15,
+                            color: _ink,
                           ),
                         ),
-                    ],
+                        if (artist.isNotEmpty || subline != null)
+                          Padding(
+                            padding: const EdgeInsets.only(top: 2),
+                            child: _second(artist),
+                          ),
+                      ],
+                    ),
                   ),
                 ),
                 const SizedBox(width: 10),
@@ -426,21 +470,21 @@ class IslandMediaCard extends StatelessWidget {
               _Control(
                 BarIcons.backward,
                 20,
-                commands.previous,
+                onPrevious,
                 enabled: state?.canGoPrevious ?? false,
               ),
               const SizedBox(width: 18),
               _Control(
                 playing ? BarIcons.pauseFill : BarIcons.playFill,
                 30,
-                commands.playPause,
+                onPlayPause,
                 enabled: state?.available ?? false,
               ),
               const SizedBox(width: 18),
               _Control(
                 BarIcons.forward,
                 20,
-                commands.next,
+                onNext,
                 enabled: state?.canGoNext ?? false,
               ),
             ],

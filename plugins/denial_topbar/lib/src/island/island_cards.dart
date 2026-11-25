@@ -407,14 +407,16 @@ class IslandHomeAction {
   final VoidCallback onTap;
 }
 
-/// What the resting pill opens into: the time and date, the battery, and a
-/// row of shortcuts.
+/// What the resting pill opens into: the time and date, the battery, the
+/// workspaces, and a row of shortcuts.
 class IslandHomeCard extends StatelessWidget {
   const IslandHomeCard({
     required this.time,
     required this.date,
     required this.trailing,
     required this.actions,
+    this.workspace,
+    this.agenda,
     super.key,
   });
 
@@ -422,6 +424,13 @@ class IslandHomeCard extends StatelessWidget {
   final String date;
   final Widget? trailing;
   final List<IslandHomeAction> actions;
+
+  /// The workspace switcher, when the island carries it.
+  final Widget? workspace;
+
+  /// What comes next in the day. Nothing provides it yet; the row keeps the
+  /// place for it.
+  final Widget? agenda;
 
   @override
   Widget build(BuildContext context) {
@@ -460,7 +469,15 @@ class IslandHomeCard extends StatelessWidget {
               ?trailing,
             ],
           ),
-          const Spacer(),
+          Expanded(
+            child: Row(
+              children: <Widget>[
+                ?workspace,
+                if (workspace != null) const SizedBox(width: 12),
+                Expanded(child: agenda ?? const SizedBox.shrink()),
+              ],
+            ),
+          ),
           Row(
             mainAxisAlignment: MainAxisAlignment.spaceBetween,
             children: <Widget>[
@@ -479,12 +496,19 @@ class IslandHomeCard extends StatelessWidget {
   }
 }
 
-/// The dots under an open card when there is more than one live activity.
+/// The dots under an open card when it has more than one page. A dot turns
+/// to its page.
 class IslandPageDots extends StatelessWidget {
-  const IslandPageDots({required this.count, required this.index, super.key});
+  const IslandPageDots({
+    required this.count,
+    required this.index,
+    this.onPick,
+    super.key,
+  });
 
   final int count;
   final int index;
+  final ValueChanged<int>? onPick;
 
   @override
   Widget build(BuildContext context) {
@@ -492,13 +516,20 @@ class IslandPageDots extends StatelessWidget {
       mainAxisSize: MainAxisSize.min,
       children: <Widget>[
         for (var i = 0; i < count; i++)
-          Container(
-            width: 5,
-            height: 5,
-            margin: const EdgeInsets.symmetric(horizontal: 2.5),
-            decoration: BoxDecoration(
-              color: i == index ? _ink : _track,
-              shape: BoxShape.circle,
+          GestureDetector(
+            behavior: HitTestBehavior.opaque,
+            onTap: onPick == null ? null : () => onPick!(i),
+            child: Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 2.5, vertical: 4),
+              child: AnimatedContainer(
+                duration: KitMotion.duration(context, KitMotion.fill),
+                width: i == index ? 12 : 5,
+                height: 5,
+                decoration: BoxDecoration(
+                  color: i == index ? _ink : _track,
+                  borderRadius: BorderRadius.circular(2.5),
+                ),
+              ),
             ),
           ),
       ],

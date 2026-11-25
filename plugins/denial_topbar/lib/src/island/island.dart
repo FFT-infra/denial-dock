@@ -1,35 +1,38 @@
 import 'dart:async';
 import 'dart:math' as math;
-import 'dart:ui' show lerpDouble;
+import 'dart:ui' show ImageFilter, lerpDouble;
 
 import 'package:denial_flutter_sdk/input.dart';
 import 'package:denial_flutter_sdk/models.dart';
 import 'package:denial_flutter_sdk/services.dart';
 import 'package:denial_flutter_sdk/state.dart';
 import 'package:denial_sdk/system.dart' show BatteryStatus;
+import 'package:denial_shell_kit/continuous_corners.dart';
+import 'package:denial_shell_kit/kit_control_math.dart';
+import 'package:denial_shell_kit/kit_layer.dart' show kitOpenPanel;
 import 'package:denial_shell_kit/kit_motion.dart';
 import 'package:denial_shell_kit/kit_springs.dart';
 import 'package:denial_shell_kit/kit_style.dart';
-import 'package:flutter/physics.dart';
+import 'package:denial_shell_kit/launcher_entry_bus.dart';
+import 'package:flutter/gestures.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter/widgets.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../bar_icons.dart';
-import '../bar_panel.dart';
 import '../bar_settings.dart';
 import '../bar_tokens.dart';
 import '../bar_type.dart';
-
-import 'package:denial_shell_kit/continuous_corners.dart';
-import 'package:denial_shell_kit/launcher_entry_bus.dart';
-
 import '../debug_remote.dart';
 import '../l10n.dart';
 import '../mic_watch.dart';
 import '../panels/mac_kit.dart';
 import 'island_cards.dart';
 import 'island_engine.dart';
+import 'island_motion.dart';
 import 'island_parts.dart';
+import 'island_shape.dart';
+import 'island_subline.dart';
 import 'island_timer.dart';
 
 /// How far below the bar the island may grow; the bar's surface reserves it.
@@ -54,8 +57,8 @@ abstract final class _I {
   static const Duration statusHold = Duration(milliseconds: 2600);
   static const Duration settle = Duration(seconds: 6);
   static const Duration touchIdle = Duration(seconds: 10);
-  static const Color ink = Color(0xffffffff);
-  static const Color dim = Color(0x99ffffff);
+  static const Color ink = IslandLook.ink;
+  static const Color dim = IslandLook.dim;
 }
 
 Size _cardSize(IslandKind kind) => switch (kind) {
@@ -64,17 +67,19 @@ Size _cardSize(IslandKind kind) => switch (kind) {
   IslandKind.timer => const Size(370, 86),
   IslandKind.recording => const Size(320, 86),
   IslandKind.progress => const Size(340, 86),
-  IslandKind.home => const Size(380, 148),
+  IslandKind.home => const Size(380, 176),
   _ => const Size(380, 172),
 };
 
-double _cardRadius(IslandKind kind) => switch (kind) {
-  IslandKind.media || IslandKind.track => 36,
-  _ => 30,
-};
+/// Which spring the outline is on.
+enum _Shaping { reshape, grow, shrink }
 
 /// The island. It lives in the bar and grows in place: the same black shape
-/// is the resting pill, the compact activity, and the open card.
+/// is the resting pill, the compact activity, and the open panel.
+///
+/// The outline (width, height, corner) runs on one set of springs that keep
+/// their velocity when the target changes; what is inside crosses over on a
+/// spring of its own, so the shape leads and the content follows.
 class Island extends ConsumerStatefulWidget {
   const Island({
     required this.services,
@@ -88,6 +93,7 @@ class Island extends ConsumerStatefulWidget {
     this.dateLabel = '',
     this.onControlCenter,
     this.onNotifications,
+    this.subline,
     super.key,
   });
 
@@ -107,15 +113,21 @@ class Island extends ConsumerStatefulWidget {
   final VoidCallback? onControlCenter;
   final VoidCallback? onNotifications;
 
+  /// A second line for the playback card, e.g. lyrics. Nothing provides one
+  /// yet; this is where a source plugs in.
+  final IslandSubline? subline;
+
   @override
   ConsumerState<Island> createState() => _IslandState();
 }
 
 class _IslandState extends ConsumerState<Island> with TickerProviderStateMixin {
   final IslandEngine _engine = IslandEngine();
-  late final AnimationController _open = AnimationController.unbounded(
-    vsync: this,
-  );
+  final DateTime _born = DateTime.now();
+  late final IslandLevelGate _volumeGate = IslandLevelGate(born: _born);
+  late final IslandLevelGate _brightnessGate = IslandLevelGate(born: _born);
+  final GlobalKey _bodyKey = GlobalKey();
+  final FocusNode _focus = FocusNode(debugLabel: 'island');
 
   Timer? _deadline;
   Timer? _intent;
@@ -123,57 +135,173 @@ class _IslandState extends ConsumerState<Island> with TickerProviderStateMixin {
   Timer? _idle;
   Timer? _progress;
   Timer? _clock;
+  Timer? _dwell;
+  Timer? _long;
   StreamSubscription<Object?>? _outside;
-  final DateTime _born = DateTime.now();
+  StreamSubscription<Offset>? _cursor;
 
-  IslandKind _card = IslandKind.media;
+  /// The card the outline is drawn for: the open one, the one being pulled
+  /// open, or the one still closing.
+  IslandKind _card = IslandKind.home;
+  IslandKind _bubble = IslandKind.media;
   IconData _hudIcon = BarIcons.volumeUp;
   double _hudLevel = 0;
+  int _hudTurn = 1;
   IconData _statusIcon = BarIcons.bellFill;
   Color _statusTint = _I.ink;
   String _statusLabel = '';
   String _statusDetail = '';
   DateTime? _recordingSince;
   DateTime? _timerSeen;
-  IslandKind _bubble = IslandKind.media;
+  DateTime? _wentBack;
+  DateTime _openedAt = DateTime.fromMillisecondsSinceEpoch(0);
+
   bool _hovered = false;
   bool _pressed = false;
-  Offset _pull = Offset.zero;
 
-  // How the pill answers the pointer: it swells under it, leans toward it,
-  // gives under a press and, where the user asks, fades to show what it
-  // covers. Springs, so a quick in-and-out never jumps.
+  /// The press was held long enough to open the panel; its release is not a
+  /// tap.
+  bool _held = false;
+
+  /// The pointer has rested on the island long enough to fade it.
+  bool _dwelt = false;
+
+  /// Something arrived while the pointer was on the island; it shows in
+  /// full until the pointer has left.
+  bool _news = false;
+  int _arrivals = 0;
+
+  // Which way content last moved, for the swap that follows.
+  int _pageTurn = 0;
+  String _faceKey = '';
+  IslandKind? _faceKind;
+  Offset _faceFrom = Offset.zero;
+  IslandKind? _cardShown;
+  Offset _cardFrom = Offset.zero;
+
+  // ── Motion ───────────────────────────────────────────────────────────────
+
+  late final KitSpring _w = KitSpring(_I.rest, IslandFeel.liquid.reshape);
+  late final KitSpring _h = KitSpring(0, IslandFeel.liquid.reshape);
+  late final KitSpring _r = KitSpring(0, IslandFeel.liquid.reshape);
+
+  /// 0 shows the pill's face, 1 the card's content.
+  late final KitSpring _content = KitSpring(0, IslandFeel.liquid.content);
+  late final KitSprings _shape = KitSprings(this, <KitSpring>[
+    _w,
+    _h,
+    _r,
+    _content,
+  ], tolerance: 0.01);
+  _Shaping _shaping = _Shaping.reshape;
+  bool _shaped = false;
+  bool _wasOpen = false;
+  bool _cardBuilt = false;
+  double _compact = _I.rest;
+
+  // How the pill answers the pointer and the engine: it swells under a
+  // pointer, gives under a press, draws a breath when something arrives,
+  // lets its bubble go, and, where the user asks, fades out of the way.
   late final KitSpring _hoverFeel = KitSpring(
     0,
     const KitSpringTuning(380, 0.7),
   );
   late final KitSpring _pressFeel = KitSpring(0, KitStyle.denial.pressTuning);
-  late final KitSpring _pullX = KitSpring(0, const KitSpringTuning(300, 0.8));
-  late final KitSpring _pullY = KitSpring(0, const KitSpringTuning(300, 0.8));
   late final KitSpring _veil = KitSpring(0, const KitSpringTuning(260, 1));
+  late final KitSpring _split = KitSpring(0, IslandFeel.liquid.split);
+  late final KitSpring _pop = KitSpring(0, IslandFeel.liquid.pop);
   late final KitSprings _feel = KitSprings(this, <KitSpring>[
     _hoverFeel,
     _pressFeel,
-    _pullX,
-    _pullY,
     _veil,
+    _split,
+    _pop,
   ]);
 
-  /// Points the springs at what the pointer is doing now.
-  void _aim() {
-    final fade = widget.settings.islandHoverFade && !_engine.expanded;
-    _hoverFeel.target = _hovered && !fade ? 1 : 0;
+  void _kick(KitSprings group) {
+    final moving = group.springs.any(
+      (spring) => spring.value != spring.target || spring.velocity != 0,
+    );
+    if (moving) group.kick(reduceMotion: KitMotion.reduced(context));
+  }
+
+  KitSpringTuning _shapeTuning(IslandFeel feel) => switch (_shaping) {
+    _Shaping.grow => feel.grow,
+    _Shaping.shrink => feel.shrink,
+    _Shaping.reshape => feel.reshape,
+  };
+
+  /// Points the outline at what the engine shows now. Called from build: a
+  /// target that moves while the springs are under way bends the motion.
+  void _aimShape(double compact, IslandFeel feel, KitStyle style) {
+    final h = widget.height;
+    _compact = compact;
+    final open = _engine.card;
+    final size = open == null ? Size(compact, h) : _cardSize(open);
+    final radius = open == null
+        ? IslandLook.pill(style, h)
+        : IslandLook.card(style, open, size);
+    if ((open != null) != _wasOpen) {
+      _wasOpen = open != null;
+      _shaping = _wasOpen ? _Shaping.grow : _Shaping.shrink;
+    } else if (open == null && size.width != _w.target) {
+      _shaping = _Shaping.reshape;
+    }
+    final tuning = _shapeTuning(feel);
+    for (final spring in <KitSpring>[_w, _h, _r]) {
+      spring.tune(tuning);
+    }
+    _content.tune(feel.content);
+    // A hand on the island has the outline.
+    if (_dragFrom != null) return;
+    _w.target = size.width;
+    _h.target = size.height;
+    _r.target = radius;
+    _content.target = open == null ? 0 : 1;
+    if (!_shaped) {
+      _shaped = true;
+      for (final spring in _shape.springs) {
+        spring.settle();
+      }
+      return;
+    }
+    _kick(_shape);
+  }
+
+  bool get _yields => islandYields(
+    fade: widget.settings.islandHoverFade,
+    dwelt: _dwelt,
+    expanded: _engine.expanded,
+    arriving: _news,
+    pressed: _pressed,
+  );
+
+  /// Points the smaller springs at what the pointer and the engine do now.
+  void _aimFeel(IslandFeel feel, KitStyle style, {required bool split}) {
+    final fade = widget.settings.islandHoverFade;
+    _hoverFeel.target = _hovered && !fade && !_engine.expanded ? 1 : 0;
     _pressFeel
-      ..tune(KitStyle.of(context).pressTuning)
+      ..tune(style.pressTuning)
       ..target = _pressed ? 1 : 0;
-    _pullX.target = fade ? 0 : _pull.dx;
-    _pullY.target = fade ? 0 : _pull.dy;
-    _veil.target = _hovered && fade ? 1 : 0;
-    _feel.kick(reduceMotion: KitMotion.reduced(context));
+    _veil.target = _yields ? 1 : 0;
+    _split
+      ..tune(split ? feel.split : feel.merge)
+      ..target = split ? 1 : 0;
+    _pop.tune(feel.pop);
+    if (_engine.arrivals != _arrivals) {
+      _arrivals = _engine.arrivals;
+      // The breath: the pill draws in, then springs out past its size.
+      _pop.velocity -= feel.gulp;
+      // News shows in full, whatever the pointer has been doing.
+      if (_hovered) _news = true;
+      _veil.target = 0;
+    }
+    _kick(_feel);
   }
 
   double? _dragFrom;
   double _dragged = 0;
+  double _swiped = 0;
 
   ShellServices get _services => widget.services;
   DateTime get _now => DateTime.now();
@@ -186,11 +314,21 @@ class _IslandState extends ConsumerState<Island> with TickerProviderStateMixin {
     islandTimer.addListener(_onTimer);
     micWatch.addListener(_onMic);
     debugCommand.addListener(_debug);
+    // The closing card's content is dropped once the outline is home.
+    // It can come to rest inside a build (reduced motion settles at once),
+    // so the redraw waits its turn.
+    _shape.onRest = () {
+      if (!_cardBuilt || _engine.expanded || _dragFrom != null) return;
+      scheduleMicrotask(() {
+        if (mounted && !_engine.expanded) setState(() {});
+      });
+    };
+    GestureBinding.instance.pointerRouter.addGlobalRoute(_anyPointer);
     _outside = ref
         .read(denialBridgeProvider)
         .shellActions
         .where((event) => event.action.name == 'clientPointerPressed')
-        .listen((_) => _setOpen(false));
+        .listen((_) => _pressedOutside());
   }
 
   @override
@@ -199,18 +337,23 @@ class _IslandState extends ConsumerState<Island> with TickerProviderStateMixin {
     islandTimer.removeListener(_onTimer);
     micWatch.removeListener(_onMic);
     debugCommand.removeListener(_debug);
+    GestureBinding.instance.pointerRouter.removeGlobalRoute(_anyPointer);
     _clock?.cancel();
     _outside?.cancel();
+    _cursor?.cancel();
     for (final timer in <Timer?>[
       _deadline,
       _intent,
       _leave,
       _idle,
       _progress,
+      _dwell,
+      _long,
     ]) {
       timer?.cancel();
     }
-    _open.dispose();
+    _focus.dispose();
+    _shape.dispose();
     _feel.dispose();
     super.dispose();
   }
@@ -231,8 +374,7 @@ class _IslandState extends ConsumerState<Island> with TickerProviderStateMixin {
             ? islandTimer.start(Duration(seconds: number), _now)
             : islandTimer.cancel();
       case 'cycle':
-        _engine.cycle(1);
-        _sync();
+        _turn(1);
     }
   }
 
@@ -271,7 +413,8 @@ class _IslandState extends ConsumerState<Island> with TickerProviderStateMixin {
     setState(() {});
   }
 
-  /// Brings timers and the open animation in line with the engine.
+  /// Brings the timers in line with the engine and draws again; the build
+  /// points the springs.
   void _sync() {
     _deadline?.cancel();
     final next = _engine.nextDeadline;
@@ -282,57 +425,46 @@ class _IslandState extends ConsumerState<Island> with TickerProviderStateMixin {
         _sync();
       });
     }
-    if (!_engine.expanded && _open.value > 0 && _dragFrom == null) {
-      _animate(false);
+    final open = _engine.expanded;
+    if (open != (_progress != null)) {
+      _progress?.cancel();
+      _progress = open
+          ? Timer.periodic(const Duration(seconds: 1), (_) {
+              if (mounted) setState(() {});
+            })
+          : null;
+    }
+    if (!open) {
+      _idle?.cancel();
+      if (_focus.hasFocus) _focus.unfocus();
     }
     if (mounted) setState(() {});
   }
 
-  void _animate(bool open) {
-    final pace = KitMotion.pace(context);
-    if (pace.reduced) {
-      _open.value = open ? 1 : 0;
-      return;
-    }
-    // The speed stretches the spring's clock: dividing the duration scales
-    // stiffness by the speed squared and leaves the bounce's damping ratio
-    // alone. The controller reports its velocity in real seconds, which is the
-    // clock the new spring runs on too, so the hand-over takes it unchanged.
-    final spring = SpringDescription.withDurationAndBounce(
-      duration: pace.scaled(
-        open ? BarTokens.islandExpand : BarTokens.islandCollapse,
-      ),
-      bounce: open ? 0.24 : 0,
-    );
-    _open.animateWith(
-      SpringSimulation(spring, _open.value, open ? 1 : 0, _open.velocity),
-    );
-  }
-
-  void _setOpen(bool open, {bool byTouch = false}) {
+  /// Opens the panel, or closes it. [pinned] is a panel the user asked for:
+  /// it stays until it is dismissed. A preview closes when the pointer goes.
+  void _setOpen(bool open, {bool pinned = true, bool byTouch = false}) {
     _intent?.cancel();
     _leave?.cancel();
     _idle?.cancel();
     if (open) {
-      final kind = _engine.kind;
-      if (kind == null || !kind.expandable) return;
-      if (kitOpenPanel.value != null) return;
-      _card = kind;
-      _engine.expand();
-      _animate(true);
+      if (kitOpenPanel.value != null || !_engine.canExpand) return;
+      if (!_engine.expanded) _openedAt = _now;
+      _engine.expand(pinned: pinned);
+      if (pinned) _takeKeys();
       if (byTouch) _armIdle();
     } else {
-      if (!_engine.expanded && _open.value <= 0) return;
+      if (!_engine.expanded) return;
       _engine.collapse(_now);
-      _animate(false);
-    }
-    _progress?.cancel();
-    if (_engine.expanded) {
-      _progress = Timer.periodic(const Duration(seconds: 1), (_) {
-        if (mounted) setState(() {});
-      });
     }
     _sync();
+  }
+
+  /// A pinned panel takes the keyboard, for Escape and the arrow keys.
+  void _takeKeys() {
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted && _engine.pinned) _focus.requestFocus();
+    });
   }
 
   void _armIdle() {
@@ -349,8 +481,12 @@ class _IslandState extends ConsumerState<Island> with TickerProviderStateMixin {
 
   void _hud(IconData icon, double level) {
     if (kitOpenPanel.value != null) return;
+    final next = level.clamp(0.0, 1.0);
+    if (icon == _hudIcon && next != _hudLevel) {
+      _hudTurn = next > _hudLevel ? 1 : -1;
+    }
     _hudIcon = icon;
-    _hudLevel = level.clamp(0.0, 1.0);
+    _hudLevel = next;
     _show(IslandKind.hud, 'level', _I.hudHold);
   }
 
@@ -372,16 +508,10 @@ class _IslandState extends ConsumerState<Island> with TickerProviderStateMixin {
     _show(IslandKind.status, '$label $detail', hold);
   }
 
-  void _swipe(DragEndDetails details) {
-    final velocity = details.primaryVelocity ?? 0;
-    if (velocity.abs() < 120) return;
-    final open = _engine.expanded;
-    _engine.cycle(velocity < 0 ? 1 : -1);
-    final kind = _engine.kind;
-    if (open && kind != null && kind.expandable) {
-      _card = kind;
-      _engine.expand();
-    }
+  /// Turns to the next activity or page, or the previous one.
+  void _turn(int step) {
+    if (step == 0 || !_engine.cycle(step)) return;
+    _pageTurn = step;
     _sync();
   }
 
@@ -476,9 +606,12 @@ class _IslandState extends ConsumerState<Island> with TickerProviderStateMixin {
         }
       },
     );
+    // Both levels go through a gate, fed even while the HUD is off so it
+    // always knows the last real level. A source's first value, and what it
+    // reports while it starts over, is not a change the user made.
     ref.listen<double>(_services.volume, (previous, next) {
-      if (!settings.activityHud) return;
-      if (previous == null || (previous - next).abs() < 0.004) return;
+      final changed = _volumeGate.feed(next, _now, from: previous);
+      if (!changed || !settings.activityHud) return;
       _hud(
         next <= 0.001
             ? BarIcons.speakerSlashFill
@@ -486,9 +619,11 @@ class _IslandState extends ConsumerState<Island> with TickerProviderStateMixin {
         next,
       );
     });
-    // The provider starts over at a placeholder level whenever the display
-    // layout changes, a workspace switch included; a level that is still
-    // loading, or has just finished, is not a change the user made.
+    // The brightness provider starts over at a placeholder level whenever
+    // the display layout changes, a workspace switch included, then reads
+    // the backlight again, and the compositor may echo the level once more
+    // after that, rounded differently. The gate keeps the level it trusted
+    // before the reload and stays quiet until the source has settled.
     ref.listen<({double? level, bool loading})>(
       displayBrightnessProvider.select(
         (state) => (
@@ -497,12 +632,15 @@ class _IslandState extends ConsumerState<Island> with TickerProviderStateMixin {
         ),
       ),
       (previous, next) {
-        final from = previous?.level;
-        final to = next.level;
-        if (!settings.activityHud || from == null || to == null) return;
-        if (previous!.loading || next.loading) return;
-        if ((from - to).abs() < 0.004) return;
-        _hud(BarIcons.sunMaxFill, to);
+        final changed = _brightnessGate.feed(
+          next.level,
+          _now,
+          from: previous == null || previous.loading ? null : previous.level,
+          loading: next.loading,
+        );
+        final level = next.level;
+        if (!changed || level == null || !settings.activityHud) return;
+        _hud(BarIcons.sunMaxFill, level);
       },
     );
   }
@@ -528,8 +666,8 @@ class _IslandState extends ConsumerState<Island> with TickerProviderStateMixin {
     return width;
   }
 
-  double _compactWidth(IslandKind? kind, String label) => switch (kind) {
-    null || IslandKind.home =>
+  double _compactWidth(IslandKind kind, String label) => switch (kind) {
+    IslandKind.home =>
       widget.workspace == null
           ? _I.rest
           : math.max(_I.rest, widget.workspaceWidth + 24),
@@ -550,79 +688,215 @@ class _IslandState extends ConsumerState<Island> with TickerProviderStateMixin {
 
   // ── Pointer ──────────────────────────────────────────────────────────────
 
-  void _enter() {
-    _hovered = true;
-    _leave?.cancel();
-    _idle?.cancel();
-    final kind = _engine.kind;
-    if (widget.settings.islandHoverPeek &&
-        !_engine.expanded &&
-        kind != null &&
-        kind != IslandKind.home &&
-        kind.expandable) {
-      _intent?.cancel();
-      _intent = Timer(BarTokens.islandHoverIntent, () {
-        if (mounted && _hovered) _setOpen(true);
-      });
-    }
-    _aim();
-    setState(() {});
+  /// Whether a point on the screen is on the island's body.
+  bool _within(Offset global, {double slack = 0}) {
+    final box = _bodyKey.currentContext?.findRenderObject();
+    if (box is! RenderBox || !box.hasSize) return false;
+    return MatrixUtils.transformRect(
+      box.getTransformTo(null),
+      Offset.zero & box.size,
+    ).inflate(slack).contains(global);
   }
 
-  void _exit() {
+  void _enter() {
+    _leave?.cancel();
+    _idle?.cancel();
+    // Coming back into a region the island had given up is not a new visit.
+    if (_hovered) return;
+    _hovered = true;
+    _engine.hold(_now);
+    final settings = widget.settings;
+    if (settings.islandHoverFade) {
+      _dwell?.cancel();
+      _dwell = Timer(IslandDefaults.fadeDwell, () {
+        if (!mounted || !_hovered) return;
+        _dwelt = true;
+        // Once the island gives up its input region the pointer belongs to
+        // whatever is underneath, and only the compositor knows where it is.
+        _cursor ??= ref.read(denialBridgeProvider).cursorPositions.listen((
+          at,
+        ) {
+          if (_hovered && !_within(at, slack: 4)) _left();
+        });
+        setState(() {});
+      });
+    } else if (settings.islandHoverPeek &&
+        !_engine.expanded &&
+        _engine.tap == IslandTap.open &&
+        _engine.opens != IslandKind.home) {
+      _intent?.cancel();
+      _intent = Timer(BarTokens.islandHoverIntent, () {
+        if (mounted && _hovered) _setOpen(true, pinned: false);
+      });
+    }
+    _sync();
+  }
+
+  void _exit(PointerExitEvent event) {
+    // Faded, the island has handed its region to the window underneath, and
+    // the compositor ends the shell's pointer there without the pointer
+    // having moved. It has left only once it is somewhere else.
+    if (_yields && _within(event.position)) return;
+    _left();
+  }
+
+  void _left() {
+    if (!_hovered) return;
     _hovered = false;
-    _pull = Offset.zero;
+    _dwelt = false;
+    _news = false;
+    _dwell?.cancel();
     _intent?.cancel();
-    if (_engine.expanded) {
+    _cursor?.cancel();
+    _cursor = null;
+    _engine.release(_now);
+    if (_engine.expanded && !_engine.pinned) {
       _leave?.cancel();
       _leave = Timer(BarTokens.islandLeaveGrace, () {
         if (mounted && !_hovered) _setOpen(false);
       });
     }
-    _aim();
+    _sync();
+  }
+
+  /// Every press the shell sees. One outside an open panel closes it.
+  void _anyPointer(PointerEvent event) {
+    if (event is! PointerDownEvent || !_engine.expanded) return;
+    if (_within(event.position)) return;
+    _pressedOutside();
+  }
+
+  void _pressedOutside() {
+    if (!_engine.expanded) return;
+    if (_now.difference(_openedAt) < IslandDefaults.outsideGuard) return;
+    _setOpen(false);
+  }
+
+  KeyEventResult _key(FocusNode node, KeyEvent event) {
+    if (!_engine.pinned || event is KeyUpEvent) return KeyEventResult.ignored;
+    final key = event.logicalKey;
+    if (key == LogicalKeyboardKey.escape) {
+      _setOpen(false);
+    } else if (key == LogicalKeyboardKey.arrowLeft) {
+      _turn(-1);
+    } else if (key == LogicalKeyboardKey.arrowRight) {
+      _turn(1);
+    } else {
+      return KeyEventResult.ignored;
+    }
+    return KeyEventResult.handled;
+  }
+
+  void _pressDown() {
+    _pressed = true;
+    _held = false;
+    _long?.cancel();
+    _long = Timer(IslandDefaults.longPress, () {
+      if (!mounted || !_pressed) return;
+      // The open panel takes no taps of its own, so the release that ends
+      // this press would never be reported.
+      _held = true;
+      _pressed = false;
+      _setOpen(true, byTouch: !_hovered);
+    });
     setState(() {});
   }
 
+  void _pressUp() {
+    _pressed = false;
+    _long?.cancel();
+    setState(() {});
+  }
+
+  /// A light tap does what the pill is for: it opens the panel, or sends
+  /// away an item that has nothing more to show.
+  void _tap() {
+    if (_held) return;
+    switch (_engine.tap) {
+      case IslandTap.open:
+        _setOpen(true, byTouch: !_hovered);
+      case IslandTap.dismiss:
+        _engine.dismiss(_now);
+        _sync();
+    }
+  }
+
+  double get _travel => _cardSize(_card).height - widget.height;
+
   void _dragStart(DragStartDetails details) {
-    final kind = _engine.kind;
-    if (kind == null || !kind.expandable) return;
-    if (!_engine.expanded) _card = kind;
-    _open.stop();
-    _dragFrom = _open.value;
+    _long?.cancel();
     _dragged = 0;
+    if (!_engine.expanded && !_engine.canExpand) return;
+    _card = _engine.card ?? _engine.opens;
+    _dragFrom = islandOpenShare(
+      _h.value,
+      widget.height,
+      _cardSize(_card).height,
+    );
+    setState(() {});
   }
 
   void _dragUpdate(DragUpdateDetails details) {
+    _dragged += details.primaryDelta ?? 0;
     final from = _dragFrom;
     if (from == null) return;
-    _dragged += details.primaryDelta ?? 0;
-    final travel = _cardSize(_card).height - widget.height;
-    var value = from + _dragged / travel;
-    // Past either end the shape gives a little and resists.
-    if (value > 1) value = 1 + (value - 1) / (1 + (value - 1) * 6) * 0.5;
-    if (value < 0) value = value / (1 - value * 6) * 0.5;
-    _open.value = value;
+    final share = islandRubber(from + _dragged / _travel);
+    final card = _cardSize(_card);
+    final h = widget.height;
+    final style = KitStyle.of(context);
+    void hold(KitSpring spring, double value) {
+      spring
+        ..value = value
+        ..target = value
+        ..velocity = 0;
+    }
+
+    hold(_w, lerpDouble(_compact, card.width, share)!);
+    hold(_h, lerpDouble(h, card.height, share)!);
+    hold(
+      _r,
+      lerpDouble(
+        IslandLook.pill(style, h),
+        IslandLook.card(style, _card, card),
+        share.clamp(0.0, 1.0),
+      )!,
+    );
+    hold(_content, share.clamp(0.0, 1.0));
+    // One tick draws the held values.
+    _shape.kick(reduceMotion: KitMotion.reduced(context));
   }
 
   void _dragEnd(DragEndDetails details) {
-    final from = _dragFrom;
-    if (from == null) return;
-    _dragFrom = null;
     final velocity = details.primaryVelocity ?? 0;
-    final open = velocity.abs() > 250 ? velocity > 0 : _open.value > 0.45;
-    if (open) {
-      _engine.expand();
-      _animate(true);
-      _armIdle();
-      _progress ??= Timer.periodic(const Duration(seconds: 1), (_) {
-        if (mounted) setState(() {});
-      });
-      setState(() {});
-    } else {
-      _engine.collapse(_now);
-      _animate(false);
-      _sync();
+    final from = _dragFrom;
+    _dragFrom = null;
+    if (from == null) {
+      // Nothing to pull open: a flick up sends a passing item away.
+      if (velocity < -250 || _dragged < -14) {
+        _engine.dismiss(_now);
+        _sync();
+      }
+      return;
     }
+    final share = islandOpenShare(
+      _h.value,
+      widget.height,
+      _cardSize(_card).height,
+    );
+    final open = velocity.abs() > 250 ? velocity > 0 : share > 0.45;
+    // The outline leaves the hand at the hand's speed.
+    _h.velocity = velocity.clamp(-3000.0, 3000.0);
+    if (open) {
+      if (!_engine.expanded) _openedAt = _now;
+      _engine.expand();
+      _takeKeys();
+      if (!_hovered) _armIdle();
+    } else if (_engine.expanded) {
+      _engine.collapse(_now);
+    } else if (from <= 0 && (velocity < -250 || _dragged < -14)) {
+      _engine.dismiss(_now);
+    }
+    _sync();
   }
 
   // ── Build ────────────────────────────────────────────────────────────────
@@ -642,29 +916,28 @@ class _IslandState extends ConsumerState<Island> with TickerProviderStateMixin {
     _wasPlugged = plugged;
 
     final settings = widget.settings;
+    final style = KitStyle.of(context);
+    final feel = IslandFeel.of(style);
     final playback = ref.watch(_services.media).value;
     final recording = ref.watch(
       screenRecordingProvider.select((state) => state.recording),
     );
     _recordingSince = recording ? (_recordingSince ?? _now) : null;
     final progress = _launcherProgress();
+    // Paused playback keeps its place while its card is open: pausing from
+    // the card must not take the card away.
+    final playing = playback?.playing ?? false;
+    final mediaOpen =
+        _engine.card == IslandKind.media && (playback?.available ?? false);
     _engine
-      ..setLive(IslandKind.home, settings.islandHome)
-      ..setMedia(settings.activityMedia && (playback?.playing ?? false))
+      ..homeCard = settings.islandHome
+      ..setMedia(settings.activityMedia && (playing || mediaOpen))
       ..setLive(
         IslandKind.progress,
         settings.activityProgress && progress.isNotEmpty,
       )
       ..setLive(IslandKind.timer, settings.activityTimer && islandTimer.active)
       ..setLive(IslandKind.recording, settings.activityRecording && recording);
-    if (!_engine.expanded &&
-        _open.value > 0 &&
-        _dragFrom == null &&
-        !_open.isAnimating) {
-      scheduleMicrotask(() {
-        if (mounted && !_engine.expanded) _animate(false);
-      });
-    }
     final ticking = recording || (islandTimer.active && !islandTimer.paused);
     if (ticking != (_clock != null)) {
       _clock?.cancel();
@@ -697,292 +970,339 @@ class _IslandState extends ConsumerState<Island> with TickerProviderStateMixin {
     if (widget.reserved.value != reserve) {
       scheduleMicrotask(() => widget.reserved.value = reserve);
     }
-    final lives = _engine.live
-        .where((live) => live != IslandKind.home)
-        .toList();
-    final cardEnd = _cardSize(_card);
 
-    // The pill's width follows its content on a spring with a little bounce:
-    // a change that arrives mid-move bends the motion instead of restarting.
-    return Sprung(
-      target: compact,
-      tuning: const KitSpringTuning(300, 0.62),
-      tolerance: 0.05,
-      builder: (context, cw, _) => TweenAnimationBuilder<Size?>(
-        tween: SizeTween(end: cardEnd),
-        duration: KitMotion.duration(context, KitMotion.settle),
-        curve: KitMotion.outCubic,
-        builder: (context, cardNow, _) => AnimatedBuilder(
-          animation: Listenable.merge(<Listenable>[_open, _feel]),
-          builder: (context, _) {
-            final card = cardNow ?? cardEnd;
-            final t = _open.value;
-            final tc = t.clamp(0.0, 1.0);
-            final width = lerpDouble(cw, card.width, t)!;
-            final height = math.max(h * 0.9, lerpDouble(h, card.height, t)!);
-            final radius = lerpDouble(h / 2, _cardRadius(_card), tc)!;
-            final faceOpacity = (1 - tc / 0.22).clamp(0.0, 1.0);
-            final cardOpacity = ((tc - 0.32) / 0.5).clamp(0.0, 1.0);
-            final swell =
-                1 +
-                0.07 * _hoverFeel.value * (1 - tc) -
-                0.05 * _pressFeel.value;
-            // Open, the island is in use and shows in full whatever the
-            // pointer does.
-            final veil = (_veil.value * (1 - tc)).clamp(0.0, 1.0);
-            final coverSize = lerpDouble(_I.cover, _I.bigCover, tc)!;
-            final coverInset = (h - _I.cover) / 2;
+    final open = _engine.card;
+    if (open != null) _card = open;
+    _aimShape(compact, feel, style);
+    _aimFeel(feel, style, split: second != null);
 
-            final shape = Container(
-              width: width,
-              height: height,
-              decoration: ShapeDecoration(
-                color: const Color(BarTokens.islandFill),
-                shape: ContinuousCorners(
-                  radius: radius,
-                  side: BorderSide(
-                    color: _I.ink.withValues(alpha: 0.12),
-                    width: 0.6,
-                  ),
-                ),
-                shadows: <BoxShadow>[
-                  BoxShadow(
-                    color: Color.fromRGBO(0, 0, 0, 0.36 * tc),
-                    blurRadius: 30,
-                    offset: const Offset(0, 12),
-                  ),
-                ],
-              ),
-              child: ClipPath(
-                clipper: ContinuousCornersClipper(radius: radius),
-                child: Stack(
-                  children: <Widget>[
-                    if (faceOpacity > 0)
-                      Positioned(
-                        top: 0,
-                        left: 0,
-                        right: 0,
-                        height: h,
-                        child: Opacity(
-                          opacity: faceOpacity,
-                          child: OverflowBox(
-                            minWidth: compact,
-                            maxWidth: compact,
-                            child: AnimatedSwitcher(
-                              duration: KitMotion.duration(
-                                context,
-                                BarTokens.islandContentIn,
-                              ),
-                              reverseDuration: KitMotion.duration(
-                                context,
-                                BarTokens.islandContentOut,
-                              ),
-                              transitionBuilder: (child, animation) =>
-                                  FadeTransition(
-                                    opacity: animation,
-                                    child: ScaleTransition(
-                                      scale: Tween<double>(
-                                        begin: 0.9,
-                                        end: 1,
-                                      ).animate(animation),
-                                      child: child,
-                                    ),
-                                  ),
-                              child: KeyedSubtree(
-                                key: ValueKey<IslandKind?>(kind),
-                                child: _face(
-                                  kind,
-                                  label,
-                                  playback,
-                                  note,
-                                  battery,
-                                ),
-                              ),
-                            ),
-                          ),
-                        ),
-                      ),
-                    if (cardOpacity > 0)
-                      Positioned.fill(
-                        child: Opacity(
-                          opacity: cardOpacity,
-                          child: Transform.scale(
-                            alignment: Alignment.topCenter,
-                            scale: 0.94 + 0.06 * cardOpacity,
-                            child: OverflowBox(
-                              alignment: Alignment.topCenter,
-                              minWidth: card.width,
-                              maxWidth: card.width,
-                              minHeight: card.height,
-                              maxHeight: card.height,
-                              child: AnimatedSwitcher(
-                                duration: KitMotion.duration(
-                                  context,
-                                  KitMotion.swap,
-                                ),
-                                child: KeyedSubtree(
-                                  key: ValueKey<IslandKind>(_card),
-                                  child: _cardBody(
-                                    playback,
-                                    note,
-                                    battery,
-                                    plugged,
-                                    progress,
-                                  ),
-                                ),
-                              ),
-                            ),
-                          ),
-                        ),
-                      ),
-                    if (cardOpacity > 0 &&
-                        lives.length > 1 &&
-                        lives.contains(_card))
-                      Positioned(
-                        left: 0,
-                        right: 0,
-                        bottom: 6,
-                        child: Opacity(
-                          opacity: cardOpacity,
-                          child: Center(
-                            child: IslandPageDots(
-                              count: lives.length,
-                              index: lives.indexOf(_card),
-                            ),
-                          ),
-                        ),
-                      ),
-                    if (_hasCover(tc > 0 ? _card : kind))
-                      Positioned(
-                        left: lerpDouble(coverInset + 1, _I.pad, tc)!,
-                        top: lerpDouble(coverInset, _I.pad, tc)!,
-                        child: IslandCover(
-                          url: playback?.artUrl ?? '',
-                          size: coverSize,
-                          radius: lerpDouble(5, 13, tc)!,
-                        ),
-                      ),
-                  ],
-                ),
-              ),
-            );
+    // Which way the new face and the new card come from: a turn of the page
+    // moves sideways, a passing item rises over what it interrupts and sinks
+    // away again, a new track follows the transport button that asked for it.
+    final faceKey = switch (kind) {
+      IslandKind.track => 'track/$label',
+      _ => '${kind.name}/${_engine.transient?.id ?? ''}',
+    };
+    if (faceKey != _faceKey) {
+      final before = _faceKind;
+      _faceFrom = _pageTurn != 0
+          ? Offset(_pageTurn.toDouble(), 0)
+          : kind == IslandKind.track && before == IslandKind.track
+          ? Offset(_trackTurn.toDouble(), 0)
+          : Offset(0, before == null || kind.index >= before.index ? 1 : -1);
+      _faceKey = faceKey;
+      _faceKind = kind;
+    }
+    final pages = _engine.pages;
+    if (_card != _cardShown) {
+      final before = _cardShown;
+      final step = _pageTurn != 0
+          ? _pageTurn
+          : before == null || !pages.contains(before) || !pages.contains(_card)
+          ? 0
+          : pages.indexOf(_card) > pages.indexOf(before)
+          ? 1
+          : -1;
+      _cardFrom = Offset(step.toDouble(), 0);
+      _cardShown = _card;
+    }
+    _pageTurn = 0;
 
-            final pill = Transform.translate(
-              offset: Offset(_pullX.value, _pullY.value) * (1 - tc),
-              child: Transform.scale(
-                scale: swell,
-                alignment: Alignment.topCenter,
-                child: ShellInputRegion(
-                  debugLabel: 'denial_topbar.island',
-                  observeClientPointerPresses: _engine.expanded,
-                  child: MouseRegion(
-                    cursor: kind != null && kind.expandable && !_engine.expanded
-                        ? SystemMouseCursors.click
-                        : MouseCursor.defer,
-                    onEnter: (_) => _enter(),
-                    onExit: (_) => _exit(),
-                    onHover: (event) {
-                      if (_engine.expanded) return;
-                      final pull = Offset(
-                        (event.localPosition.dx / width * 2 - 1).clamp(
-                              -1.0,
-                              1.0,
-                            ) *
-                            3,
-                        (event.localPosition.dy / height * 2 - 1).clamp(
-                              -1.0,
-                              1.0,
-                            ) *
-                            1.5,
-                      );
-                      if ((pull - _pull).distance > 0.3) {
-                        _pull = pull;
-                        _aim();
-                      }
-                    },
-                    child: Listener(
-                      onPointerDown: (_) {
-                        if (_engine.expanded && !_hovered) _armIdle();
-                      },
-                      child: GestureDetector(
-                        behavior: HitTestBehavior.opaque,
-                        onTapDown: (_) {
-                          if (!_engine.expanded) {
-                            _pressed = true;
-                            _aim();
-                          }
-                        },
-                        onTapUp: (_) {
-                          _pressed = false;
-                          _aim();
-                        },
-                        onTapCancel: () {
-                          _pressed = false;
-                          _aim();
-                        },
-                        onTap: _engine.expanded
-                            ? null
-                            : () => _setOpen(true, byTouch: !_hovered),
-                        onVerticalDragStart: _dragStart,
-                        onVerticalDragUpdate: _dragUpdate,
-                        onVerticalDragEnd: _dragEnd,
-                        onHorizontalDragEnd:
-                            settings.islandSwipe && lives.length > 1
-                            ? _swipe
-                            : null,
-                        // Faded, the shape still takes the pointer: only its
-                        // paint goes.
-                        child: veil <= 0.001
-                            ? shape
-                            : Opacity(opacity: 1 - 0.94 * veil, child: shape),
-                      ),
-                    ),
-                  ),
-                ),
-              ),
-            );
-            return TweenAnimationBuilder<double>(
-              tween: Tween<double>(end: second == null ? 0 : 1),
-              duration: KitMotion.duration(context, KitMotion.settle),
-              curve: KitMotion.outCubic,
-              builder: (context, split, _) {
-                final slot = (h + _I.gap) * split;
-                return Row(
-                  mainAxisSize: MainAxisSize.min,
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: <Widget>[
-                    SizedBox(width: slot),
-                    pill,
-                    SizedBox(
-                      width: slot,
-                      height: h,
-                      child: split <= 0.001
-                          ? null
-                          : OverflowBox(
-                              alignment: Alignment.centerRight,
-                              minWidth: h,
-                              maxWidth: h,
-                              child: Opacity(
-                                opacity: split.clamp(0.0, 1.0),
-                                child: Transform.scale(
-                                  scale: 0.6 + 0.4 * split,
-                                  child: _bubbleFor(
-                                    _bubble,
-                                    playback,
-                                    progress,
-                                  ),
-                                ),
-                              ),
-                            ),
-                    ),
-                  ],
-                );
-              },
-            );
-          },
+    // The content is built here, once per change of state, and handed to the
+    // frame below as it is: while the outline moves, only its clip, opacity
+    // and transform change.
+    final faceLayer = RepaintBoundary(
+      child: IslandSwap(
+        from: _faceFrom,
+        child: KeyedSubtree(
+          key: ValueKey<String>(faceKey),
+          child: _face(kind, label, playback, note, battery),
         ),
       ),
     );
+    final showCard =
+        _engine.expanded || _dragFrom != null || _content.value > 0.001;
+    _cardBuilt = showCard;
+    final cardLayer = !showCard
+        ? null
+        : RepaintBoundary(
+            child: Stack(
+              fit: StackFit.expand,
+              children: <Widget>[
+                IslandSwap(
+                  from: _cardFrom,
+                  distance: 28,
+                  child: KeyedSubtree(
+                    key: ValueKey<IslandKind>(_card),
+                    child: _cardBody(playback, note, battery, plugged, progress),
+                  ),
+                ),
+                if (pages.length > 1 && pages.contains(_card))
+                  Positioned(
+                    left: 0,
+                    right: 0,
+                    bottom: 2,
+                    child: Center(
+                      child: IslandPageDots(
+                        count: pages.length,
+                        index: pages.indexOf(_card),
+                        onPick: (index) {
+                          _engine.showPage(pages[index]);
+                          _sync();
+                        },
+                      ),
+                    ),
+                  ),
+              ],
+            ),
+          );
+    final bubbleLayer = RepaintBoundary(
+      child: _bubbleFor(_bubble, playback, progress),
+    );
+    final coverUrl = playback?.artUrl ?? '';
+    final swipes =
+        settings.islandSwipe &&
+        (_engine.expanded ? pages.length > 1 : _engine.live.length > 1);
+    final yields = _yields;
+    final expanded = _engine.expanded;
+    final pinned = _engine.pinned;
+    final cardSize = _cardSize(_card);
+
+    return AnimatedBuilder(
+      animation: Listenable.merge(<Listenable>[_shape, _feel]),
+      builder: (context, _) {
+        final width = math.max(h, _w.value);
+        final height = math.max(h * 0.9, _h.value);
+        final radius = math.max(0.0, _r.value);
+        final tc = islandOpenShare(height, h, cardSize.height);
+        final shown = _content.value;
+        final faceShown = 1 - kitPhase(shown, 0, 0.45);
+        final cardShown = kitPhase(shown, 0.4, 1);
+        final split = _split.value;
+        final reach = math.max(0.0, split) * (h + _I.gap);
+        final bubbleLeft =
+            reach + width + islandBubbleOffset(split, h, _I.gap);
+        final hasBubble = split > 0.002;
+        final veil = _veil.value.clamp(0.0, 1.0);
+        final hover = _hoverFeel.value * (1 - tc);
+        final press = _pressFeel.value;
+        final coverSize = lerpDouble(_I.cover, _I.bigCover, tc)!;
+        final coverInset = (h - _I.cover) / 2;
+        final blur = BarTokens.islandContentBlur * (1 - cardShown);
+
+        final content = ClipPath(
+          clipper: ContinuousCornersClipper(radius: radius),
+          child: Stack(
+            children: <Widget>[
+              Positioned(
+                top: 0,
+                left: 0,
+                right: 0,
+                height: h,
+                child: IgnorePointer(
+                  ignoring: faceShown < 0.5,
+                  child: Opacity(
+                    opacity: faceShown,
+                    child: Transform.scale(
+                      scale: 0.9 + 0.1 * faceShown,
+                      child: OverflowBox(
+                        minWidth: compact,
+                        maxWidth: compact,
+                        child: faceLayer,
+                      ),
+                    ),
+                  ),
+                ),
+              ),
+              if (cardLayer != null && cardShown > 0)
+                Positioned.fill(
+                  child: IgnorePointer(
+                    ignoring: cardShown < 0.5,
+                    child: Opacity(
+                      opacity: cardShown,
+                      child: Transform.scale(
+                        alignment: Alignment.topCenter,
+                        scale:
+                            BarTokens.islandContentScale +
+                            (1 - BarTokens.islandContentScale) * cardShown,
+                        child: ImageFiltered(
+                          enabled: blur > 0.3,
+                          imageFilter: ImageFilter.blur(
+                            sigmaX: blur,
+                            sigmaY: blur,
+                          ),
+                          child: OverflowBox(
+                            alignment: Alignment.topCenter,
+                            minWidth: cardSize.width,
+                            maxWidth: cardSize.width,
+                            minHeight: cardSize.height,
+                            maxHeight: cardSize.height,
+                            child: cardLayer,
+                          ),
+                        ),
+                      ),
+                    ),
+                  ),
+                ),
+              if (_hasCover(tc > 0 ? _card : kind))
+                Positioned(
+                  left: lerpDouble(coverInset + 1, _I.pad, tc)!,
+                  top: lerpDouble(coverInset, _I.pad, tc)!,
+                  child: IgnorePointer(
+                    child: IslandCover(
+                      url: coverUrl,
+                      size: coverSize,
+                      radius: IslandLook.corner(
+                        style,
+                        lerpDouble(5, 13, tc)!,
+                        coverSize,
+                      ),
+                    ),
+                  ),
+                ),
+            ],
+          ),
+        );
+
+        final body = ShellInputRegion(
+          debugLabel: 'denial_topbar.island',
+          // Faded, the island gives its place up: the window underneath
+          // takes the pointer there.
+          active: !yields,
+          keyboardPolicy: pinned
+              ? ShellKeyboardPolicy.capture
+              : ShellKeyboardPolicy.none,
+          observeClientPointerPresses: expanded,
+          child: MouseRegion(
+            // Not opaque while faded, so the bar under the island is hit
+            // too; the region itself still sees the pointer come and go.
+            opaque: !yields,
+            cursor: !expanded && _engine.canExpand
+                ? SystemMouseCursors.click
+                : MouseCursor.defer,
+            onEnter: (_) => _enter(),
+            onExit: _exit,
+            child: IgnorePointer(
+              ignoring: yields,
+              child: Focus(
+                focusNode: _focus,
+                canRequestFocus: pinned,
+                skipTraversal: true,
+                onKeyEvent: _key,
+                child: Listener(
+                  onPointerDown: (_) {
+                    if (!_engine.expanded) return;
+                    // A press inside a preview keeps it.
+                    if (!_engine.pinned) {
+                      _engine.pin();
+                      _takeKeys();
+                      _sync();
+                    }
+                    if (!_hovered) _armIdle();
+                  },
+                  child: GestureDetector(
+                    behavior: HitTestBehavior.opaque,
+                    onTapDown: expanded ? null : (_) => _pressDown(),
+                    onTapUp: expanded ? null : (_) => _pressUp(),
+                    onTapCancel: expanded ? null : _pressUp,
+                    onTap: expanded ? null : _tap,
+                    onVerticalDragStart: _dragStart,
+                    onVerticalDragUpdate: _dragUpdate,
+                    onVerticalDragEnd: _dragEnd,
+                    onHorizontalDragStart: swipes ? (_) => _swiped = 0 : null,
+                    onHorizontalDragUpdate: swipes
+                        ? (details) => _swiped += details.primaryDelta ?? 0
+                        : null,
+                    onHorizontalDragEnd: swipes
+                        ? (details) => _turn(
+                            islandSwipeStep(
+                              _swiped,
+                              details.primaryVelocity ?? 0,
+                            ),
+                          )
+                        : null,
+                    child: KeyedSubtree(key: _bodyKey, child: content),
+                  ),
+                ),
+              ),
+            ),
+          ),
+        );
+
+        final bubbleShown = kitPhase(split, 0.5, 0.95);
+        final island = SizedBox(
+          width: width + reach * 2,
+          height: height,
+          child: Stack(
+            clipBehavior: Clip.none,
+            children: <Widget>[
+              Positioned.fill(
+                child: CustomPaint(
+                  painter: IslandBlobPainter(
+                    body: Rect.fromLTWH(reach, 0, width, height),
+                    radius: radius,
+                    bubble: hasBubble
+                        ? Rect.fromLTWH(bubbleLeft, 0, h, h)
+                        : null,
+                    bubbleRadius: IslandLook.pill(style, h),
+                    neck: islandNeck(split),
+                    shadow: tc,
+                  ),
+                ),
+              ),
+              Positioned(
+                left: reach,
+                top: 0,
+                width: width,
+                height: height,
+                child: body,
+              ),
+              if (hasBubble && bubbleShown > 0)
+                Positioned(
+                  left: bubbleLeft,
+                  top: 0,
+                  width: h,
+                  height: h,
+                  child: IgnorePointer(
+                    ignoring: yields || bubbleShown < 0.5,
+                    child: Opacity(
+                      opacity: bubbleShown,
+                      child: Transform.scale(
+                        scale: 0.6 + 0.4 * bubbleShown,
+                        child: bubbleLayer,
+                      ),
+                    ),
+                  ),
+                ),
+            ],
+          ),
+        );
+
+        // Under a pointer the pill swells; under a press it flattens more
+        // than it narrows, like something soft; an arrival is one breath.
+        // All of it turns about the middle of the pill's own row.
+        return Transform(
+          alignment: Alignment(0, h / height - 1),
+          transform: Matrix4.diagonal3Values(
+            1 + 0.05 * hover - 0.03 * press + _pop.value,
+            1 + 0.09 * hover - 0.09 * press + _pop.value,
+            1,
+          ),
+          child: veil <= 0.001
+              ? island
+              : Opacity(opacity: 1 - veil, child: island),
+        );
+      },
+    );
+  }
+
+  // Which way the track last changed. Going back is remembered for a
+  // moment, long enough for the player to answer; anything else is forward.
+  int get _trackTurn {
+    final back = _wentBack;
+    return back != null && _now.difference(back) < const Duration(seconds: 3)
+        ? -1
+        : 1;
   }
 
   bool _hasCover(IslandKind? kind) =>
@@ -1031,20 +1351,10 @@ class _IslandState extends ConsumerState<Island> with TickerProviderStateMixin {
           _engine.pick(kind);
           _sync();
         },
-        child: Container(
-          width: h,
-          height: h,
-          alignment: Alignment.center,
-          decoration: ShapeDecoration(
-            color: const Color(BarTokens.islandFill),
-            shape: CircleBorder(
-              side: BorderSide(
-                color: _I.ink.withValues(alpha: 0.12),
-                width: 0.6,
-              ),
-            ),
-          ),
-          child: content,
+        // The island's body paints the bubble's plate, joined to the pill.
+        child: SizedBox.square(
+          dimension: h,
+          child: Center(child: content),
         ),
       ),
     );
@@ -1195,21 +1505,35 @@ class _IslandState extends ConsumerState<Island> with TickerProviderStateMixin {
             children: <Widget>[
               SizedBox(
                 width: 20,
-                child: BarGlyph(_hudIcon, size: 15, color: _I.ink),
+                child: IslandSwap(
+                  child: BarGlyph(
+                    _hudIcon,
+                    key: ValueKey<int>(_hudIcon.codePoint),
+                    size: 15,
+                    color: _I.ink,
+                  ),
+                ),
               ),
               const SizedBox(width: 9),
               Expanded(child: IslandLevel(level: _hudLevel)),
               const SizedBox(width: 9),
+              // The number rolls the way the level went.
               SizedBox(
                 width: 26,
-                child: Text(
-                  '${(_hudLevel * 100).round()}',
-                  textAlign: TextAlign.right,
-                  style: BarType.islandLabel.copyWith(
-                    color: _I.dim,
-                    fontFeatures: const <FontFeature>[
-                      FontFeature.tabularFigures(),
-                    ],
+                child: IslandSwap(
+                  from: Offset(0, _hudTurn.toDouble()),
+                  distance: 7,
+                  alignment: Alignment.centerRight,
+                  child: Text(
+                    '${(_hudLevel * 100).round()}',
+                    key: ValueKey<int>((_hudLevel * 100).round()),
+                    textAlign: TextAlign.right,
+                    style: BarType.islandLabel.copyWith(
+                      color: _I.dim,
+                      fontFeatures: const <FontFeature>[
+                        FontFeature.tabularFigures(),
+                      ],
+                    ),
                   ),
                 ),
               ),
@@ -1319,6 +1643,7 @@ class _IslandState extends ConsumerState<Island> with TickerProviderStateMixin {
         return IslandHomeCard(
           time: widget.timeLabel,
           date: widget.dateLabel,
+          workspace: widget.workspace,
           trailing: battery.capacity == null
               ? null
               : Row(
@@ -1388,9 +1713,20 @@ class _IslandState extends ConsumerState<Island> with TickerProviderStateMixin {
           label: context.tr(plugged ? 'Charging' : 'On Battery'),
         );
       default:
+        final commands = ref.watch(_services.mediaCommands);
         return IslandMediaCard(
           playback: playback,
-          commands: ref.watch(_services.mediaCommands),
+          onPrevious: () {
+            _wentBack = _now;
+            commands.previous();
+          },
+          onPlayPause: commands.playPause,
+          onNext: () {
+            _wentBack = null;
+            commands.next();
+          },
+          turn: _trackTurn,
+          subline: widget.subline?.line,
           coverSlot: _I.bigCover,
           padding: _I.pad,
           nothing: context.tr('Not Playing'),
