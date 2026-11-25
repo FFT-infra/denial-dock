@@ -8,9 +8,17 @@
 | --- | --- | --- |
 | `denial_dock` | [`plugins/denial_dock`](plugins/denial_dock) | Dock：波浪放大、窗口预览、文件夹堆叠、拖拽排序、智能收起。 |
 | `denial_topbar` | [`plugins/denial_topbar`](plugins/denial_topbar) | 菜单栏：灵动岛、控制中心、通知中心、工作区、托盘。 |
-| `denial_shell_kit` | [`packages/denial_shell_kit`](packages/denial_shell_kit) | 两个插件共用的库。它不是插件，作为依赖一起带上。 |
+| `denial_shell_kit` | [`packages/denial_shell_kit`](packages/denial_shell_kit) | 两个插件共用的库：外观、动效时钟、弹层和面板放置。它不是插件，作为依赖一起带上。 |
 
 `plugins.yaml` 是给 Denial 插件管理器看的目录，只列可安装的插件。
+
+## 两个插件怎么配合
+
+两个插件跑在 Denial 的同一个 shell 进程里，共用一个库，一边改了设置另一边立刻能看到。
+
+- 预留原生工作区的是**顶栏**：Denial 只允许一个插件预留一条边。**Dock** 故意不预留，所以两个插件谁先装都行，边始终归顶栏管。
+- **外观**（Denial 或 macOS 风格）和**动效速度**存在 `~/.config/denial/plugins/denial_shell_kit.json`，两边共用。各自的设置留在各自文件里：`denial_topbar.json`、`denial_dock.json`。
+- 两个插件都能单独用。没有顶栏就没有预留，最大化的窗口会盖住 Dock 那条；没有 Dock 顶栏照常。
 
 ## 安装
 

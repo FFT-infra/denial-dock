@@ -61,7 +61,12 @@ turning it on.
   running icon left across the divider to pin it at the drop position; drag a
   pinned icon more than one icon height above the capsule to remove it. Only
   primary-button drags start a move. The icon lifts, grows slightly and turns
-  translucent while held, and neighbours ease into place.
+  translucent while held, and neighbours ease into place. On a touch or pen
+  pointer a drag starts only after the icon has been held for 550 ms, so a
+  sideways swipe scrolls instead of reordering. Every duration the dock draws
+  follows the shell's speed setting, and the system's reduced-motion flag
+  makes positions and sizes snap, turns the launch hop into its pulse, and
+  has an icon asking for attention dim instead of hop.
 - **Resize by the divider.** Hovering a divider shows a resize cursor; drag it
   and the icons, the capsule and the magnification follow the pointer, then
   the size is saved. Whole pixels per step, so a drag does not rebuild every

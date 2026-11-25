@@ -26,8 +26,14 @@ was written on.
 - **Indicators.** A red stop button while the screen is recorded and an orange
   dot while an application records from a microphone.
 
+- **Motion.** Every transition the bar draws runs on one clock with a speed
+  setting (0.5× to 2×) in Menu Bar Settings, under Appearance. The system's
+  reduced-motion flag still turns transitions into instant changes; a
+  repeating animation keeps its rhythm at whatever speed is set.
+
 Settings: right-click the bar and choose Menu Bar Settings… They are saved in
-`~/.config/denial/plugins/denial_topbar.json`.
+`~/.config/denial/plugins/denial_topbar.json`. The speed and the look's
+choice live in `denial_shell_kit.json` beside it, shared with the dock.
 
 ## Requirements
 
