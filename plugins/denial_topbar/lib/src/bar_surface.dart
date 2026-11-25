@@ -349,6 +349,7 @@ class _TopBarSurfaceState extends ConsumerState<TopBarSurface> {
         onForceQuitFront: window == null
             ? null
             : () => closeApplication(ref, window.appId),
+        onConfirm: _confirmPower,
       ),
     );
   }

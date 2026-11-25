@@ -1,4 +1,5 @@
 import 'package:denial_flutter_sdk/services.dart';
+import 'package:denial_flutter_sdk/state.dart';
 import 'package:flutter/widgets.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
@@ -160,7 +161,12 @@ List<BarMenuEntry> systemMenuEntries(
   required VoidCallback onBarSettings,
   required VoidCallback onForceQuit,
   required VoidCallback? onForceQuitFront,
+  required ValueChanged<SessionPowerAction> onConfirm,
 }) {
+  final session = ref.read(sessionPowerProvider);
+  bool canLogOut() =>
+      session.busyAction == null &&
+      session.availabilityFor(SessionPowerAction.logout).enabled;
   return <BarMenuEntry>[
     BarMenuItem(
       label: context.tr('About This System'),
@@ -194,8 +200,13 @@ List<BarMenuEntry> systemMenuEntries(
               onSelected: onForceQuitFront,
             ),
     ),
-    // Sleep, restart, shut down, lock and log out live in the control centre:
-    // that panel is what is open when someone wants to stop work, and the
-    // system menu keeps to the things that act on windows and settings.
+    // Sleep, restart, shut down and lock live in the control centre; log out
+    // stays here, where it has always been and where the reference keeps it.
+    const BarMenuSeparator(),
+    BarMenuItem(
+      label: context.tr('Log Out…'),
+      enabled: canLogOut(),
+      onSelected: () => onConfirm(SessionPowerAction.logout),
+    ),
   ];
 }
