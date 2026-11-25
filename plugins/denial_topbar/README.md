@@ -18,9 +18,15 @@ was written on.
   once; swipe sideways to change which is in front.
 - **Control centre.** Wi-Fi, Bluetooth, focus, appearance, night light, screen
   recording, brightness, volume and now playing. The controls can be added,
-  removed, reordered and resized.
-- **Notification centre** with a calendar, world clock, battery and processor
-  widgets.
+  removed, reordered and resized. Sleep, Restart, Shut Down and Lock sit in a
+  row at its foot; the three that end the session ask first.
+- **Bluetooth.** The popover scans while it is open, lists nearby devices and
+  pairs one on a tap, asking any passkey or confirmation question in place.
+  Hold or right-click a paired device to forget it.
+- **Notification centre.** One glass slab holding every entry as a flat card,
+  with the sender's own action buttons on the card, grouped by application.
+  Widgets (calendar, world clock, battery, processor) sit below it. Hold or
+  right-click a saved Wi-Fi network to change or forget its password.
 - **Tray.** Each tray item can be shown, hidden behind a chevron, or never
   shown.
 - **Indicators.** A red stop button while the screen is recorded and an orange
