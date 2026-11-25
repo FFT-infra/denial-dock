@@ -1,10 +1,8 @@
-import 'dart:math' as math;
-
-import 'package:denial_flutter_sdk/effects.dart';
 import 'package:denial_flutter_sdk/theme.dart';
 import 'package:flutter/widgets.dart';
 
-import 'continuous_corners.dart';
+import 'kit_glass.dart';
+import 'kit_material.dart';
 import 'kit_style.dart';
 
 /// The card every popup of the dock and the top bar draws on: continuous
@@ -20,6 +18,7 @@ class GlassCard extends StatelessWidget {
     this.blurStrength = 1,
     this.fade,
     this.grouped = false,
+    this.tier = KitTier.popover,
     super.key,
   });
 
@@ -44,6 +43,9 @@ class GlassCard extends StatelessWidget {
   /// [BackdropGroup], for cards that sit side by side and move together.
   /// Every ungrouped card reads the screen back for itself.
   final bool grouped;
+
+  /// Which of the look's materials the card is made of.
+  final KitTier tier;
   final Widget child;
 
   static Color fillOf(ShellThemeData theme, {double minOpacity = 0}) {
@@ -55,96 +57,22 @@ class GlassCard extends StatelessWidget {
   Widget build(BuildContext context) {
     final theme = context.shellTheme;
     final style = KitStyle.of(context);
-    final radius = style.radius(theme, this.radius);
-    final fade = this.fade;
-    final fill = style.panelFill(
-      this.fill ?? fillOf(theme, minOpacity: minOpacity),
-    );
-    final Widget shadow = DecoratedBox(
-      decoration: ShapeDecoration(
-        shape: ContinuousCorners(radius: radius),
-        shadows: [
-          if (style.shadow > 0)
-            BoxShadow(
-              color: theme.colors.shadow.withValues(alpha: 0.30 * style.shadow),
-              blurRadius: 36 * elevation,
-              offset: Offset(0, 14 * elevation),
-            ),
-        ],
-      ),
-    );
-    return Stack(
-      fit: StackFit.passthrough,
-      children: [
-        Positioned.fill(
-          child: IgnorePointer(
-            child: fade == null
-                ? shadow
-                : FadeTransition(opacity: fade, child: shadow),
-          ),
-        ),
-        ClipPath(
-          clipper: ContinuousCornersClipper(radius: radius),
-          child: ShellBackdropBlur(
-            blur: fill.a < 1,
-            grouped: grouped,
-            strength: blurStrength,
-            // A fading backdrop carries its content through the fade.
-            separateChild: fade == null,
-            borderRadius: BorderRadius.circular(radius),
-            opacity: fade,
-            child: CustomPaint(
-              painter: _CardPainter(
-                radius: radius,
-                fill: fill,
-                line: style.border(theme),
-                lineWidth: style.borderWidth,
-              ),
-              child: child,
-            ),
-          ),
-        ),
-      ],
+    final material = kitMaterialOf(context, tier);
+    return KitGlass(
+      material: material,
+      // A material with corners of its own keeps them.
+      radius: style.radius(theme, material.radius ?? radius),
+      // A material that brings its own fill keeps it, whatever the caller
+      // mixed from the theme; one filled from the theme takes the caller's.
+      fill: material.fill.fixed
+          ? null
+          : style.panelFill(fill ?? fillOf(theme, minOpacity: minOpacity)),
+      minOpacity: minOpacity,
+      elevation: elevation,
+      blurScale: blurStrength,
+      grouped: grouped,
+      fade: fade,
+      child: child,
     );
   }
-}
-
-class _CardPainter extends CustomPainter {
-  const _CardPainter({
-    required this.radius,
-    required this.fill,
-    required this.line,
-    required this.lineWidth,
-  });
-
-  final double radius;
-  final Color fill;
-  final Color line;
-  final double lineWidth;
-
-  @override
-  void paint(Canvas canvas, Size size) {
-    final rect = Offset.zero & size;
-    canvas.drawPath(
-      continuousRoundedRectPath(rect, radius),
-      Paint()..color = fill,
-    );
-    if (lineWidth <= 0) return;
-    // The line lies wholly inside the card, so the clip does not thin it.
-    final half = lineWidth / 2;
-    canvas.drawPath(
-      continuousRoundedRectPath(rect.deflate(half), math.max(0, radius - half)),
-      Paint()
-        ..style = PaintingStyle.stroke
-        ..strokeWidth = lineWidth
-        ..color = line,
-    );
-  }
-
-  @override
-  bool shouldRepaint(_CardPainter old) =>
-      old.radius != radius ||
-      old.fill != fill ||
-      old.line != line ||
-      old.lineWidth != lineWidth;
 }

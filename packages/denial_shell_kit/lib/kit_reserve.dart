@@ -89,6 +89,12 @@ class KitReservation {
   String toString() => 'KitReservation(${owner.name}, $edge, $thickness)';
 }
 
+/// The mode the bar draws in. With no dock on screen a bar that is hidden or
+/// reduced to its island would leave nothing to open the settings from, so
+/// it draws in full until a dock shows again. The chosen mode is kept.
+KitBarMode barModeInForce(KitBarMode chosen, {required bool dock}) =>
+    dock ? chosen : KitBarMode.shown;
+
 /// Decides the reservation. A bar that draws its strip comes first; with no
 /// strip, a dock that stays on screen reserves its own edge; otherwise
 /// nothing is reserved and windows take the whole output.

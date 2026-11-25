@@ -1,5 +1,6 @@
 import 'package:flutter/foundation.dart';
 
+import 'kit_dock_link.dart';
 import 'kit_panel_place.dart';
 import 'kit_reserve.dart';
 import 'kit_store.dart';
@@ -22,6 +23,17 @@ class KitBarModeNotifier extends ValueNotifier<KitBarMode> {
     kitStore.put('bar', next.key);
   }
 }
+
+/// Whether a dock that has not attached yet may still be on its way. The
+/// plugins start in no fixed order, so the bar waits a moment before it
+/// concludes that none runs.
+final ValueNotifier<bool> kitDockAwaited = ValueNotifier<bool>(true);
+
+/// The mode the bar draws in now; see [barModeInForce].
+KitBarMode get kitBarModeInForce => barModeInForce(
+  kitBarMode.value,
+  dock: kitDockEnabled.value && (kitDock.attached || kitDockAwaited.value),
+);
 
 /// What the hosts other than the bar report about themselves. The bar's
 /// plugin holds the shell's one work-area provider, so a dock that wants its
@@ -62,7 +74,7 @@ KitReservation? kitResolveReservation({
   required KitEdge? barEdge,
   required double barThickness,
 }) => resolveKitReservation(
-  barMode: kitBarMode.value,
+  barMode: kitBarModeInForce,
   barEdge: barEdge,
   barThickness: barThickness,
   dock: kitDockEnabled.value ? kitHosts[KitHosts.dock] : null,

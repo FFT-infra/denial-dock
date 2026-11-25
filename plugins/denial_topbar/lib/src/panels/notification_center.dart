@@ -30,7 +30,7 @@ import 'nc_parts.dart';
 import 'tile_grid.dart';
 import 'widgets.dart';
 
-const double notificationCenterWidth = NcLook.width;
+double get notificationCenterWidth => NcLook.layout.width;
 
 /// Opens the column of notifications and widgets at the bar's far end. There
 /// is no slab under it: every card and every widget is a piece of its own on
@@ -63,7 +63,7 @@ void showNotificationCenter({
       barHeight: barHeight,
       placement: BarPanelAnchor.centred,
       width: NcMotion.hangWidth(
-        plate: NcLook.width,
+        plate: NcLook.layout.width,
         reach: NcCard.reach,
         sceneWidth:
             MediaQuery.maybeSizeOf(ref.context)?.width ?? double.infinity,
@@ -816,15 +816,15 @@ class _ColumnState extends ConsumerState<_Column>
     final plate = framed
         ? NcMotion.hangPlate(
             width: NcMotion.hangWidth(
-              plate: NcLook.width,
+              plate: NcLook.layout.width,
               reach: NcCard.reach,
               sceneWidth: scene.width,
             ),
             reach: NcCard.reach,
           )
-        : math.min(NcLook.width, scene.width - NcLook.edge * 2);
+        : math.min(NcLook.layout.width, scene.width - NcLook.layout.edge * 2);
     final width = plate + NcCard.reach * 2;
-    final inset = NcLook.edge - NcCard.reach;
+    final inset = NcLook.layout.edge - NcCard.reach;
     final onLeft = side == PanelEdge.left;
     _travel = width + 24;
     _place();
@@ -1009,7 +1009,7 @@ class _ColumnState extends ConsumerState<_Column>
               scene.width,
               width +
                   inset +
-                  NcLook.dimReach +
+                  NcLook.layout.dimReach +
                   (onLeft || side == PanelEdge.right ? barHeight : 0),
             ),
             child: IgnorePointer(
@@ -1139,7 +1139,7 @@ class _DimPainter extends CustomPainter {
 
   @override
   void paint(Canvas canvas, Size size) {
-    final strength = NcLook.dim * shown.value.clamp(0.0, 1.0);
+    final strength = NcLook.layout.dim * shown.value.clamp(0.0, 1.0);
     if (strength <= 0 || size.isEmpty) return;
     Color dark(double share) =>
         Color.fromRGBO(0, 0, 0, (strength * share).clamp(0.0, 1.0));
@@ -1350,7 +1350,7 @@ class _GroupStackState extends State<_GroupStack>
           notification: note,
           services: widget.services,
           index: index,
-          gap: NcLook.cardGap,
+          gap: NcLook.layout.gap,
           unfold: _t,
           more: index == 0 ? count - 1 : 0,
           peeks: index == 0 && !_spread ? NcMotion.peeks(count) : 0,

@@ -11,6 +11,7 @@ import 'package:denial_flutter_sdk/surfaces.dart';
 import 'package:denial_flutter_sdk/system_services.dart' show WifiNetwork;
 import 'package:denial_flutter_sdk/theme.dart';
 import 'package:denial_flutter_sdk/wallpaper.dart';
+import 'package:denial_shell_kit/kit_dock_link.dart';
 import 'package:denial_shell_kit/kit_host.dart';
 import 'package:denial_shell_kit/kit_motion.dart';
 import 'package:denial_shell_kit/kit_style.dart' show kitDockEnabled;
@@ -106,6 +107,11 @@ class _TopBarSurfaceState extends ConsumerState<TopBarSurface>
     kitBarMode.addListener(_shellChanged);
     kitHosts.addListener(_shellChanged);
     kitDockEnabled.addListener(_shellChanged);
+    kitDock.addListener(_shellChanged);
+    kitDockAwaited.addListener(_shellChanged);
+    if (kitDockAwaited.value) {
+      Timer(const Duration(seconds: 3), () => kitDockAwaited.value = false);
+    }
     _syncReservation();
   }
 
@@ -200,6 +206,8 @@ class _TopBarSurfaceState extends ConsumerState<TopBarSurface>
     kitBarMode.removeListener(_shellChanged);
     kitHosts.removeListener(_shellChanged);
     kitDockEnabled.removeListener(_shellChanged);
+    kitDock.removeListener(_shellChanged);
+    kitDockAwaited.removeListener(_shellChanged);
     _islandReserved.dispose();
     super.dispose();
   }
@@ -283,7 +291,7 @@ class _TopBarSurfaceState extends ConsumerState<TopBarSurface>
     final strings = _services.strings(context);
     final zones = settings.zones;
     // A bar that draws only its island has one whatever the layout says.
-    final mode = kitBarMode.value;
+    final mode = kitBarModeInForce;
     final islandAvailable =
         _side == PanelEdge.top &&
         (settings.showsIsland || mode == KitBarMode.islandOnly);
@@ -339,7 +347,7 @@ class _TopBarSurfaceState extends ConsumerState<TopBarSurface>
                     services: _services,
                     monitorId: widget.monitorId,
                     ink: const Color(0xffffffff),
-                    settings: settings.copyWith(workspacePreview: false),
+                    settings: settings,
                     barHeight: bodyHeight,
                   )
                 : null,
