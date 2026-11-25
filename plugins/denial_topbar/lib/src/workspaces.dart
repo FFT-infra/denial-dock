@@ -178,7 +178,9 @@ class _BarWorkspacesState extends ConsumerState<BarWorkspaces> {
           height: widget.vertical ? long : _W.dot,
           decoration: BoxDecoration(
             color: ink.withValues(alpha: active ? 1 : (occupied ? 0.72 : 0.28)),
-            borderRadius: BorderRadius.circular(_W.dot / 2),
+            borderRadius: BorderRadius.circular(
+              KitStyle.of(context).pill(_W.dot),
+            ),
           ),
         );
       }
@@ -311,12 +313,12 @@ class _SpacesStripState extends ConsumerState<SpacesStrip> {
             ink.withValues(alpha: 0.16),
             theme.colors.surfaceContainer,
           ),
-          borderRadius: BorderRadius.circular(5),
+          borderRadius: BorderRadius.circular(KitStyle.of(context).corner(5)),
           border: Border.all(color: ink.withValues(alpha: 0.18), width: 0.6),
           boxShadow: floating
-              ? const <BoxShadow>[
+              ? KitStyle.of(context).cast(const <BoxShadow>[
                   BoxShadow(color: Color(0x55000000), blurRadius: 12),
-                ]
+                ])
               : null,
         ),
         alignment: Alignment.center,
@@ -373,7 +375,9 @@ class _SpacesStripState extends ConsumerState<SpacesStrip> {
               height: thumbH,
               decoration: BoxDecoration(
                 color: ink.withValues(alpha: hot ? 0.16 : 0.07),
-                borderRadius: BorderRadius.circular(10),
+                borderRadius: BorderRadius.circular(
+                  KitStyle.of(context).corner(10),
+                ),
                 border: Border.all(
                   color: active || hot
                       ? KitStyle.of(context).accent(context.shellTheme)
@@ -382,7 +386,9 @@ class _SpacesStripState extends ConsumerState<SpacesStrip> {
                 ),
               ),
               child: ClipRRect(
-                borderRadius: BorderRadius.circular(8),
+                borderRadius: BorderRadius.circular(
+                  KitStyle.of(context).corner(8),
+                ),
                 child: Stack(children: <Widget>[for (final w in mine) chip(w)]),
               ),
             ),
@@ -414,8 +420,9 @@ class _SpacesStripState extends ConsumerState<SpacesStrip> {
             width: 30,
             height: 30,
             decoration: BoxDecoration(
-              shape: BoxShape.circle,
+              borderRadius: KitStyle.of(context).disc(30),
               color: ink.withValues(alpha: 0.09),
+              border: KitStyle.of(context).controlLine(context.shellTheme),
             ),
             child: BarGlyph(icon, size: 13, color: ink),
           ),

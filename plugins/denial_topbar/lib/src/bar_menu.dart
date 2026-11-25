@@ -623,7 +623,9 @@ class _Row extends StatelessWidget {
                   alignment: Alignment.center,
                   decoration: BoxDecoration(
                     color: ink.withValues(alpha: 0.16),
-                    borderRadius: BorderRadius.circular(9),
+                    borderRadius: BorderRadius.circular(
+                      KitStyle.of(context).pill(18),
+                    ),
                   ),
                   child: Text(
                     item.badge!,
