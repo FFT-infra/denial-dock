@@ -229,13 +229,14 @@ class _BarSettingsPanelState extends ConsumerState<BarSettingsPanel> {
             ),
             _Row(
               label: context.tr('Layout'),
-              trailing: _Segments<BarLayout>(
-                value: s.layout,
-                options: <(BarLayout, String)>[
-                  (BarLayout.attached, context.tr('Attached')),
-                  (BarLayout.floating, context.tr('Floating')),
+              trailing: _Segments<BarShape>(
+                value: s.shape,
+                options: <(BarShape, String)>[
+                  (BarShape.strip, context.tr('Attached')),
+                  (BarShape.floating, context.tr('Floating')),
+                  (BarShape.islands, context.tr('Islands')),
                 ],
-                onChanged: (v) => save((s) => s.copyWith(layout: v)),
+                onChanged: (v) => save((s) => s.copyWith(shape: v)),
               ),
             ),
             _Row(
@@ -277,7 +278,9 @@ class _BarSettingsPanelState extends ConsumerState<BarSettingsPanel> {
             _Switch(
               label: context.tr('Hairline under the bar'),
               value: s.hairline,
-              onChanged: (v) => save((s) => s.copyWith(hairline: v)),
+              onChanged: (v) => save(
+                (s) => s.copyWith(borderWidth: v ? BarMetric.hairline : 0),
+              ),
             ),
           ],
         ),

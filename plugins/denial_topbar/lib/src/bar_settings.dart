@@ -70,6 +70,113 @@ enum BarLayout {
   };
 }
 
+/// The outline of the bar.
+enum BarShape {
+  /// Edge to edge along the screen.
+  strip,
+
+  /// One capsule, clear of the screen edge.
+  floating,
+
+  /// A plate of its own under every zone, with the wallpaper between them.
+  islands;
+
+  String get key => name;
+
+  /// Null when [value] names no shape, so a file from before shapes falls
+  /// back to its layout.
+  static BarShape? parse(Object? value) => switch (value) {
+    'strip' => BarShape.strip,
+    'floating' => BarShape.floating,
+    'islands' => BarShape.islands,
+    _ => null,
+  };
+}
+
+/// How a plate ends.
+enum BarCap {
+  round,
+  square,
+
+  /// Pointed; separators inside a zone become points too.
+  arrow;
+
+  String get key => name;
+
+  static BarCap parse(Object? value) => switch (value) {
+    'square' => BarCap.square,
+    'arrow' => BarCap.arrow,
+    _ => BarCap.round,
+  };
+}
+
+/// Where the plate takes its colour from.
+enum BarGroundTint {
+  /// The neutral that matches the wallpaper's lightness.
+  wallpaper,
+
+  /// The theme's panel colour.
+  panel,
+
+  /// The wallpaper's neutral with the accent washed in.
+  accent;
+
+  String get key => name;
+
+  static BarGroundTint parse(Object? value) => switch (value) {
+    'panel' => BarGroundTint.panel,
+    'accent' => BarGroundTint.accent,
+    _ => BarGroundTint.wallpaper,
+  };
+}
+
+enum BarBorderColour {
+  /// A faint line in the bar's ink.
+  ink,
+  accent;
+
+  String get key => name;
+
+  static BarBorderColour parse(Object? value) =>
+      value == 'accent' ? BarBorderColour.accent : BarBorderColour.ink;
+}
+
+/// The bar's adjustable measures: the least and most each may be, and what
+/// it is until changed. Every default is what the bar measured before the
+/// setting existed.
+abstract final class BarMetric {
+  static const double textScaleMin = 0.8;
+  static const double textScaleMax = 1.4;
+  static const double textScale = 1;
+
+  static const double partGapMin = 0;
+  static const double partGapMax = 16;
+  static const double partGap = 6;
+
+  static const double edgeMarginMin = 0;
+  static const double edgeMarginMax = 16;
+  static const double edgeMargin = 6;
+
+  static const double endInsetMin = 0;
+  static const double endInsetMax = 48;
+
+  static const double contentPaddingMin = 0;
+  static const double contentPaddingMax = 24;
+  static const double contentPadding = 0;
+
+  static const double cornerRadiusMin = 0;
+  static const double cornerRadiusMax = 20;
+  static const double cornerRadius = 14;
+
+  static const double borderWidthMin = 0;
+  static const double borderWidthMax = 3;
+  static const double hairline = 0.8;
+
+  static const double opacityMin = 0.05;
+  static const double opacityMax = 1;
+  static const double opacity = 0.55;
+}
+
 enum BarWorkspaceStyle { dots, numbers }
 
 const List<String> defaultControls = <String>[
@@ -102,10 +209,19 @@ int clampAutoHideDelay(Object? value) => value is num
 
 class BarSettings {
   const BarSettings({
-    this.layout = BarLayout.attached,
+    this.shape = BarShape.strip,
+    this.cap = BarCap.round,
     this.ground = BarGround.none,
-    this.groundOpacity = 0.55,
-    this.hairline = false,
+    this.groundOpacity = BarMetric.opacity,
+    this.groundTint = BarGroundTint.wallpaper,
+    this.borderWidth = 0,
+    this.borderColour = BarBorderColour.ink,
+    this.textScale = BarMetric.textScale,
+    this.partGap = BarMetric.partGap,
+    this.edgeMargin = BarMetric.edgeMargin,
+    this.endInset,
+    this.contentPadding = BarMetric.contentPadding,
+    this.cornerRadius = BarMetric.cornerRadius,
     this.islandEnabled = true,
     this.islandHoverPeek = true,
     this.islandHoverFade = false,
@@ -162,13 +278,44 @@ class BarSettings {
 
   static const BarSettings defaults = BarSettings();
 
-  final BarLayout layout;
+  final BarShape shape;
 
-  /// Plate opacity. NextKDE's slider spans 5%..85%; XMacTahoe's Golden Gate
-  /// preset sits at 55.
+  /// How a plate ends; a strip has no ends to shape.
+  final BarCap cap;
+
+  /// The setting shapes replaced, for builds that know only it.
+  BarLayout get layout =>
+      shape == BarShape.strip ? BarLayout.attached : BarLayout.floating;
+
+  /// Plate opacity. XMacTahoe's Golden Gate preset sits at 55; a bar may now
+  /// be fully opaque.
   final BarGround ground;
   final double groundOpacity;
-  final bool hairline;
+  final BarGroundTint groundTint;
+
+  /// The line around a plate, 0 for none.
+  final double borderWidth;
+  final BarBorderColour borderColour;
+  bool get hairline => borderWidth > 0;
+
+  /// Scales the type in the bar.
+  final double textScale;
+
+  /// Room between two parts.
+  final double partGap;
+
+  /// Room between a floating bar and the screen edge it sits on.
+  final double edgeMargin;
+
+  /// Room between the bar's two ends and the screen's sides. Null keeps the
+  /// measures each shape had before this could be set.
+  final double? endInset;
+
+  /// Room between a plate's ends and its content.
+  final double contentPadding;
+
+  /// Corner radius of a floating plate with round caps.
+  final double cornerRadius;
 
   final bool islandEnabled;
   final bool islandHoverPeek;
@@ -351,10 +498,19 @@ class BarSettings {
   Duration get islandNoticeHold => Duration(seconds: islandNoticeSeconds);
 
   BarSettings copyWith({
-    BarLayout? layout,
+    BarShape? shape,
+    BarCap? cap,
     BarGround? ground,
     double? groundOpacity,
-    bool? hairline,
+    BarGroundTint? groundTint,
+    double? borderWidth,
+    BarBorderColour? borderColour,
+    double? textScale,
+    double? partGap,
+    double? edgeMargin,
+    Object? endInset = _keep,
+    double? contentPadding,
+    double? cornerRadius,
     bool? islandEnabled,
     bool? islandHoverPeek,
     bool? islandHoverFade,
@@ -408,10 +564,19 @@ class BarSettings {
     List<String>? statusOrder,
     Object? zones = _keep,
   }) => BarSettings(
-    layout: layout ?? this.layout,
+    shape: shape ?? this.shape,
+    cap: cap ?? this.cap,
     ground: ground ?? this.ground,
     groundOpacity: groundOpacity ?? this.groundOpacity,
-    hairline: hairline ?? this.hairline,
+    groundTint: groundTint ?? this.groundTint,
+    borderWidth: borderWidth ?? this.borderWidth,
+    borderColour: borderColour ?? this.borderColour,
+    textScale: textScale ?? this.textScale,
+    partGap: partGap ?? this.partGap,
+    edgeMargin: edgeMargin ?? this.edgeMargin,
+    endInset: identical(endInset, _keep) ? this.endInset : endInset as double?,
+    contentPadding: contentPadding ?? this.contentPadding,
+    cornerRadius: cornerRadius ?? this.cornerRadius,
     islandEnabled: islandEnabled ?? this.islandEnabled,
     islandHoverPeek: islandHoverPeek ?? this.islandHoverPeek,
     islandHoverFade: islandHoverFade ?? this.islandHoverFade,
@@ -472,10 +637,10 @@ class BarSettings {
   factory BarSettings.fromJson(Map<String, dynamic> json) {
     bool flag(String key, bool fallback) =>
         json[key] is bool ? json[key] as bool : fallback;
-    double ratio(String key, double fallback) {
+    double within(String key, double min, double max, double fallback) {
       final value = json[key];
-      if (value is! num) return fallback;
-      return value.toDouble().clamp(0.05, 0.85);
+      if (value is! num || value.isNaN) return fallback;
+      return value.toDouble().clamp(min, max);
     }
 
     List<String> ids(String key, List<String> fallback) {
@@ -502,10 +667,62 @@ class BarSettings {
               end: parts('end'),
             ).sanitized()
           : null,
-      layout: BarLayout.parse(json['layout']),
+      // A file from before shapes says attached or floating.
+      shape:
+          BarShape.parse(json['shape']) ??
+          (BarLayout.parse(json['layout']) == BarLayout.floating
+              ? BarShape.floating
+              : BarShape.strip),
+      cap: BarCap.parse(json['cap']),
       ground: BarGround.parse(json['ground']),
-      groundOpacity: ratio('groundOpacity', 0.55),
-      hairline: flag('hairline', false),
+      groundOpacity: within(
+        'groundOpacity',
+        BarMetric.opacityMin,
+        BarMetric.opacityMax,
+        BarMetric.opacity,
+      ),
+      groundTint: BarGroundTint.parse(json['groundTint']),
+      // A file from before widths says only whether there is a hairline.
+      borderWidth: within(
+        'borderWidth',
+        BarMetric.borderWidthMin,
+        BarMetric.borderWidthMax,
+        flag('hairline', false) ? BarMetric.hairline : 0,
+      ),
+      borderColour: BarBorderColour.parse(json['borderColour']),
+      textScale: within(
+        'textScale',
+        BarMetric.textScaleMin,
+        BarMetric.textScaleMax,
+        BarMetric.textScale,
+      ),
+      partGap: within(
+        'partGap',
+        BarMetric.partGapMin,
+        BarMetric.partGapMax,
+        BarMetric.partGap,
+      ),
+      edgeMargin: within(
+        'edgeMargin',
+        BarMetric.edgeMarginMin,
+        BarMetric.edgeMarginMax,
+        BarMetric.edgeMargin,
+      ),
+      endInset: json['endInset'] is num
+          ? within('endInset', BarMetric.endInsetMin, BarMetric.endInsetMax, 0)
+          : null,
+      contentPadding: within(
+        'contentPadding',
+        BarMetric.contentPaddingMin,
+        BarMetric.contentPaddingMax,
+        BarMetric.contentPadding,
+      ),
+      cornerRadius: within(
+        'cornerRadius',
+        BarMetric.cornerRadiusMin,
+        BarMetric.cornerRadiusMax,
+        BarMetric.cornerRadius,
+      ),
       islandEnabled: flag('islandEnabled', true),
       islandHoverPeek: flag('islandHoverPeek', true),
       islandHoverFade: flag('islandHoverFade', false),
@@ -571,10 +788,25 @@ class BarSettings {
   }
 
   void writeJson(Map<String, dynamic> json) {
+    json['shape'] = shape.key;
     json['layout'] = layout.key;
+    json['cap'] = cap.key;
     json['ground'] = ground.key;
     json['groundOpacity'] = groundOpacity;
+    json['groundTint'] = groundTint.key;
+    json['borderWidth'] = borderWidth;
     json['hairline'] = hairline;
+    json['borderColour'] = borderColour.key;
+    json['textScale'] = textScale;
+    json['partGap'] = partGap;
+    json['edgeMargin'] = edgeMargin;
+    if (endInset == null) {
+      json.remove('endInset');
+    } else {
+      json['endInset'] = endInset;
+    }
+    json['contentPadding'] = contentPadding;
+    json['cornerRadius'] = cornerRadius;
     json['islandEnabled'] = islandEnabled;
     json['islandHoverPeek'] = islandHoverPeek;
     json['islandHoverFade'] = islandHoverFade;

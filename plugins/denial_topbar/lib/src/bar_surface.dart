@@ -27,6 +27,7 @@ import 'bar_menu.dart';
 import 'bar_panel.dart';
 import 'bar_parts.dart';
 import 'bar_preferences.dart';
+import 'bar_segments.dart';
 import 'bar_settings.dart';
 import 'bar_status.dart';
 import 'bar_tokens.dart';
@@ -112,7 +113,10 @@ class _TopBarSurfaceState extends ConsumerState<TopBarSurface> {
   final ValueNotifier<double> _islandReserved = ValueNotifier<double>(58);
 
   bool _hidden = false;
-  bool _overBar = false;
+
+  /// The plates the pointer is over; a bar of islands has one per zone.
+  final Set<int> _overPlates = <int>{};
+  bool get _overBar => _overPlates.isNotEmpty;
   bool _overIsland = false;
   bool _overSensor = false;
   Timer? _hideTimer;
@@ -187,14 +191,12 @@ class _TopBarSurfaceState extends ConsumerState<TopBarSurface> {
     final settings =
         ref.read(barSettingsProvider).value ?? BarSettings.defaults;
     final thickness = widget.environment.settings.layout.systemBarThickness;
-    return math.max(
-      BarTokens.height,
-      thickness -
-          (settings.layout == BarLayout.attached
-              ? 0
-              : BarTokens.floatingMargin * 2),
-    );
+    return math.max(BarTokens.height, thickness - _marginOf(settings) * 2);
   }
+
+  /// Room between the bar and the screen edge it sits on; a strip has none.
+  static double _marginOf(BarSettings settings) =>
+      settings.shape == BarShape.strip ? 0 : settings.edgeMargin;
 
   ShellServices get _services => widget.services;
 
@@ -407,19 +409,18 @@ class _TopBarSurfaceState extends ConsumerState<TopBarSurface> {
     final settings =
         ref.watch(barSettingsProvider).value ?? BarSettings.defaults;
     final thickness = widget.environment.settings.layout.systemBarThickness;
-    final attached = settings.layout == BarLayout.attached;
-    final bodyHeight = math.max(
-      BarTokens.height,
-      thickness - (attached ? 0 : BarTokens.floatingMargin * 2),
-    );
+    final theme = context.shellTheme;
+    final attached = settings.shape == BarShape.strip;
+    final margin = _marginOf(settings);
+    final bodyHeight = math.max(BarTokens.height, thickness - margin * 2);
     final wallpaper = ref.watch(wallpaperAccentProvider).color;
-    final ink = BarGroundLayer.inkFor(wallpaper, settings);
+    final ink = BarGroundLayer.inkFor(wallpaper, settings, theme);
     final now = ref.watch(_services.clock).value ?? DateTime.now();
     final strings = _services.strings(context);
     final zones = settings.zones;
     final islandAvailable = _side == PanelEdge.top && settings.showsIsland;
     final workspaceInIsland = settings.workspacesInIsland;
-    const gap = BarTokens.statusSpacing;
+    final gap = settings.partGap;
 
     final workspaceStatus = ref.watch(_services.workspace(widget.monitorId));
     final workspaceEnabled = ref.watch(_services.workspacesEnabled);
@@ -622,14 +623,14 @@ class _TopBarSurfaceState extends ConsumerState<TopBarSurface> {
       for (var index = 0; index < ids.length; index++) {
         final id = ids[index];
         if (index > 0 && BarPart.gapBetween(ids[index - 1], id)) {
-          widgets.add(const SizedBox.square(dimension: gap));
+          widgets.add(SizedBox.square(dimension: gap));
         }
         widgets.add(switch (id) {
           BarPart.spacer =>
             flexible
                 ? const Spacer()
-                : const SizedBox.square(dimension: gap * 2),
-          BarPart.gap => const SizedBox.square(dimension: gap),
+                : SizedBox.square(dimension: math.max(gap, 6) * 2),
+          BarPart.gap => SizedBox.square(dimension: gap),
           BarPart.separator => _BarSeparator(
             ink: ink,
             horizontal: _horizontal,
@@ -648,82 +649,220 @@ class _TopBarSurfaceState extends ConsumerState<TopBarSurface> {
             for (final id in zones.center)
               if (id != BarPart.island) id,
           ];
-    final centre = row(centreIds, ink, flexible: false);
 
-    final content = _BarRow(
-      horizontal: _horizontal,
-      leading: row(zones.start, ink, flexible: true),
-      centre: centre.isEmpty
-          ? null
-          : centre.length == 1
-          ? centre.single
-          : Flex(
-              direction: _horizontal ? Axis.horizontal : Axis.vertical,
-              mainAxisSize: MainAxisSize.min,
-              children: centre,
-            ),
-      trailing: row(zones.end, ink, flexible: true),
-      bodyHeight: bodyHeight,
-    );
-
-    final radius = attached
+    final axis = _horizontal ? Axis.horizontal : Axis.vertical;
+    // Points are cut along a horizontal bar; a side bar keeps its corners.
+    final arrow = settings.cap == BarCap.arrow && _horizontal && !attached;
+    final radius = attached || settings.cap == BarCap.square
         ? BorderRadius.zero
-        : BorderRadius.circular(BarTokens.floatingRadius);
-    // shell27: `leftRow.x: 8`, `rightRow.rightMargin: 6`.
-    final padding = !_horizontal
-        ? const EdgeInsets.symmetric(vertical: BarTokens.insetLeft)
-        : attached
-        ? const EdgeInsets.only(
-            left: BarTokens.insetLeft,
-            right: BarTokens.insetRight,
-          )
-        : const EdgeInsets.symmetric(horizontal: BarTokens.insetFloating);
+        : BorderRadius.circular(settings.cornerRadius);
+    final pad = settings.contentPadding;
+    EdgeInsets along(double before, double after) => _horizontal
+        ? EdgeInsets.only(left: before, right: after)
+        : EdgeInsets.only(top: before, bottom: after);
 
-    Widget bar = Padding(
-      padding: padding,
-      child: BarGroundLayer(
-        settings: settings,
-        borderRadius: radius,
-        backdrop: wallpaper,
-        child: BarHost(builders: builders, child: content),
-      ),
-    );
-
-    bar = ShellInputRegion(
-      debugLabel: 'denial_topbar.bar',
-      child: MouseRegion(
-        onEnter: (_) {
-          _overBar = true;
-          _hover();
-        },
-        onExit: (_) {
-          _overBar = false;
-          _hover();
-        },
-        child: Listener(
-          onPointerDown: (event) {
-            if (event.kind != PointerDeviceKind.mouse) {
-              _armHide(const Duration(seconds: 4));
-            }
-          },
-          child: GestureDetector(
-            behavior: HitTestBehavior.translucent,
-            onSecondaryTapUp: (details) => showBarMenu(
-              ref: ref,
-              panelId: 'context',
-              at: details.globalPosition,
-              entries: (context) => <BarMenuEntry>[
-                BarMenuItem(
-                  label: context.tr('Menu Bar Settings…'),
-                  onSelected: _openBarSettings,
+    /// Reports the pointer and takes the bar's own menu over one plate.
+    Widget interactive(int plate, String label, Widget child) =>
+        ShellInputRegion(
+          debugLabel: label,
+          child: MouseRegion(
+            onEnter: (_) {
+              _overPlates.add(plate);
+              _hover();
+            },
+            onExit: (_) {
+              _overPlates.remove(plate);
+              _hover();
+            },
+            child: Listener(
+              onPointerDown: (event) {
+                if (event.kind != PointerDeviceKind.mouse) {
+                  _armHide(const Duration(seconds: 4));
+                }
+              },
+              child: GestureDetector(
+                behavior: HitTestBehavior.translucent,
+                onSecondaryTapUp: (details) => showBarMenu(
+                  ref: ref,
+                  panelId: 'context',
+                  at: details.globalPosition,
+                  entries: (context) => <BarMenuEntry>[
+                    BarMenuItem(
+                      label: context.tr('Menu Bar Settings…'),
+                      onSelected: _openBarSettings,
+                    ),
+                  ],
                 ),
-              ],
+                child: child,
+              ),
             ),
-            child: bar,
+          ),
+        );
+
+    final separate = settings.shape == BarShape.islands;
+    // A plate that went away under the pointer never reported it leaving.
+    _overPlates.removeWhere(
+      (plate) => separate
+          ? (plate == 1 ? centreIds : zones.zone(plate)).isEmpty
+          : plate != 0,
+    );
+    final Widget content;
+    if (separate) {
+      final base = BarGroundLayer.baseFor(wallpaper, settings, theme);
+      final alternate = BarGroundLayer.alternateFor(base, theme);
+      final plain = settings.ground == BarGround.none;
+
+      /// One zone on a plate of its own, or on a run of pointed segments
+      /// that its separators cut it into.
+      Widget? zonePlate(int zone, List<String> ids) {
+        if (ids.isEmpty) return null;
+        final Widget plate;
+        if (arrow) {
+          final runs = BarZones.segments(ids);
+          if (runs.isEmpty) return null;
+          final edges = barZoneEdges(zone, runs.length);
+          final depth = barArrowDepth(bodyHeight);
+          plate = Row(
+            mainAxisSize: MainAxisSize.min,
+            // Every segment is as tall as the bar, so the points meet.
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: <Widget>[
+              for (var index = 0; index < runs.length; index++)
+                BarGroundLayer(
+                  settings: settings,
+                  borderRadius: BorderRadius.zero,
+                  backdrop: wallpaper,
+                  edges: edges[index],
+                  fill: index.isOdd ? alternate : null,
+                  child: Padding(
+                    padding: EdgeInsets.only(
+                      left: pad + barEdgeInset(edges[index].left, depth),
+                      right: pad + barEdgeInset(edges[index].right, depth),
+                    ),
+                    child: Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: row(
+                        runs[index],
+                        index.isOdd && !plain
+                            ? BarGroundLayer.inkOn(alternate)
+                            : ink,
+                        flexible: false,
+                      ),
+                    ),
+                  ),
+                ),
+            ],
+          );
+        } else {
+          plate = BarGroundLayer(
+            settings: settings,
+            borderRadius: radius,
+            backdrop: wallpaper,
+            child: Padding(
+              padding: along(pad, pad),
+              child: Flex(
+                direction: axis,
+                mainAxisSize: MainAxisSize.min,
+                children: row(ids, ink, flexible: false),
+              ),
+            ),
+          );
+        }
+        return interactive(
+          zone,
+          'denial_topbar.bar.$zone',
+          SizedBox(
+            width: _horizontal ? null : bodyHeight,
+            height: _horizontal ? bodyHeight : null,
+            child: plate,
+          ),
+        );
+      }
+
+      content = _BarRow(
+        horizontal: _horizontal,
+        leading: <Widget>[?zonePlate(0, zones.start)],
+        // The island is its own plate.
+        centre: islandAvailable
+            ? row(centreIds, ink, flexible: false).single
+            : zonePlate(1, centreIds),
+        trailing: <Widget>[?zonePlate(2, zones.end)],
+        bodyHeight: bodyHeight,
+      );
+    } else {
+      final centre = row(centreIds, ink, flexible: false);
+      content = _BarRow(
+        horizontal: _horizontal,
+        leading: row(zones.start, ink, flexible: true),
+        centre: centre.isEmpty
+            ? null
+            : centre.length == 1
+            ? centre.single
+            : Flex(
+                direction: axis,
+                mainAxisSize: MainAxisSize.min,
+                children: centre,
+              ),
+        trailing: row(zones.end, ink, flexible: true),
+        bodyHeight: bodyHeight,
+      );
+    }
+
+    // shell27: `leftRow.x: 8`, `rightRow.rightMargin: 6`.
+    final inset = settings.endInset;
+    final padding = !_horizontal
+        ? EdgeInsets.symmetric(vertical: inset ?? BarTokens.insetLeft)
+        : attached
+        ? EdgeInsets.only(
+            left: inset ?? BarTokens.insetLeft,
+            right: inset ?? BarTokens.insetRight,
+          )
+        : EdgeInsets.symmetric(
+            horizontal: inset ?? BarTokens.insetFloating,
+          );
+
+    Widget hosted = BarHost(builders: builders, child: content);
+    if (settings.textScale != 1) {
+      hosted = MediaQuery(
+        data: MediaQuery.of(
+          context,
+        ).copyWith(textScaler: TextScaler.linear(settings.textScale)),
+        child: hosted,
+      );
+    }
+
+    Widget bar;
+    if (separate) {
+      bar = Padding(padding: padding, child: hosted);
+    } else {
+      // One plate under the whole bar; pointed ends keep the content clear
+      // of the cut.
+      final ends = arrow
+          ? const (left: BarEdge.point, right: BarEdge.point)
+          : null;
+      final clear = arrow
+          ? barEdgeInset(BarEdge.point, barArrowDepth(bodyHeight))
+          : 0.0;
+      bar = interactive(
+        0,
+        'denial_topbar.bar',
+        Padding(
+          padding: padding,
+          child: BarGroundLayer(
+            settings: settings,
+            borderRadius: radius,
+            backdrop: wallpaper,
+            edges: ends,
+            child: pad + clear == 0
+                ? hosted
+                : Padding(
+                    padding: along(pad + clear, pad + clear),
+                    child: hosted,
+                  ),
           ),
         ),
-      ),
-    );
+      );
+    }
 
     // shell27's `barFeather`: with no veil the type can land on a busy
     // wallpaper, so a short gradient sits under the strip.
@@ -742,9 +881,7 @@ class _TopBarSurfaceState extends ConsumerState<TopBarSurface> {
     final strip = Align(
       alignment: stripAlignment,
       child: Padding(
-        padding: attached
-            ? EdgeInsets.zero
-            : const EdgeInsets.all(BarTokens.floatingMargin),
+        padding: EdgeInsets.all(margin),
         child: KeyedSubtree(
           child: SizedBox(
             width: _horizontal ? double.infinity : bodyHeight,
@@ -770,9 +907,7 @@ class _TopBarSurfaceState extends ConsumerState<TopBarSurface> {
           Positioned(
             left: 0,
             right: 0,
-            top:
-                (attached ? 0 : BarTokens.floatingMargin) +
-                (bodyHeight - islandHeight) / 2,
+            top: margin + (bodyHeight - islandHeight) / 2,
             child: Align(
               alignment: Alignment.topCenter,
               child: MouseRegion(
