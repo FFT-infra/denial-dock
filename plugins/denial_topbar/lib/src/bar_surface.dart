@@ -347,7 +347,7 @@ class _TopBarSurfaceState extends ConsumerState<TopBarSurface>
                     services: _services,
                     monitorId: widget.monitorId,
                     ink: const Color(0xffffffff),
-                    settings: settings.copyWith(workspacePreview: false),
+                    settings: settings,
                     barHeight: bodyHeight,
                   )
                 : null,
