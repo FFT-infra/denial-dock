@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:math' as math;
 
 import 'package:denial_shell_kit/kit_motion.dart';
+import 'package:denial_shell_kit/kit_panel_place.dart';
 import 'package:denial_shell_kit/kit_style.dart';
 import 'package:denial_flutter_sdk/theme.dart';
 import 'package:flutter/material.dart';
@@ -383,19 +384,27 @@ class _MenuLayout extends MultiChildLayoutDelegate {
       maxHeight: size.height - margin * 2,
     );
     final root = layoutChild(0, loose);
-    double x, y;
-    if (vertical) {
-      x = fromRight ? anchor.left - 6 - root.width : anchor.right + 6;
-      y = anchor.top - _M.inset;
-    } else {
-      x = fromRight ? anchor.right - root.width + 4 : anchor.left - 4;
-      y = anchor.bottom + 4;
-      if (y + root.height > size.height - margin) {
-        y = anchor.top - 4 - root.height;
-      }
-    }
-    x = x.clamp(margin, math.max(margin, size.width - root.width - margin));
-    y = y.clamp(margin, math.max(margin, size.height - root.height - margin));
+    // The menu's place comes from the kit, so a menu and the bar's popovers
+    // agree on margins and on how they follow their item; the item's rect is
+    // all this delegate knows and all the rule needs.
+    final place = kitMenuPlace(
+      sceneWidth: size.width,
+      sceneHeight: size.height,
+      anchorLeft: anchor.left,
+      anchorTop: anchor.top,
+      anchorRight: anchor.right,
+      anchorBottom: anchor.bottom,
+      width: root.width,
+      height: root.height,
+      vertical: vertical,
+      fromRight: fromRight,
+      margin: margin,
+      gap: 4,
+      sideGap: 6,
+      sideLift: _M.inset,
+    );
+    final x = place.left;
+    final y = place.top;
     positionChild(0, Offset(x, y));
 
     if (!hasSub || !hasChild(1)) return;
@@ -546,9 +555,8 @@ class _Row extends StatelessWidget {
   Widget build(BuildContext context) {
     final theme = context.shellTheme;
     final lit = active && item.selectable;
-    final row = KitStyle.of(
-      context,
-    ).menuRow(theme, hot: lit, enabled: item.enabled);
+    final row = KitStyle.of(context)
+        .menuRow(theme, hot: lit, enabled: item.enabled);
     final ink = row.ink;
     final dim = row.dim;
 

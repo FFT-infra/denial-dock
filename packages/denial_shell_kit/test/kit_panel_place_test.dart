@@ -172,4 +172,98 @@ void main() {
     alignOffset: 8,
   );
   _expect(_near(p.left, math.max(6, 300 - 320 - 8)), 'wider than the scene');
+
+  // A menu hangs from its item, not from the host's edge.
+  var m = kitMenuPlace(
+    sceneWidth: w,
+    sceneHeight: h,
+    anchorLeft: 40,
+    anchorTop: 9,
+    anchorRight: 60,
+    anchorBottom: 19,
+    width: 220,
+    height: 180,
+    vertical: false,
+    fromRight: false,
+  );
+  _expect(_near(m.left, 36) && _near(m.top, 23), 'a menu drops from its item');
+
+  // An item near the trailing side has its menu pulled inside the margin.
+  m = kitMenuPlace(
+    sceneWidth: w,
+    sceneHeight: h,
+    anchorLeft: w - 30,
+    anchorTop: 9,
+    anchorRight: w - 10,
+    anchorBottom: 19,
+    width: 220,
+    height: 180,
+    vertical: false,
+    fromRight: true,
+  );
+  _expect(_near(m.left, w - 220 - 6), 'a trailing menu is kept in the scene');
+
+  // A menu with no room below opens upwards, ending at the item's top.
+  m = kitMenuPlace(
+    sceneWidth: w,
+    sceneHeight: h,
+    anchorLeft: 40,
+    anchorTop: h - 30,
+    anchorRight: 60,
+    anchorBottom: h - 10,
+    width: 220,
+    height: 180,
+    vertical: false,
+    fromRight: false,
+  );
+  _expect(_near(m.top, h - 30 - 4 - 180), 'no room below: the menu opens up');
+
+  // A menu also opens upwards when the anchor itself is near the bottom, and
+  // is never pushed past the top margin.
+  m = kitMenuPlace(
+    sceneWidth: w,
+    sceneHeight: h,
+    anchorLeft: 40,
+    anchorTop: h - 30,
+    anchorRight: 60,
+    anchorBottom: h - 10,
+    width: 220,
+    height: 2000,
+    vertical: false,
+    fromRight: false,
+  );
+  _expect(_near(m.top, 6), 'a menu taller than the scene keeps the margin');
+
+  // A menu on a left vertical bar sits beside the item.
+  m = kitMenuPlace(
+    sceneWidth: w,
+    sceneHeight: h,
+    anchorLeft: 2,
+    anchorTop: 120,
+    anchorRight: 31,
+    anchorBottom: 151,
+    width: 220,
+    height: 180,
+    vertical: true,
+    fromRight: false,
+  );
+  _expect(_near(m.left, 37) && _near(m.top, 115), 'beside a left bar item');
+
+  // And on a right vertical bar it sits on the other side.
+  m = kitMenuPlace(
+    sceneWidth: w,
+    sceneHeight: h,
+    anchorLeft: w - 31,
+    anchorTop: 120,
+    anchorRight: w - 2,
+    anchorBottom: 151,
+    width: 220,
+    height: 180,
+    vertical: true,
+    fromRight: true,
+  );
+  _expect(
+    _near(m.left, w - 31 - 6 - 220) && _near(m.top, 115),
+    'beside a right bar item',
+  );
 }
