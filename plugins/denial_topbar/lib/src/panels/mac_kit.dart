@@ -4,6 +4,7 @@ import 'dart:math' as math;
 import 'package:denial_flutter_sdk/theme.dart';
 import 'package:denial_shell_kit/kit_control_math.dart';
 import 'package:denial_shell_kit/kit_motion.dart';
+import 'package:denial_shell_kit/kit_pressable.dart';
 import 'package:denial_shell_kit/kit_springs.dart';
 import 'package:denial_shell_kit/kit_style.dart';
 import 'package:flutter/gestures.dart';
@@ -13,220 +14,14 @@ import 'package:flutter/widgets.dart';
 import '../bar_icons.dart';
 import '../bar_type.dart';
 
+export 'package:denial_shell_kit/kit_pressable.dart';
+
 const Color macBlue = Color(0xff0a84ff);
 const Color macPurple = Color(0xff5e5ce6);
 const Color macOrange = Color(0xffff9f0a);
 const Color macYellow = Color(0xffffd60a);
 const Color macGreen = Color(0xff30d158);
 const Color macRed = Color(0xffff453a);
-
-/// Whether the last pointer seen was a finger. A hover hint has to be drawn
-/// all the time for a finger, which never hovers.
-final ValueNotifier<bool> touchInput = ValueNotifier<bool>(false);
-
-/// Whether the last input was a key rather than a pointer: the only time a
-/// focus ring shows, and the only time focus follows into a detail page.
-/// The framework's own highlight mode cannot say, since a mouse counts as
-/// "traditional" there just as a keyboard does.
-final ValueNotifier<bool> keyboardInput = ValueNotifier<bool>(false);
-
-bool _inputWatched = false;
-
-void _watchInput() {
-  if (_inputWatched) return;
-  _inputWatched = true;
-  GestureBinding.instance.pointerRouter.addGlobalRoute((event) {
-    if (event is PointerDownEvent) keyboardInput.value = false;
-    if (event is! PointerDownEvent && event is! PointerHoverEvent) return;
-    touchInput.value =
-        event.kind == PointerDeviceKind.touch ||
-        event.kind == PointerDeviceKind.stylus;
-  });
-  HardwareKeyboard.instance.addHandler((event) {
-    if (event is KeyDownEvent) keyboardInput.value = true;
-    return false;
-  });
-}
-
-const Map<ShortcutActivator, Intent> _activateKeys =
-    <ShortcutActivator, Intent>{
-      SingleActivator(LogicalKeyboardKey.enter): ActivateIntent(),
-      SingleActivator(LogicalKeyboardKey.numpadEnter): ActivateIntent(),
-      SingleActivator(LogicalKeyboardKey.space): ActivateIntent(),
-    };
-
-/// Answers a press: its child shrinks a little on the look's spring, and
-/// with [wash] dims or lifts a shade as well. It is a keyboard stop too:
-/// Enter or Space taps it, and it draws a ring while keys hold the focus.
-class Pressable extends StatefulWidget {
-  const Pressable({
-    required this.child,
-    this.onTap,
-    this.onLongPress,
-    this.scale = 0.96,
-    this.builder,
-    this.wash = false,
-    this.shape,
-    this.onHighlight,
-    super.key,
-  });
-
-  /// The two sizes of press a panel uses: a whole tile or a row of one
-  /// gives a little, a small round control gives more.
-  static const double large = 0.97;
-  static const double small = 0.88;
-
-  final Widget child;
-  final VoidCallback? onTap;
-  final VoidCallback? onLongPress;
-  final double scale;
-
-  /// Rebuilds the child with the hover and pressed state when given.
-  final Widget Function(BuildContext context, bool hovered, bool pressed)?
-  builder;
-
-  /// Lays a shade of the ink over the child while hovered and pressed.
-  final bool wash;
-
-  /// The outline the wash and the focus ring follow; a row's corners in the
-  /// look in force unless given.
-  final BorderRadius? shape;
-
-  /// Reports the hover and pressed state to a parent that draws them.
-  final void Function(bool hovered, bool pressed)? onHighlight;
-
-  @override
-  State<Pressable> createState() => _PressableState();
-}
-
-class _PressableState extends State<Pressable> {
-  bool _hovered = false;
-  bool _pressed = false;
-  bool _focused = false;
-  Timer? _release;
-  final Stopwatch _down = Stopwatch();
-
-  bool get _ring => _focused && keyboardInput.value;
-
-  void _inputChanged() {
-    if (_focused) setState(() {});
-  }
-
-  @override
-  void initState() {
-    super.initState();
-    _watchInput();
-    keyboardInput.addListener(_inputChanged);
-  }
-
-  @override
-  void dispose() {
-    keyboardInput.removeListener(_inputChanged);
-    _release?.cancel();
-    super.dispose();
-  }
-
-  void _set({bool? hovered, bool? pressed}) {
-    final h = hovered ?? _hovered;
-    final p = pressed ?? _pressed;
-    if (h == _hovered && p == _pressed) return;
-    setState(() {
-      _hovered = h;
-      _pressed = p;
-    });
-    widget.onHighlight?.call(h, p);
-  }
-
-  void _press() {
-    _release?.cancel();
-    _down
-      ..reset()
-      ..start();
-    _set(pressed: true);
-  }
-
-  /// A quick tap is over before the spring has moved, so the pressed state
-  /// is held for the length of a press's answer.
-  void _lift() {
-    final hold = KitMotion.duration(context, KitMotion.tap) - _down.elapsed;
-    _release?.cancel();
-    if (hold <= Duration.zero) {
-      _set(pressed: false);
-    } else {
-      _release = Timer(hold, () {
-        if (mounted) _set(pressed: false);
-      });
-    }
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    final enabled = widget.onTap != null || widget.onLongPress != null;
-    final theme = context.shellTheme;
-    final shade = !widget.wash || !enabled
-        ? 0.0
-        : _pressed
-        ? 0.12
-        : _hovered
-        ? 0.05
-        : 0.0;
-    // Always in the tree, so a ring coming or going never rebuilds the child
-    // under a new parent.
-    final body = AnimatedContainer(
-      duration: KitMotion.duration(
-        context,
-        _pressed ? KitMotion.wash : KitMotion.enter,
-      ),
-      foregroundDecoration: BoxDecoration(
-        color: theme.colors.textPrimary.withValues(alpha: shade),
-        borderRadius:
-            widget.shape ??
-            BorderRadius.circular(KitStyle.of(context).corner(9)),
-        border: Border.all(
-          color: theme.kitAccent.withValues(alpha: _ring ? 1 : 0),
-          width: 2,
-          strokeAlign: BorderSide.strokeAlignOutside,
-        ),
-      ),
-      child: widget.builder?.call(context, _hovered, _pressed) ?? widget.child,
-    );
-    return FocusableActionDetector(
-      enabled: enabled,
-      mouseCursor: enabled ? SystemMouseCursors.click : MouseCursor.defer,
-      shortcuts: _activateKeys,
-      actions: <Type, Action<Intent>>{
-        ActivateIntent: CallbackAction<ActivateIntent>(
-          onInvoke: (_) {
-            widget.onTap?.call();
-            return null;
-          },
-        ),
-      },
-      onShowHoverHighlight: (value) => _set(hovered: value),
-      onFocusChange: (value) {
-        if (value != _focused) setState(() => _focused = value);
-      },
-      child: GestureDetector(
-        behavior: HitTestBehavior.opaque,
-        onTapDown: enabled ? (_) => _press() : null,
-        onTapUp: (_) => _lift(),
-        onTapCancel: () {
-          _release?.cancel();
-          _set(pressed: false);
-        },
-        onTap: widget.onTap,
-        onLongPress: widget.onLongPress,
-        child: Sprung(
-          target: _pressed ? widget.scale : 1,
-          tuning: KitStyle.of(context).pressTuning,
-          builder: (context, value, child) =>
-              Transform.scale(scale: value, child: child),
-          child: body,
-        ),
-      ),
-    );
-  }
-}
 
 /// A glyph whose colour eases to a new one instead of switching.
 class MacGlyph extends StatelessWidget {
@@ -305,7 +100,7 @@ class _MacSwitchState extends State<MacSwitch>
   @override
   void initState() {
     super.initState();
-    _watchInput();
+    watchKitInput();
     keyboardInput.addListener(_inputChanged);
   }
 
@@ -377,7 +172,7 @@ class _MacSwitchState extends State<MacSwitch>
       child: FocusableActionDetector(
         enabled: enabled,
         mouseCursor: enabled ? SystemMouseCursors.click : MouseCursor.defer,
-        shortcuts: _activateKeys,
+        shortcuts: kitActivateKeys,
         actions: <Type, Action<Intent>>{
           ActivateIntent: CallbackAction<ActivateIntent>(
             onInvoke: (_) {
@@ -609,6 +404,8 @@ class MacHeader extends StatelessWidget {
             if (onBack != null)
               Pressable(
                 onTap: onBack,
+                scale: Pressable.small,
+                wash: true,
                 child: Padding(
                   padding: const EdgeInsets.only(right: 8),
                   child: BarGlyph(
@@ -802,7 +599,7 @@ class _MacSliderState extends State<MacSlider>
   @override
   void initState() {
     super.initState();
-    _watchInput();
+    watchKitInput();
     keyboardInput.addListener(_inputChanged);
   }
 

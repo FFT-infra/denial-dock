@@ -100,6 +100,12 @@ abstract final class KitMotion {
   /// A live dot breathing.
   static const Duration pulse = Duration(milliseconds: 900);
 
+  /// One turn of a busy ring.
+  static const Duration spin = Duration(milliseconds: 900);
+
+  /// One pass of an indeterminate bar's sweep.
+  static const Duration sweep = Duration(milliseconds: 1200);
+
   /// One cycle of the equaliser.
   static const Duration wave = Duration(milliseconds: 2400);
 
@@ -137,10 +143,30 @@ abstract final class KitMotion {
   /// The pace of a transition that plays once: the user's speed times the
   /// look's own, so a brisk look shortens every such transition. Loops and
   /// springs keep to [pace].
-  static KitMotionPace timed(BuildContext context) => KitMotionPace(
-    speed: kitSpeed.value * kitStyle.value.pace,
+  static KitMotionPace timed(BuildContext context) => KitMotionPace.timed(
+    speed: kitSpeed.value,
+    look: kitStyle.value.pace,
     reduced: reduced(context),
   );
+
+  /// [timed] where a context is not available: a controller created in
+  /// initState. [now] is the one for loops and springs.
+  static KitMotionPace get timedNow => KitMotionPace.timed(
+    speed: kitSpeed.value,
+    look: kitStyle.value.pace,
+    reduced: now.reduced,
+  );
+
+  /// The curve of something settling into place: a hair past and home where
+  /// the look is liquid, straight in everywhere else.
+  static Curve settleCurve(BuildContext context) =>
+      KitStyle.of(context).liquid ? spring : outCubic;
+
+  /// The curve of something growing: a little past its size where the look
+  /// is liquid, straight to it everywhere else. Only for the way in or the
+  /// release; a press and a way out take [outCubic] or [inCubic].
+  static Curve growCurve(BuildContext context) =>
+      KitStyle.of(context).liquid ? outBack : outCubic;
 
   /// [nominal] with the user's speed and the look's pace applied; zero under
   /// reduced motion.

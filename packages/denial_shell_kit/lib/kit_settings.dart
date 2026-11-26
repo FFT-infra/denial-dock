@@ -6,6 +6,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import 'kit_layer.dart';
 import 'kit_motion.dart';
+import 'kit_pressable.dart';
 import 'kit_settings_order.dart';
 import 'kit_style.dart';
 
@@ -266,7 +267,7 @@ class _KitSettingsWindowState extends State<_KitSettingsWindow> {
   }
 }
 
-class _SidebarItem extends StatefulWidget {
+class _SidebarItem extends StatelessWidget {
   const _SidebarItem({
     required this.label,
     required this.icon,
@@ -284,67 +285,50 @@ class _SidebarItem extends StatefulWidget {
   final VoidCallback onTap;
 
   @override
-  State<_SidebarItem> createState() => _SidebarItemState();
-}
-
-class _SidebarItemState extends State<_SidebarItem> {
-  bool _hovered = false;
-
-  @override
   Widget build(BuildContext context) {
     final theme = context.shellTheme;
-    final style = KitStyle.of(context);
+    final look = KitStyle.of(context);
+    final shape = BorderRadius.circular(look.corner(8));
     return Padding(
       padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 1),
-      child: MouseRegion(
-        cursor: SystemMouseCursors.click,
-        onEnter: (_) => setState(() => _hovered = true),
-        onExit: (_) => setState(() => _hovered = false),
-        child: GestureDetector(
-          behavior: HitTestBehavior.opaque,
-          onTap: widget.onTap,
-          child: AnimatedContainer(
-            duration: KitMotion.duration(context, KitMotion.fade),
-            height: 34,
-            padding: const EdgeInsets.symmetric(horizontal: 8),
-            decoration: BoxDecoration(
-              color: widget.selected
-                  ? style.accent(theme)
-                  : theme.colors.textPrimary.withValues(
-                      alpha: _hovered ? 0.07 : 0,
-                    ),
-              borderRadius: BorderRadius.circular(style.corner(8)),
-            ),
-            child: Row(
-              children: <Widget>[
-                Container(
-                  width: 22,
-                  height: 22,
-                  decoration: BoxDecoration(
-                    color: widget.colour,
-                    borderRadius: BorderRadius.circular(style.corner(6)),
-                    border: Border.all(
-                      color: const Color(0x33ffffff),
-                      width: 0.5,
-                    ),
-                  ),
-                  child: Icon(
-                    widget.icon,
-                    size: 13,
-                    color: const Color(0xffffffff),
+      child: Pressable(
+        onTap: onTap,
+        scale: Pressable.large,
+        wash: !selected,
+        shape: shape,
+        child: AnimatedContainer(
+          duration: KitMotion.duration(context, KitMotion.fade),
+          height: 34,
+          padding: const EdgeInsets.symmetric(horizontal: 8),
+          decoration: BoxDecoration(
+            color: look.accent(theme).withValues(alpha: selected ? 1 : 0),
+            borderRadius: shape,
+          ),
+          child: Row(
+            children: <Widget>[
+              Container(
+                width: 22,
+                height: 22,
+                decoration: BoxDecoration(
+                  color: colour,
+                  borderRadius: BorderRadius.circular(look.corner(6)),
+                  border: Border.all(
+                    color: const Color(0x33ffffff),
+                    width: 0.5,
                   ),
                 ),
-                const SizedBox(width: 9),
-                Expanded(
-                  child: Text(
-                    widget.label,
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                    style: widget.style,
-                  ),
+                child: Icon(icon, size: 13, color: const Color(0xffffffff)),
+              ),
+              const SizedBox(width: 9),
+              Expanded(
+                child: Text(
+                  label,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: style,
                 ),
-              ],
-            ),
+              ),
+            ],
           ),
         ),
       ),
@@ -360,20 +344,21 @@ class _CloseButton extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final colors = context.shellTheme.colors;
-    return MouseRegion(
-      cursor: SystemMouseCursors.click,
-      child: GestureDetector(
-        behavior: HitTestBehavior.opaque,
-        onTap: onTap,
-        child: Container(
-          width: 26,
-          height: 26,
-          decoration: BoxDecoration(
-            shape: BoxShape.circle,
-            color: colors.textPrimary.withValues(alpha: 0.10),
-          ),
-          child: CustomPaint(painter: _CrossPainter(colors.textSecondary)),
+    // A disc, or a block where the look is square.
+    final shape = KitStyle.of(context).disc(26);
+    return Pressable(
+      onTap: onTap,
+      scale: Pressable.small,
+      wash: true,
+      shape: shape,
+      child: Container(
+        width: 26,
+        height: 26,
+        decoration: BoxDecoration(
+          borderRadius: shape,
+          color: colors.textPrimary.withValues(alpha: 0.10),
         ),
+        child: CustomPaint(painter: _CrossPainter(colors.textSecondary)),
       ),
     );
   }

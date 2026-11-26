@@ -17,31 +17,33 @@ import 'dock_stack_view.dart' show stackFileColor, stackFileIcon;
 
 import 'package:denial_shell_kit/glass_card.dart';
 import 'package:denial_shell_kit/kit_motion.dart';
+import 'package:denial_shell_kit/kit_pressable.dart';
 import 'package:denial_shell_kit/kit_settings.dart';
+import 'package:denial_shell_kit/kit_springs.dart';
 import 'package:denial_shell_kit/kit_style.dart';
 
 const double _rowHeight = 48;
 const double _cardRadius = 12;
 const double _sheetRadius = 22;
-const Duration _quick = Duration(milliseconds: 140);
+const Duration _quick = KitMotion.ease;
 
 Duration _motion(BuildContext context, Duration duration) =>
     KitMotion.duration(context, duration);
 
-TextStyle _labelStyle(ShellThemeData theme) => theme.text.cardTitle.copyWith(
+TextStyle _labelStyle(ShellThemeData theme) => theme.text.cardTitle.inLook.copyWith(
   color: theme.colors.textPrimary,
   fontWeight: FontWeight.w500,
 );
 
 TextStyle _captionStyle(ShellThemeData theme, [Color? color]) =>
-    theme.text.systemBarCaption.copyWith(
+    theme.text.systemBarCaption.inLook.copyWith(
       color: color ?? theme.colors.textTertiary,
       height: 1.45,
       letterSpacing: 0.1,
     );
 
 TextStyle _sectionStyle(ShellThemeData theme) =>
-    theme.text.systemBarCaption.copyWith(
+    theme.text.systemBarCaption.inLook.copyWith(
       color: theme.colors.textTertiary,
       fontWeight: FontWeight.w700,
       letterSpacing: 0.8,
@@ -49,7 +51,7 @@ TextStyle _sectionStyle(ShellThemeData theme) =>
     );
 
 TextStyle _valueStyle(ShellThemeData theme, Color color) =>
-    theme.text.systemBarValue.copyWith(color: color, letterSpacing: 0);
+    theme.text.systemBarValue.inLook.copyWith(color: color, letterSpacing: 0);
 
 /// Denial gives plugins no settings page, so the sheet is a managed shell popup
 /// with the scene barrier, focus, Escape and outside-tap dismissal for free.
@@ -238,7 +240,7 @@ class _DockSettingsPanelState extends ConsumerState<DockSettingsPanel> {
           SizedBox(height: 1, child: ColoredBox(color: theme.colors.hairline)),
           Expanded(
             child: AnimatedSwitcher(
-              duration: _motion(context, const Duration(milliseconds: 240)),
+              duration: _motion(context, KitMotion.enterLarge),
               switchInCurve: Motion.standard,
               switchOutCurve: Motion.standard,
               layoutBuilder: (current, previous) => Stack(
@@ -272,8 +274,8 @@ class _DockSettingsPanelState extends ConsumerState<DockSettingsPanel> {
   Widget _header(BuildContext context, bool browsing) {
     final theme = context.shellTheme;
     final colors = theme.colors;
-    final swap = _motion(context, const Duration(milliseconds: 200));
-    final titleStyle = theme.text.base.copyWith(
+    final swap = _motion(context, KitMotion.enter);
+    final titleStyle = theme.text.base.inLook.copyWith(
       color: colors.textPrimary,
       fontWeight: FontWeight.w700,
       letterSpacing: -0.1,
@@ -312,7 +314,7 @@ class _DockSettingsPanelState extends ConsumerState<DockSettingsPanel> {
                             theme.kitAccent.withValues(alpha: 0.1),
                           ],
                         ),
-                        borderRadius: theme.borderRadius(8),
+                        borderRadius: BorderRadius.circular(kitStyle.value.radius(theme, 8)),
                         border: Border.all(
                           color: theme.kitAccent.withValues(alpha: 0.2),
                         ),
@@ -1451,7 +1453,7 @@ class _DockSettingsPanelState extends ConsumerState<DockSettingsPanel> {
         controller: _bodyScroll,
         thumbColor: theme.colors.textPrimary.withValues(alpha: 0.22),
         thickness: 5,
-        radius: const Radius.circular(3),
+        radius: Radius.circular(kitStyle.value.pill(5)),
         crossAxisMargin: 2,
         minThumbLength: 36,
         child: SingleChildScrollView(
@@ -1538,7 +1540,7 @@ class _DockSettingsPanelState extends ConsumerState<DockSettingsPanel> {
               controller: _browserScroll,
               thumbColor: colors.textPrimary.withValues(alpha: 0.22),
               thickness: 5,
-              radius: const Radius.circular(3),
+              radius: Radius.circular(kitStyle.value.pill(5)),
               crossAxisMargin: 2,
               minThumbLength: 36,
               child: ListView(
@@ -1592,7 +1594,7 @@ class _DockSettingsPanelState extends ConsumerState<DockSettingsPanel> {
                           DecoratedBox(
                             decoration: BoxDecoration(
                               color: colors.textPrimary.withValues(alpha: 0.05),
-                              shape: BoxShape.circle,
+                              borderRadius: kitStyle.value.disc(46),
                             ),
                             child: SizedBox(
                               width: 46,
@@ -1790,7 +1792,7 @@ class _ScrollEdgeFadeState extends State<_ScrollEdgeFade> {
 /// Below this the sheet has no room for a category list beside the page.
 const double _twoPaneWidth = 600;
 
-class _CategoryItem extends StatefulWidget {
+class _CategoryItem extends StatelessWidget {
   const _CategoryItem({
     required this.icon,
     required this.label,
@@ -1804,44 +1806,33 @@ class _CategoryItem extends StatefulWidget {
   final VoidCallback onTap;
 
   @override
-  State<_CategoryItem> createState() => _CategoryItemState();
-}
-
-class _CategoryItemState extends State<_CategoryItem> {
-  bool _hovered = false;
-
-  @override
   Widget build(BuildContext context) {
     final theme = context.shellTheme;
     final colors = theme.colors;
-    final selected = widget.selected;
+    final shape = BorderRadius.circular(KitStyle.of(context).radius(theme, 9));
     return Padding(
       padding: const EdgeInsets.only(bottom: 2),
-      child: MouseRegion(
-        cursor: SystemMouseCursors.click,
-        onEnter: (_) => setState(() => _hovered = true),
-        onExit: (_) => setState(() => _hovered = false),
-        child: Semantics(
-          button: true,
-          selected: selected,
-          label: widget.label,
-          child: GestureDetector(
-            behavior: HitTestBehavior.opaque,
-            onTap: widget.onTap,
+      child: Semantics(
+        button: true,
+        selected: selected,
+        label: label,
+        child: Pressable(
+            onTap: onTap,
+            scale: Pressable.large,
+            wash: !selected,
+            shape: shape,
             child: AnimatedContainer(
-              duration: _motion(context, const Duration(milliseconds: 140)),
+              duration: _motion(context, _quick),
               height: 36,
               padding: const EdgeInsets.symmetric(horizontal: 10),
               decoration: BoxDecoration(
-                borderRadius: theme.borderRadius(9),
-                color: selected
-                    ? theme.kitAccent.withValues(alpha: 0.18)
-                    : colors.textPrimary.withValues(alpha: _hovered ? 0.06 : 0),
+                borderRadius: shape,
+                color: theme.kitAccent.withValues(alpha: selected ? 0.18 : 0),
               ),
               child: Row(
                 children: [
                   Icon(
-                    widget.icon,
+                    icon,
                     size: 16,
                     color: selected ? theme.kitAccent : colors.textSecondary,
                   ),
@@ -1849,7 +1840,7 @@ class _CategoryItemState extends State<_CategoryItem> {
                   Expanded(
                     child: ExcludeSemantics(
                       child: Text(
-                        widget.label,
+                        label,
                         maxLines: 1,
                         overflow: TextOverflow.ellipsis,
                         style: _labelStyle(theme).copyWith(
@@ -1864,7 +1855,6 @@ class _CategoryItemState extends State<_CategoryItem> {
                 ],
               ),
             ),
-          ),
         ),
       ),
     );
@@ -1906,11 +1896,11 @@ class _SettingsSection extends StatelessWidget {
                 colors.textPrimary.withValues(alpha: 0.035),
               ],
             ),
-            borderRadius: theme.borderRadius(_cardRadius),
+            borderRadius: BorderRadius.circular(kitStyle.value.radius(theme, _cardRadius)),
             border: Border.all(color: colors.hairlineSoft),
           ),
           child: ClipRRect(
-            borderRadius: theme.borderRadius(_cardRadius),
+            borderRadius: BorderRadius.circular(kitStyle.value.radius(theme, _cardRadius)),
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.stretch,
               children: [
@@ -2000,7 +1990,14 @@ class _SlidingSegmentsState<T> extends State<_SlidingSegments<T>>
     with SingleTickerProviderStateMixin<_SlidingSegments<T>> {
   static const double _inset = 3;
 
-  late final AnimationController _slide;
+  /// The plate crossing to the chosen segment. Denial lets it run a little
+  /// past and come back; a look that is not liquid lands dead-beat. Being a
+  /// kit spring it also follows the shell's speed, and turns round from
+  /// where it is when the choice changes mid-flight.
+  static const KitSpringTuning _cross = KitSpringTuning(460, 0.79);
+
+  late final KitSpring _at = KitSpring(_target, _cross);
+  late final KitSprings _slide = KitSprings(this, <KitSpring>[_at]);
   int _pressedIndex = -1;
 
   double get _target => _positionFor(_selectedIndex);
@@ -2018,18 +2015,6 @@ class _SlidingSegmentsState<T> extends State<_SlidingSegments<T>>
   }
 
   @override
-  void initState() {
-    super.initState();
-    // initState may not read MediaQuery, so the pace comes from the platform
-    // value the kit falls back to.
-    _slide = AnimationController(
-      vsync: this,
-      duration: KitMotion.now.duration(const Duration(milliseconds: 360)),
-      value: _target,
-    );
-  }
-
-  @override
   void dispose() {
     _slide.dispose();
     super.dispose();
@@ -2038,27 +2023,19 @@ class _SlidingSegmentsState<T> extends State<_SlidingSegments<T>>
   @override
   void didUpdateWidget(covariant _SlidingSegments<T> oldWidget) {
     super.didUpdateWidget(oldWidget);
-    // A speed change inside the sheet reaches the running controls too.
-    final duration = KitMotion.now.duration(const Duration(milliseconds: 360));
-    if (_slide.duration != duration) _slide.duration = duration;
     if (oldWidget.options.length != widget.options.length) {
-      _slide.value = _target;
+      _at.target = _target;
+      _slide.kick(reduceMotion: true);
       return;
     }
     if (oldWidget.value != widget.value) _settle();
   }
 
   void _settle() {
-    if (MediaQuery.disableAnimationsOf(context)) {
-      _slide.value = _target;
-      return;
-    }
-    springTo(
-      _slide,
-      _target,
-      spring: Motion.bouncy,
-      telemetryLabel: 'dock.settings.segments',
-    );
+    _at
+      ..tune(KitStyle.of(context).spring(_cross))
+      ..target = _target;
+    _slide.kick(reduceMotion: KitMotion.reduced(context));
   }
 
   int _indexAt(double dx, double width) {
@@ -2091,7 +2068,12 @@ class _SlidingSegmentsState<T> extends State<_SlidingSegments<T>>
       child: LayoutBuilder(
         builder: (context, constraints) {
           final width = constraints.maxWidth;
-          return GestureDetector(
+          return KitKeyStop(
+            onStep: (by) => _select(_selectedIndex + by),
+            shape: BorderRadius.circular(
+              KitStyle.of(context).radius(theme, 11),
+            ),
+            child: GestureDetector(
             behavior: HitTestBehavior.opaque,
             dragStartBehavior: DragStartBehavior.down,
             onTapDown: (details) => setState(
@@ -2113,7 +2095,7 @@ class _SlidingSegmentsState<T> extends State<_SlidingSegments<T>>
               padding: const EdgeInsets.all(_inset),
               decoration: BoxDecoration(
                 color: colors.textPrimary.withValues(alpha: 0.05),
-                borderRadius: theme.borderRadius(11),
+                borderRadius: BorderRadius.circular(kitStyle.value.radius(theme, 11)),
                 border: Border.all(color: colors.hairlineSoft),
               ),
               child: Stack(
@@ -2128,7 +2110,7 @@ class _SlidingSegmentsState<T> extends State<_SlidingSegments<T>>
                         animation: _slide,
                         builder: (context, child) => Align(
                           alignment: Alignment(
-                            -1 + 2 * _slide.value.clamp(0.0, 1.0),
+                            -1 + 2 * _at.value.clamp(0.0, 1.0),
                             0,
                           ),
                           child: FractionallySizedBox(
@@ -2153,17 +2135,17 @@ class _SlidingSegmentsState<T> extends State<_SlidingSegments<T>>
                                 ),
                               ],
                             ),
-                            borderRadius: theme.borderRadius(8),
+                            borderRadius: BorderRadius.circular(kitStyle.value.radius(theme, 8)),
                             border: Border.all(
                               color: theme.kitAccent.withValues(alpha: 0.28),
                             ),
-                            boxShadow: [
+                            boxShadow: kitStyle.value.cast([
                               BoxShadow(
                                 color: colors.shadow,
                                 blurRadius: 6,
                                 offset: const Offset(0, 1.5),
                               ),
-                            ],
+                            ]),
                           ),
                         ),
                       ),
@@ -2189,6 +2171,7 @@ class _SlidingSegmentsState<T> extends State<_SlidingSegments<T>>
                   ),
                 ],
               ),
+            ),
             ),
           );
         },
@@ -2249,7 +2232,7 @@ class _SegmentState extends State<_Segment> {
             color: _hovered && !widget.selected
                 ? colors.textPrimary.withValues(alpha: 0.05)
                 : Colors.transparent,
-            borderRadius: theme.borderRadius(8),
+            borderRadius: BorderRadius.circular(kitStyle.value.radius(theme, 8)),
           ),
           child: AnimatedScale(
             scale: widget.pressed ? 0.96 : 1,
@@ -2284,7 +2267,7 @@ class _SegmentState extends State<_Segment> {
                     child: AnimatedDefaultTextStyle(
                       duration: quick,
                       curve: Motion.standard,
-                      style: theme.text.systemBarCaption.copyWith(
+                      style: theme.text.systemBarCaption.inLook.copyWith(
                         color: foreground,
                         height: 1.2,
                         letterSpacing: 0.1,
@@ -2345,7 +2328,7 @@ class _ToggleRow extends StatelessWidget {
       onTap: toggle,
       child: ExcludeSemantics(
         child: Opacity(
-          opacity: enabled ? 1 : 0.45,
+          opacity: enabled ? 1 : KitFeedback.disabledOpacity,
           child: _HoverSurface(
             height: _rowHeight,
             margin: margin,
@@ -2388,19 +2371,13 @@ class _DockSwitchState extends State<_DockSwitch>
   static const double _inset = 3;
   static const double _thumb = _height - _inset * 2;
 
-  late final AnimationController _slide;
+  late final KitSpring _at = KitSpring(
+    widget.value ? 1 : 0,
+    kitStyle.value.toggle,
+  );
+  late final KitSprings _slide = KitSprings(this, <KitSpring>[_at]);
   bool _hovered = false;
   bool _pressed = false;
-
-  @override
-  void initState() {
-    super.initState();
-    _slide = AnimationController(
-      vsync: this,
-      duration: KitMotion.now.duration(const Duration(milliseconds: 260)),
-      value: widget.value ? 1 : 0,
-    );
-  }
 
   @override
   void dispose() {
@@ -2411,20 +2388,12 @@ class _DockSwitchState extends State<_DockSwitch>
   @override
   void didUpdateWidget(covariant _DockSwitch oldWidget) {
     super.didUpdateWidget(oldWidget);
-    final duration = KitMotion.now.duration(const Duration(milliseconds: 260));
-    if (_slide.duration != duration) _slide.duration = duration;
     if (oldWidget.value == widget.value) return;
-    final target = widget.value ? 1.0 : 0.0;
-    if (MediaQuery.disableAnimationsOf(context)) {
-      _slide.value = target;
-    } else {
-      springTo(
-        _slide,
-        target,
-        spring: Motion.snappy,
-        telemetryLabel: 'dock.settings.switch',
-      );
-    }
+    // The look's own switch spring, the one the bar's switches cross on.
+    _at
+      ..tune(KitStyle.of(context).toggle)
+      ..target = widget.value ? 1.0 : 0.0;
+    _slide.kick(reduceMotion: KitMotion.reduced(context));
   }
 
   @override
@@ -2446,7 +2415,7 @@ class _DockSwitchState extends State<_DockSwitch>
         child: AnimatedBuilder(
           animation: _slide,
           builder: (context, _) {
-            final t = _slide.value.clamp(0.0, 1.0);
+            final t = _at.value.clamp(0.0, 1.0);
             final track = Color.lerp(
               colors.textPrimary.withValues(alpha: 0.16),
               theme.kitAccent,
@@ -2469,15 +2438,17 @@ class _DockSwitchState extends State<_DockSwitch>
                           ),
                           track,
                         ),
-                        borderRadius: BorderRadius.circular(_height / 2),
+                        borderRadius: BorderRadius.circular(
+                          kitStyle.value.pill(_height),
+                        ),
                         border: Border.all(color: border),
-                        boxShadow: [
+                        boxShadow: kitStyle.value.cast([
                           BoxShadow(
                             color: colors.shadow,
                             blurRadius: 2,
                             offset: const Offset(0, 1),
                           ),
-                        ],
+                        ]),
                       ),
                     ),
                   ),
@@ -2492,18 +2463,18 @@ class _DockSwitchState extends State<_DockSwitch>
                       curve: Motion.standard,
                       child: DecoratedBox(
                         decoration: BoxDecoration(
-                          shape: BoxShape.circle,
+                          borderRadius: kitStyle.value.disc(_thumb),
                           color: colors.sliderThumb,
                           border: Border.all(
                             color: colors.textPrimary.withValues(alpha: 0.08),
                           ),
-                          boxShadow: [
+                          boxShadow: kitStyle.value.cast([
                             BoxShadow(
                               color: colors.shadow,
                               blurRadius: 3,
                               offset: const Offset(0, 1),
                             ),
-                          ],
+                          ]),
                         ),
                       ),
                     ),
@@ -2554,7 +2525,7 @@ class _TintRow extends StatelessWidget {
     final selected = value?.toLowerCase();
     return AnimatedOpacity(
       duration: _motion(context, _quick),
-      opacity: enabled ? 1 : 0.5,
+      opacity: enabled ? 1 : KitFeedback.disabledOpacity,
       child: Padding(
         padding: const EdgeInsets.symmetric(horizontal: 12),
         child: SizedBox(
@@ -2629,7 +2600,7 @@ class _Swatch extends StatelessWidget {
           child: DecoratedBox(
             decoration: BoxDecoration(
               color: color,
-              shape: BoxShape.circle,
+              borderRadius: kitStyle.value.disc(22),
               border: Border.all(
                 color: selected
                     ? theme.colors.textPrimary
@@ -2690,7 +2661,7 @@ class _SliderRow extends StatelessWidget {
     );
     return AnimatedOpacity(
       duration: _motion(context, _quick),
-      opacity: enabled ? 1 : 0.5,
+      opacity: enabled ? 1 : KitFeedback.disabledOpacity,
       child: LayoutBuilder(
         builder: (context, constraints) {
           final slider = _DockSlider(
@@ -2883,7 +2854,10 @@ class _DockSliderState extends State<_DockSlider> {
           final width = constraints.maxWidth;
           final travel = math.max(0.0, width - _thumbSize);
           final center = _thumbSize / 2 + travel * t;
-          return MouseRegion(
+          return KitKeyStop(
+            enabled: active,
+            onStep: _step,
+            child: MouseRegion(
             cursor: active ? SystemMouseCursors.click : MouseCursor.defer,
             onEnter: (_) => setState(() => _hovered = true),
             onExit: (_) => setState(() {
@@ -2980,7 +2954,7 @@ class _DockSliderState extends State<_DockSlider> {
                               opacity: _hovered || _pressed ? 1 : 0,
                               child: DecoratedBox(
                                 decoration: BoxDecoration(
-                                  shape: BoxShape.circle,
+                                  borderRadius: kitStyle.value.disc(32),
                                   color: theme.kitAccent.withValues(
                                     alpha: _pressed ? 0.2 : 0.14,
                                   ),
@@ -3001,7 +2975,7 @@ class _DockSliderState extends State<_DockSlider> {
                               curve: Motion.standard,
                               child: DecoratedBox(
                                 decoration: BoxDecoration(
-                                  shape: BoxShape.circle,
+                                  borderRadius: kitStyle.value.disc(_thumbSize),
                                   color: active
                                       ? colors.sliderThumb
                                       : colors.surfaceContainerHigh,
@@ -3010,13 +2984,13 @@ class _DockSliderState extends State<_DockSlider> {
                                       alpha: 0.08,
                                     ),
                                   ),
-                                  boxShadow: [
+                                  boxShadow: kitStyle.value.cast([
                                     BoxShadow(
                                       color: colors.shadow,
                                       blurRadius: 4,
                                       offset: const Offset(0, 1),
                                     ),
-                                  ],
+                                  ]),
                                 ),
                               ),
                             ),
@@ -3027,6 +3001,7 @@ class _DockSliderState extends State<_DockSlider> {
                   );
                 },
               ),
+            ),
             ),
           );
         },
@@ -3103,7 +3078,7 @@ class _Glyph extends StatelessWidget {
     return DecoratedBox(
       decoration: BoxDecoration(
         color: colors.textPrimary.withValues(alpha: 0.06),
-        borderRadius: theme.borderRadius(7),
+        borderRadius: BorderRadius.circular(kitStyle.value.radius(theme, 7)),
       ),
       child: SizedBox(
         width: 26,
@@ -3162,7 +3137,7 @@ class _FolderRow extends StatelessWidget {
                     folder.label,
                     maxLines: 1,
                     overflow: TextOverflow.ellipsis,
-                    style: theme.text.cardTitle.copyWith(
+                    style: theme.text.cardTitle.inLook.copyWith(
                       color: colors.textPrimary,
                       fontWeight: FontWeight.w600,
                     ),
@@ -3229,7 +3204,7 @@ class _FileRow extends StatelessWidget {
                     file.label,
                     maxLines: 1,
                     overflow: TextOverflow.ellipsis,
-                    style: theme.text.cardTitle.copyWith(
+                    style: theme.text.cardTitle.inLook.copyWith(
                       color: colors.textPrimary,
                       fontWeight: FontWeight.w600,
                     ),
@@ -3287,50 +3262,41 @@ class _HoverSurface extends StatefulWidget {
 }
 
 class _HoverSurfaceState extends State<_HoverSurface> {
-  bool _hovered = false;
-  bool _pressed = false;
-
   @override
   Widget build(BuildContext context) {
     final colors = context.shellTheme.colors;
-    final enabled = widget.onTap != null;
-    final fill = _pressed
-        ? colors.textPrimary.withValues(alpha: 0.09)
-        : _hovered
-        ? colors.textPrimary.withValues(alpha: 0.055)
-        : Colors.transparent;
-    return MouseRegion(
-      cursor: enabled ? SystemMouseCursors.click : MouseCursor.defer,
-      onEnter: (_) => setState(() => _hovered = true),
-      onExit: (_) => setState(() {
-        _hovered = false;
-        _pressed = false;
-      }),
-      child: GestureDetector(
-        behavior: HitTestBehavior.opaque,
-        onTapDown: enabled ? (_) => setState(() => _pressed = true) : null,
-        onTapUp: enabled ? (_) => setState(() => _pressed = false) : null,
-        onTapCancel: enabled ? () => setState(() => _pressed = false) : null,
+    final shape = BorderRadius.circular(
+      KitStyle.of(context).corner(widget.radius),
+    );
+    // The kit's press: the row gives on the look's spring where asked to,
+    // and takes a ring from the keyboard. The fill is the row's own, so its
+    // margin stays outside it.
+    return Padding(
+      padding: widget.margin,
+      child: Pressable(
         onTap: widget.onTap,
-        child: AnimatedScale(
-          scale: widget.scaleOnPress && _pressed ? 0.97 : 1,
-          duration: _motion(context, _quick),
+        scale: widget.scaleOnPress ? Pressable.large : 1,
+        shape: shape,
+        builder: (context, hovered, pressed) => AnimatedContainer(
+          duration: _motion(context, Motion.tile),
           curve: Motion.standard,
-          child: AnimatedContainer(
-            duration: _motion(context, Motion.tile),
-            curve: Motion.standard,
-            height: widget.height,
-            width: widget.width,
-            margin: widget.margin,
-            padding: widget.padding,
-            alignment: widget.alignment,
-            decoration: BoxDecoration(
-              color: fill,
-              borderRadius: BorderRadius.circular(widget.radius),
+          height: widget.height,
+          width: widget.width,
+          padding: widget.padding,
+          alignment: widget.alignment,
+          decoration: BoxDecoration(
+            color: colors.textPrimary.withValues(
+              alpha: KitFeedback.wash(
+                hovered: hovered,
+                pressed: pressed,
+                enabled: widget.onTap != null,
+              ),
             ),
-            child: widget.child,
+            borderRadius: shape,
           ),
+          child: widget.child,
         ),
+        child: const SizedBox.shrink(),
       ),
     );
   }
@@ -3373,7 +3339,7 @@ class _IconButton extends StatelessWidget {
   }
 }
 
-class _PillButton extends StatefulWidget {
+class _PillButton extends StatelessWidget {
   const _PillButton({
     required this.label,
     required this.onTap,
@@ -3385,83 +3351,49 @@ class _PillButton extends StatefulWidget {
   final bool primary;
 
   @override
-  State<_PillButton> createState() => _PillButtonState();
-}
-
-class _PillButtonState extends State<_PillButton> {
-  bool _hovered = false;
-  bool _pressed = false;
-
-  @override
   Widget build(BuildContext context) {
     final theme = context.shellTheme;
     final colors = theme.colors;
-    final accent = theme.kitAccent;
-    final fill = widget.primary
-        ? (_pressed
-              ? Color.alphaBlend(
-                  colors.background.withValues(alpha: 0.16),
-                  accent,
-                )
-              : _hovered
-              ? Color.alphaBlend(
-                  colors.background.withValues(alpha: 0.08),
-                  accent,
-                )
-              : accent)
-        : colors.textPrimary.withValues(
-            alpha: _pressed
-                ? 0.14
-                : _hovered
-                ? 0.11
-                : 0.08,
-          );
-    final foreground = widget.primary ? colors.background : colors.textPrimary;
+    final style = KitStyle.of(context);
+    final shape = BorderRadius.circular(style.pill(30));
     return Semantics(
       button: true,
-      label: widget.label,
-      onTap: widget.onTap,
-      child: MouseRegion(
-        cursor: SystemMouseCursors.click,
-        onEnter: (_) => setState(() => _hovered = true),
-        onExit: (_) => setState(() {
-          _hovered = false;
-          _pressed = false;
-        }),
-        child: GestureDetector(
-          behavior: HitTestBehavior.opaque,
-          onTapDown: (_) => setState(() => _pressed = true),
-          onTapUp: (_) => setState(() => _pressed = false),
-          onTapCancel: () => setState(() => _pressed = false),
-          onTap: widget.onTap,
-          child: AnimatedScale(
-            scale: _pressed ? 0.97 : 1,
-            duration: _motion(context, const Duration(milliseconds: 110)),
-            curve: Motion.standard,
-            child: AnimatedContainer(
-              duration: _motion(context, _quick),
-              curve: Motion.standard,
-              height: 30,
-              padding: const EdgeInsets.symmetric(horizontal: 14),
-              alignment: Alignment.center,
-              decoration: BoxDecoration(
-                color: fill,
-                borderRadius: BorderRadius.circular(15),
-                border: widget.primary
-                    ? null
-                    : Border.all(color: colors.hairlineSoft),
-              ),
-              child: Text(
-                widget.label,
-                maxLines: 1,
-                style: theme.text.systemBarCaption.copyWith(
-                  color: foreground,
-                  fontWeight: FontWeight.w700,
-                ),
-              ),
+      label: label,
+      onTap: onTap,
+      child: Pressable(
+        onTap: onTap,
+        scale: Pressable.large,
+        wash: primary,
+        shape: shape,
+        builder: (context, hovered, pressed) => AnimatedContainer(
+          duration: _motion(context, _quick),
+          curve: Motion.standard,
+          height: 30,
+          padding: const EdgeInsets.symmetric(horizontal: 14),
+          alignment: Alignment.center,
+          decoration: BoxDecoration(
+            color: primary
+                ? style.accent(theme)
+                : colors.textPrimary.withValues(
+                    alpha: KitFeedback.plate(
+                      0.08,
+                      hovered: hovered,
+                      pressed: pressed,
+                    ),
+                  ),
+            borderRadius: shape,
+            border: primary ? null : Border.all(color: colors.hairlineSoft),
+          ),
+          child: Text(
+            label,
+            maxLines: 1,
+            style: theme.text.systemBarCaption.inLook.copyWith(
+              color: primary ? style.onAccent(theme) : colors.textPrimary,
+              fontWeight: FontWeight.w700,
             ),
           ),
         ),
+        child: const SizedBox.shrink(),
       ),
     );
   }

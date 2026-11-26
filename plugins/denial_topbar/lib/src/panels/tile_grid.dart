@@ -198,8 +198,10 @@ class _TileGridState extends State<TileGrid>
           },
           child: AnimatedBuilder(
             animation: _jiggle,
+            // With reduced motion the tiles hold still; the badges on them
+            // already say the grid is being edited.
             builder: (context, child) => Transform.rotate(
-              angle: dragging
+              angle: dragging || KitMotion.reduced(context)
                   ? 0
                   : (_jiggle.value - 0.5) *
                         (index.isEven ? 1 : -1) *
@@ -300,6 +302,7 @@ class _Badge extends StatelessWidget {
     return Pressable(
       onTap: onTap,
       scale: Pressable.small,
+      wash: true,
       shape: style.disc(26),
       child: Padding(
         padding: const EdgeInsets.all(3),

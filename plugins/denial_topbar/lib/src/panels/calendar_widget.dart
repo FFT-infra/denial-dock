@@ -7,6 +7,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../bar_icons.dart';
 import '../bar_type.dart';
+import 'mac_kit.dart';
 
 /// The red of the weekday and of today's date.
 const Color calendarRed = Color(0xffff453a);
@@ -200,40 +201,27 @@ class _CalendarWidgetState extends ConsumerState<CalendarWidget> {
   }
 }
 
-class _ChevronBtn extends StatefulWidget {
+class _ChevronBtn extends StatelessWidget {
   const _ChevronBtn({required this.icon, required this.onTap});
 
   final IconData icon;
   final VoidCallback onTap;
 
   @override
-  State<_ChevronBtn> createState() => _ChevronBtnState();
-}
-
-class _ChevronBtnState extends State<_ChevronBtn> {
-  bool _hovered = false;
-
-  @override
   Widget build(BuildContext context) {
     final theme = context.shellTheme;
-    return MouseRegion(
-      cursor: SystemMouseCursors.click,
-      onEnter: (_) => setState(() => _hovered = true),
-      onExit: (_) => setState(() => _hovered = false),
-      child: GestureDetector(
-        behavior: HitTestBehavior.opaque,
-        onTap: widget.onTap,
-        child: Container(
-          width: 18,
-          height: 18,
-          alignment: Alignment.center,
-          decoration: BoxDecoration(
-            borderRadius: KitStyle.of(context).disc(18),
-            color: _hovered
-                ? theme.colors.textPrimary.withValues(alpha: 0.1)
-                : Colors.transparent,
-          ),
-          child: Icon(widget.icon, size: 11, color: theme.colors.textPrimary),
+    // The kit's press: it gives under a finger, washes under the pointer and
+    // takes a ring from the keyboard, as every other small control does.
+    return Pressable(
+      onTap: onTap,
+      scale: Pressable.small,
+      wash: true,
+      shape: KitStyle.of(context).disc(18),
+      child: SizedBox(
+        width: 18,
+        height: 18,
+        child: Center(
+          child: Icon(icon, size: 11, color: theme.colors.textPrimary),
         ),
       ),
     );

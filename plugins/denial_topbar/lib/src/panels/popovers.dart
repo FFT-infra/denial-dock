@@ -484,8 +484,9 @@ class _PairingPromptState extends State<_PairingPrompt> {
                 height: 34,
                 decoration: BoxDecoration(
                   color: theme.colors.textPrimary.withValues(alpha: 0.06),
-                  borderRadius:
-                      theme.borderRadius(10) * KitStyle.of(context).cornerScale,
+                  borderRadius: BorderRadius.circular(
+                    kitStyle.value.radius(theme, 10),
+                  ),
                   border: KitStyle.of(context).controlLine(theme),
                 ),
                 padding: const EdgeInsets.symmetric(horizontal: 10),
@@ -572,7 +573,7 @@ class _SpinnerState extends State<_Spinner>
     with SingleTickerProviderStateMixin {
   late final AnimationController _turn = AnimationController(
     vsync: this,
-    duration: KitMotion.now.scaled(const Duration(milliseconds: 900)),
+    duration: KitMotion.now.scaled(KitMotion.spin),
   )..repeat();
 
   @override
@@ -830,6 +831,7 @@ class ClipboardPopover extends StatelessWidget {
                 ? null
                 : Pressable(
                     onTap: clipboardWatch.clear,
+                    wash: true,
                     child: Padding(
                       padding: const EdgeInsets.symmetric(horizontal: 4),
                       child: Text(
@@ -858,6 +860,9 @@ class ClipboardPopover extends StatelessWidget {
                         : null,
                     trailing: Pressable(
                       onTap: () => clipboardWatch.remove(text),
+                      scale: Pressable.small,
+                      wash: true,
+                      shape: KitStyle.of(context).disc(22),
                       child: Padding(
                         padding: const EdgeInsets.all(6),
                         child: BarGlyph(

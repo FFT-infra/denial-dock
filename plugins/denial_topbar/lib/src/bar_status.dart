@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:denial_flutter_sdk/services.dart';
 import 'package:denial_flutter_sdk/state.dart';
 import 'package:denial_shell_kit/kit_motion.dart';
+import 'package:denial_shell_kit/kit_style.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
@@ -387,9 +388,9 @@ class BarStatusCluster extends ConsumerWidget {
                   child: Container(
                     width: 7,
                     height: 7,
-                    decoration: const BoxDecoration(
-                      color: Color(0xffff453a),
-                      shape: BoxShape.circle,
+                    decoration: BoxDecoration(
+                      color: const Color(0xffff453a),
+                      borderRadius: KitStyle.of(context).disc(7),
                     ),
                   ),
                 ),
@@ -448,9 +449,9 @@ class BarStatusCluster extends ConsumerWidget {
           child: Container(
             width: 7,
             height: 7,
-            decoration: const BoxDecoration(
-              color: Color(0xffff9f0a),
-              shape: BoxShape.circle,
+            decoration: BoxDecoration(
+              color: const Color(0xffff9f0a),
+              borderRadius: KitStyle.of(context).disc(7),
             ),
           ),
         ),
@@ -464,16 +465,18 @@ class BarStatusCluster extends ConsumerWidget {
             width: 16,
             height: 16,
             alignment: Alignment.center,
-            decoration: const BoxDecoration(
-              color: Color(0xffff453a),
-              shape: BoxShape.circle,
+            decoration: BoxDecoration(
+              color: const Color(0xffff453a),
+              borderRadius: KitStyle.of(context).disc(16),
             ),
             child: Container(
               width: 6,
               height: 6,
               decoration: BoxDecoration(
                 color: const Color(0xffffffff),
-                borderRadius: BorderRadius.circular(1.5),
+                borderRadius: BorderRadius.circular(
+                  KitStyle.of(context).corner(1.5),
+                ),
               ),
             ),
           ),

@@ -537,7 +537,7 @@ class NcPlate extends StatelessWidget {
     return CustomPaint(
       painter: layer(true),
       foregroundPainter: layer(false),
-      child: !blur || fill.a >= 1 || !plan.blurs
+      child: !blur || fill.a >= 1 || !plan.blurs || !style.glassy
           ? null
           : plan.direct
           // A sigma of the material's own, with its saturation.

@@ -182,8 +182,8 @@ class _KitLayerState extends State<_KitLayerHost>
   // this state being recreated.
   late final AnimationController _controller = AnimationController(
     vsync: this,
-    duration: KitMotion.now.duration(widget.open),
-    reverseDuration: KitMotion.now.duration(widget.close),
+    duration: KitMotion.timedNow.duration(widget.open),
+    reverseDuration: KitMotion.timedNow.duration(widget.close),
   );
   bool _closing = false;
   bool Function()? _back;

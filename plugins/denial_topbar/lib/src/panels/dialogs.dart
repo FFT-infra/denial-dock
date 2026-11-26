@@ -14,7 +14,7 @@ import '../l10n.dart';
 import 'mac_kit.dart';
 
 /// A capsule push button; [primary] fills it with the accent.
-class DialogButton extends StatefulWidget {
+class DialogButton extends StatelessWidget {
   const DialogButton({
     required this.label,
     required this.onTap,
@@ -27,57 +27,49 @@ class DialogButton extends StatefulWidget {
   final bool primary;
 
   @override
-  State<DialogButton> createState() => _DialogButtonState();
-}
-
-class _DialogButtonState extends State<DialogButton> {
-  bool _hovered = false;
-  bool _pressed = false;
-
-  @override
   Widget build(BuildContext context) {
     final theme = context.shellTheme;
     final style = KitStyle.of(context);
-    final enabled = widget.onTap != null;
+    final enabled = onTap != null;
     final ink = theme.colors.textPrimary;
-    final fill = widget.primary
-        ? theme.kitAccent.withValues(alpha: enabled ? 1 : 0.4)
-        : ink.withValues(alpha: _hovered ? 0.16 : 0.10);
-    return MouseRegion(
-      cursor: enabled ? SystemMouseCursors.click : MouseCursor.defer,
-      onEnter: (_) => setState(() => _hovered = true),
-      onExit: (_) => setState(() => _hovered = false),
-      child: GestureDetector(
-        behavior: HitTestBehavior.opaque,
-        onTapDown: (_) => setState(() => _pressed = true),
-        onTapUp: (_) => setState(() => _pressed = false),
-        onTapCancel: () => setState(() => _pressed = false),
-        onTap: widget.onTap,
-        child: AnimatedScale(
+    final shape = BorderRadius.circular(style.pill(32));
+    // The kit's press gives the button its spring, its wash and its focus
+    // ring; a button with nothing to do is dimmed as every control is.
+    return Pressable(
+      onTap: onTap,
+      wash: primary,
+      shape: shape,
+      builder: (context, hovered, pressed) => Opacity(
+        opacity: enabled ? 1 : KitFeedback.disabledOpacity,
+        child: AnimatedContainer(
           duration: KitMotion.duration(context, KitMotion.fade),
-          scale: _pressed && enabled ? 0.96 : 1,
-          child: AnimatedContainer(
-            duration: KitMotion.duration(context, KitMotion.fade),
-            height: 32,
-            constraints: const BoxConstraints(minWidth: 84),
-            padding: const EdgeInsets.symmetric(horizontal: 18),
-            alignment: Alignment.center,
-            decoration: BoxDecoration(
-              color: fill,
-              borderRadius: BorderRadius.circular(style.pill(32)),
-              border: widget.primary ? null : style.controlLine(theme),
-            ),
-            child: Text(
-              widget.label,
-              style: BarType.title.copyWith(
-                color: widget.primary
-                    ? const Color(0xffffffff)
-                    : ink.withValues(alpha: enabled ? 1 : 0.4),
-              ),
+          height: 32,
+          constraints: const BoxConstraints(minWidth: 84),
+          padding: const EdgeInsets.symmetric(horizontal: 18),
+          alignment: Alignment.center,
+          decoration: BoxDecoration(
+            color: primary
+                ? theme.kitAccent
+                : ink.withValues(
+                    alpha: KitFeedback.plate(
+                      0.10,
+                      hovered: hovered,
+                      pressed: pressed,
+                      enabled: enabled,
+                    ),
+                  ),
+            borderRadius: shape,
+            border: primary ? null : style.controlLine(theme),
+          ),
+          child: Text(
+            label,
+            style: BarType.title.copyWith(
+              color: primary ? style.onAccent(theme) : ink,
             ),
           ),
         ),
       ),
+      child: const SizedBox.shrink(),
     );
   }
 }
@@ -254,8 +246,10 @@ class _ForceQuitDialogState extends ConsumerState<ForceQuitDialog> {
                     itemBuilder: (context, index) {
                       final id = ids[index];
                       final active = id == selected;
-                      return GestureDetector(
-                        behavior: HitTestBehavior.opaque,
+                      return Pressable(
+                        scale: 1,
+                        wash: !active,
+                        shape: BorderRadius.zero,
                         onTap: () => setState(() => _selected = id),
                         child: ColoredBox(
                           color: active
@@ -282,7 +276,7 @@ class _ForceQuitDialogState extends ConsumerState<ForceQuitDialog> {
                                     style: BarType.menuRow.copyWith(
                                       fontSize: 14,
                                       color: active
-                                          ? const Color(0xffffffff)
+                                          ? KitStyle.of(context).onAccent(theme)
                                           : ink,
                                     ),
                                   ),
@@ -344,8 +338,9 @@ class WindowHeader extends StatelessWidget {
                 height: 30,
                 decoration: BoxDecoration(
                   color: theme.kitAccent.withValues(alpha: 0.18),
-                  borderRadius:
-                      theme.borderRadius(8) * KitStyle.of(context).cornerScale,
+                  borderRadius: BorderRadius.circular(
+                    kitStyle.value.radius(theme, 8),
+                  ),
                   border: Border.all(
                     color: theme.kitAccent.withValues(alpha: 0.26),
                   ),
@@ -376,9 +371,9 @@ class WindowHeader extends StatelessWidget {
                     color: theme.colors.textPrimary.withValues(
                       alpha: hovered ? 0.10 : 0,
                     ),
-                    borderRadius:
-                        theme.borderRadius(7) *
-                        KitStyle.of(context).cornerScale,
+                    borderRadius: BorderRadius.circular(
+                      kitStyle.value.radius(theme, 7),
+                    ),
                   ),
                   child: BarGlyph(
                     BarIcons.xmark,

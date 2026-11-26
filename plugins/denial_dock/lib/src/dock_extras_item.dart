@@ -246,7 +246,9 @@ class _DockAccessoryItemState extends State<DockAccessoryItem> {
                           vertical: 1,
                         ),
                         decoration: BoxDecoration(
-                          borderRadius: BorderRadius.circular(7),
+                          borderRadius: BorderRadius.circular(
+                            kitStyle.value.corner(7),
+                          ),
                           color: theme.kitAccent,
                         ),
                         child: Text(
@@ -374,7 +376,7 @@ class _DownloadBarState extends State<_DownloadBar>
   late final AnimationController _sweep = AnimationController(
     vsync: this,
     // A loop: it keeps its rhythm and only the speed scales it.
-    duration: KitMotion.now.scaled(const Duration(milliseconds: 1200)),
+    duration: KitMotion.now.scaled(KitMotion.sweep),
   );
 
   @override
@@ -408,7 +410,7 @@ class _DownloadBarState extends State<_DownloadBar>
     return SizedBox(
       height: 3,
       child: ClipRRect(
-        borderRadius: BorderRadius.circular(2),
+        borderRadius: BorderRadius.circular(kitStyle.value.pill(3)),
         child: ColoredBox(
           color: widget.track,
           child: widget.download.determinate
