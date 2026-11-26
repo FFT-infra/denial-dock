@@ -40,6 +40,7 @@ import 'bar_status.dart';
 import 'bar_tokens.dart';
 import 'bar_type.dart';
 import 'clock_label.dart';
+import 'tray_names.dart';
 import 'island/island.dart';
 import 'island/island_motion.dart';
 import 'island/island_options.dart';

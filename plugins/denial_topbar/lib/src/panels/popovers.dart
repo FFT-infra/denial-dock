@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:denial_flutter_sdk/services.dart';
 import 'package:denial_flutter_sdk/state.dart';
 import 'package:denial_flutter_sdk/system_services.dart'
@@ -900,8 +902,8 @@ class ClipboardPopover extends StatelessWidget {
   }
 }
 
-/// Grid of folded system-tray icons opened from the bar's tray cell.
-class TrayPopover extends ConsumerWidget {
+/// Compact downward-floating tray shelf anchored beneath the bar toggle.
+class TrayPopover extends ConsumerStatefulWidget {
   const TrayPopover({
     required this.services,
     required this.settings,
@@ -914,54 +916,106 @@ class TrayPopover extends ConsumerWidget {
   final VoidCallback onClose;
 
   @override
-  Widget build(BuildContext context, WidgetRef ref) {
+  ConsumerState<TrayPopover> createState() => _TrayPopoverState();
+}
+
+class _TrayPopoverState extends ConsumerState<TrayPopover> {
+  Timer? _autoClose;
+  bool _hovered = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _arm();
+  }
+
+  @override
+  void didUpdateWidget(TrayPopover oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.settings.collapseAutoSeconds !=
+        widget.settings.collapseAutoSeconds) {
+      _arm();
+    }
+  }
+
+  @override
+  void dispose() {
+    _autoClose?.cancel();
+    super.dispose();
+  }
+
+  void _arm() {
+    _autoClose?.cancel();
+    final seconds = widget.settings.collapseAutoSeconds;
+    if (seconds <= 0 || _hovered) return;
+    _autoClose = Timer(Duration(seconds: seconds), () {
+      if (mounted && !_hovered) widget.onClose();
+    });
+  }
+
+  @override
+  Widget build(BuildContext context) {
     final theme = context.shellTheme;
     final style = KitStyle.of(context);
-    final trayIds = ref.watch(services.trayItemIds);
+    final density = style.density.clamp(0.75, 1.35);
+    final trayIds = ref.watch(widget.services.trayItemIds);
     trayNames.resolve(trayIds);
     final folded = partitionTrayIds(
       trayIds,
-      settings: settings,
+      settings: widget.settings,
       resolveKey: (id) => trayNames.of(id).key,
     ).folded;
     final ink = theme.colors.textPrimary;
-    return _Popover(
-      children: <Widget>[
-        MacHeader(title: context.tr('System tray')),
-        if (folded.isEmpty)
-          _Note(context.tr('No folded tray icons.'))
-        else
-          Padding(
-            padding: const EdgeInsets.fromLTRB(6, 4, 6, 8),
-            child: Wrap(
-              spacing: 8,
-              runSpacing: 8,
-              children: <Widget>[
-                for (final id in folded)
-                  Tooltip(
-                    message: trayNames.of(id).title,
-                    child: Container(
-                      width: 38,
-                      height: 38,
-                      alignment: Alignment.center,
-                      decoration: BoxDecoration(
-                        color: ink.withValues(alpha: 0.07),
-                        borderRadius: BorderRadius.circular(style.corner(10)),
-                      ),
-                      child: buildTrayIcons(
-                        context,
-                        services: services,
-                        settings: settings,
-                        ink: ink,
-                        itemIds: <String>[id],
-                        maxExtent: 32,
-                      ),
-                    ),
-                  ),
-              ],
-            ),
+    return MouseRegion(
+      onEnter: (_) {
+        _hovered = true;
+        _autoClose?.cancel();
+      },
+      onExit: (_) {
+        _hovered = false;
+        _arm();
+      },
+      child: Listener(
+        onPointerDown: (_) => _arm(),
+        child: Padding(
+          padding: EdgeInsets.symmetric(
+            horizontal: 8 * density,
+            vertical: 6 * density,
           ),
-      ],
+          child: folded.isEmpty
+              ? _Note(context.tr('No folded tray icons.'))
+              : Wrap(
+                  spacing: 6 * density,
+                  runSpacing: 6 * density,
+                  alignment: WrapAlignment.center,
+                  children: <Widget>[
+                    for (final id in folded)
+                      Tooltip(
+                        message: trayNames.of(id).title,
+                        child: Container(
+                          width: 30,
+                          height: 30,
+                          alignment: Alignment.center,
+                          decoration: BoxDecoration(
+                            color: ink.withValues(alpha: 0.06),
+                            borderRadius: BorderRadius.circular(
+                              style.corner(8),
+                            ),
+                          ),
+                          child: buildTrayIcons(
+                            context,
+                            services: widget.services,
+                            settings: widget.settings,
+                            ink: ink,
+                            itemIds: <String>[id],
+                            maxExtent: 24,
+                          ),
+                        ),
+                      ),
+                  ],
+                ),
+        ),
+      ),
     );
   }
 }

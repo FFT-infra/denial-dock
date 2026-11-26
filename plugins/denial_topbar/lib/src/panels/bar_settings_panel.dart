@@ -44,8 +44,8 @@ const List<String> barSettingsPageIds = <String>[
   'bar.clock',
 ];
 
-const List<(String, String, List<String>)> _barPageMeta =
-    <(String, String, List<String>)>[
+const List<(String, String, List<String>, int)> _barPageMeta =
+    <(String, String, List<String>, int)>[
       (
         'Shell',
         'Choose presets, visual looks, motion speed and auto-hide behaviour.',
@@ -63,6 +63,7 @@ const List<(String, String, List<String>)> _barPageMeta =
           '动效',
           '自动隐藏',
         ],
+        100,
       ),
       (
         'Menu Bar',
@@ -84,6 +85,7 @@ const List<(String, String, List<String>)> _barPageMeta =
           '灵动群岛',
           '部件',
         ],
+        110,
       ),
       (
         'Menu Bar',
@@ -101,6 +103,7 @@ const List<(String, String, List<String>)> _barPageMeta =
           '计时器',
           '充电',
         ],
+        120,
       ),
       (
         'Workspaces',
@@ -116,6 +119,7 @@ const List<(String, String, List<String>)> _barPageMeta =
           '桌面',
           '总览',
         ],
+        150,
       ),
       (
         'Menu Bar',
@@ -136,6 +140,7 @@ const List<(String, String, List<String>)> _barPageMeta =
           '电量',
           '剪贴板',
         ],
+        130,
       ),
       (
         'Notifications & Control Centre',
@@ -152,6 +157,7 @@ const List<(String, String, List<String>)> _barPageMeta =
           '通知中心',
           '小组件',
         ],
+        140,
       ),
     ];
 
@@ -171,7 +177,7 @@ void registerBarSettingsPages(ShellServices services) {
         keywords: _barPageMeta[index].$3,
         icon: _BarSettingsPanelState._pages[index].$2,
         colour: _BarSettingsPanelState._pages[index].$3,
-        order: 100 + index * 10,
+        order: _barPageMeta[index].$4,
         builder: (context) => BarSettingsPanel(
           services: services,
           embedded: index,
@@ -1010,13 +1016,13 @@ class _BarSettingsPanelState extends ConsumerState<BarSettingsPanel> {
             enabled:
                 s.showTray &&
                 (s.collapseItems || s.trayHidden.isNotEmpty) &&
-                (s.trayFold == BarTrayFold.inline ||
-                    s.trayFold == BarTrayFold.hover),
+                s.trayFold != BarTrayFold.controlCenter,
             note: (s.showTray &&
                     (s.collapseItems || s.trayHidden.isNotEmpty) &&
-                    s.trayFold != BarTrayFold.inline &&
-                    s.trayFold != BarTrayFold.hover)
-                ? context.tr('Applies only to Arrow and Hover collection styles.')
+                    s.trayFold == BarTrayFold.controlCenter)
+                ? context.tr(
+                    'Not used while icons sit inside Control Centre.',
+                  )
                 : null,
             trailing: _Segments<int>(
               value: const <int>[0, 5, 15, 30].contains(s.collapseAutoSeconds)

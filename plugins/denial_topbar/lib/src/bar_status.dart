@@ -85,6 +85,7 @@ class BarStatusCluster extends ConsumerWidget {
     required this.onControlCenter,
     required this.onSettings,
     this.onTray,
+    this.onTraySettings,
     this.trayKey,
     this.wifiKey,
     this.volumeKey,
@@ -125,6 +126,7 @@ class BarStatusCluster extends ConsumerWidget {
     onControlCenter: onControlCenter,
     onSettings: onSettings,
     onTray: onTray,
+    onTraySettings: onTraySettings,
     trayKey: trayKey,
     wifiKey: wifiKey,
     volumeKey: volumeKey,
@@ -171,6 +173,7 @@ class BarStatusCluster extends ConsumerWidget {
   final VoidCallback onControlCenter;
   final VoidCallback onSettings;
   final VoidCallback? onTray;
+  final VoidCallback? onTraySettings;
   final GlobalKey? trayKey;
 
   /// Anchors the popup's scene rectangle. Without one the panel falls back to
@@ -255,17 +258,29 @@ class BarStatusCluster extends ConsumerWidget {
                 child: tray(part.folded),
               ),
             if (popoverFold)
-              BarStatusCell(
-                key: trayKey,
-                ink: ink,
-                width: span(26),
-                onTap: onTray,
-                open: openPanel == 'tray',
-                tooltip: context.tr('Tray items'),
-                child: BarGlyph(
-                  BarIcons.squareGrid,
-                  size: BarTokens.statusGlyphSize,
-                  color: ink,
+              GestureDetector(
+                behavior: HitTestBehavior.translucent,
+                onSecondaryTapUp: onTraySettings == null
+                    ? null
+                    : (_) => onTraySettings!(),
+                child: BarStatusCell(
+                  key: trayKey,
+                  ink: ink,
+                  width: span(24),
+                  onTap: onTray,
+                  open: openPanel == 'tray',
+                  tooltip: context.tr('Tray items'),
+                  child: AnimatedRotation(
+                    duration: KitMotion.duration(context, KitMotion.travel),
+                    curve: KitMotion.outCubic,
+                    turns: (horizontal ? 0 : -0.25) +
+                        (openPanel == 'tray' ? 0.5 : 0),
+                    child: BarGlyph(
+                      BarIcons.chevronDown,
+                      size: 12,
+                      color: ink.withValues(alpha: 0.85),
+                    ),
+                  ),
                 ),
               ),
             if (part.visible.isNotEmpty) tray(part.visible),

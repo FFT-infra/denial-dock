@@ -408,7 +408,6 @@ class KitLook {
     pressTuning: KitSpringTuning(620, 1),
     accentMenuRows: true,
     materials: KitMaterials.mac,
-    islandAspect: 185 / 32,
     dockKin: 'mac',
   );
 

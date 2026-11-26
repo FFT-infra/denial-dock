@@ -476,7 +476,9 @@ const Map<String, String> zh = <String, String>{
   'Collection style': '收纳方式',
   'Arrow': '箭头',
   'Hover': '悬停',
-  'Popover': '弹窗',
+  'Popover': '悬浮面板',
+  'Not used while icons sit inside Control Centre.':
+      '收入控制中心时无需定时自动收起。',
   'No folded tray icons.': '暂无已收纳的托盘图标。',
   'Preset & Look': '预设与外观',
   'Edit Look…': '外观编辑…',

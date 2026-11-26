@@ -262,17 +262,30 @@ mixin _BarActions<T extends ConsumerStatefulWidget> on ConsumerState<T> {
       controlCenterKey: _controlCenterKey,
       settingsKey: _settingsKey,
       trayKey: _trayKey,
-      onTray: () => _openPanel(
-        'tray',
-        _trayKey,
-        (_, close) => TrayPopover(
-          services: _services,
+      onTraySettings: () => _openBarSettings(page: 4),
+      onTray: () {
+        final trayIds = ref.read(_services.trayItemIds);
+        trayNames.resolve(trayIds);
+        final count = partitionTrayIds(
+          trayIds,
           settings: settings,
-          onClose: close,
-        ),
-        width: 248,
-        placement: BarPanelAnchor.centred,
-      ),
+          resolveKey: (id) => trayNames.of(id).key,
+        ).folded.length;
+        final width = count == 0
+            ? 196.0
+            : math.min(256.0, math.max(52.0, count * 36.0 + 18.0));
+        _openPanel(
+          'tray',
+          _trayKey,
+          (_, close) => TrayPopover(
+            services: _services,
+            settings: settings,
+            onClose: close,
+          ),
+          width: width,
+          placement: BarPanelAnchor.centred,
+        );
+      },
       onWifi: () => _openPanel(
         'wifi',
         _wifiKey,
