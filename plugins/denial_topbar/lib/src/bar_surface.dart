@@ -42,6 +42,7 @@ import 'bar_type.dart';
 import 'clock_label.dart';
 import 'island/island.dart';
 import 'island/island_motion.dart';
+import 'island/island_options.dart';
 import 'island/island_skin.dart';
 import 'l10n.dart';
 import 'panels/about_dialog.dart';
@@ -295,9 +296,14 @@ class _TopBarSurfaceState extends ConsumerState<TopBarSurface>
     final zones = settings.zones;
     // A bar that draws only its island has one whatever the layout says.
     final mode = kitBarModeInForce;
-    final islandAvailable =
-        _side == PanelEdge.top &&
-        (settings.showsIsland || mode == KitBarMode.islandOnly);
+    // What the island's switches come to as things stand is decided in one
+    // place, which the settings page draws from too.
+    final islandOptions = IslandOptions(
+      settings,
+      mode: mode,
+      top: _side == PanelEdge.top,
+    );
+    final islandAvailable = islandOptions.present;
     final workspaceInIsland = settings.workspacesInIsland;
     final gap = settings.partGap;
 
@@ -338,7 +344,7 @@ class _TopBarSurfaceState extends ConsumerState<TopBarSurface>
         ? Island(
             services: _services,
             monitorId: widget.monitorId,
-            settings: settings,
+            settings: islandOptions.effective,
             height: islandHeight,
             reserved: _islandReserved,
             timeLabel: strings.time(now),

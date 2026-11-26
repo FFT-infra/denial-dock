@@ -218,6 +218,20 @@ const Map<String, String> zh = <String, String>{
   'Screen recording': '屏幕录制',
   'Several Activities': '多个活动',
   'Show a second activity beside the island': '在灵动岛旁显示第二个活动',
+  'Show other activities beside the island': '在灵动岛旁显示其他活动',
+  'The bar is hidden.': '顶栏已隐藏。',
+  'The island needs the bar at the top of the screen.': '灵动岛只在顶栏位于屏幕顶部时出现。',
+  'Turn on the Dynamic Island first.': '先打开灵动岛。',
+  'Always shown while the bar is reduced to its island.': '顶栏只留灵动岛时，它始终显示。',
+  'Only while the island fades under the pointer.': '需要打开“指针停在上面时淡出”。',
+  'Only while notifications show here.': '需要打开“通知”。',
+  'Needs two of Now Playing, Timer, Screen recording and Downloads.':
+      '需要在“正在播放”“计时器”“屏幕录制”“下载”中打开两项。',
+  'Needs two activities to turn between, or one and the home panel.':
+      '需要两个可切换的活动，或一个活动加主页卡片。',
+  'Needs an activity that opens a panel.': '需要一个能展开面板的活动。',
+  'The workspace switcher is set to ride in the island, so it shows nowhere while the island is off.':
+      '工作区切换器设在灵动岛里，灵动岛不显示时它也不会出现。',
   'Start a Timer': '开始计时',
   'Stopped': '已停止',
   'Swipe sideways to switch activities': '左右轻扫切换活动',
