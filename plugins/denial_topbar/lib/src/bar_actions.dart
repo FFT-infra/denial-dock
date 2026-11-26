@@ -15,6 +15,7 @@ mixin _BarActions<T extends ConsumerStatefulWidget> on ConsumerState<T> {
   final GlobalKey _notificationsKey = GlobalKey();
   final GlobalKey _controlCenterKey = GlobalKey();
   final GlobalKey _settingsKey = GlobalKey();
+  final GlobalKey _trayKey = GlobalKey();
 
   ShellServices get _services;
   ShellSurfaceEnvironment get _environment;
@@ -260,6 +261,18 @@ mixin _BarActions<T extends ConsumerStatefulWidget> on ConsumerState<T> {
       notificationsKey: _notificationsKey,
       controlCenterKey: _controlCenterKey,
       settingsKey: _settingsKey,
+      trayKey: _trayKey,
+      onTray: () => _openPanel(
+        'tray',
+        _trayKey,
+        (_, close) => TrayPopover(
+          services: _services,
+          settings: settings,
+          onClose: close,
+        ),
+        width: 248,
+        placement: BarPanelAnchor.centred,
+      ),
       onWifi: () => _openPanel(
         'wifi',
         _wifiKey,

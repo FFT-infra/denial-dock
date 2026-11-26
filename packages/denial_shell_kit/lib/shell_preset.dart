@@ -390,6 +390,34 @@ class ShellPreset {
     },
   );
 
+  /// After Cutefish OS: a translucent top bar with launcher mark, workspaces
+  /// and focused app at the start, clock centred and status at the end, over a
+  /// floating rounded dock.
+  static final ShellPreset cutefish = _reference(
+    'cutefish',
+    'Cutefish style',
+    bar: const <String, Object?>{
+      'shape': 'strip',
+      'ground': 'glass',
+      'groundOpacity': 0.72,
+      'groundTint': 'panel',
+      'endInset': 4,
+      'contentPadding': 6,
+      'cornerRadius': 14,
+      'workspacePlacement': 'leading',
+      'start': <String>['system', 'workspaces', 'app'],
+      'center': <String>['clock'],
+      'end': <String>['status'],
+    },
+    dock: const <String, Object?>{
+      'leading': <String>['dock.launcher'],
+      'trailing': <String>['dock.trash'],
+      'shape': 'floating',
+      'align': 'packed',
+      'visibility': 'always',
+    },
+  );
+
   /// The presets made after other desktop shells; see `kit_look_refs.dart`
   /// for the look each one takes.
   static final List<ShellPreset> references = <ShellPreset>[
@@ -401,6 +429,7 @@ class ShellPreset {
     gnome,
     windows,
     cosmic,
+    cutefish,
   ];
 
   static final List<ShellPreset> all = <ShellPreset>[

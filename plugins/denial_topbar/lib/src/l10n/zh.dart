@@ -472,4 +472,47 @@ const Map<String, String> zh = <String, String>{
   'GNOME style': 'GNOME 风格',
   'Windows 11 style': 'Windows 11 风格',
   'COSMIC style': 'COSMIC 风格',
+  'Cutefish style': 'Cutefish 风格',
+  'Collection style': '收纳方式',
+  'Arrow': '箭头',
+  'Hover': '悬停',
+  'Popover': '弹窗',
+  'No folded tray icons.': '暂无已收纳的托盘图标。',
+  'Preset & Look': '预设与外观',
+  'Edit Look…': '外观编辑…',
+  'Switch Preset…': '切换预设…',
+  'Auto-hide': '自动隐藏',
+  'Notifications & Control Centre': '通知与控制中心',
+  'Choose presets, visual looks, motion speed and auto-hide behaviour.':
+      '选择外壳预设、视觉外观、动效速度与自动隐藏行为。',
+  'Pick a shell preset, arrange zones and assign shared Dock parts.':
+      '选择外壳预设、编排分区以及分配与程序坞共享的部件。',
+  'Control Dynamic Island triggers, live activities and multi-tasking gestures.':
+      '控制灵动岛触发方式、实时活动以及多任务切换手势。',
+  'Configure the workspace switcher, overview gestures and virtual desktops.':
+      '设置工作区指示器、概览交互手势以及虚拟桌面数量。',
+  'Choose status icons, tray collection style and per-app tray visibility.':
+      '选择显示的状态项、托盘图标收纳方式以及各应用显示策略。',
+  'Set clock display options and Notification Center behaviour.':
+      '设置时钟显示格式以及通知中心的打开方式。',
+  'Tune colours, glass materials, fonts, corners and motion, then save as your own look.':
+      '微调颜色、玻璃材质、字体、圆角与动效，并可保存为自定义外观。',
+  'Current preset: “{}”. Presets arrange bar and Dock parts together; looks control colours, glass materials and motion.':
+      '当前预设：“{}”。预设会协同编排菜单栏与程序坞布局；外观控制色彩、玻璃材质与动效。',
+  'Turn on “Automatically hide and show the menu bar” to set a reveal delay.':
+      '开启“自动隐藏和显示菜单栏”后才能设置唤出延迟。',
+  'Enable System tray above to change icon appearance.':
+      '开启上方的系统托盘后才能调整图标外观。',
+  'System tray is turned off.': '系统托盘已关闭。',
+  'Turn on folding or set an item below to Hidden first.':
+      '请先开启图标折叠，或将下方某个托盘项目设为“隐藏”。',
+  'Applies only to Arrow and Hover collection styles.':
+      '仅适用于“箭头”和“悬停”收纳方式。',
+  'Overview': '概览',
+  'Choose where to show the workspace switcher above first.':
+      '请先在上方选择工作区指示器的显示位置。',
+  'Show minimised windows': '显示最小化窗口',
+  'Live thumbnails on other desktops': '其他桌面显示实时缩略图',
+  'Middle-click a thumbnail to close window': '中键点击缩略图关闭窗口',
+  'Live thumbnails per desktop': '每个桌面最多实时缩略图数',
 };

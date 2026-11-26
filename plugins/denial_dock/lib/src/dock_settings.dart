@@ -558,6 +558,7 @@ class DockSettings {
     this.previewMiddleClose = false,
     this.avoidReservedEdge = true,
     this.look = const {},
+    this.lookByStyle = const {},
     this.chosen = const {},
     this.explicitZones,
     this.align = DockAlign.packed,
@@ -700,11 +701,31 @@ class DockSettings {
   /// map the file holds, so a key a newer build wrote is carried through.
   final Map<String, Object?> look;
 
+  /// Per-look cosmetic overrides keyed by shell style id, so tweaks made
+  /// while previewing or using one look do not leak onto another look.
+  final Map<String, Map<String, Object?>> lookByStyle;
+
+  static Map<String, Map<String, Object?>> _cleanedLookByStyle(Object? stored) {
+    if (stored is! Map) return const {};
+    final next = <String, Map<String, Object?>>{};
+    for (final entry in stored.entries) {
+      if (entry.key is! String || (entry.key as String).isEmpty) continue;
+      final cleaned = DockLook.cleaned(entry.value);
+      if (cleaned.isNotEmpty) next[entry.key as String] = cleaned;
+    }
+    return Map.unmodifiable(next);
+  }
+
   /// The capsule's look under the shell look called [styleId]. [preset] is
   /// that look's preset when the caller has worked it out from the look's
   /// own values; without it the preset is found by name.
-  DockLook lookFor(String? styleId, {DockLook? preset}) =>
-      DockLook.resolve(preset ?? DockLook.preset(styleId), look);
+  DockLook lookFor(String? styleId, {DockLook? preset}) {
+    final scoped = styleId == null ? null : lookByStyle[styleId];
+    final combined = scoped == null || scoped.isEmpty
+        ? look
+        : <String, Object?>{...look, ...scoped};
+    return DockLook.resolve(preset ?? DockLook.preset(styleId), combined);
+  }
 
   /// Which of [iconSize], [magnification], [magnificationAmount] and
   /// [indicatorStyle] the user set, by the key [DockMetrics] knows each
@@ -924,6 +945,7 @@ class DockSettings {
     int? hideDelayMs,
     int? previewDelayMs,
     Map<String, Object?>? look,
+    Map<String, Map<String, Object?>>? lookByStyle,
     bool? showProgress,
     bool? showAttention,
     bool? showDesktopActions,
@@ -988,6 +1010,7 @@ class DockSettings {
     previewMiddleClose: previewMiddleClose ?? this.previewMiddleClose,
     avoidReservedEdge: avoidReservedEdge ?? this.avoidReservedEdge,
     look: look ?? this.look,
+    lookByStyle: lookByStyle ?? this.lookByStyle,
     // Setting one of these values is choosing it over the look's.
     chosen:
         chosen ??
@@ -1332,6 +1355,7 @@ class DockSettings {
           ? json['avoidReservedEdge'] as bool
           : true,
       look: DockLook.cleaned(json['look']),
+      lookByStyle: _cleanedLookByStyle(json['lookByStyle']),
       chosen: Set<String>.unmodifiable(chosen),
       explicitZones: json['leading'] is List || json['trailing'] is List
           ? DockZones.stored(
@@ -1456,6 +1480,11 @@ class DockPreferencesStore {
       json.remove('look');
     } else {
       json['look'] = settings.look;
+    }
+    if (settings.lookByStyle.isEmpty) {
+      json.remove('lookByStyle');
+    } else {
+      json['lookByStyle'] = settings.lookByStyle;
     }
     json['chosen'] = settings.chosen.toList()..sort();
     // A dock that never had its zones set keeps a file without them, and so

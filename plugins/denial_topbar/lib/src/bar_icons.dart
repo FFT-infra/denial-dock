@@ -1,3 +1,4 @@
+import 'package:denial_shell_kit/kit_style.dart';
 import 'package:flutter/widgets.dart';
 
 /// SF Symbols-shaped glyphs taken from the Cupertino icon font.
@@ -461,6 +462,12 @@ class BarGlyph extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Icon(icon, size: size, color: color, semanticLabel: semanticLabel);
+    final weight = KitStyle.of(context).look.iconWeight;
+    return Icon(
+      icon,
+      size: size * (0.92 + 0.08 * weight),
+      color: color,
+      semanticLabel: semanticLabel,
+    );
   }
 }

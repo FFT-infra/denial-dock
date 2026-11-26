@@ -57,55 +57,63 @@ TextStyle _valueStyle(ShellThemeData theme, Color color) =>
 /// with the scene barrier, focus, Escape and outside-tap dismissal for free.
 /// The dock's pages as the shell's settings window lists them, in the order
 /// of the panel's own pages.
-const List<({String id, String en, String zh, IconData icon})>
+const List<({String id, String en, String zh, IconData icon, List<String> keywords})>
 dockSettingsPageInfo = [
   (
     id: 'dock.visibility',
-    en: 'Dock: Visibility',
-    zh: '程序坞：显示与隐藏',
+    en: 'Visibility',
+    zh: '显示与隐藏',
     icon: Icons.visibility_outlined,
+    keywords: ['autohide', 'show', 'delay', 'hide', 'automatically', '自动隐藏', '延迟', '显示'],
   ),
   (
     id: 'dock.clicks',
-    en: 'Dock: Clicks and wheel',
-    zh: '程序坞：点击与滚轮',
+    en: 'Clicks and Wheel',
+    zh: '点击与滚轮',
     icon: Icons.mouse_outlined,
+    keywords: ['click', 'scroll', 'wheel', 'minimize', 'launch', '点击', '滚轮', '最小化'],
   ),
   (
     id: 'dock.appearance',
-    en: 'Dock: Appearance',
-    zh: '程序坞：外观',
+    en: 'Icons & Magnification',
+    zh: '图标与放大',
     icon: Icons.palette_outlined,
+    keywords: ['size', 'icon', 'magnification', 'spacing', 'bounce', '图标', '大小', '放大', '间距'],
   ),
   (
     id: 'dock.backplate',
-    en: 'Dock: Backplate',
-    zh: '程序坞：底板',
+    en: 'Backplate & Glass',
+    zh: '底板与材质',
     icon: Icons.rounded_corner,
+    keywords: ['blur', 'glass', 'border', 'radius', 'shadow', 'opacity', '底板', '模糊', '圆角', '阴影'],
   ),
   (
     id: 'dock.markers',
-    en: 'Dock: Markers and badges',
-    zh: '程序坞：标记与角标',
+    en: 'Markers & Badges',
+    zh: '标记与角标',
     icon: Icons.circle_notifications_outlined,
+    keywords: ['badge', 'dot', 'running', 'indicator', 'progress', '角标', '运行指示', '进度'],
   ),
   (
     id: 'dock.windows',
-    en: 'Dock: Windows and menus',
-    zh: '程序坞：窗口与菜单',
+    en: 'Windows & Menus',
+    zh: '窗口与菜单',
     icon: Icons.web_asset_outlined,
+    keywords: ['preview', 'taskbar', 'title', 'menu', 'recent', '预览', '任务栏', '窗口', '菜单'],
   ),
   (
     id: 'dock.layout',
-    en: 'Dock: Layout',
-    zh: '程序坞：布局',
+    en: 'Position & Layout',
+    zh: '位置与布局',
     icon: Icons.dashboard_customize_outlined,
+    keywords: ['edge', 'bottom', 'left', 'right', 'alignment', 'parts', '位置', '底部', '布局', '部件'],
   ),
   (
     id: 'dock.folders',
-    en: 'Dock: Folders',
-    zh: '程序坞：文件夹',
+    en: 'Folders & Stacks',
+    zh: '文件夹与堆栈',
     icon: Icons.folder_outlined,
+    keywords: ['folder', 'stack', 'fan', 'grid', 'trash', '文件夹', '堆栈', '扇形', '网格', '废纸篓'],
   ),
 ];
 
@@ -122,6 +130,11 @@ void registerDockSettingsPages() {
             Localizations.maybeLocaleOf(context)?.languageCode == 'zh'
             ? info.zh
             : info.en,
+        group: (context) =>
+            Localizations.maybeLocaleOf(context)?.languageCode == 'zh'
+            ? '程序坞'
+            : 'Dock',
+        keywords: info.keywords,
         icon: info.icon,
         colour: const Color(0xff5e6ad2),
         order: 300 + index * 10,

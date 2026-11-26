@@ -210,6 +210,29 @@ const KitLook _cosmic = KitLook(
   dock: <String, Object?>{'radius': 12, 'indicator': 'dot', 'magnify': false},
 );
 
+/// After Cutefish OS: clean translucent top bar and rounded floating dock,
+/// blue accent, soft rounded geometry and zoom panels.
+const KitLook _cutefish = KitLook(
+  id: 'cutefish',
+  label: 'Cutefish style',
+  palette: KitPalette.cutefish,
+  accentSource: KitAccentSource.palette,
+  shadow: 0.75,
+  cornerScale: 0.85,
+  accentMenuRows: true,
+  panelGrow: KitSpringTuning(560, 1),
+  entry: KitPanelEntry.zoom,
+  switchTuning: KitSpringTuning(640, 1),
+  dockKin: 'mac',
+  dock: <String, Object?>{
+    'radius': 18,
+    'indicator': 'dot',
+    'iconSize': 44,
+    'magnify': false,
+    'opacity': 0.76,
+  },
+);
+
 const List<KitLook> kitReferenceLooks = <KitLook>[
   _noctalia,
   _material,
@@ -219,4 +242,5 @@ const List<KitLook> kitReferenceLooks = <KitLook>[
   _gnome,
   _windows,
   _cosmic,
+  _cutefish,
 ];

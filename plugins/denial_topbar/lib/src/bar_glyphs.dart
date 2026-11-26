@@ -1,5 +1,6 @@
 import 'dart:math' as math;
 
+import 'package:denial_shell_kit/kit_style.dart';
 import 'package:flutter/widgets.dart';
 
 /// The two-switch Control Centre mark macOS 27 draws in the menu bar.
@@ -20,11 +21,12 @@ class ControlCentreGlyph extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final weight = KitStyle.of(context).look.iconWeight;
     return SizedBox(
       width: size,
       height: size,
       child: CustomPaint(
-        painter: _ControlCentrePainter(color),
+        painter: _ControlCentrePainter(color, weight),
         isComplex: false,
       ),
     );
@@ -32,9 +34,10 @@ class ControlCentreGlyph extends StatelessWidget {
 }
 
 class _ControlCentrePainter extends CustomPainter {
-  const _ControlCentrePainter(this.color);
+  const _ControlCentrePainter(this.color, this.weight);
 
   final Color color;
+  final double weight;
 
   @override
   void paint(Canvas canvas, Size size) {
@@ -44,7 +47,7 @@ class _ControlCentrePainter extends CustomPainter {
     final stroke = Paint()
       ..color = color
       ..style = PaintingStyle.stroke
-      ..strokeWidth = 1.3;
+      ..strokeWidth = 1.3 * weight;
     final fill = Paint()..color = color;
 
     // Top: outline pill with the knob filled on the left.
@@ -73,7 +76,8 @@ class _ControlCentrePainter extends CustomPainter {
   }
 
   @override
-  bool shouldRepaint(_ControlCentrePainter old) => old.color != color;
+  bool shouldRepaint(_ControlCentrePainter old) =>
+      old.color != color || old.weight != weight;
 }
 
 /// The Wi-Fi mark at three signal strengths.
@@ -97,11 +101,12 @@ class WifiGlyph extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final weight = KitStyle.of(context).look.iconWeight;
     return SizedBox(
       width: size * 17 / 13,
       height: size,
       child: CustomPaint(
-        painter: _WifiPainter(color, strength.clamp(0, 3)),
+        painter: _WifiPainter(color, strength.clamp(0, 3), weight),
         isComplex: false,
       ),
     );
@@ -109,10 +114,11 @@ class WifiGlyph extends StatelessWidget {
 }
 
 class _WifiPainter extends CustomPainter {
-  const _WifiPainter(this.color, this.strength);
+  const _WifiPainter(this.color, this.strength, this.weight);
 
   final Color color;
   final int strength;
+  final double weight;
 
   @override
   void paint(Canvas canvas, Size size) {
@@ -121,7 +127,7 @@ class _WifiPainter extends CustomPainter {
     final paint = Paint()
       ..color = color
       ..style = PaintingStyle.stroke
-      ..strokeWidth = 1.5
+      ..strokeWidth = 1.5 * weight
       ..strokeCap = StrokeCap.round;
     const centre = Offset(8.5, 11.2);
     // Radii from the innermost arc out, as shell27's `WifiGlyph`.
@@ -140,5 +146,5 @@ class _WifiPainter extends CustomPainter {
 
   @override
   bool shouldRepaint(_WifiPainter old) =>
-      old.color != color || old.strength != strength;
+      old.color != color || old.strength != strength || old.weight != weight;
 }

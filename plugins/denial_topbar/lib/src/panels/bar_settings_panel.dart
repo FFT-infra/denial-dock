@@ -44,6 +44,117 @@ const List<String> barSettingsPageIds = <String>[
   'bar.clock',
 ];
 
+const List<(String, String, List<String>)> _barPageMeta =
+    <(String, String, List<String>)>[
+      (
+        'Shell',
+        'Choose presets, visual looks, motion speed and auto-hide behaviour.',
+        <String>[
+          'appearance',
+          'look',
+          'theme',
+          'preset',
+          'speed',
+          'motion',
+          'autohide',
+          '外观',
+          '预设',
+          '主题',
+          '动效',
+          '自动隐藏',
+        ],
+      ),
+      (
+        'Menu Bar',
+        'Pick a shell preset, arrange zones and assign shared Dock parts.',
+        <String>[
+          'layout',
+          'preset',
+          'shape',
+          'strip',
+          'floating',
+          'islands',
+          'zones',
+          'parts',
+          'dock',
+          '布局',
+          '预设',
+          '形状',
+          '通栏',
+          '灵动群岛',
+          '部件',
+        ],
+      ),
+      (
+        'Menu Bar',
+        'Control Dynamic Island triggers, live activities and multi-tasking gestures.',
+        <String>[
+          'island',
+          'activity',
+          'media',
+          'timer',
+          'notification',
+          'charging',
+          '灵动岛',
+          '实时活动',
+          '播放',
+          '计时器',
+          '充电',
+        ],
+      ),
+      (
+        'Workspaces',
+        'Configure the workspace switcher, overview gestures and virtual desktops.',
+        <String>[
+          'workspace',
+          'desktop',
+          'overview',
+          'dots',
+          'numbers',
+          'scroll',
+          '工作区',
+          '桌面',
+          '总览',
+        ],
+      ),
+      (
+        'Menu Bar',
+        'Choose status icons, tray collection style and per-app tray visibility.',
+        <String>[
+          'tray',
+          'items',
+          'status',
+          'wifi',
+          'bluetooth',
+          'volume',
+          'battery',
+          'clipboard',
+          'fold',
+          '托盘',
+          '收纳',
+          '状态',
+          '电量',
+          '剪贴板',
+        ],
+      ),
+      (
+        'Notifications & Control Centre',
+        'Set clock display options and Notification Center behaviour.',
+        <String>[
+          'clock',
+          'date',
+          'weekday',
+          'notification',
+          'widget',
+          'control',
+          '时钟',
+          '日期',
+          '通知中心',
+          '小组件',
+        ],
+      ),
+    ];
+
 List<KitSettingsPage>? _barPages;
 
 /// Offers the bar's pages to the shell's settings window. The look, the
@@ -55,6 +166,9 @@ void registerBarSettingsPages(ShellServices services) {
         id: barSettingsPageIds[index],
         title: (context) =>
             context.tr(_BarSettingsPanelState._pages[index].$1),
+        group: (context) => context.tr(_barPageMeta[index].$1),
+        subtitle: (context) => context.tr(_barPageMeta[index].$2),
+        keywords: _barPageMeta[index].$3,
         icon: _BarSettingsPanelState._pages[index].$2,
         colour: _BarSettingsPanelState._pages[index].$3,
         order: 100 + index * 10,
@@ -295,65 +409,143 @@ class _BarSettingsPanelState extends ConsumerState<BarSettingsPanel> {
     );
   }
 
-  List<Widget> _appearance(BuildContext context, BarSettings s, _Save save) =>
-      <Widget>[
-        _Group(
-          children: <Widget>[
-            _Row(
-              label: context.tr('Look'),
-              trailing: _Segments<KitStyle>(
-                value: kitStyle.value,
-                options: <(KitStyle, String)>[
-                  for (final style in KitStyle.presets)
-                    (style, context.tr(style.label)),
-                ],
-                onChanged: kitStyle.choose,
-              ),
-            ),
-            _Row(
-              label: context.tr('Motion speed'),
-              trailing: _Segments<double>(
-                value: kitSpeed.value,
-                options: const <(double, String)>[
-                  (0.5, '0.5×'),
-                  (0.75, '0.75×'),
-                  (1, '1×'),
-                  (1.5, '1.5×'),
-                  (2, '2×'),
-                ],
-                onChanged: (speed) => kitSpeed.value = speed,
-              ),
-            ),
-          ],
+  List<Widget> _appearance(BuildContext context, BarSettings s, _Save save) {
+    final theme = context.shellTheme;
+    final activeStyle = KitStyle.of(context);
+    final currentPreset = ShellPreset.byId(kitPreset.value);
+    final looks = <KitStyle>[...KitStyle.builtins, ...KitStyle.user];
+    return <Widget>[
+      _Group(
+        title: context.tr('Preset & Look'),
+        resetLabel: context.tr('Edit Look…'),
+        onReset: () => openKitSettingsPage('bar.look'),
+        note: context.tr(
+          'Current preset: “{}”. Presets arrange bar and Dock parts together; looks control colours, glass materials and motion.',
+          context.tr(currentPreset.label),
         ),
-        _Group(
-          note: context.tr(
-            'The bar slides away and returns when the pointer or a finger touches its strip at the screen edge. Windows keep that strip free.',
+        children: <Widget>[
+          Padding(
+            padding: const EdgeInsets.fromLTRB(12, 10, 12, 12),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: <Widget>[
+                Row(
+                  children: <Widget>[
+                    Expanded(
+                      child: Text(
+                        context.tr('Look'),
+                        style: BarType.menuRow.copyWith(
+                          color: theme.colors.textPrimary,
+                        ),
+                      ),
+                    ),
+                    Pressable(
+                      onTap: () => openKitSettingsPage('bar.layout'),
+                      scale: 0.96,
+                      child: Text(
+                        context.tr('Switch Preset…'),
+                        style: BarType.caption.copyWith(
+                          color: activeStyle.accent(theme),
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 8),
+                Wrap(
+                  spacing: 6,
+                  runSpacing: 6,
+                  children: <Widget>[
+                    for (final style in looks)
+                      _LookPill(
+                        label: style.custom ? style.label : context.tr(style.label),
+                        selected: style.id == activeStyle.id,
+                        onTap: () => kitStyle.choose(style),
+                      ),
+                  ],
+                ),
+              ],
+            ),
           ),
-          children: <Widget>[
-            _Switch(
-              label: context.tr('Automatically hide and show the menu bar'),
-              value: s.autoHide,
-              onChanged: (v) => save((s) => s.copyWith(autoHide: v)),
+          _Row(
+            label: context.tr('Motion speed'),
+            trailing: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: <Widget>[
+                if (kitSpeed.value != 1)
+                  Padding(
+                    padding: const EdgeInsets.only(right: 8),
+                    child: Pressable(
+                      onTap: () => kitSpeed.value = 1,
+                      scale: 0.96,
+                      child: Text(
+                        context.tr('Reset'),
+                        style: BarType.caption.copyWith(
+                          color: activeStyle.accent(theme),
+                        ),
+                      ),
+                    ),
+                  ),
+                _Segments<double>(
+                  value: kitSpeed.value,
+                  options: const <(double, String)>[
+                    (0.5, '0.5×'),
+                    (0.75, '0.75×'),
+                    (1, '1×'),
+                    (1.5, '1.5×'),
+                    (2, '2×'),
+                  ],
+                  onChanged: (speed) => kitSpeed.value = speed,
+                ),
+              ],
             ),
-            _Row(
-              label: context.tr('Reveal delay'),
-              enabled: s.autoHide,
-              trailing: _Segments<int>(
-                value: s.autoHideDelayMs <= 60
-                    ? 0
-                    : (s.autoHideDelayMs <= 250 ? 120 : 400),
-                options: <(int, String)>[
-                  (0, context.tr('None')),
-                  (120, context.tr('Short')),
-                  (400, context.tr('Long')),
-                ],
-                onChanged: (v) => save((s) => s.copyWith(autoHideDelayMs: v)),
-              ),
-            ),
-          ],
+          ),
+        ],
+      ),
+      _Group(
+        title: context.tr('Auto-hide'),
+        resetLabel: s.autoHide ? context.tr('Reset') : null,
+        onReset: s.autoHide
+            ? () => save(
+                (s) => s.copyWith(
+                  autoHide: false,
+                  autoHideDelayMs: barAutoHideDelayDefault,
+                ),
+              )
+            : null,
+        note: context.tr(
+          'The bar slides away and returns when the pointer or a finger touches its strip at the screen edge. Windows keep that strip free.',
         ),
-      ];
+        children: <Widget>[
+          _Switch(
+            label: context.tr('Automatically hide and show the menu bar'),
+            value: s.autoHide,
+            onChanged: (v) => save((s) => s.copyWith(autoHide: v)),
+          ),
+          _Row(
+            label: context.tr('Reveal delay'),
+            enabled: s.autoHide,
+            note: s.autoHide
+                ? null
+                : context.tr(
+                    'Turn on “Automatically hide and show the menu bar” to set a reveal delay.',
+                  ),
+            trailing: _Segments<int>(
+              value: s.autoHideDelayMs <= 60
+                  ? 0
+                  : (s.autoHideDelayMs <= 250 ? 120 : 400),
+              options: <(int, String)>[
+                (0, context.tr('None')),
+                (120, context.tr('Short')),
+                (400, context.tr('Long')),
+              ],
+              onChanged: (v) => save((s) => s.copyWith(autoHideDelayMs: v)),
+            ),
+          ),
+        ],
+      ),
+    ];
+  }
 
   /// Why an island option is out of reach, in words.
   String _why(BuildContext context, IslandWhy why) => context.tr(switch (why) {
@@ -554,7 +746,59 @@ class _BarSettingsPanelState extends ConsumerState<BarSettingsPanel> {
             label: context.tr('Show the overview when the pointer rests'),
             value: s.workspacePreview,
             enabled: shown,
+            note: shown
+                ? null
+                : context.tr(
+                    'Choose where to show the workspace switcher above first.',
+                  ),
             onChanged: (v) => save((s) => s.copyWith(workspacePreview: v)),
+          ),
+        ],
+      ),
+      _Group(
+        title: context.tr('Overview'),
+        resetLabel:
+            !s.overviewShowMinimised ||
+                    !s.overviewMiddleClickCloses ||
+                    !s.overviewLiveOtherWorkspaces ||
+                    s.overviewLiveLimit != 6
+                ? context.tr('Reset')
+                : null,
+        onReset: () => save(
+          (s) => s.copyWith(
+            overviewShowMinimised: true,
+            overviewMiddleClickCloses: true,
+            overviewLiveOtherWorkspaces: true,
+            overviewLiveLimit: 6,
+          ),
+        ),
+        children: <Widget>[
+          _Switch(
+            label: context.tr('Show minimised windows'),
+            value: s.overviewShowMinimised,
+            onChanged: (v) =>
+                save((s) => s.copyWith(overviewShowMinimised: v)),
+          ),
+          _Switch(
+            label: context.tr('Live thumbnails on other desktops'),
+            value: s.overviewLiveOtherWorkspaces,
+            onChanged: (v) =>
+                save((s) => s.copyWith(overviewLiveOtherWorkspaces: v)),
+          ),
+          _Switch(
+            label: context.tr('Middle-click a thumbnail to close window'),
+            value: s.overviewMiddleClickCloses,
+            onChanged: (v) =>
+                save((s) => s.copyWith(overviewMiddleClickCloses: v)),
+          ),
+          _Row(
+            label: context.tr('Live thumbnails per desktop'),
+            trailing: _Stepper(
+              value: s.overviewLiveLimit,
+              min: 1,
+              max: 12,
+              onChanged: (v) => save((s) => s.copyWith(overviewLiveLimit: v)),
+            ),
           ),
         ],
       ),
@@ -709,11 +953,29 @@ class _BarSettingsPanelState extends ConsumerState<BarSettingsPanel> {
       ),
       _Group(
         title: context.tr('System tray'),
+        resetLabel: s.collapseItems ||
+                s.trayFold != BarTrayFold.inline ||
+                s.trayHidden.isNotEmpty ||
+                s.trayNever.isNotEmpty
+            ? context.tr('Reset')
+            : null,
+        onReset: () => save(
+          (s) => s.copyWith(
+            collapseItems: false,
+            trayFold: BarTrayFold.inline,
+            collapseAutoSeconds: 15,
+            trayHidden: const <String>[],
+            trayNever: const <String>[],
+          ),
+        ),
         children: <Widget>[
           _Switch(
             label: context.tr('Icons in colour'),
             value: s.trayColour,
             enabled: s.showTray,
+            note: s.showTray
+                ? null
+                : context.tr('Enable System tray above to change icon appearance.'),
             onChanged: (v) => save((s) => s.copyWith(trayColour: v)),
           ),
           _Switch(
@@ -723,8 +985,39 @@ class _BarSettingsPanelState extends ConsumerState<BarSettingsPanel> {
             onChanged: (v) => save((s) => s.copyWith(collapseItems: v)),
           ),
           _Row(
-            label: context.tr('Fold again after'),
+            label: context.tr('Collection style'),
             enabled: s.showTray && (s.collapseItems || s.trayHidden.isNotEmpty),
+            note: !s.showTray
+                ? context.tr('System tray is turned off.')
+                : !(s.collapseItems || s.trayHidden.isNotEmpty)
+                ? context.tr(
+                    'Turn on folding or set an item below to Hidden first.',
+                  )
+                : null,
+            trailing: _Segments<BarTrayFold>(
+              value: s.trayFold,
+              options: <(BarTrayFold, String)>[
+                (BarTrayFold.inline, context.tr('Arrow')),
+                (BarTrayFold.hover, context.tr('Hover')),
+                (BarTrayFold.popover, context.tr('Popover')),
+                (BarTrayFold.controlCenter, context.tr('Control Centre')),
+              ],
+              onChanged: (v) => save((s) => s.copyWith(trayFold: v)),
+            ),
+          ),
+          _Row(
+            label: context.tr('Fold again after'),
+            enabled:
+                s.showTray &&
+                (s.collapseItems || s.trayHidden.isNotEmpty) &&
+                (s.trayFold == BarTrayFold.inline ||
+                    s.trayFold == BarTrayFold.hover),
+            note: (s.showTray &&
+                    (s.collapseItems || s.trayHidden.isNotEmpty) &&
+                    s.trayFold != BarTrayFold.inline &&
+                    s.trayFold != BarTrayFold.hover)
+                ? context.tr('Applies only to Arrow and Hover collection styles.')
+                : null,
             trailing: _Segments<int>(
               value: const <int>[0, 5, 15, 30].contains(s.collapseAutoSeconds)
                   ? s.collapseAutoSeconds
@@ -931,10 +1224,18 @@ Widget _timing(
 );
 
 class _Group extends StatelessWidget {
-  const _Group({required this.children, this.title, this.note});
+  const _Group({
+    required this.children,
+    this.title,
+    this.note,
+    this.onReset,
+    this.resetLabel,
+  });
 
   final String? title;
   final String? note;
+  final VoidCallback? onReset;
+  final String? resetLabel;
   final List<Widget> children;
 
   @override
@@ -945,14 +1246,33 @@ class _Group extends StatelessWidget {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: <Widget>[
-          if (title != null)
+          if (title != null || onReset != null)
             Padding(
               padding: const EdgeInsets.fromLTRB(4, 0, 4, 7),
-              child: Text(
-                title!,
-                style: BarType.section.copyWith(
-                  color: theme.colors.textSecondary,
-                ),
+              child: Row(
+                children: <Widget>[
+                  Expanded(
+                    child: title != null
+                        ? Text(
+                            title!,
+                            style: BarType.section.copyWith(
+                              color: theme.colors.textSecondary,
+                            ),
+                          )
+                        : const SizedBox.shrink(),
+                  ),
+                  if (onReset != null && resetLabel != null)
+                    Pressable(
+                      onTap: onReset,
+                      scale: 0.96,
+                      child: Text(
+                        resetLabel!,
+                        style: BarType.caption.copyWith(
+                          color: KitStyle.of(context).accent(theme),
+                        ),
+                      ),
+                    ),
+                ],
               ),
             ),
           Container(
@@ -998,6 +1318,52 @@ class _Group extends StatelessWidget {
               ),
             ),
         ],
+      ),
+    );
+  }
+}
+
+class _LookPill extends StatelessWidget {
+  const _LookPill({
+    required this.label,
+    required this.selected,
+    required this.onTap,
+  });
+
+  final String label;
+  final bool selected;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = context.shellTheme;
+    final style = KitStyle.of(context);
+    final accent = style.accent(theme);
+    return Pressable(
+      onTap: onTap,
+      scale: 0.97,
+      child: AnimatedContainer(
+        duration: KitMotion.duration(context, KitMotion.fade),
+        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+        decoration: BoxDecoration(
+          color: selected
+              ? accent
+              : theme.colors.textPrimary.withValues(alpha: 0.08),
+          borderRadius: BorderRadius.circular(style.corner(8)),
+          border: Border.all(
+            color: selected
+                ? accent
+                : theme.colors.textPrimary.withValues(alpha: 0.08),
+          ),
+        ),
+        child: Text(
+          label,
+          style: BarType.caption.copyWith(
+            fontSize: 12,
+            fontWeight: selected ? FontWeight.w600 : FontWeight.w400,
+            color: selected ? style.onAccent(theme) : theme.colors.textPrimary,
+          ),
+        ),
       ),
     );
   }

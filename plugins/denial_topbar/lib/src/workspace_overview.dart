@@ -17,6 +17,8 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import 'bar_icons.dart';
 import 'bar_panel.dart';
+import 'bar_preferences.dart';
+import 'bar_settings.dart';
 import 'bar_type.dart';
 import 'l10n.dart';
 import 'panels/mac_kit.dart';
@@ -404,8 +406,10 @@ class _WorkspaceOverviewState extends ConsumerState<WorkspaceOverview> {
     _bounds = bounds;
     _count = status.count;
     if (_selected < 0) _selected = status.active - 1;
+    final barSettings =
+        ref.watch(barSettingsProvider).value ?? BarSettings.defaults;
 
-    final minimised = OverviewTuning.showMinimised
+    final minimised = barSettings.overviewShowMinimised
         ? windows.where((w) => w.minimized).toList()
         : const <DenialWindow>[];
     final canAdd = status.count < maximumWorkspaceCount;
@@ -457,6 +461,7 @@ class _WorkspaceOverviewState extends ConsumerState<WorkspaceOverview> {
                   standIn: !current || !live,
                   faded: drag?.window.objectId == window.objectId,
                   radius: math.max(0.0, style.corner(5)),
+                  middleClickCloses: barSettings.overviewMiddleClickCloses,
                   onTap: () => _raise(window),
                   onClose: () => _closeWindow(window),
                   onDragStart: movable
@@ -570,12 +575,12 @@ class _WorkspaceOverviewState extends ConsumerState<WorkspaceOverview> {
                                   live:
                                       _hasSurface(mine[i]) &&
                                       (active ||
-                                          OverviewTuning
-                                              .liveOnOtherWorkspaces) &&
+                                          barSettings
+                                              .overviewLiveOtherWorkspaces) &&
                                       overviewLiveSlot(
                                         i,
                                         mine.length,
-                                        OverviewTuning.liveLimitPerCard,
+                                        barSettings.overviewLiveLimit,
                                       ),
                                 ),
                               for (final w in gone)
@@ -1042,6 +1047,7 @@ class _WindowThumb extends StatefulWidget {
     required this.standIn,
     required this.faded,
     required this.radius,
+    required this.middleClickCloses,
     required this.onTap,
     required this.onClose,
     required this.onDragStart,
@@ -1063,6 +1069,7 @@ class _WindowThumb extends StatefulWidget {
   /// Left behind while a copy is dragged.
   final bool faded;
   final double radius;
+  final bool middleClickCloses;
   final VoidCallback onTap;
   final VoidCallback onClose;
   final ValueChanged<Offset>? onDragStart;
@@ -1188,7 +1195,7 @@ class _WindowThumbState extends State<_WindowThumb> {
       onExit: (_) => setState(() => _hovered = false),
       child: Listener(
         onPointerDown: (event) {
-          if (OverviewTuning.middleClickCloses &&
+          if (widget.middleClickCloses &&
               event.buttons == kMiddleMouseButton) {
             widget.onClose();
           }

@@ -176,6 +176,9 @@ class _DockContainerState extends ConsumerState<DockContainer>
   /// How long a task button is on a bar that shows titles; zero when none
   /// does.
   double _taskExtent = 0;
+
+  /// Cross width on a vertical taskbar when window titles sit beside icons.
+  double _verticalTaskCross = 0;
   WorkspaceStatus _workspaceStatus = WorkspaceStatus(
     count: 1,
     active: 1,
@@ -241,7 +244,9 @@ class _DockContainerState extends ConsumerState<DockContainer>
   bool _resizing = false;
 
   double get _iconSize => _fitIcon ?? _dragIconSize ?? _fit.iconSize;
-  double get _capsuleHeight => _iconSize + _look.padding * 2;
+  double get _crossExtent =>
+      _vertical && _verticalTaskCross > _iconSize ? _verticalTaskCross : _iconSize;
+  double get _capsuleHeight => _crossExtent + _look.padding * 2;
   double get _halfIcon => _iconSize / 2;
 
   DockPosition get _position => _settings.position;
@@ -1131,12 +1136,13 @@ class _DockContainerState extends ConsumerState<DockContainer>
           },
           titled:
               section.kind == DockSlotKind.app &&
-              _taskExtent > _iconSize &&
+              (_vertical ? _verticalTaskCross > _iconSize : _taskExtent > _iconSize) &&
               entries[section.index!].windows.isNotEmpty,
           half: switch (section.kind) {
             DockSlotKind.divider => _fit.dividerSpan * _spacing / 2,
             DockSlotKind.app
-                when _taskExtent > _iconSize &&
+                when !_vertical &&
+                    _taskExtent > _iconSize &&
                     entries[section.index!].windows.isNotEmpty =>
               _taskExtent / 2,
             // Until a part has been measured it holds one icon's room.
@@ -1200,6 +1206,7 @@ class _DockContainerState extends ConsumerState<DockContainer>
   ) {
     _fitIcon = null;
     _taskExtent = 0;
+    _verticalTaskCross = 0;
     final asked = _iconSize;
     _spaceFor(asked);
     final specs = _specsFor(entries, settings);
@@ -1228,7 +1235,7 @@ class _DockContainerState extends ConsumerState<DockContainer>
       _spaceFor(fitted);
       return _specsFor(entries, settings);
     }
-    if (!bar || _vertical || !_fit.taskTitles) return specs;
+    if (!bar || !_fit.taskTitles) return specs;
     final tasks = specs
         .where(
           (spec) =>
@@ -1236,6 +1243,11 @@ class _DockContainerState extends ConsumerState<DockContainer>
               entries[spec.entry!].windows.isNotEmpty,
         )
         .length;
+    if (_vertical) {
+      if (tasks == 0) return specs;
+      _verticalTaskCross = math.max(_iconSize, math.min(_fit.taskWidth, 152.0));
+      return _specsFor(entries, settings);
+    }
     final extent = DockLayout.taskExtent(
       available: available - fixed - (icons - tasks) * asked,
       tasks: tasks,
@@ -1328,8 +1340,8 @@ class _DockContainerState extends ConsumerState<DockContainer>
     // nothing to step aside for.
     final held = kitReservation.value;
     final foreign =
-        held == null ||
-        (held.owner == KitReserver.bar && held.edge == _kitEdge);
+        (held == null && kitBarModeInForce == KitBarMode.shown) ||
+        (held != null && held.owner == KitReserver.bar && held.edge == _kitEdge);
     _reserved = settings.avoidReservedEdge && foreign
         ? DockAutoHide.reservedEdge(
             output: _output,
@@ -2151,11 +2163,12 @@ class _DockContainerState extends ConsumerState<DockContainer>
         ? own.a
         : look.opacity ?? theme.effectivePanelOpacity;
     final inner = base.inner;
+    final isBar = look.shape == DockShape.bar;
     final material = base.copyWith(
       // A preset that counts its blur in pixels has it drawn at that sigma;
       // any other is a share of the system's own blur.
       sigma: look.blurSigma,
-      outer: look.border ? null : () => null,
+      outer: !look.border || isBar ? () => null : null,
       inner: () => !look.border
           ? null
           : look.accentBorder
@@ -2168,9 +2181,9 @@ class _DockContainerState extends ConsumerState<DockContainer>
           : KitLine(
               inner.tone,
               width: look.borderWidth,
-              edges: inner.edges,
-              tail: inner.tail,
-              reach: inner.reach,
+              edges: isBar ? KitEdges.all : inner.edges,
+              tail: isBar ? 0 : inner.tail,
+              reach: isBar ? 0 : inner.reach,
             ),
     );
     // A glass surface owns the fade so the backdrop and foreground can fade
@@ -2565,11 +2578,14 @@ class _DockContainerState extends ConsumerState<DockContainer>
             muted = (muted ?? true) && line.startsWith('1');
           }
         }
+        final taskCross = spec.titled && _vertical
+            ? _verticalTaskCross
+            : (spec.titled ? _iconSize : extent);
         return slotAt(
           key: ValueKey('dock-${entry.appId}'),
           cross: _look.padding,
           mainExtent: extent,
-          crossExtent: spec.titled ? _iconSize : extent,
+          crossExtent: taskCross,
           child: Opacity(
             opacity: isSource ? 0 : 1,
             child: cell(
@@ -2586,7 +2602,9 @@ class _DockContainerState extends ConsumerState<DockContainer>
               monitorBounds: _output,
               position: _position,
               size: spec.titled ? _iconSize : extent,
-              cellExtent: spec.titled ? extent : null,
+              cellExtent: spec.titled
+                  ? (_vertical ? _verticalTaskCross : extent)
+                  : null,
               title: spec.titled ? _taskTitle(entry) : null,
               metrics: _fit,
               markerOffset: markerOffset,

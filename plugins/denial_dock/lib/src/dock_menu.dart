@@ -4,13 +4,14 @@ import 'dart:math' as math;
 import 'package:denial_shell_kit/kit_motion.dart';
 import 'package:denial_shell_kit/kit_springs.dart';
 import 'package:denial_shell_kit/kit_style.dart';
-import 'package:denial_flutter_sdk/effects.dart';
 import 'package:denial_flutter_sdk/theme.dart';
 import 'package:flutter/material.dart';
 
 import 'dock_settings.dart' show DockPosition;
 
 import 'package:denial_shell_kit/glass_card.dart';
+import 'package:denial_shell_kit/kit_glass.dart';
+import 'package:denial_shell_kit/kit_material.dart';
 
 import 'dock_look_style.dart';
 
@@ -230,19 +231,29 @@ class DockMenuPanel extends StatelessWidget {
     // stands off its anchor, and draws nothing in it.
     final tailed = dockLookMetrics.menuTail;
     final outlined = tail != DockMenuTail.none && tailed;
-    final fill = GlassCard.fillOf(theme);
+    final style = KitStyle.of(context);
+    final material = kitMaterialOf(context, KitTier.menu);
+    final menuRadius = BorderRadius.circular(
+      style.radius(theme, material.radius ?? radius.topLeft.x),
+    );
+    final tone = material.fill.fixed
+        ? kitToneColor(material.fill, theme, style)
+        : style.panelFill(GlassCard.fillOf(theme));
+    final blurred = theme.effectivePanelOpacity < 1 && style.glassy;
+    final fill = !blurred && tone.a < material.solid
+        ? tone.withValues(alpha: material.solid)
+        : tone;
     // A tail has to be stroked as one outline with its panel, so only a
     // tail-less panel takes the card's continuous corners and shadow.
     final panel = !outlined
-        ? GlassCard(radius: radius.topLeft.x, child: child)
-        : ShellBackdropBlur(
+        ? GlassCard(tier: KitTier.menu, radius: menuRadius.topLeft.x, child: child)
+        : KitGlass(
+            material: material.copyWith(outer: () => null, inner: () => null),
+            radius: menuRadius.topLeft.x,
+            fill: fill,
             blur: theme.effectivePanelOpacity < 1,
-            separateChild: true,
-            borderRadius: radius,
-            child: DecoratedBox(
-              decoration: BoxDecoration(color: fill, borderRadius: radius),
-              child: child,
-            ),
+            separate: true,
+            child: child,
           );
     final height = maxHeight;
     final sized = height == null
@@ -289,8 +300,8 @@ class DockMenuPanel extends StatelessWidget {
       foregroundPainter: _MenuOutlinePainter(
         // The look's own line: a hairline, or the accent where the look
         // outlines its panels.
-        color: KitStyle.of(context).border(theme),
-        radius: radius.topLeft.x,
+        color: style.border(theme),
+        radius: menuRadius.topLeft.x,
         tail: tail,
         tailAlignment: tailAlignment,
       ),

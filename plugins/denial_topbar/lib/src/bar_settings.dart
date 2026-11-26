@@ -187,6 +187,60 @@ abstract final class BarMetric {
 
 enum BarWorkspaceStyle { dots, numbers }
 
+/// How collected system-tray icons are presented.
+enum BarTrayFold {
+  /// Slides folded icons out behind a chevron button in the bar.
+  inline,
+
+  /// Reveals folded icons inline when the pointer rests over the handle.
+  hover,
+
+  /// Opens folded icons inside a compact grid popover under a tray button.
+  popover,
+
+  /// Moves folded icons out of the bar and into Control Centre.
+  controlCenter;
+
+  String get key => name;
+
+  static BarTrayFold parse(
+    Object? value, {
+    BarTrayFold fallback = BarTrayFold.inline,
+  }) => switch (value) {
+    'hover' => BarTrayFold.hover,
+    'popover' => BarTrayFold.popover,
+    'controlCenter' => BarTrayFold.controlCenter,
+    'inline' => BarTrayFold.inline,
+    _ => fallback,
+  };
+}
+
+/// Splits [trayIds] into icons that stay directly on the bar (`visible`)
+/// and icons gathered into the collection target (`folded`).
+({List<String> visible, List<String> folded}) partitionTrayIds(
+  List<String> trayIds, {
+  required BarSettings settings,
+  required String Function(String id) resolveKey,
+}) {
+  bool listed(List<String> keys, String id) =>
+      keys.contains(resolveKey(id)) || keys.contains(id);
+  final tucked = <String>[
+    for (final id in trayIds)
+      if (listed(settings.trayHidden, id) && !listed(settings.trayNever, id)) id,
+  ];
+  final shown = <String>[
+    for (final id in trayIds)
+      if (!listed(settings.trayNever, id) && !tucked.contains(id)) id,
+  ];
+  if (tucked.isNotEmpty) {
+    return (visible: shown, folded: tucked);
+  }
+  if (settings.collapseItems) {
+    return (visible: const <String>[], folded: shown);
+  }
+  return (visible: shown, folded: const <String>[]);
+}
+
 const List<String> defaultControls = <String>[
   'wifi',
   'media',
@@ -258,12 +312,17 @@ class BarSettings {
     this.mergedNotificationCenter = true,
     this.collapseItems = false,
     this.collapseAutoSeconds = 15,
+    this.trayFold = BarTrayFold.inline,
     this.showBluetooth = true,
     this.showSearch = true,
     this.showClipboard = false,
     this.activityHud = true,
     this.workspaceScroll = true,
     this.workspacePreview = true,
+    this.overviewShowMinimised = true,
+    this.overviewMiddleClickCloses = true,
+    this.overviewLiveOtherWorkspaces = true,
+    this.overviewLiveLimit = 6,
     this.clockWeekday = true,
     this.workspaceStyle = BarWorkspaceStyle.dots,
     this.activityRecording = true,
@@ -374,10 +433,11 @@ class BarSettings {
   /// The clock opens notifications and widgets as one column.
   final bool mergedNotificationCenter;
 
-  /// Tray items fold behind a chevron; 0 seconds keeps them open until the
-  /// chevron is pressed again.
+  /// Tray items fold behind a handle; 0 seconds keeps them open until the
+  /// handle is pressed again.
   final bool collapseItems;
   final int collapseAutoSeconds;
+  final BarTrayFold trayFold;
   final bool showBluetooth;
   final bool showSearch;
 
@@ -386,6 +446,12 @@ class BarSettings {
   final bool activityHud;
   final bool workspaceScroll;
   final bool workspacePreview;
+
+  /// Overview window layout and behaviour preferences.
+  final bool overviewShowMinimised;
+  final bool overviewMiddleClickCloses;
+  final bool overviewLiveOtherWorkspaces;
+  final int overviewLiveLimit;
   final bool clockWeekday;
   final BarWorkspaceStyle workspaceStyle;
 
@@ -603,12 +669,17 @@ class BarSettings {
     bool? mergedNotificationCenter,
     bool? collapseItems,
     int? collapseAutoSeconds,
+    BarTrayFold? trayFold,
     bool? showBluetooth,
     bool? showSearch,
     bool? showClipboard,
     bool? activityHud,
     bool? workspaceScroll,
     bool? workspacePreview,
+    bool? overviewShowMinimised,
+    bool? overviewMiddleClickCloses,
+    bool? overviewLiveOtherWorkspaces,
+    int? overviewLiveLimit,
     bool? clockWeekday,
     BarWorkspaceStyle? workspaceStyle,
     bool? activityRecording,
@@ -672,12 +743,21 @@ class BarSettings {
         mergedNotificationCenter ?? this.mergedNotificationCenter,
     collapseItems: collapseItems ?? this.collapseItems,
     collapseAutoSeconds: collapseAutoSeconds ?? this.collapseAutoSeconds,
+    trayFold: trayFold ?? this.trayFold,
     showBluetooth: showBluetooth ?? this.showBluetooth,
     showSearch: showSearch ?? this.showSearch,
     showClipboard: showClipboard ?? this.showClipboard,
     activityHud: activityHud ?? this.activityHud,
     workspaceScroll: workspaceScroll ?? this.workspaceScroll,
     workspacePreview: workspacePreview ?? this.workspacePreview,
+    overviewShowMinimised:
+        overviewShowMinimised ?? this.overviewShowMinimised,
+    overviewMiddleClickCloses:
+        overviewMiddleClickCloses ?? this.overviewMiddleClickCloses,
+    overviewLiveOtherWorkspaces:
+        overviewLiveOtherWorkspaces ?? this.overviewLiveOtherWorkspaces,
+    overviewLiveLimit:
+        (overviewLiveLimit ?? this.overviewLiveLimit).clamp(1, 12),
     clockWeekday: clockWeekday ?? this.clockWeekday,
     workspaceStyle: workspaceStyle ?? this.workspaceStyle,
     activityRecording: activityRecording ?? this.activityRecording,
@@ -843,12 +923,17 @@ class BarSettings {
       collapseAutoSeconds: json['collapseAutoSeconds'] is num
           ? (json['collapseAutoSeconds'] as num).round().clamp(0, 120)
           : 15,
+      trayFold: BarTrayFold.parse(json['trayFold']),
       showBluetooth: flag('showBluetooth', true),
       showSearch: flag('showSearch', true),
       showClipboard: flag('showClipboard', false),
       activityHud: flag('activityHud', true),
       workspaceScroll: flag('workspaceScroll', true),
       workspacePreview: flag('workspacePreview', true),
+      overviewShowMinimised: flag('overviewShowMinimised', true),
+      overviewMiddleClickCloses: flag('overviewMiddleClickCloses', true),
+      overviewLiveOtherWorkspaces: flag('overviewLiveOtherWorkspaces', true),
+      overviewLiveLimit: whole('overviewLiveLimit', 1, 12, 6),
       clockWeekday: flag('clockWeekday', true),
       workspaceStyle: json['workspaceStyle'] == 'numbers'
           ? BarWorkspaceStyle.numbers
@@ -921,12 +1006,17 @@ class BarSettings {
     json['mergedNotificationCenter'] = mergedNotificationCenter;
     json['collapseItems'] = collapseItems;
     json['collapseAutoSeconds'] = collapseAutoSeconds;
+    json['trayFold'] = trayFold.key;
     json['showBluetooth'] = showBluetooth;
     json['showSearch'] = showSearch;
     json['showClipboard'] = showClipboard;
     json['activityHud'] = activityHud;
     json['workspaceScroll'] = workspaceScroll;
     json['workspacePreview'] = workspacePreview;
+    json['overviewShowMinimised'] = overviewShowMinimised;
+    json['overviewMiddleClickCloses'] = overviewMiddleClickCloses;
+    json['overviewLiveOtherWorkspaces'] = overviewLiveOtherWorkspaces;
+    json['overviewLiveLimit'] = overviewLiveLimit;
     json['clockWeekday'] = clockWeekday;
     json['activityRecording'] = activityRecording;
     json['activityStatus'] = activityStatus;

@@ -71,7 +71,7 @@ class BarGroundLayer extends StatelessWidget {
 
   /// The second colour of a bar whose segments alternate.
   static Color alternateFor(Color base, ShellThemeData theme) =>
-      Color.lerp(base, theme.kitAccent, 0.62) ?? base;
+      Color.lerp(base, theme.kitAccent, 0.24) ?? base;
 
   /// Black or white, whichever reads on [ground].
   static Color inkOn(Color ground) =>

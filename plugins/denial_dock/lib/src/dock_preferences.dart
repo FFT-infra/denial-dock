@@ -1,3 +1,4 @@
+import 'package:denial_shell_kit/kit_style.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import 'dock_look.dart';
@@ -132,18 +133,40 @@ class DockSettingsController extends AsyncNotifier<DockSettings> {
       _update((current) => current.copyWith(dimInactivePinned: dim));
 
   /// Sets one value of the capsule's look, or puts it back on the preset
-  /// when [value] is null.
-  Future<void> setLook(String key, Object? value) => _update(
-    (current) => current.copyWith(
-      look: DockLook.withOverride(current.look, key, value),
-    ),
-  );
+  /// when [value] is null. Structural bar keys (`shape`, `taskTitles`) apply
+  /// across looks; cosmetic look overrides stay scoped to the active style.
+  Future<void> setLook(String key, Object? value) => _update((current) {
+    if (key == DockLook.shapeKey || key == DockMetrics.taskTitlesKey) {
+      return current.copyWith(
+        look: DockLook.withOverride(current.look, key, value),
+      );
+    }
+    final styleId = kitStyle.value.id;
+    final scoped = DockLook.withOverride(
+      current.lookByStyle[styleId] ?? const <String, Object?>{},
+      key,
+      value,
+    );
+    final nextMap = <String, Map<String, Object?>>{...current.lookByStyle};
+    if (scoped.isEmpty) {
+      nextMap.remove(styleId);
+    } else {
+      nextMap[styleId] = scoped;
+    }
+    return current.copyWith(lookByStyle: Map.unmodifiable(nextMap));
+  });
 
   /// Puts the whole look back on the preset of the shell look in force.
-  Future<void> resetLook() =>
-      _update(
-        (current) => current.copyWith(look: const {}, chosen: const {}),
-      );
+  Future<void> resetLook() => _update((current) {
+    final styleId = kitStyle.value.id;
+    final nextMap = <String, Map<String, Object?>>{...current.lookByStyle}
+      ..remove(styleId);
+    return current.copyWith(
+      look: const {},
+      lookByStyle: Map.unmodifiable(nextMap),
+      chosen: const {},
+    );
+  });
 
   Future<void> setPreviewDelayMs(int delay) =>
       _update((current) => current.copyWith(previewDelayMs: delay));

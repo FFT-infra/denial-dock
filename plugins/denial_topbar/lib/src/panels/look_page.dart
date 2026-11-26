@@ -21,14 +21,54 @@ import 'setting_bits.dart';
 const KitSettingsPage _lookPage = KitSettingsPage(
   id: 'bar.look',
   title: _lookTitle,
+  group: _lookGroup,
+  subtitle: _lookSubtitle,
+  keywords: <String>[
+    'look',
+    'theme',
+    'style',
+    'accent',
+    'palette',
+    'appearance',
+    'dark',
+    'light',
+    'blur',
+    'glass',
+    'material',
+    'font',
+    'corner',
+    'border',
+    'motion',
+    'spring',
+    'shadow',
+    '外观',
+    '主题',
+    '风格',
+    '配色',
+    '强调色',
+    '模糊',
+    '材质',
+    '玻璃',
+    '字体',
+    '圆角',
+    '边框',
+    '动效',
+    '阴影',
+  ],
   icon: BarIcons.circleHalf,
   colour: Color(0xffbf5af2),
-  // Between the appearance page and the layout page.
+  // Inside the Shell group right after General/Appearance.
   order: 105,
   builder: _buildLookPage,
 );
 
 String _lookTitle(BuildContext context) => context.tr('Look Editor');
+
+String _lookGroup(BuildContext context) => context.tr('Shell');
+
+String _lookSubtitle(BuildContext context) => context.tr(
+  'Tune colours, glass materials, fonts, corners and motion, then save as your own look.',
+);
 
 Widget _buildLookPage(BuildContext context) => const LookPage();
 

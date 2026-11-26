@@ -508,6 +508,34 @@ class KitPalette {
     ),
   );
 
+  /// Crisp frosted neutrals with sky blue, after Cutefish OS.
+  static const KitPalette cutefish = KitPalette(
+    id: 'cutefish',
+    label: 'Cutefish',
+    dark: KitTones(
+      background: 0x1a1a1c,
+      surface: 0x242426,
+      raised: 0x333336,
+      text: 0xf4f4f6,
+      subtext: 0xbabac0,
+      faint: 0x828288,
+      outline: 0x424247,
+      accent: 0x3b8bff,
+      onAccent: 0xffffff,
+    ),
+    light: KitTones(
+      background: 0xf2f4f7,
+      surface: 0xfafbfc,
+      raised: 0xeaeef5,
+      text: 0x1c1e21,
+      subtext: 0x5c6068,
+      faint: 0x8b9099,
+      outline: 0xd5dae2,
+      accent: 0x2277ff,
+      onAccent: 0xffffff,
+    ),
+  );
+
   static const List<KitPalette> all = <KitPalette>[
     graphite,
     catppuccin,
@@ -522,5 +550,6 @@ class KitPalette {
     adwaita,
     fluent,
     slate,
+    cutefish,
   ];
 }

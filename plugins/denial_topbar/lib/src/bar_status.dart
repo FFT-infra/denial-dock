@@ -2,6 +2,7 @@ import 'dart:async';
 
 import 'package:denial_flutter_sdk/services.dart';
 import 'package:denial_flutter_sdk/state.dart';
+import 'package:denial_flutter_sdk/theme.dart';
 import 'package:denial_shell_kit/kit_motion.dart';
 import 'package:denial_shell_kit/kit_style.dart';
 import 'package:flutter/material.dart';
@@ -83,6 +84,8 @@ class BarStatusCluster extends ConsumerWidget {
     required this.onNotifications,
     required this.onControlCenter,
     required this.onSettings,
+    this.onTray,
+    this.trayKey,
     this.wifiKey,
     this.volumeKey,
     this.bluetoothKey,
@@ -121,6 +124,8 @@ class BarStatusCluster extends ConsumerWidget {
     onNotifications: onNotifications,
     onControlCenter: onControlCenter,
     onSettings: onSettings,
+    onTray: onTray,
+    trayKey: trayKey,
     wifiKey: wifiKey,
     volumeKey: volumeKey,
     bluetoothKey: bluetoothKey,
@@ -165,6 +170,8 @@ class BarStatusCluster extends ConsumerWidget {
   final VoidCallback onNotifications;
   final VoidCallback onControlCenter;
   final VoidCallback onSettings;
+  final VoidCallback? onTray;
+  final GlobalKey? trayKey;
 
   /// Anchors the popup's scene rectangle. Without one the panel falls back to
   /// the screen edge instead of hanging under its own cell.
@@ -200,64 +207,68 @@ class BarStatusCluster extends ConsumerWidget {
 
     double span(double width) => horizontal ? width : crossExtent;
     final percent = settings.showBatteryPercent && horizontal;
-    // Ice's three sections: shown, behind the chevron, and never shown.
     final sorting =
         settings.trayNever.isNotEmpty || settings.trayHidden.isNotEmpty;
     if (sorting) {
       trayNames.resolve(trayIds);
       ref.watch(_trayNamesProvider);
     }
-    bool listed(List<String> keys, String id) =>
-        keys.contains(trayNames.of(id).key) || keys.contains(id);
-    final tucked = <String>[
-      for (final id in trayIds)
-        if (listed(settings.trayHidden, id) && !listed(settings.trayNever, id))
-          id,
-    ];
-    final shown = <String>[
-      for (final id in trayIds)
-        if (!listed(settings.trayNever, id) && !tucked.contains(id)) id,
-    ];
-    final sections = tucked.isNotEmpty;
-    Widget tray(List<String> ids) {
-      Widget build({Color? foreground}) => services.buildSystemTray(
-        context,
-        horizontal: horizontal,
-        foregroundColor: foreground,
-        itemIds: ids,
-      );
-      return ConstrainedBox(
-        constraints: horizontal
-            ? const BoxConstraints(maxWidth: 240)
-            : BoxConstraints(maxHeight: 240, maxWidth: crossExtent),
-        child: settings.trayColour
-            ? build()
-            : ColorFiltered(
-                colorFilter: ColorFilter.matrix(_templateMatrix(ink)),
-                child: build(foreground: ink),
-              ),
-      );
-    }
+    final part = partitionTrayIds(
+      trayIds,
+      settings: settings,
+      resolveKey: (id) => trayNames.of(id).key,
+    );
+    final hasFolded = part.folded.isNotEmpty;
+    final inBarFold =
+        hasFolded &&
+        (settings.trayFold == BarTrayFold.inline ||
+            settings.trayFold == BarTrayFold.hover);
+    final popoverFold = hasFolded && settings.trayFold == BarTrayFold.popover;
+    final showTrayCell =
+        settings.showTray &&
+        trayVisible &&
+        (part.visible.isNotEmpty || inBarFold || popoverFold);
+    Widget tray(List<String> ids) => buildTrayIcons(
+      context,
+      services: services,
+      settings: settings,
+      ink: ink,
+      itemIds: ids,
+      horizontal: horizontal,
+      crossExtent: crossExtent,
+    );
 
     final byId = <String, Widget>{
-      if (settings.showTray &&
-          trayVisible &&
-          (shown.isNotEmpty || tucked.isNotEmpty))
+      if (showTrayCell)
         'tray': Flex(
           direction: horizontal ? Axis.horizontal : Axis.vertical,
           mainAxisSize: MainAxisSize.min,
           children: <Widget>[
-            if (sections || settings.collapseItems)
+            if (inBarFold)
               _TrayFold(
                 ink: ink,
                 enabled: true,
+                expandOnHover: settings.trayFold == BarTrayFold.hover,
                 autoSeconds: settings.collapseAutoSeconds,
                 horizontal: horizontal,
                 crossExtent: crossExtent,
-                child: tray(sections ? tucked : shown),
+                child: tray(part.folded),
               ),
-            if (shown.isNotEmpty && (sections || !settings.collapseItems))
-              tray(shown),
+            if (popoverFold)
+              BarStatusCell(
+                key: trayKey,
+                ink: ink,
+                width: span(26),
+                onTap: onTray,
+                open: openPanel == 'tray',
+                tooltip: context.tr('Tray items'),
+                child: BarGlyph(
+                  BarIcons.squareGrid,
+                  size: BarTokens.statusGlyphSize,
+                  color: ink,
+                ),
+              ),
+            if (part.visible.isNotEmpty) tray(part.visible),
           ],
         ),
       if (settings.showWifi)
@@ -546,14 +557,50 @@ List<double> _templateMatrix(Color ink) {
 }
 
 
-/// Folds the tray behind a chevron: one press slides the icons out, another
-/// (or the timer) slides them back.
+/// Draws [itemIds] from the system tray with the bar's icon tinting rule.
+Widget buildTrayIcons(
+  BuildContext context, {
+  required ShellServices services,
+  required BarSettings settings,
+  required Color ink,
+  required List<String> itemIds,
+  bool horizontal = true,
+  double maxExtent = 240,
+  double crossExtent = BarTokens.height,
+}) {
+  final style = KitStyle.of(context);
+  final Color tintColor = switch (style.look.iconTint) {
+    KitIconTint.accent => style.accent(context.shellTheme),
+    KitIconTint.original || KitIconTint.mono => ink,
+  };
+  Widget build({Color? foreground}) => services.buildSystemTray(
+    context,
+    horizontal: horizontal,
+    foregroundColor: foreground,
+    itemIds: itemIds,
+  );
+  return ConstrainedBox(
+    constraints: horizontal
+        ? BoxConstraints(maxWidth: maxExtent)
+        : BoxConstraints(maxHeight: maxExtent, maxWidth: crossExtent),
+    child: settings.trayColour
+        ? build()
+        : ColorFiltered(
+            colorFilter: ColorFilter.matrix(_templateMatrix(tintColor)),
+            child: build(foreground: tintColor),
+          ),
+  );
+}
+
+/// Folds the tray behind a chevron: one press (or hover when enabled) slides
+/// the icons out, another (or the timer) slides them back.
 class _TrayFold extends StatefulWidget {
   const _TrayFold({
     required this.ink,
     required this.enabled,
     required this.autoSeconds,
     required this.child,
+    this.expandOnHover = false,
     this.horizontal = true,
     this.crossExtent = BarTokens.height,
   });
@@ -563,6 +610,7 @@ class _TrayFold extends StatefulWidget {
 
   final Color ink;
   final bool enabled;
+  final bool expandOnHover;
   final int autoSeconds;
   final Widget child;
 
@@ -573,10 +621,12 @@ class _TrayFold extends StatefulWidget {
 class _TrayFoldState extends State<_TrayFold> {
   bool _open = false;
   Timer? _refold;
+  Timer? _hoverTimer;
 
   @override
   void dispose() {
     _refold?.cancel();
+    _hoverTimer?.cancel();
     super.dispose();
   }
 
@@ -589,58 +639,76 @@ class _TrayFoldState extends State<_TrayFold> {
   }
 
   void _toggle() {
+    _hoverTimer?.cancel();
     setState(() => _open = !_open);
     _arm();
+  }
+
+  void _hover(bool inside) {
+    if (!widget.expandOnHover) return;
+    _hoverTimer?.cancel();
+    if (inside) {
+      if (!_open) setState(() => _open = true);
+      _arm();
+    } else if (_open) {
+      _hoverTimer = Timer(const Duration(milliseconds: 500), () {
+        if (mounted) setState(() => _open = false);
+      });
+    }
   }
 
   @override
   Widget build(BuildContext context) {
     if (!widget.enabled) return widget.child;
     final horizontal = widget.horizontal;
-    return Flex(
-      direction: horizontal ? Axis.horizontal : Axis.vertical,
-      mainAxisSize: MainAxisSize.min,
-      children: <Widget>[
-        ClipRect(
-          child: AnimatedAlign(
-            duration: KitMotion.duration(context, KitMotion.travel),
-            curve: KitMotion.outCubic,
-            alignment: horizontal
-                ? Alignment.centerRight
-                : Alignment.bottomCenter,
-            widthFactor: horizontal ? (_open ? 1 : 0) : null,
-            heightFactor: horizontal ? null : (_open ? 1 : 0),
-            child: AnimatedOpacity(
-              duration: KitMotion.duration(context, KitMotion.enter),
-              opacity: _open ? 1 : 0,
-              child: Listener(
-                onPointerDown: (_) => _arm(),
-                child: Padding(
-                  padding: horizontal
-                      ? const EdgeInsets.only(right: 2)
-                      : const EdgeInsets.only(bottom: 2),
-                  child: widget.child,
+    return MouseRegion(
+      onEnter: (_) => _hover(true),
+      onExit: (_) => _hover(false),
+      child: Flex(
+        direction: horizontal ? Axis.horizontal : Axis.vertical,
+        mainAxisSize: MainAxisSize.min,
+        children: <Widget>[
+          ClipRect(
+            child: AnimatedAlign(
+              duration: KitMotion.duration(context, KitMotion.travel),
+              curve: KitMotion.outCubic,
+              alignment: horizontal
+                  ? Alignment.centerRight
+                  : Alignment.bottomCenter,
+              widthFactor: horizontal ? (_open ? 1 : 0) : null,
+              heightFactor: horizontal ? null : (_open ? 1 : 0),
+              child: AnimatedOpacity(
+                duration: KitMotion.duration(context, KitMotion.enter),
+                opacity: _open ? 1 : 0,
+                child: Listener(
+                  onPointerDown: (_) => _arm(),
+                  child: Padding(
+                    padding: horizontal
+                        ? const EdgeInsets.only(right: 2)
+                        : const EdgeInsets.only(bottom: 2),
+                    child: widget.child,
+                  ),
                 ),
               ),
             ),
           ),
-        ),
-        BarStatusCell(
-          ink: widget.ink,
-          width: horizontal ? 22 : widget.crossExtent,
-          onTap: _toggle,
-          child: AnimatedRotation(
-            duration: KitMotion.duration(context, KitMotion.travel),
-            curve: KitMotion.outCubic,
-            turns: (horizontal ? 0 : 0.25) + (_open ? 0.5 : 0),
-            child: BarGlyph(
-              BarIcons.chevronLeft,
-              size: 12,
-              color: widget.ink.withValues(alpha: 0.8),
+          BarStatusCell(
+            ink: widget.ink,
+            width: horizontal ? 22 : widget.crossExtent,
+            onTap: _toggle,
+            child: AnimatedRotation(
+              duration: KitMotion.duration(context, KitMotion.travel),
+              curve: KitMotion.outCubic,
+              turns: (horizontal ? 0 : 0.25) + (_open ? 0.5 : 0),
+              child: BarGlyph(
+                BarIcons.chevronLeft,
+                size: 12,
+                color: widget.ink.withValues(alpha: 0.8),
+              ),
             ),
           ),
-        ),
-      ],
+        ],
+      ),
     );
   }
 }

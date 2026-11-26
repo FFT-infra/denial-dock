@@ -208,6 +208,21 @@ void main() {
     DockSettings.fromJson(const {'look': 'broken'}).look.isEmpty,
     'a malformed look reads as none',
   );
+
+  // Per-look overrides keep tweaks for one shell style from leaking to others.
+  final isolated = DockSettings.fromJson(const {
+    'lookByStyle': {
+      'mac': {'radius': 6.0},
+      'soft': {'opacity': 0.5},
+    },
+  });
+  _expect(
+    isolated.lookFor('mac').radius == 6.0 &&
+        isolated.lookFor('soft').radius == DockLook.preset('soft').radius &&
+        isolated.lookFor('soft').opacity == 0.5 &&
+        isolated.lookFor('mac').opacity == DockLook.mac.opacity,
+    'per-look overrides stay isolated by style',
+  );
 }
 
 void _expect(bool condition, String message) {

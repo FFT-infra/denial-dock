@@ -245,20 +245,28 @@ class BatteryGlyph extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final weight = KitStyle.of(context).look.iconWeight;
     return CustomPaint(
       size: Size(width, width * 0.48),
-      painter: _BatteryPainter(level, colour, fill ?? colour, charging),
+      painter: _BatteryPainter(level, colour, fill ?? colour, charging, weight),
     );
   }
 }
 
 class _BatteryPainter extends CustomPainter {
-  const _BatteryPainter(this.level, this.colour, this.fill, this.charging);
+  const _BatteryPainter(
+    this.level,
+    this.colour,
+    this.fill,
+    this.charging,
+    this.weight,
+  );
 
   final double level;
   final Color colour;
   final Color fill;
   final bool charging;
+  final double weight;
 
   @override
   void paint(Canvas canvas, Size size) {
@@ -277,7 +285,7 @@ class _BatteryPainter extends CustomPainter {
       RRect.fromRectAndRadius(body, radius),
       Paint()
         ..style = PaintingStyle.stroke
-        ..strokeWidth = 1
+        ..strokeWidth = 1 * weight
         ..color = colour.withValues(alpha: 0.5),
     );
     canvas.drawRRect(
@@ -333,7 +341,8 @@ class _BatteryPainter extends CustomPainter {
       old.level != level ||
       old.colour != colour ||
       old.fill != fill ||
-      old.charging != charging;
+      old.charging != charging ||
+      old.weight != weight;
 }
 
 String _clock(Duration value) {

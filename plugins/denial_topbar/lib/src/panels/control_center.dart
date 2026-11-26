@@ -14,6 +14,7 @@ import 'package:denial_shell_kit/kit_morph.dart';
 import 'package:denial_shell_kit/kit_motion.dart';
 import 'package:denial_shell_kit/kit_springs.dart';
 import 'package:denial_shell_kit/kit_style.dart';
+import 'package:flutter/material.dart' show Tooltip;
 import 'package:flutter/services.dart';
 import 'package:flutter/widgets.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -21,6 +22,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../bar_icons.dart';
 import '../bar_preferences.dart';
 import '../bar_settings.dart';
+import '../bar_status.dart';
 import '../bar_tokens.dart';
 import '../bar_type.dart';
 import '../debug_remote.dart';
@@ -28,6 +30,7 @@ import '../island/island_timer.dart';
 import '../l10n.dart';
 import '../media_art.dart';
 import '../night_light.dart';
+import '../tray_names.dart';
 import 'mac_kit.dart';
 import 'popovers.dart';
 import 'tile_grid.dart';
@@ -707,11 +710,22 @@ class _ControlCenterPanelState extends ConsumerState<ControlCenterPanel>
 
   Widget _grid(BuildContext context) {
     final theme = context.shellTheme;
-    final order = ref.watch(
-      barSettingsProvider.select(
-        (state) => state.value?.controls ?? defaultControls,
-      ),
-    );
+    final settings =
+        ref.watch(barSettingsProvider).value ?? BarSettings.defaults;
+    final order = settings.controls;
+    final trayVisible = ref.watch(widget.services.trayVisible);
+    final trayIds = ref.watch(widget.services.trayItemIds);
+    trayNames.resolve(trayIds);
+    final trayFolded =
+        settings.showTray &&
+            trayVisible &&
+            settings.trayFold == BarTrayFold.controlCenter
+        ? partitionTrayIds(
+            trayIds,
+            settings: settings,
+            resolveKey: (id) => trayNames.of(id).key,
+          ).folded
+        : const <String>[];
     final tiles = <Tile>[
       for (final id in order)
         if (_tile(context, id) case final tile?)
@@ -735,8 +749,9 @@ class _ControlCenterPanelState extends ConsumerState<ControlCenterPanel>
             label: context.tr(choice.label),
           ),
     ];
+    final density = KitStyle.of(context).density.clamp(0.75, 1.35);
     return Padding(
-      padding: const EdgeInsets.all(_C.inset),
+      padding: EdgeInsets.all(_C.inset * density),
       child: Column(
         mainAxisSize: MainAxisSize.min,
         crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -745,7 +760,7 @@ class _ControlCenterPanelState extends ConsumerState<ControlCenterPanel>
             tiles: tiles,
             columns: 4,
             cell: const Size.square(_C.row),
-            gap: _C.gap,
+            gap: _C.gap * density,
             editing: _editing,
             onReorder: _saveControls,
             onRemove: (id) => _saveControls(<String>[
@@ -779,6 +794,14 @@ class _ControlCenterPanelState extends ConsumerState<ControlCenterPanel>
             ),
           ),
           const SizedBox(height: 12),
+          if (trayFolded.isNotEmpty) ...<Widget>[
+            _TrayShelf(
+              services: widget.services,
+              settings: settings,
+              itemIds: trayFolded,
+            ),
+            const SizedBox(height: 10),
+          ],
           // Session actions live here rather than in the bar's system menu:
           // this is the panel that is open when someone wants to stop work.
           KitEntranceItem(
@@ -829,6 +852,76 @@ class _ControlCenterPanelState extends ConsumerState<ControlCenterPanel>
 /// Lock and sleep go at once; the three that end the session ask first,
 /// because none of them can be undone. An action the session cannot take is
 /// dimmed rather than hidden, so the row does not change shape.
+class _TrayShelf extends StatelessWidget {
+  const _TrayShelf({
+    required this.services,
+    required this.settings,
+    required this.itemIds,
+  });
+
+  final ShellServices services;
+  final BarSettings settings;
+  final List<String> itemIds;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = context.shellTheme;
+    final style = KitStyle.of(context);
+    final ink = theme.colors.textPrimary;
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+      decoration: BoxDecoration(
+        color: theme.colors.tileOff.withValues(alpha: style.opaque ? 1 : 0.72),
+        borderRadius: BorderRadius.circular(style.corner(16)),
+        border: style.controlLine(theme) != null
+            ? Border.all(color: style.border(theme))
+            : null,
+      ),
+      child: Row(
+        children: <Widget>[
+          Text(
+            context.tr('System tray'),
+            style: BarType.caption.copyWith(color: theme.colors.textSecondary),
+          ),
+          const SizedBox(width: 10),
+          Expanded(
+            child: Align(
+              alignment: Alignment.centerRight,
+              child: Wrap(
+                spacing: 6,
+                runSpacing: 6,
+                children: <Widget>[
+                  for (final id in itemIds)
+                    Tooltip(
+                      message: trayNames.of(id).title,
+                      child: Container(
+                        width: 30,
+                        height: 30,
+                        alignment: Alignment.center,
+                        decoration: BoxDecoration(
+                          color: ink.withValues(alpha: 0.08),
+                          borderRadius: BorderRadius.circular(style.corner(8)),
+                        ),
+                        child: buildTrayIcons(
+                          context,
+                          services: services,
+                          settings: settings,
+                          ink: ink,
+                          itemIds: <String>[id],
+                          maxExtent: 26,
+                        ),
+                      ),
+                    ),
+                ],
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
 class _PowerRow extends ConsumerWidget {
   const _PowerRow({
     required this.onSleep,

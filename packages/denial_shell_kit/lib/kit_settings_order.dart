@@ -49,3 +49,44 @@ bool kitMergePages<T>(
   }
   return changed;
 }
+
+/// Keeps only the pages in [pages] matching every word in [query] against
+/// their title, group, or search keywords. Empty queries keep everything.
+List<T> kitFilterPages<T>(
+  Iterable<T> pages,
+  String query, {
+  required String Function(T page) titleOf,
+  String Function(T page)? groupOf,
+  Iterable<String> Function(T page)? keywordsOf,
+}) {
+  final terms = query
+      .trim()
+      .toLowerCase()
+      .split(RegExp(r'\s+'))
+      .where((term) => term.isNotEmpty)
+      .toList();
+  if (terms.isEmpty) return List<T>.of(pages);
+  return <T>[
+    for (final page in pages)
+      if (_matchesPage(
+        terms,
+        title: titleOf(page),
+        group: groupOf?.call(page) ?? '',
+        keywords: keywordsOf?.call(page) ?? const <String>[],
+      ))
+        page,
+  ];
+}
+
+bool _matchesPage(
+  List<String> terms, {
+  required String title,
+  required String group,
+  required Iterable<String> keywords,
+}) {
+  final haystack = <String>[title, group, ...keywords].join(' ').toLowerCase();
+  for (final term in terms) {
+    if (!haystack.contains(term)) return false;
+  }
+  return true;
+}

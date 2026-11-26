@@ -15,8 +15,41 @@ Future<void> main() async {
     'default workspace placement',
   );
   _expect(!defaults.showBatteryPercent, 'default battery percent');
-  _expect(defaults.showVolume, 'default volume item');
-  _expect(!defaults.autoHide, 'default auto hide');
+    _expect(defaults.showVolume, 'default volume item');
+    _expect(!defaults.autoHide, 'default auto hide');
+    _expect(defaults.trayFold == BarTrayFold.inline, 'default tray fold');
+
+    _expect(
+      BarTrayFold.parse('popover') == BarTrayFold.popover &&
+          BarTrayFold.parse('controlCenter') == BarTrayFold.controlCenter &&
+          BarTrayFold.parse('hover') == BarTrayFold.hover &&
+          BarTrayFold.parse('nonsense') == BarTrayFold.inline,
+      'tray fold parsing and fallback',
+    );
+    final partAll = partitionTrayIds(
+      const <String>['a', 'b', 'c'],
+      settings: const BarSettings(collapseItems: true, trayNever: <String>['c']),
+      resolveKey: (id) => id,
+    );
+    _expect(
+      partAll.visible.isEmpty &&
+          partAll.folded.length == 2 &&
+          !partAll.folded.contains('c'),
+      'collapseItems folds all non-never icons when none set to hidden',
+    );
+    final partMixed = partitionTrayIds(
+      const <String>['a', 'b', 'c'],
+      settings: const BarSettings(
+        collapseItems: true,
+        trayHidden: <String>['b'],
+        trayNever: <String>['c'],
+      ),
+      resolveKey: (id) => id,
+    );
+    _expect(
+      partMixed.visible.single == 'a' && partMixed.folded.single == 'b',
+      'explicit trayHidden keeps other icons visible',
+    );
 
   // Every value that comes from outside is clamped on the way in, so a hand
   // edit or an older build cannot put the bar in a state the UI cannot draw.
@@ -130,6 +163,12 @@ Future<void> main() async {
       reread.copyWith(
         islandHome: false,
         activityTimer: false,
+        collapseItems: true,
+        trayFold: BarTrayFold.controlCenter,
+        overviewShowMinimised: false,
+        overviewMiddleClickCloses: false,
+        overviewLiveOtherWorkspaces: false,
+        overviewLiveLimit: 9,
         trayHidden: const <String>['nm-applet'],
         trayNever: const <String>['magpie'],
         tileSizes: const <String>['cc.wifi:1x1'],
@@ -141,7 +180,15 @@ Future<void> main() async {
       'island switches persist',
     );
     _expect(
-      again.trayHidden.single == 'nm-applet' &&
+      !again.overviewShowMinimised &&
+          !again.overviewMiddleClickCloses &&
+          !again.overviewLiveOtherWorkspaces &&
+          again.overviewLiveLimit == 9,
+      'overview settings persist',
+    );
+    _expect(
+      again.trayFold == BarTrayFold.controlCenter &&
+          again.trayHidden.single == 'nm-applet' &&
           again.trayNever.single == 'magpie' &&
           again.tileSizes.single == 'cc.wifi:1x1',
       'tray sections and tile sizes persist',

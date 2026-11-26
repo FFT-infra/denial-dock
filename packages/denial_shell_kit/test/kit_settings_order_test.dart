@@ -68,4 +68,44 @@ void main() {
     _ids(kitOrderPages(pages, orderOf: orderOf)) == 'c,b,a',
     'and the order follows',
   );
+
+  // Filtering pages by query against title, group, and keywords.
+  final searchable = <({String id, String title, String group, List<String> kw})>[
+    (id: 'bar.look', title: 'Look Editor', group: 'Shell', kw: ['blur', '外观']),
+    (id: 'bar.items', title: 'Menu Bar Items', group: 'Menu Bar', kw: ['tray', '托盘']),
+    (id: 'dock.layout', title: 'Dock: Layout', group: 'Dock', kw: ['trash', '废纸篓']),
+  ];
+  _expect(
+    kitFilterPages(
+          searchable,
+          '',
+          titleOf: (p) => p.title,
+          groupOf: (p) => p.group,
+          keywordsOf: (p) => p.kw,
+        ).length ==
+        3,
+    'empty query keeps all pages',
+  );
+  _expect(
+    kitFilterPages(
+          searchable,
+          'tray bar',
+          titleOf: (p) => p.title,
+          groupOf: (p) => p.group,
+          keywordsOf: (p) => p.kw,
+        ).single.id ==
+        'bar.items',
+    'multi-term query matches keywords and group',
+  );
+  _expect(
+    kitFilterPages(
+          searchable,
+          '废纸篓',
+          titleOf: (p) => p.title,
+          groupOf: (p) => p.group,
+          keywordsOf: (p) => p.kw,
+        ).single.id ==
+        'dock.layout',
+    'chinese keyword matches',
+  );
 }

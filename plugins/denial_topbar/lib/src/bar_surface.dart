@@ -279,6 +279,8 @@ class _TopBarSurfaceState extends ConsumerState<TopBarSurface>
         _openAbout();
       case 'settings':
         _openBarSettings(page: number);
+      case 'tray':
+        status.onTray?.call();
     }
   }
 
@@ -306,8 +308,10 @@ class _TopBarSurfaceState extends ConsumerState<TopBarSurface>
       top: _side == PanelEdge.top,
     );
     final islandAvailable = islandOptions.present;
+    final style = KitStyle.of(context);
+    final density = style.density.clamp(0.75, 1.35);
     final workspaceInIsland = settings.workspacesInIsland;
-    final gap = settings.partGap;
+    final gap = settings.partGap * density;
 
     final workspaceStatus = ref.watch(_services.workspace(widget.monitorId));
     final workspaceEnabled = ref.watch(_services.workspacesEnabled);
@@ -481,7 +485,7 @@ class _TopBarSurfaceState extends ConsumerState<TopBarSurface>
     final radius = attached || settings.cap == BarCap.square
         ? BorderRadius.zero
         : BorderRadius.circular(settings.cornerRadius);
-    final pad = settings.contentPadding;
+    final pad = settings.contentPadding * density;
     EdgeInsets along(double before, double after) => _horizontal
         ? EdgeInsets.only(left: before, right: after)
         : EdgeInsets.only(top: before, bottom: after);

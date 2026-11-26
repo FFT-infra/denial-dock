@@ -1,6 +1,8 @@
 import 'dart:math' as math;
 
 import 'package:denial_flutter_sdk/theme.dart';
+import 'package:flutter/material.dart'
+    show Icons, InputBorder, InputDecoration, Material, MaterialType, TextField;
 import 'package:flutter/widgets.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
@@ -23,6 +25,9 @@ class KitSettingsPage {
     required this.title,
     required this.icon,
     required this.builder,
+    this.group,
+    this.subtitle,
+    this.keywords = const <String>[],
     this.order = 500,
     this.colour = const Color(0xff8e8e93),
   });
@@ -32,6 +37,15 @@ class KitSettingsPage {
 
   /// The page's name in the shell's language.
   final String Function(BuildContext context) title;
+
+  /// Optional sidebar section header for grouping related pages.
+  final String Function(BuildContext context)? group;
+
+  /// Optional short description shown below the page heading.
+  final String Function(BuildContext context)? subtitle;
+
+  /// Additional words matched by the sidebar search box.
+  final List<String> keywords;
   final IconData icon;
 
   /// The plate under the icon in the sidebar.
@@ -69,10 +83,16 @@ class KitSettingsPages extends ChangeNotifier {
 /// whether the window is open looks for it among the shell's popups.
 const String kitSettingsKey = 'denial_shell.settings';
 
-const double _settingsWidth = 760;
+const double _settingsWidth = 880;
+const double _sidebarWidth = 228;
 
 /// The page an open settings window is asked to turn to.
 final ValueNotifier<String?> _wanted = ValueNotifier<String?>(null);
+
+/// Switches an already-open shell settings window to [pageId].
+void openKitSettingsPage(String pageId) {
+  _wanted.value = pageId;
+}
 
 /// Opens the shell's settings window at [page]: a page id, or a plugin's
 /// name for that plugin's first page. An open window turns to the page.
@@ -106,6 +126,8 @@ class _KitSettingsWindow extends StatefulWidget {
 
 class _KitSettingsWindowState extends State<_KitSettingsWindow> {
   String? _page = _wanted.value;
+  final TextEditingController _search = TextEditingController();
+  String _query = '';
 
   @override
   void initState() {
@@ -113,6 +135,7 @@ class _KitSettingsWindowState extends State<_KitSettingsWindow> {
     _open++;
     _wanted.addListener(_turn);
     kitSettingsPages.addListener(_changed);
+    _search.addListener(_searched);
   }
 
   @override
@@ -120,7 +143,15 @@ class _KitSettingsWindowState extends State<_KitSettingsWindow> {
     _open--;
     _wanted.removeListener(_turn);
     kitSettingsPages.removeListener(_changed);
+    _search
+      ..removeListener(_searched)
+      ..dispose();
     super.dispose();
+  }
+
+  void _searched() {
+    final next = _search.text;
+    if (next != _query && mounted) setState(() => _query = next);
   }
 
   void _turn() {
@@ -144,20 +175,37 @@ class _KitSettingsWindowState extends State<_KitSettingsWindow> {
     );
   }
 
+  String _groupOf(BuildContext context, KitSettingsPage entry, bool chinese) =>
+      entry.group?.call(context) ??
+      switch (_plugin(entry.id)) {
+        'bar' => chinese ? '菜单栏' : 'Menu Bar',
+        'dock' => chinese ? '程序坞' : 'Dock',
+        final other => other,
+      };
+
   @override
   Widget build(BuildContext context) {
     final theme = context.shellTheme;
     final colors = theme.colors;
-    final pages = kitSettingsPages.pages;
+    final allPages = kitSettingsPages.pages;
     final chinese = Localizations.maybeLocaleOf(context)?.languageCode == 'zh';
-    final height = math.min(600.0, widget.maxHeight);
-    if (pages.isEmpty) {
+    final height = math.min(680.0, widget.maxHeight);
+    if (allPages.isEmpty) {
       return SizedBox(width: _settingsWidth, height: math.min(160, height));
     }
+    final filtered = kitFilterPages<KitSettingsPage>(
+      allPages,
+      _query,
+      titleOf: (entry) => entry.title(context),
+      groupOf: (entry) => _groupOf(context, entry, chinese),
+      keywordsOf: (entry) => entry.keywords,
+    );
+    final activeList = filtered.isNotEmpty ? filtered : allPages;
     final index = kitPageIndex(<String>[
-      for (final page in pages) page.id,
+      for (final page in activeList) page.id,
     ], _page);
-    final page = pages[index];
+    final page = activeList[index];
+    final subtitle = page.subtitle?.call(context);
 
     return SizedBox(
       width: _settingsWidth,
@@ -166,49 +214,94 @@ class _KitSettingsWindowState extends State<_KitSettingsWindow> {
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: <Widget>[
           Container(
-            width: 204,
+            width: _sidebarWidth,
             color: colors.textPrimary.withValues(alpha: 0.04),
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.stretch,
               children: <Widget>[
                 KitWindowHandle(
                   child: Padding(
-                    padding: const EdgeInsets.fromLTRB(18, 18, 12, 12),
+                    padding: const EdgeInsets.fromLTRB(16, 16, 12, 10),
                     child: Text(
                       chinese ? '外壳设置' : 'Shell Settings',
                       style: _type(17, FontWeight.w700, colors.textPrimary),
                     ),
                   ),
                 ),
-                Expanded(
-                  child: SingleChildScrollView(
-                    padding: const EdgeInsets.only(bottom: 10),
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.stretch,
-                      children: <Widget>[
-                        for (final (at, entry) in pages.indexed) ...<Widget>[
-                          // A little air where one plugin's pages end.
-                          if (at > 0 &&
-                              _plugin(entry.id) != _plugin(pages[at - 1].id))
-                            const SizedBox(height: 10),
-                          _SidebarItem(
-                            label: entry.title(context),
-                            icon: entry.icon,
-                            colour: entry.colour,
-                            selected: at == index,
-                            style: _type(
-                              13,
-                              FontWeight.w400,
-                              at == index
-                                  ? KitStyle.of(context).onAccent(theme)
-                                  : colors.textPrimary,
-                            ),
-                            onTap: () => setState(() => _page = entry.id),
-                          ),
-                        ],
-                      ],
-                    ),
+                Padding(
+                  padding: const EdgeInsets.fromLTRB(12, 0, 12, 8),
+                  child: _SearchBar(
+                    controller: _search,
+                    hint: chinese ? '搜索设置' : 'Search settings',
+                    textStyle: _type(12.5, FontWeight.w400, colors.textPrimary),
+                    hintStyle: _type(12.5, FontWeight.w400, colors.textTertiary),
+                    onClear: () => _search.clear(),
                   ),
+                ),
+                Expanded(
+                  child: filtered.isEmpty
+                      ? Padding(
+                          padding: const EdgeInsets.fromLTRB(16, 18, 16, 12),
+                          child: Text(
+                            chinese ? '没有匹配的设置项' : 'No matching settings',
+                            style: _type(
+                              12.5,
+                              FontWeight.w400,
+                              colors.textTertiary,
+                            ),
+                          ),
+                        )
+                      : SingleChildScrollView(
+                          padding: const EdgeInsets.only(bottom: 12),
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.stretch,
+                            children: <Widget>[
+                              for (final (at, entry) in filtered.indexed) ...<Widget>[
+                                if (at == 0 ||
+                                    _groupOf(context, entry, chinese) !=
+                                        _groupOf(
+                                          context,
+                                          filtered[at - 1],
+                                          chinese,
+                                        ))
+                                  Padding(
+                                    padding: EdgeInsets.fromLTRB(
+                                      18,
+                                      at == 0 ? 4 : 12,
+                                      12,
+                                      4,
+                                    ),
+                                    child: Text(
+                                      _groupOf(context, entry, chinese),
+                                      maxLines: 1,
+                                      overflow: TextOverflow.ellipsis,
+                                      style: _type(
+                                        11,
+                                        FontWeight.w700,
+                                        colors.textTertiary,
+                                      ),
+                                    ),
+                                  ),
+                                _SidebarItem(
+                                  label: entry.title(context),
+                                  icon: entry.icon,
+                                  colour: entry.colour,
+                                  selected: at == index,
+                                  style: _type(
+                                    13,
+                                    at == index
+                                        ? FontWeight.w600
+                                        : FontWeight.w400,
+                                    at == index
+                                        ? KitStyle.of(context).onAccent(theme)
+                                        : colors.textPrimary,
+                                  ),
+                                  onTap: () => setState(() => _page = entry.id),
+                                ),
+                              ],
+                            ],
+                          ),
+                        ),
                 ),
               ],
             ),
@@ -220,21 +313,47 @@ class _KitSettingsWindowState extends State<_KitSettingsWindow> {
               children: <Widget>[
                 KitWindowHandle(
                   child: Padding(
-                    padding: const EdgeInsets.fromLTRB(22, 14, 12, 8),
+                    padding: EdgeInsets.fromLTRB(
+                      22,
+                      14,
+                      14,
+                      subtitle == null ? 8 : 10,
+                    ),
                     child: Row(
+                      crossAxisAlignment: CrossAxisAlignment.start,
                       children: <Widget>[
                         Expanded(
-                          child: Text(
-                            page.title(context),
-                            maxLines: 1,
-                            overflow: TextOverflow.ellipsis,
-                            style: _type(
-                              15,
-                              FontWeight.w700,
-                              colors.textPrimary,
-                            ),
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            mainAxisSize: MainAxisSize.min,
+                            children: <Widget>[
+                              Text(
+                                page.title(context),
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
+                                style: _type(
+                                  16,
+                                  FontWeight.w700,
+                                  colors.textPrimary,
+                                ),
+                              ),
+                              if (subtitle != null) ...<Widget>[
+                                const SizedBox(height: 3),
+                                Text(
+                                  subtitle,
+                                  maxLines: 2,
+                                  overflow: TextOverflow.ellipsis,
+                                  style: _type(
+                                    12,
+                                    FontWeight.w400,
+                                    colors.textSecondary,
+                                  ),
+                                ),
+                              ],
+                            ],
                           ),
                         ),
+                        const SizedBox(width: 12),
                         _CloseButton(onTap: widget.onClose),
                       ],
                     ),
@@ -264,6 +383,71 @@ class _KitSettingsWindowState extends State<_KitSettingsWindow> {
   static String _plugin(String id) {
     final dot = id.indexOf('.');
     return dot < 0 ? id : id.substring(0, dot);
+  }
+}
+
+class _SearchBar extends StatelessWidget {
+  const _SearchBar({
+    required this.controller,
+    required this.hint,
+    required this.textStyle,
+    required this.hintStyle,
+    required this.onClear,
+  });
+
+  final TextEditingController controller;
+  final String hint;
+  final TextStyle textStyle;
+  final TextStyle hintStyle;
+  final VoidCallback onClear;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = context.shellTheme;
+    final look = KitStyle.of(context);
+    final colors = theme.colors;
+    return Container(
+      height: 30,
+      padding: const EdgeInsets.symmetric(horizontal: 8),
+      decoration: BoxDecoration(
+        color: colors.textPrimary.withValues(alpha: 0.07),
+        borderRadius: BorderRadius.circular(look.corner(8)),
+        border: Border.all(color: colors.textPrimary.withValues(alpha: 0.08)),
+      ),
+      child: Row(
+        children: <Widget>[
+          Icon(Icons.search, size: 14, color: colors.textTertiary),
+          const SizedBox(width: 6),
+          Expanded(
+            child: Material(
+              type: MaterialType.transparency,
+              child: TextField(
+                controller: controller,
+                maxLines: 1,
+                style: textStyle,
+                cursorColor: look.accent(theme),
+                decoration: InputDecoration(
+                  isDense: true,
+                  isCollapsed: true,
+                  border: InputBorder.none,
+                  hintText: hint,
+                  hintStyle: hintStyle,
+                ),
+              ),
+            ),
+          ),
+          if (controller.text.isNotEmpty)
+            Pressable(
+              onTap: onClear,
+              scale: Pressable.small,
+              child: Padding(
+                padding: const EdgeInsets.all(2),
+                child: Icon(Icons.close, size: 13, color: colors.textTertiary),
+              ),
+            ),
+        ],
+      ),
+    );
   }
 }
 

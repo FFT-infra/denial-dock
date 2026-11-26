@@ -14,10 +14,13 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../bar_icons.dart';
 import '../bar_panel.dart';
+import '../bar_settings.dart';
+import '../bar_status.dart';
 import '../bar_type.dart';
 import '../clipboard_history.dart';
 import '../clipboard_watch.dart';
 import '../l10n.dart';
+import '../tray_names.dart';
 import 'dialogs.dart';
 import 'mac_kit.dart';
 
@@ -30,8 +33,14 @@ class _Popover extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final density = KitStyle.of(context).density.clamp(0.75, 1.35);
     return Padding(
-      padding: const EdgeInsets.fromLTRB(6, 8, 6, 6),
+      padding: EdgeInsets.fromLTRB(
+        6 * density,
+        8 * density,
+        6 * density,
+        6 * density,
+      ),
       child: Column(
         mainAxisSize: MainAxisSize.min,
         crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -887,6 +896,72 @@ class ClipboardPopover extends StatelessWidget {
           ),
         ],
       ),
+    );
+  }
+}
+
+/// Grid of folded system-tray icons opened from the bar's tray cell.
+class TrayPopover extends ConsumerWidget {
+  const TrayPopover({
+    required this.services,
+    required this.settings,
+    required this.onClose,
+    super.key,
+  });
+
+  final ShellServices services;
+  final BarSettings settings;
+  final VoidCallback onClose;
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final theme = context.shellTheme;
+    final style = KitStyle.of(context);
+    final trayIds = ref.watch(services.trayItemIds);
+    trayNames.resolve(trayIds);
+    final folded = partitionTrayIds(
+      trayIds,
+      settings: settings,
+      resolveKey: (id) => trayNames.of(id).key,
+    ).folded;
+    final ink = theme.colors.textPrimary;
+    return _Popover(
+      children: <Widget>[
+        MacHeader(title: context.tr('System tray')),
+        if (folded.isEmpty)
+          _Note(context.tr('No folded tray icons.'))
+        else
+          Padding(
+            padding: const EdgeInsets.fromLTRB(6, 4, 6, 8),
+            child: Wrap(
+              spacing: 8,
+              runSpacing: 8,
+              children: <Widget>[
+                for (final id in folded)
+                  Tooltip(
+                    message: trayNames.of(id).title,
+                    child: Container(
+                      width: 38,
+                      height: 38,
+                      alignment: Alignment.center,
+                      decoration: BoxDecoration(
+                        color: ink.withValues(alpha: 0.07),
+                        borderRadius: BorderRadius.circular(style.corner(10)),
+                      ),
+                      child: buildTrayIcons(
+                        context,
+                        services: services,
+                        settings: settings,
+                        ink: ink,
+                        itemIds: <String>[id],
+                        maxExtent: 32,
+                      ),
+                    ),
+                  ),
+              ],
+            ),
+          ),
+      ],
     );
   }
 }
