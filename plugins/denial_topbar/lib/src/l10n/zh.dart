@@ -314,4 +314,6 @@ const Map<String, String> zh = <String, String>{
   'What sits before and after the applications. Parts of the bar placed here open their panels from the Dock.': '应用图标前后放什么。放到这里的顶栏部件会从程序坞一侧展开面板。',
   'Always show': '始终显示',
   'Application area': '应用区',
+  'of {}': '共 {}',
+  'Microphone: {}': '麦克风：{}',
 };

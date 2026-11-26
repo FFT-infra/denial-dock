@@ -9,8 +9,8 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/widgets.dart';
 
 import '../bar_tokens.dart';
-import 'island_engine.dart';
 import 'island_shape.dart';
+import 'island_skin.dart';
 
 /// Values that stand in for settings the island does not have yet. Each one
 /// is read in a single place, so giving it a field later is one edit.
@@ -152,35 +152,6 @@ class IslandSpringCurve extends Curve {
   double transformInternal(double t) => islandSpringCurve(t, damping);
 }
 
-/// What the island is made of: its colours, and every corner it draws.
-abstract final class IslandLook {
-  static const Color fill = Color(BarTokens.islandFill);
-  static const Color ink = Color(0xffffffff);
-  static const Color dim = Color(0x99ffffff);
-  static const Color edge = Color(0x1fffffff);
-
-  /// The one place a corner of the island comes from. [natural] is the
-  /// radius the design asks for and [extent] the shorter side it rounds; a
-  /// look with squarer corners scales the result here and every outline, the
-  /// pill included, follows.
-  static double corner(KitStyle style, double natural, double extent) =>
-      math.min(natural, extent / 2);
-
-  /// The resting pill and the bubble: as round as their height allows.
-  static double pill(KitStyle style, double height) =>
-      corner(style, double.infinity, height);
-
-  static double card(KitStyle style, IslandKind kind, Size size) => corner(
-    style,
-    kind == IslandKind.media || kind == IslandKind.track ? 36 : 30,
-    size.shortestSide,
-  );
-
-  /// Something set inside an outline of [outer], [inset] from its edge.
-  static double nested(KitStyle style, double outer, double inset) =>
-      math.max(4, outer - inset);
-}
-
 /// Replaces one piece of content with another, with a sense of direction.
 /// What leaves blurs, shrinks and drifts away first; what arrives waits a
 /// moment, then comes in from [from] slightly small and settles on the
@@ -318,6 +289,7 @@ class IslandBlobPainter extends CustomPainter {
     required this.drops,
     required this.bubbleRadius,
     required this.shadow,
+    required this.skin,
   });
 
   final Rect body;
@@ -329,6 +301,7 @@ class IslandBlobPainter extends CustomPainter {
 
   /// 0 for the pill in the bar, 1 for the open card over the desktop.
   final double shadow;
+  final IslandSkin skin;
 
   @override
   void paint(Canvas canvas, Size size) {
@@ -366,21 +339,23 @@ class IslandBlobPainter extends CustomPainter {
           ..close(),
       );
     }
-    if (shadow > 0.01) {
+    final cast = shadow.clamp(0.0, 1.0) * skin.shadow;
+    if (cast > 0.01) {
       canvas.drawPath(
         bodyPath.shift(const Offset(0, 12)),
         Paint()
-          ..color = Color.fromRGBO(0, 0, 0, 0.36 * shadow.clamp(0.0, 1.0))
+          ..color = Color.fromRGBO(0, 0, 0, 0.36 * cast)
           ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 15),
       );
     }
-    canvas.drawPath(shape, Paint()..color = IslandLook.fill);
+    canvas.drawPath(shape, Paint()..color = skin.fill);
+    if (skin.edgeWidth <= 0) return;
     canvas.drawPath(
       shape,
       Paint()
         ..style = PaintingStyle.stroke
-        ..strokeWidth = 0.6
-        ..color = IslandLook.edge,
+        ..strokeWidth = skin.edgeWidth
+        ..color = skin.edge,
     );
   }
 
@@ -390,5 +365,6 @@ class IslandBlobPainter extends CustomPainter {
       old.radius != radius ||
       !listEquals(old.drops, drops) ||
       old.bubbleRadius != bubbleRadius ||
-      old.shadow != shadow;
+      old.shadow != shadow ||
+      old.skin != skin;
 }
