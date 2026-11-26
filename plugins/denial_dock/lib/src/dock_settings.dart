@@ -508,6 +508,7 @@ class DockSettings {
     this.visibility = DockVisibilityMode.smart,
     this.clickAction = DockClickAction.minimize,
     this.iconSize = defaultIconSize,
+    this.edgeDistance = defaultEdgeDistance,
     this.magnification = true,
     this.magnificationAmount = 0.6,
     this.position = DockPosition.bottom,
@@ -554,6 +555,8 @@ class DockSettings {
   static const double minIconSize = 32.0;
   static const double maxIconSize = 72.0;
   static const double iconSizeStep = 4.0;
+  static const double defaultEdgeDistance = 5.0;
+  static const double maxEdgeDistance = 32.0;
   static const double gap = 8.0;
 
   /// Cross-axis inset between the capsule edge and the icons. macOS keeps this
@@ -589,6 +592,9 @@ class DockSettings {
 
   /// Base icon edge before magnification, clamped to the supported range.
   final double iconSize;
+
+  /// Gap between the capsule and its screen edge, in logical pixels.
+  final double edgeDistance;
 
   final bool magnification;
 
@@ -729,6 +735,7 @@ class DockSettings {
     DockVisibilityMode? visibility,
     DockClickAction? clickAction,
     double? iconSize,
+    double? edgeDistance,
     bool? magnification,
     double? magnificationAmount,
     DockPosition? position,
@@ -774,6 +781,7 @@ class DockSettings {
     visibility: visibility ?? this.visibility,
     clickAction: clickAction ?? this.clickAction,
     iconSize: clampIconSize(iconSize ?? this.iconSize),
+    edgeDistance: clampEdgeDistance(edgeDistance ?? this.edgeDistance),
     magnification: magnification ?? this.magnification,
     magnificationAmount: clampMagnification(
       magnificationAmount ?? this.magnificationAmount,
@@ -823,6 +831,11 @@ class DockSettings {
   static double clampIconSize(double value) {
     if (!value.isFinite) return defaultIconSize;
     return value.clamp(minIconSize, maxIconSize).toDouble();
+  }
+
+  static double clampEdgeDistance(double value) {
+    if (!value.isFinite) return defaultEdgeDistance;
+    return value.clamp(0.0, maxEdgeDistance).toDouble();
   }
 
   static double clampIconOpacity(double value) {
@@ -975,6 +988,7 @@ class DockSettings {
         if (!order.contains(id)) id,
     ];
     final iconSize = json['iconSize'];
+    final edgeDistance = json['edgeDistance'];
     return DockSettings(
       // An explicit empty list means the user removed every pin.
       pinned: stored is List ? List.unmodifiable(pins) : defaultPins,
@@ -982,6 +996,9 @@ class DockSettings {
       clickAction: DockClickAction.parse(json['clickAction']),
       iconSize: clampIconSize(
         iconSize is num ? iconSize.toDouble() : defaultIconSize,
+      ),
+      edgeDistance: clampEdgeDistance(
+        edgeDistance is num ? edgeDistance.toDouble() : defaultEdgeDistance,
       ),
       magnification: json['magnification'] is bool
           ? json['magnification'] as bool
@@ -1138,6 +1155,7 @@ class DockPreferencesStore {
     json['visibility'] = settings.visibility.key;
     json['clickAction'] = settings.clickAction.key;
     json['iconSize'] = settings.iconSize;
+    json['edgeDistance'] = settings.edgeDistance;
     json['magnification'] = settings.magnification;
     json['magnificationAmount'] = settings.magnificationAmount;
     json['position'] = settings.position.key;

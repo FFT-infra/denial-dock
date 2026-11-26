@@ -63,6 +63,9 @@ class DockSettingsController extends AsyncNotifier<DockSettings> {
   Future<void> setIconSize(double size) =>
       _update((current) => current.copyWith(iconSize: size));
 
+  Future<void> setEdgeDistance(double distance) =>
+      _update((current) => current.copyWith(edgeDistance: distance));
+
   Future<void> setMagnification({required bool magnification}) =>
       _update((current) => current.copyWith(magnification: magnification));
 

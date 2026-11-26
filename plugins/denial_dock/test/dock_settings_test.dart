@@ -10,6 +10,7 @@ void main() {
   _expect(defaults.visibility == DockVisibilityMode.smart, 'default hide');
   _expect(defaults.clickAction == DockClickAction.minimize, 'default click');
   _expect(defaults.iconSize == 48, 'default size');
+  _expect(defaults.edgeDistance == 5, 'default edge gap');
   _expect(defaults.magnification, 'default magnification');
   _expect(defaults.launcherSide == DockSide.left, 'default launcher side');
   _expect(defaults.extrasSide == DockSide.right, 'default extras side');
@@ -47,6 +48,19 @@ void main() {
     DockSettings.fromJson({'iconSize': 400}).iconSize ==
         DockSettings.maxIconSize,
     'parse size ceiling',
+  );
+  _expect(defaults.copyWith(edgeDistance: -1).edgeDistance == 0, 'edge floor');
+  _expect(
+    defaults.copyWith(edgeDistance: double.nan).edgeDistance == 5,
+    'non-finite edge gap falls back to default',
+  );
+  _expect(
+    DockSettings.fromJson({'edgeDistance': 50}).edgeDistance == 32,
+    'stored edge gap is clamped',
+  );
+  _expect(
+    DockSettings.fromJson({'edgeDistance': 'wide'}).edgeDistance == 5,
+    'invalid stored edge gap falls back to default',
   );
   _expect(
     DockSettings.fromJson({'iconOpacity': 0.01}).iconOpacity ==
@@ -167,6 +181,7 @@ void main() {
     visibility: DockVisibilityMode.always,
     clickAction: DockClickAction.cycle,
     iconSize: 56,
+    edgeDistance: 12,
     magnification: false,
     launcherSide: DockSide.right,
     extrasSide: DockSide.left,
@@ -193,6 +208,7 @@ void main() {
     'visibility': settings.visibility.key,
     'clickAction': settings.clickAction.key,
     'iconSize': settings.iconSize,
+    'edgeDistance': settings.edgeDistance,
     'magnification': settings.magnification,
     'launcherSide': settings.launcherSide.key,
     'extrasSide': settings.extrasSide.key,
@@ -222,6 +238,7 @@ void main() {
   _expect(decoded.visibility == DockVisibilityMode.always, 'round trip hide');
   _expect(decoded.clickAction == DockClickAction.cycle, 'round trip click');
   _expect(decoded.iconSize == 56, 'round trip size');
+  _expect(decoded.edgeDistance == 12, 'round trip edge distance');
   _expect(!decoded.magnification, 'round trip magnification');
   _expect(decoded.launcherSide == DockSide.right, 'round trip launcher');
   _expect(decoded.extrasSide == DockSide.left, 'round trip extras');
@@ -444,6 +461,7 @@ void main() {
 
   // A file written before these settings existed reads as the old behaviour.
   final old = DockSettings.fromJson(const {'visibility': 'smart'});
+  _expect(old.edgeDistance == 5, 'old preferences get the new default gap');
   _expect(
     old.middleClickAction == DockMiddleClickAction.newWindow &&
         old.hideScope == DockHideScope.all &&
@@ -528,6 +546,7 @@ Future<void> _storeRoundTrip(DockSettings settings) async {
     _expect(written['clickAction'] == 'cycle', 'written click');
     _expect((written['folders'] as List).length == 1, 'written folders');
     _expect(written['iconSize'] == 56, 'written size');
+    _expect(written['edgeDistance'] == 12, 'written edge gap');
     _expect(written['magnification'] == false, 'written magnification');
     _expect(written['showBadges'] == false, 'written badges');
     _expect(
@@ -544,6 +563,7 @@ Future<void> _storeRoundTrip(DockSettings settings) async {
       ),
     );
     final again = await store.read();
+    _expect(again.edgeDistance == 12, 'edge gap survives unrelated updates');
     _expect(
       again.middleClickAction == DockMiddleClickAction.close &&
           again.hideScope == DockHideScope.active &&

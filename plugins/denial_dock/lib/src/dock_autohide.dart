@@ -4,7 +4,7 @@ import 'package:denial_flutter_sdk/models.dart' show DenialWindow;
 import 'package:denial_flutter_sdk/surfaces.dart' show DisplayOutput;
 
 import 'dock_autohide_math.dart' as math;
-import 'dock_settings.dart' show DockHideScope, DockPosition;
+import 'dock_settings.dart' show DockHideScope, DockPosition, DockSettings;
 
 export 'dock_autohide_math.dart' show Box, WindowSample;
 
@@ -20,7 +20,7 @@ abstract final class DockAutoHide {
     required DockPosition position,
     required double extent,
     required double thickness,
-    double inset = 10,
+    double inset = DockSettings.defaultEdgeDistance,
   }) => _toRect(
     math.dockRect(
       output: _toBox(output),
@@ -81,17 +81,6 @@ abstract final class DockAutoHide {
     monitorId: monitorId,
     workspaceId: workspaceId,
     desktopVisible: desktopVisible,
-  );
-
-  /// How far the dock sits in from its edge because a bar reserves it.
-  static double reservedEdge({
-    required Rect output,
-    required Rect workArea,
-    required DockPosition position,
-  }) => math.reservedEdge(
-    output: _toBox(output),
-    workArea: _toBox(workArea),
-    position: position,
   );
 
   static math.WindowSample _sample(DenialWindow window, DisplayOutput output) {

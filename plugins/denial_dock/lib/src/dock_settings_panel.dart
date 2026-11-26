@@ -2,6 +2,7 @@ import 'dart:io';
 import 'dart:math' as math;
 
 import 'package:denial_flutter_sdk/theme.dart';
+import 'package:denial_shell_kit/glass_card.dart';
 import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/scheduler.dart';
@@ -11,7 +12,6 @@ import 'dock_extras.dart';
 import 'dock_preferences.dart';
 import 'dock_stack_files.dart' show DockStackFiles;
 import 'dock_stack_view.dart' show stackFileColor, stackFileIcon;
-import 'package:denial_shell_kit/glass_card.dart';
 
 const double _rowHeight = 48;
 const double _cardRadius = 12;
@@ -559,6 +559,16 @@ class _DockSettingsPanelState extends ConsumerState<DockSettingsPanel> {
                 display: '${settings.iconSize.round()}',
                 describe: (value) => '${value.round()}',
                 onChanged: (value) => _controller.setIconSize(value),
+              ),
+              _SliderRow(
+                label: _zh ? '距屏幕边缘' : 'Distance from screen edge',
+                value: settings.edgeDistance,
+                min: 0,
+                max: DockSettings.maxEdgeDistance,
+                divisions: DockSettings.maxEdgeDistance.toInt(),
+                display: '${settings.edgeDistance.round()} px',
+                describe: (value) => '${value.round()} px',
+                onChanged: (value) => _controller.setEdgeDistance(value),
               ),
               _ToggleRow(
                 label: _zh ? '放大' : 'Magnification',
