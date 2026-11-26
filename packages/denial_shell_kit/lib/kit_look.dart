@@ -97,7 +97,7 @@ bool kitJsonSame(Object? a, Object? b) {
 }
 
 /// The keys of [edited] that differ from [base], map by map: what laid over
-/// [base] gives [edited] again.
+/// [base] and read gives [edited] again.
 Map<String, Object?> kitJsonDiff(Map<dynamic, dynamic> base, Map<dynamic, dynamic> edited) {
   final out = <String, Object?>{};
   for (final entry in edited.entries) {
@@ -112,6 +112,11 @@ Map<String, Object?> kitJsonDiff(Map<dynamic, dynamic> base, Map<dynamic, dynami
     } else {
       out[key] = value;
     }
+  }
+  // A key [edited] dropped is written as null, which is how a look says it
+  // no longer sets something its base does.
+  for (final key in base.keys) {
+    if (key is String && !edited.containsKey(key)) out[key] = null;
   }
   return out;
 }
@@ -639,7 +644,13 @@ class KitLook {
       'switch': switchTuning == null ? null : _tuning(switchTuning!),
     },
     'icons': <String, Object?>{'tint': iconTint.name, 'weight': iconWeight},
-    'dock': <String, Object?>{'kin': dockKin, ...dock},
+    // In the order of [dockKeys], so two looks that set the same values
+    // write the same text.
+    'dock': <String, Object?>{
+      'kin': dockKin,
+      for (final key in dockKeys.keys)
+        if (dock.containsKey(key)) key: dock[key],
+    },
   };
 
   /// The whole look, every key written out.
@@ -737,8 +748,12 @@ class KitLook {
       iconTint: _named(icons['tint'], KitIconTint.values, base.iconTint),
       iconWeight: _number(icons['weight'], 0.5, 2, base.iconWeight),
       dockKin: dockKins.contains(kin) ? kin as String : base.dockKin,
+      // A key written as null is one the look stops setting; any other
+      // value of the wrong kind leaves what [base] sets.
       dock: <String, Object?>{
-        ...base.dock,
+        for (final entry in base.dock.entries)
+          if (!dock.containsKey(entry.key) || dock[entry.key] != null)
+            entry.key: entry.value,
         for (final entry in dockKeys.entries)
           if (_fits(dock[entry.key], entry.value))
             entry.key: dock[entry.key],

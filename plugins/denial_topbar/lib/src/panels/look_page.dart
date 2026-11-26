@@ -1042,9 +1042,9 @@ class _LookPageState extends State<LookPage> {
                         ('none', 'None'),
                       ],
                       (value) => _set(<String, Object?>{
-                        // An empty name is no marker style, so the look
-                        // stops setting one.
-                        'dock': <String, Object?>{'indicator': value},
+                        'dock': <String, Object?>{
+                          'indicator': value.isEmpty ? null : value,
+                        },
                       }),
                     ),
                     SettingSlider(
@@ -1062,7 +1062,7 @@ class _LookPageState extends State<LookPage> {
                         // Below the smallest size the dock draws, the look
                         // sets none.
                         'dock': <String, Object?>{
-                          'iconSize': value < 32 ? '' : value,
+                          'iconSize': value < 32 ? null : value,
                         },
                       }),
                     ),
@@ -1078,7 +1078,7 @@ class _LookPageState extends State<LookPage> {
                           : SettingSlider.number(value),
                       onChanged: (value) => _set(<String, Object?>{
                         'dock': <String, Object?>{
-                          'radius': value < 0 ? '' : value,
+                          'radius': value < 0 ? null : value,
                         },
                       }),
                     ),

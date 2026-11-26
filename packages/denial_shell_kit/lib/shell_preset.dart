@@ -211,6 +211,198 @@ class ShellPreset {
     },
   );
 
+  static ShellPreset _reference(
+    String id,
+    String label, {
+    Map<String, Object?> bar = const <String, Object?>{},
+    Map<String, Object?> dock = _dock,
+    String barMode = 'shown',
+  }) => ShellPreset(
+    id: id,
+    label: label,
+    look: id,
+    bar: _barWith(bar),
+    dock: dock,
+    barMode: barMode,
+    group: ShellPresetGroup.reference,
+  );
+
+  /// One solid plate from edge to edge with every part of the bar on it:
+  /// what GNOME, COSMIC, Noctalia and HyprPanel all start from.
+  static const Map<String, Object?> _solidStrip = <String, Object?>{
+    'ground': 'plate',
+    'groundOpacity': 1,
+    'groundTint': 'panel',
+    'endInset': 0,
+    'contentPadding': 8,
+    'workspacePlacement': 'leading',
+  };
+
+  /// After Noctalia's default bar: launcher mark and workspaces at the
+  /// start, the clock in the middle, status at the end, on a solid bar.
+  /// Its bar hangs its panels from itself; ours open as popovers.
+  static final ShellPreset noctalia = _reference(
+    'noctalia',
+    'Noctalia style',
+    bar: const <String, Object?>{
+      ..._solidStrip,
+      'cornerRadius': 12,
+      'start': <String>['system', 'workspaces'],
+      'center': <String>['clock'],
+      'end': <String>['status'],
+    },
+  );
+
+  /// After DankMaterialShell's default bar: one floating rounded bar with
+  /// the launcher, the workspaces and the application at its start, the
+  /// clock in the middle and status at its end. Its weather, media and
+  /// system-monitor widgets have no part here.
+  static final ShellPreset material = _reference(
+    'material',
+    'Material style',
+    bar: const <String, Object?>{
+      'shape': 'floating',
+      'ground': 'plate',
+      'groundOpacity': 1,
+      'groundTint': 'panel',
+      'edgeMargin': 4,
+      'endInset': 6,
+      'contentPadding': 6,
+      'cornerRadius': 16,
+      'workspacePlacement': 'leading',
+      'start': <String>['system', 'workspaces', 'app'],
+      'center': <String>['clock'],
+      'end': <String>['status'],
+    },
+  );
+
+  /// After HyprPanel's default bar: a flat solid strip with numbered
+  /// workspaces and the window title at the start and everything else at
+  /// the end. Its modules are pills each in a colour of its own; ours
+  /// share one ink.
+  static final ShellPreset hyprpanel = _reference(
+    'hyprpanel',
+    'HyprPanel style',
+    bar: const <String, Object?>{
+      ..._solidStrip,
+      'workspaceStyle': 'numbers',
+      'start': <String>['system', 'workspaces', 'app'],
+      'center': <String>['island'],
+      'end': <String>['status', 'clock'],
+    },
+  );
+
+  /// After Ax-Shell's default bar: floating pills at the two ends and the
+  /// notch between them, which is this shell's island. Its vertical bar is
+  /// not something this bar does.
+  static final ShellPreset axShell = _reference(
+    'axshell',
+    'Ax-Shell style',
+    bar: const <String, Object?>{
+      'shape': 'islands',
+      'ground': 'plate',
+      'groundOpacity': 1,
+      'groundTint': 'panel',
+      'edgeMargin': 8,
+      'endInset': 8,
+      'contentPadding': 6,
+      'cornerRadius': 16,
+      'workspacePlacement': 'leading',
+      'start': <String>['system', 'workspaces'],
+      'center': <String>['island'],
+      'end': <String>['status', 'clock'],
+    },
+  );
+
+  /// After KDE Plasma's default panel: one bar along the bottom with the
+  /// launcher first, the applications after it, and the tray, status and
+  /// clock at the end. Plasma 6 floats that panel off the edge until a
+  /// window touches it; this one sits on the edge.
+  static final ShellPreset plasma = _reference(
+    'plasma',
+    'Plasma style',
+    barMode: 'hidden',
+    dock: const <String, Object?>{
+      'leading': <String>['dock.launcher', 'workspaces'],
+      'trailing': <String>['status.tray', 'status', 'clock'],
+      'shape': 'bar',
+      'align': 'start',
+      'visibility': 'always',
+    },
+  );
+
+  /// After GNOME Shell: a solid top bar with the workspace dots at the
+  /// start, the clock in the middle and status at the end, and a rounded
+  /// dash with the application grid at its far end. GNOME shows the dash
+  /// in the overview only; here it is the dock.
+  static final ShellPreset gnome = _reference(
+    'gnome',
+    'GNOME style',
+    bar: const <String, Object?>{
+      ..._solidStrip,
+      'start': <String>['workspaces'],
+      'center': <String>['clock'],
+      'end': <String>['status'],
+    },
+    dock: const <String, Object?>{
+      'leading': <String>[],
+      'trailing': <String>['dock.divider', 'dock.launcher'],
+      'shape': 'floating',
+      'align': 'packed',
+      'visibility': 'smart',
+    },
+  );
+
+  /// After the Windows 11 taskbar: one bar along the bottom with the
+  /// launcher and the applications in its centre and the tray, status and
+  /// clock at the end.
+  static final ShellPreset windows = _reference(
+    'windows',
+    'Windows 11 style',
+    barMode: 'hidden',
+    dock: const <String, Object?>{
+      'leading': <String>['dock.launcher'],
+      'trailing': <String>['status.tray', 'status', 'clock'],
+      'shape': 'bar',
+      'align': 'center',
+      'visibility': 'always',
+    },
+  );
+
+  /// After COSMIC's default: a solid panel along the top with workspaces
+  /// and the application at the start, the clock in the middle and status
+  /// at the end, over a floating dock.
+  static final ShellPreset cosmic = _reference(
+    'cosmic',
+    'COSMIC style',
+    bar: const <String, Object?>{
+      ..._solidStrip,
+      'start': <String>['workspaces', 'app'],
+      'center': <String>['clock'],
+      'end': <String>['status'],
+    },
+    dock: const <String, Object?>{
+      'leading': <String>['dock.launcher'],
+      'trailing': <String>['dock.trash'],
+      'shape': 'floating',
+      'align': 'packed',
+      'visibility': 'always',
+    },
+  );
+
+  /// The presets made after other desktop shells; see `kit_look_refs.dart`
+  /// for the look each one takes.
+  static final List<ShellPreset> references = <ShellPreset>[
+    noctalia,
+    material,
+    hyprpanel,
+    axShell,
+    plasma,
+    gnome,
+    windows,
+    cosmic,
+  ];
+
   static final List<ShellPreset> all = <ShellPreset>[
     denial,
     mac,
@@ -219,6 +411,7 @@ class ShellPreset {
     compact,
     taskbar,
     unified,
+    ...references,
   ];
 
   /// The presets the user saved, as the kit's store holds them. The kit

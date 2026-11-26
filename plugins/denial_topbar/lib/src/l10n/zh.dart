@@ -448,4 +448,12 @@ const Map<String, String> zh = <String, String>{
   'The clipboard holds no look.': '剪贴板里没有外观。',
   'Tinted': '着色',
   'Zooming': '缩放',
+  'Noctalia style': 'Noctalia 风格',
+  'Material style': 'Material 风格',
+  'HyprPanel style': 'HyprPanel 风格',
+  'Ax-Shell style': 'Ax-Shell 风格',
+  'Plasma style': 'Plasma 风格',
+  'GNOME style': 'GNOME 风格',
+  'Windows 11 style': 'Windows 11 风格',
+  'COSMIC style': 'COSMIC 风格',
 };
