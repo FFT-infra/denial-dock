@@ -830,6 +830,7 @@ class ClipboardPopover extends StatelessWidget {
                 ? null
                 : Pressable(
                     onTap: clipboardWatch.clear,
+                    wash: true,
                     child: Padding(
                       padding: const EdgeInsets.symmetric(horizontal: 4),
                       child: Text(
@@ -858,6 +859,9 @@ class ClipboardPopover extends StatelessWidget {
                         : null,
                     trailing: Pressable(
                       onTap: () => clipboardWatch.remove(text),
+                      scale: Pressable.small,
+                      wash: true,
+                      shape: KitStyle.of(context).disc(22),
                       child: Padding(
                         padding: const EdgeInsets.all(6),
                         child: BarGlyph(

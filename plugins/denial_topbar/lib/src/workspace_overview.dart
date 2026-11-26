@@ -526,6 +526,8 @@ class _WorkspaceOverviewState extends ConsumerState<WorkspaceOverview> {
                   children: <Widget>[
                     Pressable(
                       scale: Pressable.large,
+                      wash: true,
+                      shape: BorderRadius.circular(radius),
                       onTap: () => _go(space),
                       child: AnimatedContainer(
                         duration: KitMotion.duration(context, KitMotion.fill),
@@ -615,6 +617,8 @@ class _WorkspaceOverviewState extends ConsumerState<WorkspaceOverview> {
                               status.count > minimumWorkspaceCount)
                             Pressable(
                               scale: Pressable.small,
+                              wash: true,
+                              shape: style.disc(21),
                               onTap: _removeWorkspace,
                               child: Padding(
                                 padding: const EdgeInsets.all(5),
@@ -647,6 +651,8 @@ class _WorkspaceOverviewState extends ConsumerState<WorkspaceOverview> {
                 col: status.count % grid.columns,
                 child: Pressable(
                   scale: Pressable.large,
+                  wash: true,
+                  shape: BorderRadius.circular(radius),
                   onTap: _addWorkspace,
                   child: DecoratedBox(
                     decoration: BoxDecoration(
@@ -1134,6 +1140,8 @@ class _WindowThumbState extends State<_WindowThumb> {
                             ),
                             Pressable(
                               scale: Pressable.small,
+                              wash: true,
+                              shape: KitStyle.of(context).disc(20),
                               onTap: widget.onClose,
                               child: SizedBox.square(
                                 dimension: 20,

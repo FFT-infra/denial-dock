@@ -300,6 +300,7 @@ class _Badge extends StatelessWidget {
     return Pressable(
       onTap: onTap,
       scale: Pressable.small,
+      wash: true,
       shape: style.disc(26),
       child: Padding(
         padding: const EdgeInsets.all(3),

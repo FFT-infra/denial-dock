@@ -17,6 +17,7 @@ import 'dock_stack_view.dart' show stackFileColor, stackFileIcon;
 
 import 'package:denial_shell_kit/glass_card.dart';
 import 'package:denial_shell_kit/kit_motion.dart';
+import 'package:denial_shell_kit/kit_pressable.dart';
 import 'package:denial_shell_kit/kit_settings.dart';
 import 'package:denial_shell_kit/kit_springs.dart';
 import 'package:denial_shell_kit/kit_style.dart';
@@ -1791,7 +1792,7 @@ class _ScrollEdgeFadeState extends State<_ScrollEdgeFade> {
 /// Below this the sheet has no room for a category list beside the page.
 const double _twoPaneWidth = 600;
 
-class _CategoryItem extends StatefulWidget {
+class _CategoryItem extends StatelessWidget {
   const _CategoryItem({
     required this.icon,
     required this.label,
@@ -1805,44 +1806,33 @@ class _CategoryItem extends StatefulWidget {
   final VoidCallback onTap;
 
   @override
-  State<_CategoryItem> createState() => _CategoryItemState();
-}
-
-class _CategoryItemState extends State<_CategoryItem> {
-  bool _hovered = false;
-
-  @override
   Widget build(BuildContext context) {
     final theme = context.shellTheme;
     final colors = theme.colors;
-    final selected = widget.selected;
+    final shape = BorderRadius.circular(KitStyle.of(context).radius(theme, 9));
     return Padding(
       padding: const EdgeInsets.only(bottom: 2),
-      child: MouseRegion(
-        cursor: SystemMouseCursors.click,
-        onEnter: (_) => setState(() => _hovered = true),
-        onExit: (_) => setState(() => _hovered = false),
-        child: Semantics(
-          button: true,
-          selected: selected,
-          label: widget.label,
-          child: GestureDetector(
-            behavior: HitTestBehavior.opaque,
-            onTap: widget.onTap,
+      child: Semantics(
+        button: true,
+        selected: selected,
+        label: label,
+        child: Pressable(
+            onTap: onTap,
+            scale: Pressable.large,
+            wash: !selected,
+            shape: shape,
             child: AnimatedContainer(
               duration: _motion(context, _quick),
               height: 36,
               padding: const EdgeInsets.symmetric(horizontal: 10),
               decoration: BoxDecoration(
-                borderRadius: theme.borderRadius(9),
-                color: selected
-                    ? theme.kitAccent.withValues(alpha: 0.18)
-                    : colors.textPrimary.withValues(alpha: _hovered ? 0.06 : 0),
+                borderRadius: shape,
+                color: theme.kitAccent.withValues(alpha: selected ? 0.18 : 0),
               ),
               child: Row(
                 children: [
                   Icon(
-                    widget.icon,
+                    icon,
                     size: 16,
                     color: selected ? theme.kitAccent : colors.textSecondary,
                   ),
@@ -1850,7 +1840,7 @@ class _CategoryItemState extends State<_CategoryItem> {
                   Expanded(
                     child: ExcludeSemantics(
                       child: Text(
-                        widget.label,
+                        label,
                         maxLines: 1,
                         overflow: TextOverflow.ellipsis,
                         style: _labelStyle(theme).copyWith(
@@ -1865,7 +1855,6 @@ class _CategoryItemState extends State<_CategoryItem> {
                 ],
               ),
             ),
-          ),
         ),
       ),
     );
@@ -2079,7 +2068,12 @@ class _SlidingSegmentsState<T> extends State<_SlidingSegments<T>>
       child: LayoutBuilder(
         builder: (context, constraints) {
           final width = constraints.maxWidth;
-          return GestureDetector(
+          return KitKeyStop(
+            onStep: (by) => _select(_selectedIndex + by),
+            shape: BorderRadius.circular(
+              KitStyle.of(context).radius(theme, 11),
+            ),
+            child: GestureDetector(
             behavior: HitTestBehavior.opaque,
             dragStartBehavior: DragStartBehavior.down,
             onTapDown: (details) => setState(
@@ -2177,6 +2171,7 @@ class _SlidingSegmentsState<T> extends State<_SlidingSegments<T>>
                   ),
                 ],
               ),
+            ),
             ),
           );
         },
@@ -2333,7 +2328,7 @@ class _ToggleRow extends StatelessWidget {
       onTap: toggle,
       child: ExcludeSemantics(
         child: Opacity(
-          opacity: enabled ? 1 : 0.45,
+          opacity: enabled ? 1 : KitFeedback.disabledOpacity,
           child: _HoverSurface(
             height: _rowHeight,
             margin: margin,
@@ -2528,7 +2523,7 @@ class _TintRow extends StatelessWidget {
     final selected = value?.toLowerCase();
     return AnimatedOpacity(
       duration: _motion(context, _quick),
-      opacity: enabled ? 1 : 0.5,
+      opacity: enabled ? 1 : KitFeedback.disabledOpacity,
       child: Padding(
         padding: const EdgeInsets.symmetric(horizontal: 12),
         child: SizedBox(
@@ -2664,7 +2659,7 @@ class _SliderRow extends StatelessWidget {
     );
     return AnimatedOpacity(
       duration: _motion(context, _quick),
-      opacity: enabled ? 1 : 0.5,
+      opacity: enabled ? 1 : KitFeedback.disabledOpacity,
       child: LayoutBuilder(
         builder: (context, constraints) {
           final slider = _DockSlider(
@@ -2857,7 +2852,10 @@ class _DockSliderState extends State<_DockSlider> {
           final width = constraints.maxWidth;
           final travel = math.max(0.0, width - _thumbSize);
           final center = _thumbSize / 2 + travel * t;
-          return MouseRegion(
+          return KitKeyStop(
+            enabled: active,
+            onStep: _step,
+            child: MouseRegion(
             cursor: active ? SystemMouseCursors.click : MouseCursor.defer,
             onEnter: (_) => setState(() => _hovered = true),
             onExit: (_) => setState(() {
@@ -3001,6 +2999,7 @@ class _DockSliderState extends State<_DockSlider> {
                   );
                 },
               ),
+            ),
             ),
           );
         },
@@ -3261,50 +3260,41 @@ class _HoverSurface extends StatefulWidget {
 }
 
 class _HoverSurfaceState extends State<_HoverSurface> {
-  bool _hovered = false;
-  bool _pressed = false;
-
   @override
   Widget build(BuildContext context) {
     final colors = context.shellTheme.colors;
-    final enabled = widget.onTap != null;
-    final fill = _pressed
-        ? colors.textPrimary.withValues(alpha: 0.09)
-        : _hovered
-        ? colors.textPrimary.withValues(alpha: 0.055)
-        : Colors.transparent;
-    return MouseRegion(
-      cursor: enabled ? SystemMouseCursors.click : MouseCursor.defer,
-      onEnter: (_) => setState(() => _hovered = true),
-      onExit: (_) => setState(() {
-        _hovered = false;
-        _pressed = false;
-      }),
-      child: GestureDetector(
-        behavior: HitTestBehavior.opaque,
-        onTapDown: enabled ? (_) => setState(() => _pressed = true) : null,
-        onTapUp: enabled ? (_) => setState(() => _pressed = false) : null,
-        onTapCancel: enabled ? () => setState(() => _pressed = false) : null,
+    final shape = BorderRadius.circular(
+      KitStyle.of(context).corner(widget.radius),
+    );
+    // The kit's press: the row gives on the look's spring where asked to,
+    // and takes a ring from the keyboard. The fill is the row's own, so its
+    // margin stays outside it.
+    return Padding(
+      padding: widget.margin,
+      child: Pressable(
         onTap: widget.onTap,
-        child: AnimatedScale(
-          scale: widget.scaleOnPress && _pressed ? 0.97 : 1,
-          duration: _motion(context, _quick),
+        scale: widget.scaleOnPress ? Pressable.large : 1,
+        shape: shape,
+        builder: (context, hovered, pressed) => AnimatedContainer(
+          duration: _motion(context, Motion.tile),
           curve: Motion.standard,
-          child: AnimatedContainer(
-            duration: _motion(context, Motion.tile),
-            curve: Motion.standard,
-            height: widget.height,
-            width: widget.width,
-            margin: widget.margin,
-            padding: widget.padding,
-            alignment: widget.alignment,
-            decoration: BoxDecoration(
-              color: fill,
-              borderRadius: BorderRadius.circular(widget.radius),
+          height: widget.height,
+          width: widget.width,
+          padding: widget.padding,
+          alignment: widget.alignment,
+          decoration: BoxDecoration(
+            color: colors.textPrimary.withValues(
+              alpha: KitFeedback.wash(
+                hovered: hovered,
+                pressed: pressed,
+                enabled: widget.onTap != null,
+              ),
             ),
-            child: widget.child,
+            borderRadius: shape,
           ),
+          child: widget.child,
         ),
+        child: const SizedBox.shrink(),
       ),
     );
   }
@@ -3347,7 +3337,7 @@ class _IconButton extends StatelessWidget {
   }
 }
 
-class _PillButton extends StatefulWidget {
+class _PillButton extends StatelessWidget {
   const _PillButton({
     required this.label,
     required this.onTap,
@@ -3359,83 +3349,49 @@ class _PillButton extends StatefulWidget {
   final bool primary;
 
   @override
-  State<_PillButton> createState() => _PillButtonState();
-}
-
-class _PillButtonState extends State<_PillButton> {
-  bool _hovered = false;
-  bool _pressed = false;
-
-  @override
   Widget build(BuildContext context) {
     final theme = context.shellTheme;
     final colors = theme.colors;
-    final accent = theme.kitAccent;
-    final fill = widget.primary
-        ? (_pressed
-              ? Color.alphaBlend(
-                  colors.background.withValues(alpha: 0.16),
-                  accent,
-                )
-              : _hovered
-              ? Color.alphaBlend(
-                  colors.background.withValues(alpha: 0.08),
-                  accent,
-                )
-              : accent)
-        : colors.textPrimary.withValues(
-            alpha: _pressed
-                ? 0.14
-                : _hovered
-                ? 0.11
-                : 0.08,
-          );
-    final foreground = widget.primary ? colors.background : colors.textPrimary;
+    final style = KitStyle.of(context);
+    final shape = BorderRadius.circular(style.pill(30));
     return Semantics(
       button: true,
-      label: widget.label,
-      onTap: widget.onTap,
-      child: MouseRegion(
-        cursor: SystemMouseCursors.click,
-        onEnter: (_) => setState(() => _hovered = true),
-        onExit: (_) => setState(() {
-          _hovered = false;
-          _pressed = false;
-        }),
-        child: GestureDetector(
-          behavior: HitTestBehavior.opaque,
-          onTapDown: (_) => setState(() => _pressed = true),
-          onTapUp: (_) => setState(() => _pressed = false),
-          onTapCancel: () => setState(() => _pressed = false),
-          onTap: widget.onTap,
-          child: AnimatedScale(
-            scale: _pressed ? 0.97 : 1,
-            duration: _motion(context, KitMotion.wash),
-            curve: Motion.standard,
-            child: AnimatedContainer(
-              duration: _motion(context, _quick),
-              curve: Motion.standard,
-              height: 30,
-              padding: const EdgeInsets.symmetric(horizontal: 14),
-              alignment: Alignment.center,
-              decoration: BoxDecoration(
-                color: fill,
-                borderRadius: BorderRadius.circular(15),
-                border: widget.primary
-                    ? null
-                    : Border.all(color: colors.hairlineSoft),
-              ),
-              child: Text(
-                widget.label,
-                maxLines: 1,
-                style: theme.text.systemBarCaption.copyWith(
-                  color: foreground,
-                  fontWeight: FontWeight.w700,
-                ),
-              ),
+      label: label,
+      onTap: onTap,
+      child: Pressable(
+        onTap: onTap,
+        scale: Pressable.large,
+        wash: primary,
+        shape: shape,
+        builder: (context, hovered, pressed) => AnimatedContainer(
+          duration: _motion(context, _quick),
+          curve: Motion.standard,
+          height: 30,
+          padding: const EdgeInsets.symmetric(horizontal: 14),
+          alignment: Alignment.center,
+          decoration: BoxDecoration(
+            color: primary
+                ? style.accent(theme)
+                : colors.textPrimary.withValues(
+                    alpha: KitFeedback.plate(
+                      0.08,
+                      hovered: hovered,
+                      pressed: pressed,
+                    ),
+                  ),
+            borderRadius: shape,
+            border: primary ? null : Border.all(color: colors.hairlineSoft),
+          ),
+          child: Text(
+            label,
+            maxLines: 1,
+            style: theme.text.systemBarCaption.copyWith(
+              color: primary ? style.onAccent(theme) : colors.textPrimary,
+              fontWeight: FontWeight.w700,
             ),
           ),
         ),
+        child: const SizedBox.shrink(),
       ),
     );
   }

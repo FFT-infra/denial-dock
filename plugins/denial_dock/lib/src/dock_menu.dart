@@ -684,10 +684,15 @@ class DockMenuRow extends StatefulWidget {
 class _DockMenuRowState extends State<DockMenuRow> {
   bool _hovered = false;
 
+  /// A finger never hovers, so the row lights while it is held as well.
+  bool _pressed = false;
+
+  bool get _hot => _hovered || _pressed;
+
   @override
   Widget build(BuildContext context) {
     final theme = context.shellTheme;
-    final row = KitStyle.of(context).menuRow(theme, hot: _hovered);
+    final row = KitStyle.of(context).menuRow(theme, hot: _hot);
     final foreground = row.ink;
     return Semantics(
       button: true,
@@ -697,6 +702,9 @@ class _DockMenuRowState extends State<DockMenuRow> {
         onExit: (_) => setState(() => _hovered = false),
         child: GestureDetector(
           behavior: HitTestBehavior.opaque,
+          onTapDown: (_) => setState(() => _pressed = true),
+          onTapUp: (_) => setState(() => _pressed = false),
+          onTapCancel: () => setState(() => _pressed = false),
           onTap: widget.onTap,
           child: Container(
             height: dockLookMetrics.menuRowHeight,
@@ -726,7 +734,7 @@ class _DockMenuRowState extends State<DockMenuRow> {
                   Icon(
                     Icons.check,
                     size: 16,
-                    color: _hovered && KitStyle.of(context).accentMenuRows
+                    color: _hot && KitStyle.of(context).accentMenuRows
                         ? foreground
                         : theme.kitAccent,
                   ),

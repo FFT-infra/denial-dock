@@ -1210,6 +1210,8 @@ class _IconButton extends StatelessWidget {
     return Pressable(
       onTap: onTap,
       scale: Pressable.small,
+      wash: true,
+      shape: BorderRadius.circular(KitStyle.of(context).corner(8)),
       child: Container(
         width: 34,
         height: 28,
@@ -1252,6 +1254,8 @@ class _PartChip extends StatelessWidget {
     return Pressable(
       onTap: onTap,
       scale: 0.95,
+      wash: true,
+      shape: BorderRadius.circular(style.corner(7)),
       child: AnimatedContainer(
         duration: KitMotion.duration(context, KitMotion.turn),
         curve: KitMotion.outCubic,
@@ -1310,6 +1314,8 @@ class _PresetCard extends StatelessWidget {
     return Pressable(
       onTap: onTap,
       scale: Pressable.large,
+      wash: true,
+      shape: BorderRadius.circular(style.corner(9)),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: <Widget>[

@@ -1427,6 +1427,7 @@ class _SliderTile extends StatelessWidget {
             Pressable(
               onTap: onOpen,
               scale: Pressable.large,
+              wash: true,
               child: Padding(
                 padding: const EdgeInsets.symmetric(horizontal: 7),
                 child: Row(

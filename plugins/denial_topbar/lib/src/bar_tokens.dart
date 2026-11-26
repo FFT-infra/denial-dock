@@ -75,6 +75,9 @@ abstract final class BarTokens {
   static const double itemHoverAlphaLight = 0.09;
   static const double itemHoverAlphaDark = 0.14;
 
+  /// How much stronger than the hover fill a held item's is.
+  static const double itemPressGain = 1.6;
+
   /// Right row spacing. shell27 `spacing: 6`.
   static const double clusterGap = 6;
 

@@ -1,7 +1,6 @@
 import 'package:denial_flutter_sdk/state.dart';
 import 'package:denial_flutter_sdk/system_services.dart' show WifiNetwork;
 import 'package:denial_flutter_sdk/theme.dart';
-import 'package:denial_shell_kit/kit_motion.dart';
 import 'package:denial_shell_kit/kit_style.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -9,6 +8,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../bar_icons.dart';
 import '../bar_type.dart';
 import '../l10n.dart';
+import 'mac_kit.dart';
 
 /// The "Join “SSID”" dialog.
 ///
@@ -278,7 +278,7 @@ class _WifiJoinDialogState extends ConsumerState<WifiJoinDialog> {
 
 /// The reference's 30 pt control ring: a circle with a 1 px rim, a 0.55
 /// opacity while the join is in flight, and a 900 ms arc when it is busy.
-class _RingButton extends StatefulWidget {
+class _RingButton extends StatelessWidget {
   const _RingButton({
     required this.fill,
     required this.border,
@@ -298,55 +298,27 @@ class _RingButton extends StatefulWidget {
   final VoidCallback? onTap;
 
   @override
-  State<_RingButton> createState() => _RingButtonState();
-}
-
-class _RingButtonState extends State<_RingButton> {
-  bool _hovered = false;
-  bool _pressed = false;
-
-  @override
   Widget build(BuildContext context) {
-    final enabled = widget.onTap != null;
-    return MouseRegion(
-      cursor: enabled ? SystemMouseCursors.click : SystemMouseCursors.basic,
-      onEnter: (_) => setState(() => _hovered = true),
-      onExit: (_) => setState(() => _hovered = false),
-      child: GestureDetector(
-        behavior: HitTestBehavior.opaque,
-        onTapDown: enabled ? (_) => setState(() => _pressed = true) : null,
-        onTapCancel: enabled ? () => setState(() => _pressed = false) : null,
-        onTapUp: enabled ? (_) => setState(() => _pressed = false) : null,
-        onTap: widget.onTap,
-        child: AnimatedScale(
-          scale: _pressed ? 0.92 : 1,
-          duration: KitMotion.duration(context, KitMotion.tap),
-          curve: KitMotion.out,
-          child: Opacity(
-            opacity: widget.busy ? 0.55 : 1,
-            child: Container(
-              width: 30,
-              height: 30,
-              decoration: BoxDecoration(
-                color: _hovered && enabled
-                    ? Color.alphaBlend(
-                        widget.ink.withValues(alpha: 0.08),
-                        widget.fill,
-                      )
-                    : widget.fill,
-                borderRadius: KitStyle.of(context).disc(30),
-                border: Border.all(color: widget.border),
-              ),
-              child: Center(
-                child: widget.busy
-                    ? BarGlyph(BarIcons.ellipsis, size: 15, color: widget.ink)
-                    : BarGlyph(
-                        widget.glyph!,
-                        size: widget.glyphSize,
-                        color: widget.ink,
-                      ),
-              ),
-            ),
+    final shape = KitStyle.of(context).disc(30);
+    return Pressable(
+      onTap: onTap,
+      scale: Pressable.small,
+      wash: true,
+      shape: shape,
+      child: Opacity(
+        opacity: busy ? 0.55 : 1,
+        child: Container(
+          width: 30,
+          height: 30,
+          decoration: BoxDecoration(
+            color: fill,
+            borderRadius: shape,
+            border: Border.all(color: border),
+          ),
+          child: Center(
+            child: busy
+                ? BarGlyph(BarIcons.ellipsis, size: 15, color: ink)
+                : BarGlyph(glyph!, size: glyphSize, color: ink),
           ),
         ),
       ),
@@ -522,17 +494,15 @@ class _StripAction extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return MouseRegion(
-      cursor: enabled ? SystemMouseCursors.click : SystemMouseCursors.basic,
-      child: GestureDetector(
-        behavior: HitTestBehavior.opaque,
-        onTap: enabled ? onTap : null,
-        child: Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 8),
-          child: Text(
-            label,
-            style: BarType.caption.copyWith(fontSize: 11, color: color),
-          ),
+    return Pressable(
+      onTap: onTap,
+      disabled: !enabled,
+      wash: true,
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 8),
+        child: Text(
+          label,
+          style: BarType.caption.copyWith(fontSize: 11, color: color),
         ),
       ),
     );

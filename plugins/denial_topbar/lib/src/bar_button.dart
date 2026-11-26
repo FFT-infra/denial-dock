@@ -3,6 +3,7 @@ import 'dart:math' as math;
 
 import 'package:denial_flutter_sdk/theme.dart';
 import 'package:denial_shell_kit/kit_layer.dart' show kitPressTargets;
+import 'package:denial_shell_kit/kit_feedback.dart';
 import 'package:denial_shell_kit/kit_motion.dart';
 import 'package:denial_shell_kit/kit_style.dart';
 import 'package:flutter/material.dart';
@@ -169,16 +170,36 @@ class _BarButtonState extends State<BarButton> {
           padding: widget.width == null ? widget.padding : EdgeInsets.zero,
           alignment: Alignment.center,
           decoration: BoxDecoration(
+            // A held item is a shade past a hovered one, so a press reads
+            // on a pointer as well as under a finger, which never hovers.
             color: active
                 ? (darkInk ? const Color(0xffffffff) : const Color(0xff000000))
                       .withValues(
-                        alpha: darkInk
-                            ? BarTokens.itemHoverAlphaDark
-                            : BarTokens.itemHoverAlphaLight,
+                        alpha:
+                            (darkInk
+                                ? BarTokens.itemHoverAlphaDark
+                                : BarTokens.itemHoverAlphaLight) *
+                            (_pressed ? BarTokens.itemPressGain : 1),
                       )
                 : const Color(0x00000000),
             borderRadius: BorderRadius.circular(
               KitStyle.of(context).corner(widget.radius),
+            ),
+          ),
+          // A flat look has no gloss to answer with; it draws a line. In
+          // the foreground, so the line takes no room from the item.
+          foregroundDecoration: BoxDecoration(
+            borderRadius: BorderRadius.circular(
+              KitStyle.of(context).corner(widget.radius),
+            ),
+            border: Border.all(
+              color: ink.withValues(
+                alpha: KitFeedback.line(
+                  hovered: active,
+                  pressed: _pressed,
+                  flat: KitStyle.of(context).flat,
+                ),
+              ),
             ),
           ),
           child: widget.child,

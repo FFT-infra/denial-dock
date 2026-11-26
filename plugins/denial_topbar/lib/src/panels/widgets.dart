@@ -567,6 +567,7 @@ class _MediaWidget extends ConsumerWidget {
         Pressable(
           onTap: enabled ? onTap : null,
           scale: 0.82,
+          wash: true,
           child: SizedBox(
             width: 44,
             height: 36,
