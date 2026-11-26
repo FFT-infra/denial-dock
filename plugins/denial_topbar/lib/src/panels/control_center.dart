@@ -850,7 +850,7 @@ class _PowerRow extends ConsumerWidget {
     final theme = context.shellTheme;
     final style = KitStyle.of(context);
     final ink = theme.colors.textPrimary;
-    final shape = theme.borderRadius(14) * style.cornerScale;
+    final shape = BorderRadius.circular(kitStyle.value.radius(theme, 14));
 
     Widget button(String label, IconData icon, VoidCallback? onTap) => Expanded(
       child: Pressable(

@@ -9,6 +9,7 @@ import 'package:flutter/gestures.dart'
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
+import 'dock_look_style.dart';
 import 'dock_drag.dart';
 import 'dock_mac_icons.dart';
 import 'dock_menu.dart';
@@ -841,7 +842,7 @@ class _DockStackViewState extends State<DockStackView>
           child: DecoratedBox(
             decoration: BoxDecoration(
               color: theme.panelColor(theme.colors.surfaceContainerHigh),
-              borderRadius: theme.borderRadius(15),
+              borderRadius: BorderRadius.circular(kitStyle.value.radius(theme, 15)),
               border: Border.all(color: theme.colors.hairline),
             ),
             child: Padding(
@@ -863,14 +864,14 @@ class _DockStackViewState extends State<DockStackView>
                         _selected = -1;
                       }),
                       cursorColor: theme.kitAccent,
-                      style: theme.text.systemBarCaption.copyWith(
+                      style: theme.text.systemBarCaption.inLook.copyWith(
                         color: theme.colors.textPrimary,
                       ),
                       decoration: InputDecoration(
                         isDense: true,
                         border: InputBorder.none,
                         hintText: widget.zh ? '搜索' : 'Search',
-                        hintStyle: theme.text.systemBarCaption.copyWith(
+                        hintStyle: theme.text.systemBarCaption.inLook.copyWith(
                           color: theme.colors.textTertiary,
                         ),
                       ),
@@ -1018,10 +1019,10 @@ class _DockStackViewState extends State<DockStackView>
             decoration: BoxDecoration(
               color: theme.panelColor(theme.colors.surfaceContainerHigh),
               border: Border.all(color: theme.colors.hairline),
-              borderRadius: theme.borderRadius(DockStackFan.radius),
+              borderRadius: BorderRadius.circular(kitStyle.value.radius(theme, DockStackFan.radius)),
             ),
             child: ClipRRect(
-              borderRadius: theme.borderRadius(DockStackFan.radius),
+              borderRadius: BorderRadius.circular(kitStyle.value.radius(theme, DockStackFan.radius)),
               child: SingleChildScrollView(
                 controller: _gridController(scroll),
                 physics: layout.scrolls
@@ -1125,10 +1126,10 @@ class _DockStackViewState extends State<DockStackView>
             decoration: BoxDecoration(
               color: theme.panelColor(theme.colors.surfaceContainerHigh),
               border: Border.all(color: theme.colors.hairline),
-              borderRadius: theme.borderRadius(DockStackFan.radius),
+              borderRadius: BorderRadius.circular(kitStyle.value.radius(theme, DockStackFan.radius)),
             ),
             child: ClipRRect(
-              borderRadius: theme.borderRadius(DockStackFan.radius),
+              borderRadius: BorderRadius.circular(kitStyle.value.radius(theme, DockStackFan.radius)),
               child: Column(
                 children: [
                   if (widget.title case final title?)
@@ -1139,7 +1140,7 @@ class _DockStackViewState extends State<DockStackView>
                           title,
                           maxLines: 1,
                           overflow: TextOverflow.ellipsis,
-                          style: theme.text.systemBarCaption.copyWith(
+                          style: theme.text.systemBarCaption.inLook.copyWith(
                             color: theme.colors.textPrimary,
                             fontWeight: FontWeight.w600,
                           ),
@@ -1205,7 +1206,7 @@ class _DockStackViewState extends State<DockStackView>
           duration: KitMotion.duration(context, KitMotion.fade),
           decoration: BoxDecoration(
             color: accent.withValues(alpha: _overTrash ? 0.26 : 0.10),
-            borderRadius: BorderRadius.circular(14),
+            borderRadius: BorderRadius.circular(kitStyle.value.corner(14)),
             border: Border.all(
               color: accent.withValues(alpha: _overTrash ? 1 : 0.45),
               width: _overTrash ? 2 : 1,
@@ -1241,14 +1242,16 @@ class _DockStackViewState extends State<DockStackView>
                 color: context.shellTheme.panelColor(
                   context.shellTheme.colors.surfaceContainerHigh,
                 ),
-                borderRadius: BorderRadius.circular(10),
-                boxShadow: const [
+                borderRadius: BorderRadius.circular(
+                  kitStyle.value.corner(10),
+                ),
+                boxShadow: kitStyle.value.cast(const [
                   BoxShadow(
                     color: Color(0x33000000),
                     blurRadius: 12,
                     offset: Offset(0, 4),
                   ),
-                ],
+                ]),
               ),
               child: Padding(
                 padding: const EdgeInsets.all(6),
@@ -1394,7 +1397,7 @@ class _StackLayout {
 const Color _plateFill = Color(0xB81C1C1E);
 const Color _plateInk = Color(0xFFFFFFFF);
 
-TextStyle _plateStyle(ShellThemeData theme) => theme.text.systemBarCaption
+TextStyle _plateStyle(ShellThemeData theme) => theme.text.systemBarCaption.inLook
     .copyWith(color: _plateInk, fontWeight: FontWeight.w500);
 
 /// A plate under the pointer or the keyboard, [hover] of the way there. One
@@ -1431,13 +1434,13 @@ Color _cardFill(ShellThemeData theme) {
   return fill.a < 0.9 ? fill.withValues(alpha: 0.9) : fill;
 }
 
-List<BoxShadow> _plateShadow(ShellThemeData theme) => [
+List<BoxShadow> _plateShadow(ShellThemeData theme) => kitStyle.value.cast([
   BoxShadow(
     color: theme.colors.shadow.withValues(alpha: 0.22),
     blurRadius: 10,
     offset: const Offset(0, 3),
   ),
-];
+]);
 
 /// One fan row: the file's name on a pill and its preview beside it, which is
 /// the shape a macOS stack draws.
@@ -1565,7 +1568,7 @@ class _StackRowTile extends StatelessWidget {
           dimension: DockStackFan.openSize,
           child: DecoratedBox(
             decoration: BoxDecoration(
-              shape: BoxShape.circle,
+              borderRadius: kitStyle.value.disc(DockStackFan.openSize),
               color: colours.fill,
               border: Border.all(color: colours.edge),
               boxShadow: _plateShadow(theme),
@@ -1590,7 +1593,7 @@ class _StackRowTile extends StatelessWidget {
       child: DecoratedBox(
         decoration: BoxDecoration(
           color: _cardFill(theme),
-          borderRadius: theme.borderRadius(8),
+          borderRadius: BorderRadius.circular(kitStyle.value.radius(theme, 8)),
           border: Border.all(
             color: Color.lerp(
               theme.colors.hairline,
@@ -1640,7 +1643,7 @@ class _GridCellTile extends StatelessWidget {
               : lit
               ? theme.kitAccent.withValues(alpha: 0.16)
               : null,
-          borderRadius: theme.borderRadius(8),
+          borderRadius: BorderRadius.circular(kitStyle.value.radius(theme, 8)),
           border: dropTarget ? Border.all(color: theme.kitAccent) : null,
         ),
         child: Padding(
@@ -1663,7 +1666,7 @@ class _GridCellTile extends StatelessWidget {
                 maxLines: 2,
                 textAlign: TextAlign.center,
                 overflow: TextOverflow.ellipsis,
-                style: theme.text.systemBarCaption.copyWith(
+                style: theme.text.systemBarCaption.inLook.copyWith(
                   color: theme.colors.textPrimary,
                   fontSize: 10,
                 ),

@@ -257,13 +257,13 @@ class _Tip extends StatelessWidget {
           color: const Color(0xf02c2c2e),
           borderRadius: BorderRadius.circular(KitStyle.of(context).corner(7)),
           border: Border.all(color: const Color(0x29ffffff), width: 0.6),
-          boxShadow: const <BoxShadow>[
+          boxShadow: KitStyle.of(context).cast(const <BoxShadow>[
             BoxShadow(
               color: Color(0x40000000),
               blurRadius: 12,
               offset: Offset(0, 4),
             ),
-          ],
+          ]),
         ),
         child: Text(
           label,

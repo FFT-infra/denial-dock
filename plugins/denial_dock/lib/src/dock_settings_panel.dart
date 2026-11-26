@@ -30,20 +30,20 @@ const Duration _quick = KitMotion.ease;
 Duration _motion(BuildContext context, Duration duration) =>
     KitMotion.duration(context, duration);
 
-TextStyle _labelStyle(ShellThemeData theme) => theme.text.cardTitle.copyWith(
+TextStyle _labelStyle(ShellThemeData theme) => theme.text.cardTitle.inLook.copyWith(
   color: theme.colors.textPrimary,
   fontWeight: FontWeight.w500,
 );
 
 TextStyle _captionStyle(ShellThemeData theme, [Color? color]) =>
-    theme.text.systemBarCaption.copyWith(
+    theme.text.systemBarCaption.inLook.copyWith(
       color: color ?? theme.colors.textTertiary,
       height: 1.45,
       letterSpacing: 0.1,
     );
 
 TextStyle _sectionStyle(ShellThemeData theme) =>
-    theme.text.systemBarCaption.copyWith(
+    theme.text.systemBarCaption.inLook.copyWith(
       color: theme.colors.textTertiary,
       fontWeight: FontWeight.w700,
       letterSpacing: 0.8,
@@ -51,7 +51,7 @@ TextStyle _sectionStyle(ShellThemeData theme) =>
     );
 
 TextStyle _valueStyle(ShellThemeData theme, Color color) =>
-    theme.text.systemBarValue.copyWith(color: color, letterSpacing: 0);
+    theme.text.systemBarValue.inLook.copyWith(color: color, letterSpacing: 0);
 
 /// Denial gives plugins no settings page, so the sheet is a managed shell popup
 /// with the scene barrier, focus, Escape and outside-tap dismissal for free.
@@ -275,7 +275,7 @@ class _DockSettingsPanelState extends ConsumerState<DockSettingsPanel> {
     final theme = context.shellTheme;
     final colors = theme.colors;
     final swap = _motion(context, KitMotion.enter);
-    final titleStyle = theme.text.base.copyWith(
+    final titleStyle = theme.text.base.inLook.copyWith(
       color: colors.textPrimary,
       fontWeight: FontWeight.w700,
       letterSpacing: -0.1,
@@ -314,7 +314,7 @@ class _DockSettingsPanelState extends ConsumerState<DockSettingsPanel> {
                             theme.kitAccent.withValues(alpha: 0.1),
                           ],
                         ),
-                        borderRadius: theme.borderRadius(8),
+                        borderRadius: BorderRadius.circular(kitStyle.value.radius(theme, 8)),
                         border: Border.all(
                           color: theme.kitAccent.withValues(alpha: 0.2),
                         ),
@@ -1453,7 +1453,7 @@ class _DockSettingsPanelState extends ConsumerState<DockSettingsPanel> {
         controller: _bodyScroll,
         thumbColor: theme.colors.textPrimary.withValues(alpha: 0.22),
         thickness: 5,
-        radius: const Radius.circular(3),
+        radius: Radius.circular(kitStyle.value.pill(5)),
         crossAxisMargin: 2,
         minThumbLength: 36,
         child: SingleChildScrollView(
@@ -1540,7 +1540,7 @@ class _DockSettingsPanelState extends ConsumerState<DockSettingsPanel> {
               controller: _browserScroll,
               thumbColor: colors.textPrimary.withValues(alpha: 0.22),
               thickness: 5,
-              radius: const Radius.circular(3),
+              radius: Radius.circular(kitStyle.value.pill(5)),
               crossAxisMargin: 2,
               minThumbLength: 36,
               child: ListView(
@@ -1594,7 +1594,7 @@ class _DockSettingsPanelState extends ConsumerState<DockSettingsPanel> {
                           DecoratedBox(
                             decoration: BoxDecoration(
                               color: colors.textPrimary.withValues(alpha: 0.05),
-                              shape: BoxShape.circle,
+                              borderRadius: kitStyle.value.disc(46),
                             ),
                             child: SizedBox(
                               width: 46,
@@ -1896,11 +1896,11 @@ class _SettingsSection extends StatelessWidget {
                 colors.textPrimary.withValues(alpha: 0.035),
               ],
             ),
-            borderRadius: theme.borderRadius(_cardRadius),
+            borderRadius: BorderRadius.circular(kitStyle.value.radius(theme, _cardRadius)),
             border: Border.all(color: colors.hairlineSoft),
           ),
           child: ClipRRect(
-            borderRadius: theme.borderRadius(_cardRadius),
+            borderRadius: BorderRadius.circular(kitStyle.value.radius(theme, _cardRadius)),
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.stretch,
               children: [
@@ -2095,7 +2095,7 @@ class _SlidingSegmentsState<T> extends State<_SlidingSegments<T>>
               padding: const EdgeInsets.all(_inset),
               decoration: BoxDecoration(
                 color: colors.textPrimary.withValues(alpha: 0.05),
-                borderRadius: theme.borderRadius(11),
+                borderRadius: BorderRadius.circular(kitStyle.value.radius(theme, 11)),
                 border: Border.all(color: colors.hairlineSoft),
               ),
               child: Stack(
@@ -2135,17 +2135,17 @@ class _SlidingSegmentsState<T> extends State<_SlidingSegments<T>>
                                 ),
                               ],
                             ),
-                            borderRadius: theme.borderRadius(8),
+                            borderRadius: BorderRadius.circular(kitStyle.value.radius(theme, 8)),
                             border: Border.all(
                               color: theme.kitAccent.withValues(alpha: 0.28),
                             ),
-                            boxShadow: [
+                            boxShadow: kitStyle.value.cast([
                               BoxShadow(
                                 color: colors.shadow,
                                 blurRadius: 6,
                                 offset: const Offset(0, 1.5),
                               ),
-                            ],
+                            ]),
                           ),
                         ),
                       ),
@@ -2232,7 +2232,7 @@ class _SegmentState extends State<_Segment> {
             color: _hovered && !widget.selected
                 ? colors.textPrimary.withValues(alpha: 0.05)
                 : Colors.transparent,
-            borderRadius: theme.borderRadius(8),
+            borderRadius: BorderRadius.circular(kitStyle.value.radius(theme, 8)),
           ),
           child: AnimatedScale(
             scale: widget.pressed ? 0.96 : 1,
@@ -2267,7 +2267,7 @@ class _SegmentState extends State<_Segment> {
                     child: AnimatedDefaultTextStyle(
                       duration: quick,
                       curve: Motion.standard,
-                      style: theme.text.systemBarCaption.copyWith(
+                      style: theme.text.systemBarCaption.inLook.copyWith(
                         color: foreground,
                         height: 1.2,
                         letterSpacing: 0.1,
@@ -2438,15 +2438,17 @@ class _DockSwitchState extends State<_DockSwitch>
                           ),
                           track,
                         ),
-                        borderRadius: BorderRadius.circular(_height / 2),
+                        borderRadius: BorderRadius.circular(
+                          kitStyle.value.pill(_height),
+                        ),
                         border: Border.all(color: border),
-                        boxShadow: [
+                        boxShadow: kitStyle.value.cast([
                           BoxShadow(
                             color: colors.shadow,
                             blurRadius: 2,
                             offset: const Offset(0, 1),
                           ),
-                        ],
+                        ]),
                       ),
                     ),
                   ),
@@ -2461,18 +2463,18 @@ class _DockSwitchState extends State<_DockSwitch>
                       curve: Motion.standard,
                       child: DecoratedBox(
                         decoration: BoxDecoration(
-                          shape: BoxShape.circle,
+                          borderRadius: kitStyle.value.disc(_thumb),
                           color: colors.sliderThumb,
                           border: Border.all(
                             color: colors.textPrimary.withValues(alpha: 0.08),
                           ),
-                          boxShadow: [
+                          boxShadow: kitStyle.value.cast([
                             BoxShadow(
                               color: colors.shadow,
                               blurRadius: 3,
                               offset: const Offset(0, 1),
                             ),
-                          ],
+                          ]),
                         ),
                       ),
                     ),
@@ -2598,7 +2600,7 @@ class _Swatch extends StatelessWidget {
           child: DecoratedBox(
             decoration: BoxDecoration(
               color: color,
-              shape: BoxShape.circle,
+              borderRadius: kitStyle.value.disc(22),
               border: Border.all(
                 color: selected
                     ? theme.colors.textPrimary
@@ -2952,7 +2954,7 @@ class _DockSliderState extends State<_DockSlider> {
                               opacity: _hovered || _pressed ? 1 : 0,
                               child: DecoratedBox(
                                 decoration: BoxDecoration(
-                                  shape: BoxShape.circle,
+                                  borderRadius: kitStyle.value.disc(32),
                                   color: theme.kitAccent.withValues(
                                     alpha: _pressed ? 0.2 : 0.14,
                                   ),
@@ -2973,7 +2975,7 @@ class _DockSliderState extends State<_DockSlider> {
                               curve: Motion.standard,
                               child: DecoratedBox(
                                 decoration: BoxDecoration(
-                                  shape: BoxShape.circle,
+                                  borderRadius: kitStyle.value.disc(_thumbSize),
                                   color: active
                                       ? colors.sliderThumb
                                       : colors.surfaceContainerHigh,
@@ -2982,13 +2984,13 @@ class _DockSliderState extends State<_DockSlider> {
                                       alpha: 0.08,
                                     ),
                                   ),
-                                  boxShadow: [
+                                  boxShadow: kitStyle.value.cast([
                                     BoxShadow(
                                       color: colors.shadow,
                                       blurRadius: 4,
                                       offset: const Offset(0, 1),
                                     ),
-                                  ],
+                                  ]),
                                 ),
                               ),
                             ),
@@ -3076,7 +3078,7 @@ class _Glyph extends StatelessWidget {
     return DecoratedBox(
       decoration: BoxDecoration(
         color: colors.textPrimary.withValues(alpha: 0.06),
-        borderRadius: theme.borderRadius(7),
+        borderRadius: BorderRadius.circular(kitStyle.value.radius(theme, 7)),
       ),
       child: SizedBox(
         width: 26,
@@ -3135,7 +3137,7 @@ class _FolderRow extends StatelessWidget {
                     folder.label,
                     maxLines: 1,
                     overflow: TextOverflow.ellipsis,
-                    style: theme.text.cardTitle.copyWith(
+                    style: theme.text.cardTitle.inLook.copyWith(
                       color: colors.textPrimary,
                       fontWeight: FontWeight.w600,
                     ),
@@ -3202,7 +3204,7 @@ class _FileRow extends StatelessWidget {
                     file.label,
                     maxLines: 1,
                     overflow: TextOverflow.ellipsis,
-                    style: theme.text.cardTitle.copyWith(
+                    style: theme.text.cardTitle.inLook.copyWith(
                       color: colors.textPrimary,
                       fontWeight: FontWeight.w600,
                     ),
@@ -3385,7 +3387,7 @@ class _PillButton extends StatelessWidget {
           child: Text(
             label,
             maxLines: 1,
-            style: theme.text.systemBarCaption.copyWith(
+            style: theme.text.systemBarCaption.inLook.copyWith(
               color: primary ? style.onAccent(theme) : colors.textPrimary,
               fontWeight: FontWeight.w700,
             ),

@@ -339,7 +339,7 @@ class WindowHeader extends StatelessWidget {
                 decoration: BoxDecoration(
                   color: theme.kitAccent.withValues(alpha: 0.18),
                   borderRadius:
-                      theme.borderRadius(8) * KitStyle.of(context).cornerScale,
+                      BorderRadius.circular(kitStyle.value.radius(theme, 8)),
                   border: Border.all(
                     color: theme.kitAccent.withValues(alpha: 0.26),
                   ),
@@ -371,8 +371,7 @@ class WindowHeader extends StatelessWidget {
                       alpha: hovered ? 0.10 : 0,
                     ),
                     borderRadius:
-                        theme.borderRadius(7) *
-                        KitStyle.of(context).cornerScale,
+                        BorderRadius.circular(kitStyle.value.radius(theme, 7)),
                   ),
                   child: BarGlyph(
                     BarIcons.xmark,

@@ -1,5 +1,6 @@
 import 'package:denial_flutter_sdk/theme.dart';
 import 'package:denial_shell_kit/kit_motion.dart';
+import 'package:denial_shell_kit/kit_style.dart';
 import 'package:flutter/material.dart';
 
 import 'dock_settings.dart' show DockIconMode;
@@ -136,7 +137,7 @@ class DockTile extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final theme = context.shellTheme;
-    final radius = theme.borderRadius(size * 0.24);
+    final radius = BorderRadius.circular(kitStyle.value.radius(theme, size * 0.24));
     final picture = fill;
     return AnimatedContainer(
       duration: KitMotion.duration(context, KitMotion.tap),

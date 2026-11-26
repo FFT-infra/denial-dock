@@ -163,7 +163,8 @@ class KitGlass extends StatelessWidget {
       tone = kitToneColor(material.fill, theme, style);
       if (tone.a < minOpacity) tone = tone.withValues(alpha: minOpacity);
     }
-    final filtered = blur && plan.blurs && tone.a < 1;
+    // A look with solid panels never blurs, whatever fill a caller passes.
+    final filtered = blur && plan.blurs && tone.a < 1 && style.glassy;
     // A fill measured over a blurred backdrop is too thin over a sharp one.
     if (!filtered &&
         (!blur || (fill == null && material.fill.fixed)) &&

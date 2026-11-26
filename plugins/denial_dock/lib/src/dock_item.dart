@@ -1388,7 +1388,9 @@ class _DockItemWidgetState extends State<DockItemWidget>
                                   width: math.max(14, size * 0.32),
                                   height: math.max(14, size * 0.32),
                                   decoration: BoxDecoration(
-                                    shape: BoxShape.circle,
+                                    borderRadius: kitStyle.value.disc(
+                                      math.max(14, size * 0.32),
+                                    ),
                                     color: colors.background.withValues(
                                       alpha: 0.78,
                                     ),
@@ -1859,7 +1861,7 @@ class _DockItemWidgetState extends State<DockItemWidget>
                                             fit: StackFit.expand,
                                             children: [
                                               _PreviewFrame(
-                                                radius: theme.borderRadius(10),
+                                                radius: BorderRadius.circular(kitStyle.value.radius(theme, 10)),
                                                 hovered:
                                                     _hoverPreview == window.id,
                                                 accent: theme.kitAccent,
@@ -2032,7 +2034,7 @@ class _DockItemWidgetState extends State<DockItemWidget>
                             height: sizes[index].height + titleHeight,
                             child: _PreviewRow(
                               window: window,
-                              radius: theme.borderRadius(10),
+                              radius: BorderRadius.circular(kitStyle.value.radius(theme, 10)),
                               titleStyle: theme.text.systemBarCaption.inLook.copyWith(
                                 color: theme.colors.textPrimary,
                               ),
@@ -2213,7 +2215,7 @@ class _PreviewCloseButton extends StatelessWidget {
           width: 18,
           height: 18,
           decoration: BoxDecoration(
-            shape: BoxShape.circle,
+            borderRadius: kitStyle.value.disc(18),
             color: theme.colors.background.withValues(alpha: 0.72),
             border: Border.all(color: theme.colors.hairline),
           ),
@@ -2286,7 +2288,7 @@ class _Progress extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) => ClipRRect(
-    borderRadius: BorderRadius.circular(height / 2),
+    borderRadius: BorderRadius.circular(kitStyle.value.pill(height)),
     child: SizedBox(
       height: height,
       child: ColoredBox(
@@ -2319,7 +2321,7 @@ class _Badge extends StatelessWidget {
     alignment: Alignment.center,
     decoration: BoxDecoration(
       color: _red,
-      borderRadius: BorderRadius.circular(size / 2),
+      borderRadius: BorderRadius.circular(kitStyle.value.pill(size)),
     ),
     child: Text(
       count > 99 ? '99+' : '$count',

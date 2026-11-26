@@ -1772,7 +1772,7 @@ class _DockContainerState extends ConsumerState<DockContainer>
         child: DecoratedBox(
           decoration: BoxDecoration(
             color: theme.colors.textPrimary.withValues(alpha: 0.35),
-            borderRadius: BorderRadius.circular(2),
+            borderRadius: BorderRadius.circular(kitStyle.value.pill(4)),
           ),
         ),
       ),
