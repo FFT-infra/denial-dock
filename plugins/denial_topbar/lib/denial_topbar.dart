@@ -3,6 +3,7 @@ library;
 
 import 'package:denial_flutter_sdk/surfaces.dart';
 import 'package:denial_sdk/composition.dart';
+import 'package:denial_shell_kit/kit_style.dart';
 import 'package:flutter/widgets.dart';
 
 import 'src/bar_reserve.dart';
@@ -54,11 +55,13 @@ final class TopBarPlugin implements ShellSurface {
 
   @override
   Widget build(BuildContext context, {required ShellSurfaceContext surface}) {
-    return TopBarSurface(
+    return KitThemed(
       key: ValueKey(surface.environment.output.monitorId),
-      monitorId: surface.environment.output.monitorId,
-      environment: surface.environment,
-      services: surface.services,
+      child: TopBarSurface(
+        monitorId: surface.environment.output.monitorId,
+        environment: surface.environment,
+        services: surface.services,
+      ),
     );
   }
 }

@@ -294,7 +294,7 @@ class _DockContainerState extends ConsumerState<DockContainer>
   void _reportToShell(DockSettings settings) {
     if (!mounted || !widget.environment.isMainOutput) return;
     _speaker = this;
-    kitDock.publish(settings.layoutJson(kitStyle.value.id));
+    kitDock.publish(settings.layoutJson(kitStyle.value.look.dockKin));
     kitHosts.report(
       KitHosts.dock,
       KitHostState(

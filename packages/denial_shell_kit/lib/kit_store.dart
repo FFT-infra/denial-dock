@@ -5,14 +5,17 @@ import 'dart:io';
 /// kept beside the plugins' own preferences.
 ///
 /// A file without a version was written when the store held only the look,
-/// which is what version 1 held. A file with a newer version is read but
+/// which is what version 1 held. Version 3 added the looks and the presets
+/// the user made, under `looks` and `userPresets`; it changed no older key,
+/// so an older file is read as it is and gains the version at its next
+/// write. A file with a newer version is read but
 /// never written, so a build cannot drop settings it does not know; for the
 /// same reason every write keeps the keys it was not asked to change.
 class KitStore {
   KitStore(this.file);
 
   /// The version this build writes.
-  static const int version = 2;
+  static const int version = 3;
 
   /// Null when the program has no configuration directory; nothing is kept
   /// then.
@@ -30,6 +33,13 @@ class KitStore {
     return root == null
         ? null
         : File('$root/denial/plugins/denial_shell_kit.json');
+  }
+
+  /// Where presets written out as files are kept: `presets` beside the
+  /// store's own file. Null when there is no configuration directory.
+  Directory? get presetsDirectory {
+    final file = this.file;
+    return file == null ? null : Directory('${file.parent.path}/presets');
   }
 
   Map<String, dynamic> read() {

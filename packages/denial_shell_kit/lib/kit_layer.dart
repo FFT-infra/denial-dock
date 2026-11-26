@@ -133,16 +133,18 @@ void showKitLayer({
     keyboardPolicy: passthrough
         ? ShellKeyboardPolicy.none
         : ShellKeyboardPolicy.capture,
-    builder: (context, popup) => _KitLayerHost(
-      outside: outside,
-      panelId: panelId,
-      open: open,
-      close: close,
-      dismissOnOutsideTap: dismissOnOutsideTap,
-      contentEndsClose: contentEndsClose,
-      scrim: scrim,
-      onClosed: popup.close,
-      builder: builder,
+    builder: (context, popup) => KitThemed(
+      child: _KitLayerHost(
+        outside: outside,
+        panelId: panelId,
+        open: open,
+        close: close,
+        dismissOnOutsideTap: dismissOnOutsideTap,
+        contentEndsClose: contentEndsClose,
+        scrim: scrim,
+        onClosed: popup.close,
+        builder: builder,
+      ),
     ),
   );
 }
@@ -430,6 +432,9 @@ class _KitSwellState extends State<KitSwell>
   Animation<double>? _layer;
   bool _started = false;
 
+  /// How far a card travels under a look whose panels slide in.
+  static const double _slide = 18;
+
   @override
   void didChangeDependencies() {
     super.didChangeDependencies();
@@ -467,17 +472,39 @@ class _KitSwellState extends State<KitSwell>
   @override
   Widget build(BuildContext context) {
     if (widget.fadeOnly) return widget.child;
-    final bead = widget.bead ?? KitStyle.of(context).panelBead;
+    final style = KitStyle.of(context);
+    final bead = widget.bead ?? style.panelBead;
+    // A card that names its own bead grows from it whatever the look.
+    final entry = widget.bead != null ? KitPanelEntry.grow : style.entry;
+    if (entry == KitPanelEntry.fade) return widget.child;
     return AnimatedBuilder(
       animation: _springs,
       builder: (context, child) {
         final grown = _grow.value;
-        return Transform.scale(
-          alignment: widget.alignment,
-          scaleX: bead.width + (1 - bead.width) * grown,
-          scaleY: bead.height + (1 - bead.height) * grown,
-          child: child,
-        );
+        switch (entry) {
+          case KitPanelEntry.slide:
+            // From the side the card hangs by, the way it opens.
+            return Transform.translate(
+              offset: Offset(
+                widget.alignment.x * _slide * (1 - grown),
+                widget.alignment.y * _slide * (1 - grown),
+              ),
+              child: child,
+            );
+          case KitPanelEntry.zoom:
+            final least = math.min(bead.width, bead.height);
+            return Transform.scale(
+              scale: least + (1 - least) * grown,
+              child: child,
+            );
+          case KitPanelEntry.grow || KitPanelEntry.fade:
+            return Transform.scale(
+              alignment: widget.alignment,
+              scaleX: bead.width + (1 - bead.width) * grown,
+              scaleY: bead.height + (1 - bead.height) * grown,
+              child: child,
+            );
+        }
       },
       child: widget.child,
     );
