@@ -31,6 +31,7 @@ import '../panels/mac_kit.dart';
 import '../panels/popovers.dart' show outputDeviceIcon;
 import 'island_cards.dart';
 import 'island_engine.dart';
+import 'island_lyric_source.dart';
 import 'island_motion.dart';
 import 'island_parts.dart';
 import 'island_shape.dart';
@@ -106,8 +107,8 @@ class Island extends ConsumerStatefulWidget {
   final VoidCallback? onControlCenter;
   final VoidCallback? onNotifications;
 
-  /// A second line for the playback card, e.g. lyrics. Nothing provides one
-  /// yet; this is where a source plugs in.
+  /// A second line for the playback card. Left null, the card shows the
+  /// lyrics found on this machine for the track; see [IslandLyricSource].
   final IslandSubline? subline;
 
   @override
@@ -116,6 +117,7 @@ class Island extends ConsumerStatefulWidget {
 
 class _IslandState extends ConsumerState<Island> with TickerProviderStateMixin {
   final IslandEngine _engine = IslandEngine();
+  final IslandLyricSource _lyrics = IslandLyricSource();
   final DateTime _born = DateTime.now();
   late final IslandLevelGate _volumeGate = IslandLevelGate(born: _born);
   late final IslandLevelGate _brightnessGate = IslandLevelGate(born: _born);
@@ -411,6 +413,7 @@ class _IslandState extends ConsumerState<Island> with TickerProviderStateMixin {
 
   @override
   void dispose() {
+    _lyrics.dispose();
     kitOpenPanel.removeListener(_onPanel);
     islandTimer.removeListener(_onTimer);
     micWatch.removeListener(_onMic);
@@ -1014,6 +1017,10 @@ class _IslandState extends ConsumerState<Island> with TickerProviderStateMixin {
     final feel = IslandFeel.of(style);
     _skin = IslandSkin.of(context);
     final playback = ref.watch(_services.media).value;
+    // Lyrics are looked for only while the playback card can show them.
+    _lyrics.follow(
+      settings.activityMedia && widget.subline == null ? playback : null,
+    );
     final recording = ref.watch(
       screenRecordingProvider.select((state) => state.recording),
     );
@@ -1955,7 +1962,7 @@ class _IslandState extends ConsumerState<Island> with TickerProviderStateMixin {
             commands.next();
           },
           turn: _trackTurn,
-          subline: widget.subline?.line,
+          subline: (widget.subline ?? _lyrics).line,
           output: output == null
               ? ''
               : (output.description.isEmpty
