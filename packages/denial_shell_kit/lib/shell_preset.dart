@@ -8,6 +8,25 @@
 /// Applying a preset writes those keys and leaves every other setting alone,
 /// such as which status items show or which applications are pinned.
 /// Whether the dock shows is a switch of its own and no preset touches it.
+///
+/// A preset the user made is the same data, kept in the kit's store and
+/// written out as one JSON file to pass around; see [ShellPresetFile].
+library;
+
+import 'dart:convert';
+
+/// Which shelf a preset stands on in the settings.
+enum ShellPresetGroup {
+  /// The shell's own arrangements.
+  builtin,
+
+  /// Made after another desktop shell.
+  reference,
+
+  /// Saved by the user.
+  user,
+}
+
 class ShellPreset {
   const ShellPreset({
     required this.id,
@@ -16,10 +35,12 @@ class ShellPreset {
     required this.bar,
     this.dock = _dock,
     this.barMode = 'shown',
+    this.group = ShellPresetGroup.builtin,
   });
 
   final String id;
   final String label;
+  final ShellPresetGroup group;
 
   /// The id of a look of the kit.
   final String look;
@@ -200,8 +221,149 @@ class ShellPreset {
     unified,
   ];
 
+  /// The presets the user saved, as the kit's store holds them. The kit
+  /// sets this when it reads the store and whenever one is saved or dropped.
+  static List<ShellPreset> user = const <ShellPreset>[];
+
+  /// Every preset there is to choose from.
+  static List<ShellPreset> get everything => <ShellPreset>[...all, ...user];
+
+  static Iterable<ShellPreset> inGroup(ShellPresetGroup group) =>
+      everything.where((preset) => preset.group == group);
+
   static ShellPreset byId(String? id) =>
-      all.firstWhere((preset) => preset.id == id, orElse: () => denial);
+      everything.firstWhere((preset) => preset.id == id, orElse: () => denial);
+
+  static const List<String> barModes = <String>[
+    'shown',
+    'islandOnly',
+    'hidden',
+  ];
+
+  /// The values the dock's named layout keys take.
+  static const Map<String, List<String>> _dockNames = <String, List<String>>{
+    'shape': <String>['floating', 'bar'],
+    'align': <String>['packed', 'center', 'start'],
+    'visibility': <String>['always', 'smart', 'persistent'],
+  };
+
+  /// The widest range each of the bar's measures may take from a file. The
+  /// bar's own settings clamp them further; this only keeps nonsense out.
+  static const Map<String, (double, double)> _barRanges =
+      <String, (double, double)>{
+        'groundOpacity': (0, 1),
+        'borderWidth': (0, 8),
+        'textScale': (0.5, 2),
+        'partGap': (0, 40),
+        'edgeMargin': (0, 60),
+        'endInset': (0, 400),
+        'contentPadding': (0, 40),
+        'cornerRadius': (0, 60),
+      };
+
+  static const int _longestList = 40;
+  static const int _longestName = 60;
+
+  /// [saved] laid over [base] as a file may give it: only the keys of
+  /// [base], each of the kind it ships as, numbers inside [ranges], names
+  /// among [names], and lists of short strings.
+  static Map<String, Object?> _sound(
+    Map<String, Object?> base,
+    Object? saved, {
+    Map<String, (double, double)> ranges = const <String, (double, double)>{},
+    Map<String, List<String>> names = const <String, List<String>>{},
+  }) => <String, Object?>{
+    for (final entry in base.entries)
+      entry.key: () {
+        if (saved is! Map || !saved.containsKey(entry.key)) return entry.value;
+        final value = saved[entry.key];
+        if (!_kin(entry.value, value)) return entry.value;
+        if (value is num) {
+          if (!value.isFinite) return entry.value;
+          final range = ranges[entry.key];
+          return range == null ? value : value.clamp(range.$1, range.$2);
+        }
+        if (value is String) {
+          final allowed = names[entry.key];
+          if (value.length > _longestName) return entry.value;
+          return allowed == null || allowed.contains(value)
+              ? value
+              : entry.value;
+        }
+        if (value is List) {
+          return <String>[
+            for (final item in value.take(_longestList))
+              if (item is String && item.isNotEmpty && item.length <= 40) item,
+          ];
+        }
+        return value;
+      }(),
+  };
+
+  /// This preset as JSON: the form the store and a preset file hold.
+  Map<String, Object?> toJson() => <String, Object?>{
+    'id': id,
+    'label': label,
+    'look': look,
+    'barMode': barMode,
+    'bar': bar,
+    'dock': dock,
+  };
+
+  /// A preset of the user's from [json], which may come from anywhere:
+  /// every key the bar and the dock lay out is present afterwards, of the
+  /// right kind and inside its range, and nothing here throws. Null when
+  /// [json] is no map at all.
+  static ShellPreset? fromJson(Object? json, {String? id}) {
+    if (json is! Map) return null;
+    final ownId = json['id'];
+    final label = json['label'];
+    final look = json['look'];
+    final mode = json['barMode'];
+    final name = label is String ? label.trim() : '';
+    return ShellPreset(
+      id: id ?? (ownId is String && ownId.isNotEmpty ? ownId : 'preset'),
+      label: name.isEmpty
+          ? 'Preset'
+          : name.length > _longestName
+          ? name.substring(0, _longestName)
+          : name,
+      look: look is String && look.isNotEmpty ? look : 'denial',
+      barMode: barModes.contains(mode) ? mode as String : 'shown',
+      bar: Map<String, Object?>.unmodifiable(
+        _sound(_bar, json['bar'], ranges: _barRanges),
+      ),
+      dock: Map<String, Object?>.unmodifiable(
+        _sound(_dock, json['dock'], names: _dockNames),
+      ),
+      group: ShellPresetGroup.user,
+    );
+  }
+
+  /// The user's presets as the store holds them, a list of [toJson] maps.
+  /// One that shares an id with a preset that ships, or with one before it,
+  /// is left out.
+  static List<ShellPreset> stored(Object? list) {
+    final taken = <String>{for (final preset in all) preset.id};
+    return List<ShellPreset>.unmodifiable(<ShellPreset>[
+      if (list is List)
+        for (final entry in list)
+          if (fromJson(entry) case final preset?)
+            if (taken.add(preset.id)) preset,
+    ]);
+  }
+
+  /// This preset with another id, name, or look.
+  ShellPreset renamed({String? id, String? label, String? look}) =>
+      ShellPreset(
+        id: id ?? this.id,
+        label: label ?? this.label,
+        look: look ?? this.look,
+        bar: bar,
+        dock: dock,
+        barMode: barMode,
+        group: group,
+      );
 
   /// Whether the shell is still as this preset set it: the same look, and
   /// every layout key of the preset unchanged in [bar]. Keys the preset does
@@ -297,4 +459,108 @@ class ShellPreset {
     List() => saved is List && saved.every((item) => item is String),
     _ => false,
   };
+}
+
+/// Why a preset file could not be read.
+enum ShellPresetFault {
+  /// The text is not JSON.
+  notJson,
+
+  /// It is JSON, but not a preset of this shell.
+  notPreset,
+
+  /// It was written by a newer build than this one.
+  newer,
+}
+
+class ShellPresetException implements Exception {
+  const ShellPresetException(this.fault);
+
+  final ShellPresetFault fault;
+
+  @override
+  String toString() => 'ShellPresetException(${fault.name})';
+}
+
+/// A preset as one JSON document, to keep as a file or pass through the
+/// clipboard:
+///
+///     {"format": "denial-shell-preset", "version": 1,
+///      "preset": {"id", "label", "look", "barMode", "bar", "dock"},
+///      "look": { a whole look, when the preset's look is the user's own }}
+///
+/// The look is opaque here; the kit reads it with `KitLook.fromJson`.
+class ShellPresetFile {
+  const ShellPresetFile(this.preset, {this.look});
+
+  static const String format = 'denial-shell-preset';
+  static const int version = 1;
+
+  /// The most text a preset is read from, so that a clipboard holding
+  /// something else entirely is turned away before it is parsed.
+  static const int longest = 400000;
+
+  final ShellPreset preset;
+
+  /// The preset's look in full, when it does not ship with the shell.
+  final Map<String, Object?>? look;
+
+  String encode() => const JsonEncoder.withIndent('  ').convert(
+    <String, Object?>{
+      'format': format,
+      'version': version,
+      'preset': preset.toJson(),
+      if (look != null) 'look': look,
+    },
+  );
+
+  /// Reads [text]. What is wrong with a preset inside a sound document is
+  /// put right (see [ShellPreset.fromJson]); a document that is no preset
+  /// throws a [ShellPresetException] that says why.
+  static ShellPresetFile decode(String text) {
+    if (text.length > longest) {
+      throw const ShellPresetException(ShellPresetFault.notPreset);
+    }
+    final Object? json;
+    try {
+      json = jsonDecode(text);
+    } on FormatException {
+      throw const ShellPresetException(ShellPresetFault.notJson);
+    }
+    if (json is! Map || json['format'] != format) {
+      throw const ShellPresetException(ShellPresetFault.notPreset);
+    }
+    final found = json['version'];
+    if (found is! int || found < 1) {
+      throw const ShellPresetException(ShellPresetFault.notPreset);
+    }
+    if (found > version) {
+      throw const ShellPresetException(ShellPresetFault.newer);
+    }
+    final preset = ShellPreset.fromJson(json['preset']);
+    if (preset == null) {
+      throw const ShellPresetException(ShellPresetFault.notPreset);
+    }
+    final look = json['look'];
+    return ShellPresetFile(
+      preset,
+      look: look is Map
+          ? <String, Object?>{
+              for (final entry in look.entries)
+                if (entry.key is String) entry.key as String: entry.value,
+            }
+          : null,
+    );
+  }
+
+  /// A file name for [label]: its letters and digits, lower case, with
+  /// everything else a dash; `preset` when nothing is left.
+  static String fileName(String label) {
+    final slug = label
+        .toLowerCase()
+        .replaceAll(RegExp(r'[^a-z0-9\u4e00-\u9fff]+'), '-')
+        .replaceAll(RegExp(r'^-+|-+$'), '');
+    final short = slug.length > 48 ? slug.substring(0, 48) : slug;
+    return '${short.isEmpty ? 'preset' : short}.json';
+  }
 }

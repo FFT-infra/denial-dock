@@ -296,6 +296,8 @@ class _LayoutPageState extends ConsumerState<_LayoutPage> {
     kitDock.addListener(_shellChanged);
     kitBarMode.addListener(_shellChanged);
     kitParts.addListener(_shellChanged);
+    kitPreset.addListener(_shellChanged);
+    kitPresets.addListener(_shellChanged);
   }
 
   @override
@@ -303,6 +305,8 @@ class _LayoutPageState extends ConsumerState<_LayoutPage> {
     kitDock.removeListener(_shellChanged);
     kitBarMode.removeListener(_shellChanged);
     kitParts.removeListener(_shellChanged);
+    kitPreset.removeListener(_shellChanged);
+    kitPresets.removeListener(_shellChanged);
     super.dispose();
   }
 
@@ -436,7 +440,7 @@ class _LayoutPageState extends ConsumerState<_LayoutPage> {
     var current = ShellPreset.byId(kitPreset.value);
     var modified = shellPresetModified(current, s);
     if (modified) {
-      for (final preset in ShellPreset.all) {
+      for (final preset in ShellPreset.everything) {
         if (shellPresetModified(preset, s)) continue;
         current = preset;
         modified = false;
@@ -531,43 +535,71 @@ class _LayoutPageState extends ConsumerState<_LayoutPage> {
           ),
           children: <Widget>[
             Padding(
-              padding: const EdgeInsets.all(10),
-              // Four to a row, so a card stays wide enough to read.
+              padding: const EdgeInsets.fromLTRB(10, 10, 10, 4),
+              // Four to a row, so a card stays wide enough to read; one
+              // shelf for the shell's own presets, one for those made after
+              // other shells and one for the user's.
               child: LayoutBuilder(
                 builder: (context, constraints) {
                   const gap = 8.0;
                   final width = (constraints.maxWidth - gap * 3) / 4;
-                  return Wrap(
-                    spacing: gap,
-                    runSpacing: 6,
+                  return Column(
+                    crossAxisAlignment: CrossAxisAlignment.stretch,
                     children: <Widget>[
-                      for (final preset in ShellPreset.all)
-                        SizedBox(
-                          width: width,
-                          child: _PresetCard(
-                            preset: preset,
-                            selected: preset.id == current.id,
-                            modified: preset.id == current.id && modified,
-                            onTap: () {
-                              setState(() {
-                                _picked = null;
-                                _dockPicked = null;
-                              });
-                              // The preset in force, tapped again, goes
-                              // back to how it ships.
-                              applyShellPreset(
-                                ref,
-                                preset,
-                                fresh: preset.id == current.id,
-                              );
-                            },
+                      for (final (group, title) in const <(ShellPresetGroup, String)>[
+                        (ShellPresetGroup.builtin, 'Built-in'),
+                        (ShellPresetGroup.reference, 'Reference styles'),
+                        (ShellPresetGroup.user, 'Mine'),
+                      ])
+                        if (ShellPreset.inGroup(group).isNotEmpty) ...<Widget>[
+                          Padding(
+                            padding: const EdgeInsets.fromLTRB(2, 0, 2, 6),
+                            child: Text(
+                              context.tr(title),
+                              style: BarType.caption.copyWith(
+                                fontSize: 11,
+                                fontWeight: FontWeight.w600,
+                                color: theme.colors.textTertiary,
+                              ),
+                            ),
                           ),
-                        ),
+                          Wrap(
+                            spacing: gap,
+                            runSpacing: 6,
+                            children: <Widget>[
+                              for (final preset in ShellPreset.inGroup(group))
+                                SizedBox(
+                                  width: width,
+                                  child: _PresetCard(
+                                    preset: preset,
+                                    selected: preset.id == current.id,
+                                    modified:
+                                        preset.id == current.id && modified,
+                                    onTap: () {
+                                      setState(() {
+                                        _picked = null;
+                                        _dockPicked = null;
+                                      });
+                                      // The preset in force, tapped again,
+                                      // goes back to how it ships.
+                                      applyShellPreset(
+                                        ref,
+                                        preset,
+                                        fresh: preset.id == current.id,
+                                      );
+                                    },
+                                  ),
+                                ),
+                            ],
+                          ),
+                          const SizedBox(height: 4),
+                        ],
                     ],
                   );
                 },
               ),
             ),
+            PresetTools(current: current, modified: modified, settings: s),
           ],
         ),
         Stack(
@@ -1341,9 +1373,10 @@ class _PresetCard extends StatelessWidget {
           ),
           const SizedBox(height: 5),
           Text(
-            preset.label,
+            context.tr(preset.label),
             textAlign: TextAlign.center,
             maxLines: 1,
+            overflow: TextOverflow.ellipsis,
             style: BarType.caption.copyWith(
               fontSize: 12,
               fontWeight: selected ? FontWeight.w600 : FontWeight.w400,

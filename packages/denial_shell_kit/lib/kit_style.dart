@@ -5,6 +5,7 @@ import 'kit_look.dart';
 import 'kit_material.dart';
 import 'kit_motion_pace.dart';
 import 'kit_palette.dart';
+import 'kit_presets.dart';
 import 'kit_store.dart';
 import 'shell_preset.dart';
 
@@ -577,8 +578,14 @@ class KitDockNotifier extends ValueNotifier<bool> {
 final KitPresetNotifier kitPreset = KitPresetNotifier._();
 
 class KitPresetNotifier extends ValueNotifier<String> {
-  KitPresetNotifier._()
-    : super(ShellPreset.byId(KitStore.textOf(kitStore.read(), 'preset')).id);
+  KitPresetNotifier._() : super(_read());
+
+  static String _read() {
+    // The user's presets are read first, so that one of them can be the
+    // preset in force.
+    kitPresets.value;
+    return ShellPreset.byId(KitStore.textOf(kitStore.read(), 'preset')).id;
+  }
 
   @override
   set value(String next) {
