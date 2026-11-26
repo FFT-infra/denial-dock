@@ -1,4 +1,4 @@
-import 'dock_settings.dart' show DockHideScope, DockPosition;
+import 'dock_settings.dart' show DockHideScope, DockPosition, DockSettings;
 
 /// Smart-hide collision policy, kept free of `dart:ui` and SDK imports so it
 /// runs under plain `dart run`. Ported from NextKDE's DockAutoHideMath.mjs.
@@ -36,7 +36,7 @@ Box dockRect({
   required DockPosition position,
   required double extent,
   required double thickness,
-  double inset = 10,
+  double inset = DockSettings.defaultEdgeDistance,
 }) {
   final centerX = output.left + output.width / 2;
   final centerY = output.top + output.height / 2;
@@ -130,25 +130,6 @@ bool countsForHide(
   DockHideScope.active => active,
   DockHideScope.maximized => maximized,
 };
-
-/// The distance a dock moves inward because something reserves its edge:
-/// the gap between the output and the work area on that side, never negative.
-double reservedEdge({
-  required Box output,
-  required Box workArea,
-  required DockPosition position,
-}) {
-  if (workArea.isEmpty) return 0;
-  final gap = switch (position) {
-    DockPosition.bottom => output.bottom - workArea.bottom,
-    DockPosition.left => workArea.left - output.left,
-    DockPosition.right => output.right - workArea.right,
-  };
-  if (!gap.isFinite || gap <= 0) return 0;
-  final limit =
-      (position == DockPosition.bottom ? output.height : output.width) / 2;
-  return gap > limit ? 0 : gap;
-}
 
 /// Whether any window on this monitor and workspace covers the dock.
 ///

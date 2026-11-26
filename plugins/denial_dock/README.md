@@ -67,16 +67,16 @@ turning it on.
   the size is saved. Whole pixels per step, so a drag does not rebuild every
   icon texture on every event.
 - **Smart auto-hide.** When a non-minimized floating window on the same output
-  and workspace reaches the dock's strip, the capsule slides down. Moving the
-  pointer to the bottom edge brings it back after 90 ms, and tapping that edge
-  does the same for touch and pen, which produce no hover; a tap holds the dock
-  out for four seconds so the finger can reach an icon. It retracts 200 ms
-  after the pointer leaves while a window still reaches the capsule, and comes
-  back as soon as that window clears the capsule itself. A window parked
-  exactly on the boundary does not make it flap. Tiles reach the edge like any
-  other window, so a tiling layout retracts too. The other two modes are
-  *always show* and *auto-hide*, which retracts as soon as the pointer leaves
-  and comes back from the same edge strip.
+  and workspace reaches the dock's strip, the capsule slides down. Resting the
+  pointer on the last logical pixel at the bottom edge brings it back after
+  90 ms by default. The area directly below the dock keeps it open and magnifies
+  the icons above the pointer, all the way to the screen edge. A touch or pen tap
+  on the edge holds it open for four seconds. It retracts 200 ms after the pointer
+  leaves while a window still reaches the capsule, and comes back as soon as that
+  window clears the capsule. A window parked on the boundary does not make it flap.
+  Tiled windows can also trigger smart hide. In *auto-hide* mode the dock
+  retracts whenever the pointer leaves and comes back from the same edge strip.
+  In *always show* mode it stays visible.
 - **Folder stacks, pinned files and Trash.** Add any folder or single file
   from the settings sheet through a built-in directory browser, with hidden
   entries behind a toggle. Clicking a folder fans its contents out of the icon
@@ -146,6 +146,7 @@ Most settings live in the settings sheet. The same values are stored in
   "visibility": "smart",
   "clickAction": "minimize",
   "iconSize": 48,
+  "edgeDistance": 5,
   "magnification": true,
   "magnificationAmount": 0.6,
   "position": "bottom",
@@ -191,13 +192,15 @@ Most settings live in the settings sheet. The same values are stored in
 - `hideScope` says which windows make a smart-hiding dock retract: `"all"`
   (default), `"active"` or `"maximized"`. `revealDelayMs` (default 90) and
   `hideDelayMs` (default 200) time the slide.
-- `avoidReservedEdge` (default `true`) moves the dock inside a bar that
-  reserves the same edge.
+- `avoidReservedEdge` (default `true`) moves the dock inward by the thickness of
+  a system panel that reserves the same edge on the same display.
 - `showProgress`, `showAttention` and `showDesktopActions` default to `true`;
   `showAudioIndicator`, `lockItems`, `currentWorkspaceOnly` and
   `previewMiddleClose` default to `false`.
 - `iconSize` is in logical pixels, clamped to 32–72 in steps of 4; the default
   is 48.
+- `edgeDistance` is the gap from the edge to the dock, clamped to 0–32 logical
+  pixels. The default is 5. Adjust it under **Appearance**.
 - `magnification` (default `true`) makes icons grow under the pointer. Off keeps
   every icon at `iconSize` and the capsule at its resting width.
 - `magnificationAmount` is the share of the 1.6x peak reached under the

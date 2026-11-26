@@ -5,6 +5,7 @@ import 'package:denial_flutter_sdk/applications.dart'
     show applicationRecentsProvider;
 import 'package:denial_flutter_sdk/effects.dart';
 import 'package:denial_flutter_sdk/input.dart';
+import 'package:denial_flutter_sdk/panels.dart' show PanelEdge;
 import 'package:denial_flutter_sdk/popups.dart';
 import 'package:denial_flutter_sdk/services.dart';
 import 'package:denial_flutter_sdk/shell.dart';
@@ -12,11 +13,20 @@ import 'package:denial_flutter_sdk/state.dart'
     show
         appAudioProvider,
         desktopNotificationsProvider,
+        displayLayoutProvider,
         shellControllerProvider;
 import 'package:denial_flutter_sdk/surfaces.dart';
 import 'package:denial_flutter_sdk/theme.dart';
+import 'package:denial_shell_kit/launcher_entry.dart';
+import 'package:denial_shell_kit/launcher_entry_bus.dart';
 import 'package:flutter/gestures.dart'
-    show GestureBinding, PointerScrollEvent, PointerSignalEvent, kPrimaryButton;
+    show
+        GestureBinding,
+        PointerDeviceKind,
+        PointerEvent,
+        PointerScrollEvent,
+        PointerSignalEvent,
+        kPrimaryButton;
 import 'package:flutter/material.dart';
 import 'package:flutter/scheduler.dart';
 import 'package:flutter/services.dart';
@@ -24,21 +34,19 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import 'dock_autohide.dart';
 import 'dock_badges.dart';
-import 'dock_recents.dart';
+import 'dock_debug.dart';
 import 'dock_drag.dart';
 import 'dock_extras.dart';
 import 'dock_extras_item.dart';
-import 'dock_icon.dart';
-import 'dock_mac_icons.dart';
-import 'dock_debug.dart';
 import 'dock_hotkeys.dart';
+import 'dock_icon.dart';
 import 'dock_item.dart';
-import 'package:denial_shell_kit/launcher_entry.dart';
-import 'package:denial_shell_kit/launcher_entry_bus.dart';
 import 'dock_layout.dart';
+import 'dock_mac_icons.dart';
 import 'dock_math.dart';
 import 'dock_menu.dart';
 import 'dock_preferences.dart';
+import 'dock_recents.dart';
 import 'dock_scroll.dart';
 import 'dock_sections.dart';
 import 'dock_settings_panel.dart';
@@ -73,12 +81,12 @@ class _DockContainerState extends ConsumerState<DockContainer>
   /// One gate for the whole dock: icons and the capsule share it, so a swipe
   /// that crosses icons still steps once.
   final DockScrollGate _scrollGate = DockScrollGate();
-  static const double _baseInset = 10;
 
   /// Distance from the screen edge to the capsule. A bar that reserves the
   /// dock's own edge adds its thickness, so the two never share pixels.
   double _reserved = 0;
-  double get _edgeInset => _baseInset + _reserved;
+  double get _edgeInset =>
+      _settings.edgeDistance / widget.environment.shellScale + _reserved;
 
   late final Ticker _ticker;
   Duration _lastTick = Duration.zero;
@@ -95,6 +103,7 @@ class _DockContainerState extends ConsumerState<DockContainer>
 
   bool _insideCapsule = false;
   bool _edgeHover = false;
+  bool _bottomHover = false;
 
   /// Counted, because two icons hold an overlay during a hand-over.
   int _overlayHolds = 0;
@@ -137,8 +146,8 @@ class _DockContainerState extends ConsumerState<DockContainer>
   Map<int, int> _entrySlots = const {};
   List<_LabelTarget?> _labels = const [];
   double _capsuleStart = 0;
-  double _capsuleCross = _baseInset;
-  double _capsuleFar = _baseInset;
+  double _capsuleCross = DockSettings.defaultEdgeDistance;
+  double _capsuleFar = DockSettings.defaultEdgeDistance;
   double _surfaceWidth = 0;
   double _surfaceHeight = 0;
 
@@ -195,8 +204,10 @@ class _DockContainerState extends ConsumerState<DockContainer>
   bool get _vertical => _position != DockPosition.bottom;
   Rect get _output => widget.environment.output.logicalRect;
 
+  bool get _pointerOverDock => _insideCapsule || _bottomHover;
+
   bool get _held =>
-      _insideCapsule ||
+      _pointerOverDock ||
       _edgeHover ||
       _overlayHold ||
       _settingsOpen ||
@@ -372,7 +383,7 @@ class _DockContainerState extends ConsumerState<DockContainer>
     final settled =
         (pointer - _pointer).abs() < 0.001 &&
         (hover - _hover).abs() < 0.001 &&
-        (reveal - _reveal).abs() < 0.001 &&
+        reveal == _revealTarget &&
         !_settling;
     setState(() {
       _pointer = pointer;
@@ -389,7 +400,12 @@ class _DockContainerState extends ConsumerState<DockContainer>
     }
   }
 
-  void _tapEdge() {
+  void _tapEdge(PointerDownEvent event) {
+    if (event.kind != PointerDeviceKind.touch &&
+        event.kind != PointerDeviceKind.stylus &&
+        event.kind != PointerDeviceKind.invertedStylus) {
+      return;
+    }
     if (_reveal > 0.5) return;
     _revealTimer?.cancel();
     _revealTimer = null;
@@ -431,7 +447,7 @@ class _DockContainerState extends ConsumerState<DockContainer>
       // A cursor parked on the screen edge pulls the dock out only after a
       // short pause (reference: smartHideHoverShowDelay), so brushing past the
       // edge does not flash the capsule.
-      if (_conflict && _edgeHover && !_insideCapsule && _revealTarget < 0.5) {
+      if (_conflict && _edgeHover && !_pointerOverDock && _revealTarget < 0.5) {
         _revealTimer ??= Timer(
           Duration(milliseconds: _settings.revealDelayMs),
           () {
@@ -457,12 +473,25 @@ class _DockContainerState extends ConsumerState<DockContainer>
     });
   }
 
-  void _onHover(PointerHoverEvent event) {
-    final local = _vertical ? event.localPosition.dy : event.localPosition.dx;
-    _pointerTarget = _capsuleStart + local;
-    _hoverTarget = 1;
+  void _onHover(PointerEvent event) {
     _insideCapsule = true;
     _revealTarget = 1;
+    _updateHover(event);
+  }
+
+  void _onBottomHover(PointerEvent event) {
+    _bottomHover = true;
+    _updateHover(event);
+  }
+
+  void _updateHover(PointerEvent event) {
+    final local = _vertical ? event.localPosition.dy : event.localPosition.dx;
+    _pointerTarget = _capsuleStart + local;
+    _syncHover();
+  }
+
+  void _syncHover() {
+    _hoverTarget = _pointerOverDock ? 1 : 0;
     _ensureTicker();
     _syncLabel();
     _evaluateHide();
@@ -497,12 +526,9 @@ class _DockContainerState extends ConsumerState<DockContainer>
     });
   }
 
-  void _onExit(PointerExitEvent event) {
+  void _onCapsuleExit(PointerExitEvent event) {
     _insideCapsule = false;
-    _hoverTarget = 0;
-    _ensureTicker();
-    _syncLabel();
-    _evaluateHide();
+    _syncHover();
   }
 
   void _onEdgeEnter(PointerEnterEvent event) {
@@ -517,6 +543,11 @@ class _DockContainerState extends ConsumerState<DockContainer>
     if (!_edgeHover) return;
     _edgeHover = false;
     _evaluateHide();
+  }
+
+  void _onBottomExit(PointerExitEvent event) {
+    _bottomHover = false;
+    _syncHover();
   }
 
   void _setOverlayHold(bool hold) {
@@ -821,7 +852,7 @@ class _DockContainerState extends ConsumerState<DockContainer>
     _dragTo = -1;
     _dragDx = 0;
     _dragDy = 0;
-    _hoverTarget = _insideCapsule ? 1 : 0;
+    _hoverTarget = _pointerOverDock ? 1 : 0;
     setState(() {});
     _ensureTicker();
     _evaluateHide();
@@ -1048,13 +1079,25 @@ class _DockContainerState extends ConsumerState<DockContainer>
             workspace: widget.environment.workspaceId,
           )
         : allWindows;
-    _reserved = settings.avoidReservedEdge
-        ? DockAutoHide.reservedEdge(
-            output: _output,
-            workArea: widget.environment.workArea,
-            position: settings.position,
-          )
-        : 0;
+    _reserved = 0;
+    if (settings.avoidReservedEdge) {
+      final layout = ref.watch(displayLayoutProvider);
+      final environment = widget.environment;
+      final dockEdge = switch (settings.position) {
+        DockPosition.bottom => PanelEdge.bottom,
+        DockPosition.left => PanelEdge.left,
+        DockPosition.right => PanelEdge.right,
+      };
+      // The work area also includes padding for maximized windows. Only a
+      // panel occupying the dock's edge should change the configured gap.
+      if (layout != null &&
+          layout.systemBarSide == dockEdge &&
+          layout.hostsSystemBar(environment.output)) {
+        final bar = layout.systemBarRectWithin(environment.screenRect);
+        _reserved =
+            (_vertical ? bar.width : bar.height) / environment.shellScale;
+      }
+    }
     final launcherEntries =
         settings.showBadges || settings.showProgress || settings.showAttention
         ? ref.watch(launcherEntriesProvider)
@@ -1133,10 +1176,6 @@ class _DockContainerState extends ConsumerState<DockContainer>
           for (var i = 0; i < specs.length; i++)
             _labelForSlot(specs, i, entries, launcherLabel, chinese),
         ];
-        final hideOffset = (1 - _reveal) * (_capsuleHeight + 14 + _edgeInset);
-        _capsuleCross = _edgeInset - hideOffset;
-        _capsuleFar = _capsuleCross + _capsuleHeight;
-        _trashRect = _trashSlotRect(specs, frame);
 
         // Collision uses the rectangle the dock would occupy at full reveal,
         // never the animated one, so a retracted dock still reports the space
@@ -1173,6 +1212,21 @@ class _DockContainerState extends ConsumerState<DockContainer>
           ),
           ready: !storedSettings.isLoading,
         );
+
+        final hideOffset = (1 - _reveal) * (_capsuleHeight + 14 + _edgeInset);
+        _capsuleCross = _edgeInset - hideOffset;
+        _capsuleFar = _capsuleCross + _capsuleHeight;
+        _trashRect = _trashSlotRect(specs, frame);
+
+        final bottomDock = _position == DockPosition.bottom;
+        final edgeCross = bottomDock ? 0.0 : _reserved;
+        final edgeExtent = bottomDock
+            ? 1.0 / environment.shellScale
+            : math.max(_reserved > 0 ? 10.0 : 4.0, _capsuleCross - _reserved);
+        final bottomHoverEnabled = bottomDock && _revealTarget > 0.5;
+        final edgeHitTest = bottomDock
+            ? HitTestBehavior.translucent
+            : HitTestBehavior.opaque;
 
         if (_dragKey != null) {
           final baseFrame = _layout(surfaceMain, baseSpecs, hover: 0);
@@ -1290,6 +1344,25 @@ class _DockContainerState extends ConsumerState<DockContainer>
             fit: StackFit.expand,
             clipBehavior: Clip.none,
             children: [
+              // Cover the dock's full resting footprint while it slides up,
+              // so moving ahead of the animation cannot break the hover.
+              _placeInSurface(
+                main: _capsuleStart,
+                cross: 0,
+                mainExtent: frame.extent,
+                crossExtent: bottomHoverEnabled
+                    ? _edgeInset + _capsuleHeight
+                    : 0,
+                child: ShellInputRegion(
+                  debugLabel: 'Dock bottom hover',
+                  active: bottomHoverEnabled,
+                  child: MouseRegion(
+                    onEnter: _onBottomHover,
+                    onHover: _onBottomHover,
+                    onExit: _onBottomExit,
+                  ),
+                ),
+              ),
               _placeInSurface(
                 main: _capsuleStart,
                 cross: _capsuleCross,
@@ -1299,8 +1372,9 @@ class _DockContainerState extends ConsumerState<DockContainer>
                   debugLabel: 'Dock capsule',
                   active: _reveal > 0.5,
                   child: MouseRegion(
+                    onEnter: _onHover,
                     onHover: _onHover,
-                    onExit: _onExit,
+                    onExit: _onCapsuleExit,
                     child: Listener(
                       onPointerSignal: _onCapsuleScroll,
                       child: Stack(
@@ -1411,30 +1485,30 @@ class _DockContainerState extends ConsumerState<DockContainer>
                   ),
                 ),
               ?nameLabel,
+              if (settings.revealIndicator && _reveal < 0.5)
+                _placeInSurface(
+                  main: 0,
+                  cross: edgeCross,
+                  mainExtent: surfaceMain,
+                  crossExtent: 8,
+                  child: IgnorePointer(child: _revealHandle(theme)),
+                ),
               _placeInSurface(
                 main: 0,
-                cross: _reserved,
+                cross: edgeCross,
                 mainExtent: surfaceMain,
-                // Beside a bar the pointer cannot rest on the screen edge, so
-                // the strip is thick enough to stop on.
-                crossExtent: math.max(
-                  _reserved > 0 ? 10 : 4,
-                  _capsuleCross - _reserved,
-                ),
+                crossExtent: edgeExtent,
                 child: ShellInputRegion(
                   debugLabel: 'Dock reveal edge',
                   child: MouseRegion(
+                    // Keep the final pixel available to the dock widgets below.
+                    opaque: !bottomDock,
+                    hitTestBehavior: edgeHitTest,
                     onEnter: _onEdgeEnter,
                     onExit: _onEdgeExit,
                     child: Listener(
-                      behavior: HitTestBehavior.opaque,
-                      onPointerDown: (_) => _tapEdge(),
-                      child: ColoredBox(
-                        color: const Color(0x00000000),
-                        child: settings.revealIndicator && _reveal < 0.5
-                            ? _revealHandle(theme)
-                            : const SizedBox.shrink(),
-                      ),
+                      behavior: edgeHitTest,
+                      onPointerDown: _tapEdge,
                     ),
                   ),
                 ),

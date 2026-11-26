@@ -19,46 +19,6 @@ void main() {
     'only a maximized window',
   );
 
-  // A bar on the dock's own edge pushes it inward; one elsewhere does not.
-  const screen = (left: 0.0, top: 0.0, width: 1524.0, height: 1016.0);
-  const topBar = (left: 0.0, top: 32.0, width: 1524.0, height: 984.0);
-  const bottomBar = (left: 0.0, top: 0.0, width: 1524.0, height: 980.0);
-  double reserved(Box area, DockPosition position) =>
-      reservedEdge(output: screen, workArea: area, position: position);
-  _expect(reserved(topBar, DockPosition.bottom) == 0, 'bar on the far edge');
-  _expect(reserved(bottomBar, DockPosition.bottom) == 36, 'bar under the dock');
-  _expect(reserved(bottomBar, DockPosition.left) == 0, 'side dock, bottom bar');
-  _expect(
-    reserved((
-          left: 40.0,
-          top: 0.0,
-          width: 1484.0,
-          height: 1016.0,
-        ), DockPosition.left) ==
-        40,
-    'bar beside a side dock',
-  );
-  _expect(
-    reserved((
-          left: 0.0,
-          top: 0.0,
-          width: 0.0,
-          height: 0.0,
-        ), DockPosition.bottom) ==
-        0,
-    'empty work area',
-  );
-  _expect(
-    reserved((
-          left: 0.0,
-          top: 0.0,
-          width: 1524.0,
-          height: 100.0,
-        ), DockPosition.bottom) ==
-        0,
-    'an implausible reservation is ignored',
-  );
-
   // A 1280x800 output at the origin.
   const output = (left: 0.0, top: 0.0, width: 1280.0, height: 800.0);
 
@@ -74,6 +34,15 @@ void main() {
   _expect(bottom.left == 440, 'bottom centred: ${bottom.left}');
   _expect(bottom.top == 800 - 10 - 64, 'bottom top: ${bottom.top}');
   _expect(bottom.width == 400 && bottom.height == 64, 'bottom size');
+
+  final flushBottom = dockRect(
+    output: output,
+    position: DockPosition.bottom,
+    extent: 400,
+    thickness: 64,
+    inset: 0,
+  );
+  _expect(flushBottom.bottom == 800, 'zero gap reaches the screen edge');
 
   final left = dockRect(
     output: output,
@@ -107,6 +76,7 @@ void main() {
   );
   _expect(secondBottom.left == 1280 + 760, 'second monitor centred');
   _expect(secondBottom.right == 1280 + 1160, 'second monitor inside output');
+  _expect(secondBottom.bottom == 1075, 'default bottom gap is 5 pixels');
 
   // Overlap depth trims the edge the dock is anchored to, so a window that
   // merely touches the screen edge is not a conflict.
