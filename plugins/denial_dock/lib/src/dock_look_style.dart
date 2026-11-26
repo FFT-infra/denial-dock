@@ -42,6 +42,17 @@ DockLook dockLookNow(DockSettings settings) => settings.lookFor(
   preset: dockPresetFor(kitStyle.value),
 );
 
+/// How application icons are coloured: as the user set it, or, while that is
+/// left on full colour, as the look of the shell tints its icons.
+DockIconMode dockIconModeNow(DockSettings settings) =>
+    settings.iconMode != DockIconMode.color
+    ? settings.iconMode
+    : switch (kitStyle.value.look.iconTint) {
+        KitIconTint.original => DockIconMode.color,
+        KitIconTint.mono => DockIconMode.grayscale,
+        KitIconTint.accent => DockIconMode.tinted,
+      };
+
 extension DockType on TextStyle {
   /// This style in the type of the look in force: its family, and its size
   /// scaled for a family that runs wide. A look that brings no family keeps

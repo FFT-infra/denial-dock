@@ -1674,7 +1674,7 @@ class _DockContainerState extends ConsumerState<DockContainer>
                         ),
                       ),
                       child: DockIcon(
-                        mode: settings.iconMode,
+                        mode: dockIconModeNow(settings),
                         opacity: settings.iconOpacity,
                         accent: dockTintColor(
                           settings.tintColor,
@@ -2623,7 +2623,7 @@ class _DockContainerState extends ConsumerState<DockContainer>
               showDesktopActions: settings.showDesktopActions,
               previewMiddleClose: settings.previewMiddleClose,
               activation: _activation,
-              iconMode: settings.iconMode,
+              iconMode: dockIconModeNow(settings),
               iconOpacity: settings.iconOpacity,
               tintColor: tintColor,
               onTogglePin: () => _togglePin(entry),

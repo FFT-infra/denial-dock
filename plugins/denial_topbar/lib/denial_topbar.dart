@@ -9,6 +9,7 @@ import 'package:flutter/widgets.dart';
 import 'src/bar_reserve.dart';
 import 'src/bar_surface.dart';
 import 'src/island/island.dart' show islandReach;
+import 'src/panels/look_page.dart';
 
 /// A macOS 27 menu bar with an optional Dynamic Island.
 ///
@@ -55,6 +56,7 @@ final class TopBarPlugin implements ShellSurface {
 
   @override
   Widget build(BuildContext context, {required ShellSurfaceContext surface}) {
+    registerLookPage();
     return KitThemed(
       key: ValueKey(surface.environment.output.monitorId),
       child: TopBarSurface(
