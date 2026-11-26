@@ -198,9 +198,7 @@ class _PressableState extends State<Pressable> {
       ),
       foregroundDecoration: BoxDecoration(
         color: theme.colors.textPrimary.withValues(alpha: shade),
-        borderRadius:
-            widget.shape ??
-            BorderRadius.circular(style.corner(9)),
+        borderRadius: widget.shape ?? BorderRadius.circular(style.corner(9)),
         border: Border.all(
           color: _ring
               ? theme.kitAccent

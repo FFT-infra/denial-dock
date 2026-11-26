@@ -137,7 +137,9 @@ class DockTile extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final theme = context.shellTheme;
-    final radius = BorderRadius.circular(kitStyle.value.radius(theme, size * 0.24));
+    final radius = BorderRadius.circular(
+      kitStyle.value.radius(theme, size * 0.24),
+    );
     final picture = fill;
     return AnimatedContainer(
       duration: KitMotion.duration(context, KitMotion.tap),

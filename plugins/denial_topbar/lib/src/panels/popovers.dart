@@ -484,8 +484,9 @@ class _PairingPromptState extends State<_PairingPrompt> {
                 height: 34,
                 decoration: BoxDecoration(
                   color: theme.colors.textPrimary.withValues(alpha: 0.06),
-                  borderRadius:
-                      BorderRadius.circular(kitStyle.value.radius(theme, 10)),
+                  borderRadius: BorderRadius.circular(
+                    kitStyle.value.radius(theme, 10),
+                  ),
                   border: KitStyle.of(context).controlLine(theme),
                 ),
                 padding: const EdgeInsets.symmetric(horizontal: 10),
