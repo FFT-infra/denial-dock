@@ -1,6 +1,7 @@
 import 'dart:math' as math;
 import 'dart:ui' show PointerDeviceKind;
 
+import 'package:denial_flutter_sdk/models.dart' show PanelEdge;
 import 'package:denial_flutter_sdk/settings.dart';
 import 'package:denial_flutter_sdk/services.dart';
 import 'package:denial_flutter_sdk/theme.dart';
@@ -21,6 +22,7 @@ import '../bar_segments.dart';
 import '../bar_settings.dart';
 import '../bar_tokens.dart';
 import '../bar_type.dart';
+import '../island/island_options.dart';
 import '../tray_names.dart';
 import '../l10n.dart';
 import 'mac_kit.dart';
@@ -351,175 +353,150 @@ class _BarSettingsPanelState extends ConsumerState<BarSettingsPanel> {
         ),
       ];
 
-  List<Widget> _island(
-    BuildContext context,
-    BarSettings s,
-    _Save save,
-  ) => <Widget>[
-    Padding(
-      padding: const EdgeInsets.fromLTRB(4, 0, 4, 10),
-      child: Text(
-        context.tr(
-          'Pressing and holding opens it too; click outside or press Esc to close it.',
-        ),
-        style: BarType.caption.copyWith(
-          height: 1.35,
-          color: context.shellTheme.colors.textSecondary,
+  /// Why an island option is out of reach, in words.
+  String _why(BuildContext context, IslandWhy why) => context.tr(switch (why) {
+    IslandWhy.barHidden => 'The bar is hidden.',
+    IslandWhy.barNotOnTop =>
+      'The island needs the bar at the top of the screen.',
+    IslandWhy.islandOff => 'Turn on the Dynamic Island first.',
+    IslandWhy.islandOnly =>
+      'Always shown while the bar is reduced to its island.',
+    IslandWhy.needsFade => 'Only while the island fades under the pointer.',
+    IslandWhy.needsNotifications => 'Only while notifications show here.',
+    IslandWhy.needsTwoLive =>
+      'Needs two of Now Playing, Timer, Screen recording and Downloads.',
+    IslandWhy.needsPages =>
+      'Needs two activities to turn between, or one and the home panel.',
+    IslandWhy.needsPanel => 'Needs an activity that opens a panel.',
+  });
+
+  List<Widget> _island(BuildContext context, BarSettings s, _Save save) {
+    final side = ref.watch(
+      shellSettingsProvider.select((v) => v.layout.systemBarSide),
+    );
+    // Every dependency between these switches is decided in one place.
+    final options = IslandOptions(
+      s,
+      mode: kitBarModeInForce,
+      top: side == PanelEdge.top || side == PanelEdge.hidden,
+    );
+    // The reason the whole page is out of reach is said once, above it;
+    // a row says only what is particular to it.
+    final absent = options.present ? null : options[IslandOption.media].why;
+    String? note(IslandOption option) {
+      final why = options[option].why;
+      return why == null || why == absent ? null : _why(context, why);
+    }
+
+    _Switch toggle(IslandOption option, String label) {
+      final state = options[option];
+      return _Switch(
+        label: context.tr(label),
+        value: state.on,
+        enabled: state.enabled,
+        note: note(option),
+        onChanged: (v) =>
+            save((s) => IslandOptions(s, mode: options.mode, top: true)
+                .set(option, v)),
+      );
+    }
+
+    return <Widget>[
+      Padding(
+        padding: const EdgeInsets.fromLTRB(4, 0, 4, 10),
+        child: Text(
+          absent != null
+              ? _why(context, absent)
+              : options.workspacesLost
+              ? context.tr(
+                  'The workspace switcher is set to ride in the island, so it shows nowhere while the island is off.',
+                )
+              : context.tr(
+                  'Pressing and holding opens it too; click outside or press Esc to close it.',
+                ),
+          style: BarType.caption.copyWith(
+            height: 1.35,
+            color: context.shellTheme.colors.textSecondary,
+          ),
         ),
       ),
-    ),
-    _Group(
-      note: context.tr(
-        'The island sits in the middle of a bar at the top of the screen. Click or tap it to open the activity; drag down to pull it open.',
-      ),
-      children: <Widget>[
-        _Switch(
-          label: context.tr('Show Dynamic Island'),
-          value: s.showsIsland,
-          onChanged: (v) => save((s) => s.withPart(BarPart.island, v)),
+      _Group(
+        note: context.tr(
+          'The island sits in the middle of a bar at the top of the screen. Click or tap it to open the activity; drag down to pull it open.',
         ),
-        _Switch(
-          label: context.tr('Open when the pointer rests on it'),
-          value: s.islandHoverPeek,
-          enabled: s.islandEnabled,
-          onChanged: (v) => save(
-            (s) => s.copyWith(
-              islandHoverPeek: v,
-              islandHoverFade: v ? false : s.islandHoverFade,
+        children: <Widget>[
+          toggle(IslandOption.shown, 'Show Dynamic Island'),
+          toggle(IslandOption.hoverPeek, 'Open when the pointer rests on it'),
+          toggle(IslandOption.hoverFade, 'Fade away under the pointer'),
+          _Pair(
+            _timing(
+              context,
+              label: context.tr('Fade after the pointer rests for'),
+              value: s.islandFadeDelayMs,
+              min: BarMetric.islandFadeDelayMsMin,
+              max: BarMetric.islandFadeDelayMsMax,
+              step: 50,
+              enabled: options[IslandOption.fadeDelay].enabled,
+              onChanged: (v) => save((s) => s.copyWith(islandFadeDelayMs: v)),
+            ),
+            _timing(
+              context,
+              label: context.tr('Press and hold to open after'),
+              value: s.islandLongPressMs,
+              min: BarMetric.islandLongPressMsMin,
+              max: BarMetric.islandLongPressMsMax,
+              step: 10,
+              enabled: options[IslandOption.longPress].enabled,
+              onChanged: (v) => save((s) => s.copyWith(islandLongPressMs: v)),
             ),
           ),
+        ],
+      ),
+      _Group(
+        title: context.tr('Live Activities'),
+        note: context.tr(
+          'Denial still shows its own volume and brightness display: a plugin cannot replace it.',
         ),
-        _Switch(
-          label: context.tr('Fade away under the pointer'),
-          value: s.islandHoverFade,
-          enabled: s.islandEnabled,
-          onChanged: (v) => save(
-            (s) => s.copyWith(
-              islandHoverFade: v,
-              islandHoverPeek: v ? false : s.islandHoverPeek,
+        children: <Widget>[
+          toggle(IslandOption.media, 'Now Playing'),
+          toggle(IslandOption.notifications, 'Notifications'),
+          toggle(IslandOption.charging, 'Charging'),
+          toggle(IslandOption.hud, 'Volume and brightness'),
+          toggle(IslandOption.recording, 'Screen recording'),
+          toggle(IslandOption.timer, 'Timer'),
+          toggle(IslandOption.progress, 'Downloads and file copies'),
+          toggle(IslandOption.status, 'Bluetooth, Wi-Fi and Focus changes'),
+          _Row(
+            label: context.tr('Keep a notification for'),
+            enabled: options[IslandOption.noticeHold].enabled,
+            note: note(IslandOption.noticeHold),
+            trailing: _Segments<int>(
+              value: s.islandNoticeSeconds <= 3
+                  ? 3
+                  : (s.islandNoticeSeconds <= 5 ? 5 : 8),
+              options: <(int, String)>[
+                for (final n in const <int>[3, 5, 8])
+                  (n, context.tr('{} s', n)),
+              ],
+              onChanged: (v) =>
+                  save((s) => s.copyWith(islandNoticeSeconds: v)),
             ),
           ),
-        ),
-        _Pair(
-          _timing(
-            context,
-            label: context.tr('Fade after the pointer rests for'),
-            value: s.islandFadeDelayMs,
-            min: BarMetric.islandFadeDelayMsMin,
-            max: BarMetric.islandFadeDelayMsMax,
-            step: 50,
-            enabled: s.islandEnabled && s.islandHoverFade,
-            onChanged: (v) => save((s) => s.copyWith(islandFadeDelayMs: v)),
-          ),
-          _timing(
-            context,
-            label: context.tr('Press and hold to open after'),
-            value: s.islandLongPressMs,
-            min: BarMetric.islandLongPressMsMin,
-            max: BarMetric.islandLongPressMsMax,
-            step: 10,
-            enabled: s.islandEnabled,
-            onChanged: (v) => save((s) => s.copyWith(islandLongPressMs: v)),
-          ),
-        ),
-      ],
-    ),
-    _Group(
-      title: context.tr('Live Activities'),
-      note: context.tr(
-        'Denial still shows its own volume and brightness display: a plugin cannot replace it.',
+        ],
       ),
-      children: <Widget>[
-        _Switch(
-          label: context.tr('Now Playing'),
-          value: s.activityMedia,
-          enabled: s.islandEnabled,
-          onChanged: (v) => save((s) => s.copyWith(activityMedia: v)),
+      _Group(
+        title: context.tr('Several Activities'),
+        note: context.tr(
+          'Downloads and file copies come from applications that report progress to docks. Timers start from the Timer control in Control Centre or from the home card.',
         ),
-        _Switch(
-          label: context.tr('Notifications'),
-          value: s.activityNotifications,
-          enabled: s.islandEnabled,
-          onChanged: (v) => save((s) => s.copyWith(activityNotifications: v)),
-        ),
-        _Switch(
-          label: context.tr('Charging'),
-          value: s.activityCharging,
-          enabled: s.islandEnabled,
-          onChanged: (v) => save((s) => s.copyWith(activityCharging: v)),
-        ),
-        _Switch(
-          label: context.tr('Volume and brightness'),
-          value: s.activityHud,
-          enabled: s.islandEnabled,
-          onChanged: (v) => save((s) => s.copyWith(activityHud: v)),
-        ),
-        _Switch(
-          label: context.tr('Screen recording'),
-          value: s.activityRecording,
-          enabled: s.islandEnabled,
-          onChanged: (v) => save((s) => s.copyWith(activityRecording: v)),
-        ),
-        _Switch(
-          label: context.tr('Timer'),
-          value: s.activityTimer,
-          enabled: s.islandEnabled,
-          onChanged: (v) => save((s) => s.copyWith(activityTimer: v)),
-        ),
-        _Switch(
-          label: context.tr('Downloads and file copies'),
-          value: s.activityProgress,
-          enabled: s.islandEnabled,
-          onChanged: (v) => save((s) => s.copyWith(activityProgress: v)),
-        ),
-        _Switch(
-          label: context.tr('Bluetooth, Wi-Fi and Focus changes'),
-          value: s.activityStatus,
-          enabled: s.islandEnabled,
-          onChanged: (v) => save((s) => s.copyWith(activityStatus: v)),
-        ),
-        _Row(
-          label: context.tr('Keep a notification for'),
-          enabled: s.islandEnabled && s.activityNotifications,
-          trailing: _Segments<int>(
-            value: s.islandNoticeSeconds <= 3
-                ? 3
-                : (s.islandNoticeSeconds <= 5 ? 5 : 8),
-            options: <(int, String)>[
-              for (final n in const <int>[3, 5, 8]) (n, context.tr('{} s', n)),
-            ],
-            onChanged: (v) => save((s) => s.copyWith(islandNoticeSeconds: v)),
-          ),
-        ),
-      ],
-    ),
-    _Group(
-      title: context.tr('Several Activities'),
-      note: context.tr(
-        'Downloads and file copies come from applications that report progress to docks. Timers start from the Timer control in Control Centre or from the home card.',
+        children: <Widget>[
+          toggle(IslandOption.split, 'Show other activities beside the island'),
+          toggle(IslandOption.swipe, 'Swipe sideways to switch activities'),
+          toggle(IslandOption.home, 'Open a home card from the resting island'),
+        ],
       ),
-      children: <Widget>[
-        _Switch(
-          label: context.tr('Show a second activity beside the island'),
-          value: s.islandSplit,
-          enabled: s.islandEnabled,
-          onChanged: (v) => save((s) => s.copyWith(islandSplit: v)),
-        ),
-        _Switch(
-          label: context.tr('Swipe sideways to switch activities'),
-          value: s.islandSwipe,
-          enabled: s.islandEnabled,
-          onChanged: (v) => save((s) => s.copyWith(islandSwipe: v)),
-        ),
-        _Switch(
-          label: context.tr('Open a home card from the resting island'),
-          value: s.islandHome,
-          enabled: s.islandEnabled,
-          onChanged: (v) => save((s) => s.copyWith(islandHome: v)),
-        ),
-      ],
-    ),
-  ];
+    ];
+  }
 
   List<Widget> _workspaces(BuildContext context, BarSettings s, _Save save) {
     final layout = ref.watch(shellSettingsProvider.select((v) => v.layout));
@@ -1029,11 +1006,15 @@ class _Row extends StatelessWidget {
     required this.label,
     required this.trailing,
     this.enabled = true,
+    this.note,
   });
 
   final String label;
   final Widget trailing;
   final bool enabled;
+
+  /// Why the row cannot be changed, said under its label.
+  final String? note;
 
   @override
   Widget build(BuildContext context) {
@@ -1051,11 +1032,28 @@ class _Row extends StatelessWidget {
               builder: (context, constraints) => Row(
                 children: <Widget>[
                   Expanded(
-                    child: Text(
-                      label,
-                      style: BarType.menuRow.copyWith(
-                        color: theme.colors.textPrimary,
-                      ),
+                    child: Column(
+                      mainAxisSize: MainAxisSize.min,
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: <Widget>[
+                        Text(
+                          label,
+                          style: BarType.menuRow.copyWith(
+                            color: theme.colors.textPrimary,
+                          ),
+                        ),
+                        if (note != null)
+                          Padding(
+                            padding: const EdgeInsets.only(top: 2),
+                            child: Text(
+                              note!,
+                              style: BarType.caption.copyWith(
+                                height: 1.3,
+                                color: theme.colors.textSecondary,
+                              ),
+                            ),
+                          ),
+                      ],
                     ),
                   ),
                   const SizedBox(width: 12),
@@ -1087,18 +1085,21 @@ class _Switch extends StatelessWidget {
     required this.value,
     required this.onChanged,
     this.enabled = true,
+    this.note,
   });
 
   final String label;
   final bool value;
   final ValueChanged<bool> onChanged;
   final bool enabled;
+  final String? note;
 
   @override
   Widget build(BuildContext context) {
     return _Row(
       label: label,
       enabled: enabled,
+      note: note,
       trailing: Transform.scale(
         scale: 0.86,
         alignment: Alignment.centerRight,

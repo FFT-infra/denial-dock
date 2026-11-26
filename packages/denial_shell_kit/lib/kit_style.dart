@@ -31,6 +31,7 @@ class KitStyle {
     this.opaque = false,
     this.shadow = 1,
     this.materials = KitMaterials.shell,
+    this.islandAspect = 58 / 28,
   });
 
   /// Denial's own material: the wallpaper's accent, the shell's font and
@@ -60,6 +61,8 @@ class KitStyle {
     panelBead: Size(0.96, 0.96),
     accentMenuRows: true,
     materials: KitMaterials.mac,
+    // The camera housing of a notebook display: 185 pt wide in a 32 pt bar.
+    islandAspect: 185 / 32,
   );
 
   /// Solid rounded panels: the shell's accent and font, tighter corners, no
@@ -133,6 +136,10 @@ class KitStyle {
 
   /// What the look's surfaces are made of.
   final KitMaterials materials;
+
+  /// The resting island's width over its height: a short capsule, or the
+  /// long one a camera housing makes.
+  final double islandAspect;
 
   /// The accent when the look brings its own; otherwise the shell's.
   final Color? fixedAccent;

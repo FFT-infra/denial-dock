@@ -9,7 +9,8 @@ import 'package:denial_flutter_sdk/state.dart';
 import 'package:denial_sdk/system.dart' show BatteryStatus;
 import 'package:denial_shell_kit/continuous_corners.dart';
 import 'package:denial_shell_kit/kit_control_math.dart';
-import 'package:denial_shell_kit/kit_layer.dart' show kitOpenPanel;
+import 'package:denial_shell_kit/kit_layer.dart'
+    show kitOpenPanel, kitPressTargets;
 import 'package:denial_shell_kit/kit_motion.dart';
 import 'package:denial_shell_kit/kit_springs.dart';
 import 'package:denial_shell_kit/kit_style.dart';
@@ -27,16 +28,19 @@ import '../debug_remote.dart';
 import '../l10n.dart';
 import '../mic_watch.dart';
 import '../panels/mac_kit.dart';
+import '../panels/popovers.dart' show outputDeviceIcon;
 import 'island_cards.dart';
 import 'island_engine.dart';
+import 'island_lyric_source.dart';
 import 'island_motion.dart';
 import 'island_parts.dart';
 import 'island_shape.dart';
+import 'island_skin.dart';
 import 'island_subline.dart';
 import 'island_timer.dart';
 
 /// How far below the bar the island may grow; the bar's surface reserves it.
-const double islandReach = 220;
+const double islandReach = 240;
 
 abstract final class _I {
   static const double rest = 58;
@@ -49,27 +53,17 @@ abstract final class _I {
   static const double textMin = 150;
   static const double textMax = 280;
   static const double cover = 20;
-  static const double bigCover = 56;
-  static const double pad = 16;
+  static const double bigCover = 60;
+  static const double pad = 18;
   static const Duration hudHold = Duration(seconds: 2);
   static const Duration chargeHold = Duration(seconds: 3);
   static const Duration trackHold = Duration(seconds: 3);
   static const Duration statusHold = Duration(milliseconds: 2600);
   static const Duration settle = Duration(seconds: 6);
-  static const Duration touchIdle = Duration(seconds: 10);
-  static const Color ink = IslandLook.ink;
-  static const Color dim = IslandLook.dim;
-}
 
-Size _cardSize(IslandKind kind) => switch (kind) {
-  IslandKind.notice => const Size(360, 88),
-  IslandKind.charging => const Size(300, 78),
-  IslandKind.timer => const Size(370, 86),
-  IslandKind.recording => const Size(320, 86),
-  IslandKind.progress => const Size(340, 86),
-  IslandKind.home => const Size(380, 176),
-  _ => const Size(380, 172),
-};
+  /// How many reporting applications the progress card lists.
+  static const int progressRows = 3;
+}
 
 /// Which spring the outline is on.
 enum _Shaping { reshape, grow, shrink }
@@ -113,8 +107,8 @@ class Island extends ConsumerStatefulWidget {
   final VoidCallback? onControlCenter;
   final VoidCallback? onNotifications;
 
-  /// A second line for the playback card, e.g. lyrics. Nothing provides one
-  /// yet; this is where a source plugs in.
+  /// A second line for the playback card. Left null, the card shows the
+  /// lyrics found on this machine for the track; see [IslandLyricSource].
   final IslandSubline? subline;
 
   @override
@@ -123,6 +117,7 @@ class Island extends ConsumerStatefulWidget {
 
 class _IslandState extends ConsumerState<Island> with TickerProviderStateMixin {
   final IslandEngine _engine = IslandEngine();
+  final IslandLyricSource _lyrics = IslandLyricSource();
   final DateTime _born = DateTime.now();
   late final IslandLevelGate _volumeGate = IslandLevelGate(born: _born);
   late final IslandLevelGate _brightnessGate = IslandLevelGate(born: _born);
@@ -132,7 +127,6 @@ class _IslandState extends ConsumerState<Island> with TickerProviderStateMixin {
   Timer? _deadline;
   Timer? _intent;
   Timer? _leave;
-  Timer? _idle;
   Timer? _progress;
   Timer? _clock;
   Timer? _dwell;
@@ -144,11 +138,37 @@ class _IslandState extends ConsumerState<Island> with TickerProviderStateMixin {
   /// open, or the one still closing.
   IslandKind _card = IslandKind.home;
   IslandKind _bubble = IslandKind.media;
+  IslandKind _bubbleLeft = IslandKind.media;
+  IslandSkin _skin = IslandSkin.plain;
+
+  // What the cards whose size follows their content hold now.
+  int _progressCount = 1;
+  bool _noticeAnswers = false;
+
+  /// The size the outline opens to for [kind]'s card.
+  Size _cardSize(IslandKind kind) => switch (kind) {
+    IslandKind.notice => Size(
+      400,
+      _noticeAnswers ? IslandNoticeCard.answered : IslandNoticeCard.plain,
+    ),
+    IslandKind.charging => const Size(360, 112),
+    IslandKind.timer => const Size(400, 128),
+    IslandKind.recording => const Size(380, 128),
+    IslandKind.progress => Size(
+      400,
+      32 +
+          IslandProgressCard.row *
+              _progressCount.clamp(1, _I.progressRows) +
+          (_progressCount > 1 ? 0 : 14),
+    ),
+    IslandKind.home => const Size(420, 188),
+    _ => const Size(420, 190),
+  };
   IconData _hudIcon = BarIcons.volumeUp;
   double _hudLevel = 0;
   int _hudTurn = 1;
   IconData _statusIcon = BarIcons.bellFill;
-  Color _statusTint = _I.ink;
+  Color? _statusTint;
   String _statusLabel = '';
   String _statusDetail = '';
   DateTime? _recordingSince;
@@ -187,6 +207,11 @@ class _IslandState extends ConsumerState<Island> with TickerProviderStateMixin {
 
   /// 0 shows the pill's face, 1 the card's content.
   late final KitSpring _content = KitSpring(0, IslandFeel.liquid.content);
+
+  /// A closing outline waits here for its card to leave; see [_release].
+  bool _waiting = false;
+  Size _aim = const Size(_I.rest, 0);
+  double _aimRadius = 0;
   late final KitSprings _shape = KitSprings(this, <KitSpring>[
     _w,
     _h,
@@ -202,20 +227,26 @@ class _IslandState extends ConsumerState<Island> with TickerProviderStateMixin {
   // How the pill answers the pointer and the engine: it swells under a
   // pointer, gives under a press, draws a breath when something arrives,
   // lets its bubble go, and, where the user asks, fades out of the way.
-  late final KitSpring _hoverFeel = KitSpring(
-    0,
-    const KitSpringTuning(380, 0.7),
-  );
-  late final KitSpring _pressFeel = KitSpring(0, KitStyle.denial.pressTuning);
-  late final KitSpring _veil = KitSpring(0, const KitSpringTuning(260, 1));
+  late final KitSpring _hoverFeel = KitSpring(0, IslandFeel.liquid.hover);
+  late final KitSpring _pressFeel = KitSpring(0, IslandFeel.liquid.press);
+  late final KitSpring _veil = KitSpring(0, IslandFeel.liquid.veil);
+
+  /// The bubble on the pill's right, and the one on its left.
   late final KitSpring _split = KitSpring(0, IslandFeel.liquid.split);
+  late final KitSpring _splitLeft = KitSpring(0, IslandFeel.liquid.split);
   late final KitSpring _pop = KitSpring(0, IslandFeel.liquid.pop);
+
+  /// A press being held: the pill gathers itself towards the panel it is
+  /// about to open, and is there as the press has lasted long enough.
+  late final KitSpring _charge = KitSpring(0, IslandFeel.liquid.press);
   late final KitSprings _feel = KitSprings(this, <KitSpring>[
     _hoverFeel,
     _pressFeel,
     _veil,
     _split,
+    _splitLeft,
     _pop,
+    _charge,
   ]);
 
   void _kick(KitSprings group) {
@@ -233,31 +264,45 @@ class _IslandState extends ConsumerState<Island> with TickerProviderStateMixin {
 
   /// Points the outline at what the engine shows now. Called from build: a
   /// target that moves while the springs are under way bends the motion.
-  void _aimShape(double compact, IslandFeel feel, KitStyle style) {
+  double _cardRadius(IslandKind kind, Size size) => _skin.corner(
+    kind == IslandKind.media || kind == IslandKind.track ? 38 : 32,
+    size.shortestSide,
+  );
+
+  void _aimShape(double compact, IslandFeel feel) {
     final h = widget.height;
     _compact = compact;
     final open = _engine.card;
     final size = open == null ? Size(compact, h) : _cardSize(open);
     final radius = open == null
-        ? IslandLook.pill(style, h)
-        : IslandLook.card(style, open, size);
+        ? _skin.pill(h)
+        : _cardRadius(open, size);
     if ((open != null) != _wasOpen) {
       _wasOpen = open != null;
       _shaping = _wasOpen ? _Shaping.grow : _Shaping.shrink;
     } else if (open == null && size.width != _w.target) {
       _shaping = _Shaping.reshape;
     }
+    // Width, height and corner share one tuning and start together, so the
+    // outline is one move and never widens before it deepens.
     final tuning = _shapeTuning(feel);
     for (final spring in <KitSpring>[_w, _h, _r]) {
       spring.tune(tuning);
     }
-    _content.tune(feel.content);
+    _content.tune(open == null ? feel.contentOut : feel.content);
+    _aim = size;
+    _aimRadius = radius;
     // A hand on the island has the outline.
     if (_dragFrom != null) return;
-    _w.target = size.width;
-    _h.target = size.height;
-    _r.target = radius;
     _content.target = open == null ? 0 : 1;
+    // The card leaves first. A closing outline keeps its size until most of
+    // the card has gone; with no travel to wait for it goes at once.
+    _waiting =
+        open == null &&
+        _shaped &&
+        islandHoldsOutline(_content.value) &&
+        !KitMotion.reduced(context);
+    if (!_waiting) _release();
     if (!_shaped) {
       _shaped = true;
       for (final spring in _shape.springs) {
@@ -266,6 +311,14 @@ class _IslandState extends ConsumerState<Island> with TickerProviderStateMixin {
       return;
     }
     _kick(_shape);
+  }
+
+  /// Lets the outline go to where it was last aimed.
+  void _release() {
+    _waiting = false;
+    _w.target = _aim.width;
+    _h.target = _aim.height;
+    _r.target = _aimRadius;
   }
 
   bool get _yields => islandYields(
@@ -277,16 +330,39 @@ class _IslandState extends ConsumerState<Island> with TickerProviderStateMixin {
   );
 
   /// Points the smaller springs at what the pointer and the engine do now.
-  void _aimFeel(IslandFeel feel, KitStyle style, {required bool split}) {
+  void _aimFeel(IslandFeel feel, {required int bubbles}) {
     final fade = widget.settings.islandHoverFade;
-    _hoverFeel.target = _hovered && !fade && !_engine.expanded ? 1 : 0;
+    _hoverFeel
+      ..tune(feel.hover)
+      ..target = _hovered && !fade && !_engine.expanded ? 1 : 0;
     _pressFeel
-      ..tune(style.pressTuning)
+      ..tune(feel.press)
       ..target = _pressed ? 1 : 0;
-    _veil.target = _yields ? 1 : 0;
+    // Held, the pill gathers over exactly the time the press has to last;
+    // let go, it springs back as any press does.
+    final charging = _pressed && _engine.canExpand && !_engine.expanded;
+    _charge
+      ..tune(
+        charging
+            ? KitSpringTuning(
+                islandChargeStiffness(
+                  widget.settings.islandLongPress.inMilliseconds / 1000,
+                  KitMotion.speed,
+                ),
+                1,
+              )
+            : feel.press,
+      )
+      ..target = charging ? 1 : 0;
+    _veil
+      ..tune(feel.veil)
+      ..target = _yields ? 1 : 0;
     _split
-      ..tune(split ? feel.split : feel.merge)
-      ..target = split ? 1 : 0;
+      ..tune(bubbles > 0 ? feel.split : feel.merge)
+      ..target = bubbles > 0 ? 1 : 0;
+    _splitLeft
+      ..tune(bubbles > 1 ? feel.split : feel.merge)
+      ..target = bubbles > 1 ? 1 : 0;
     _pop.tune(feel.pop);
     if (_engine.arrivals != _arrivals) {
       _arrivals = _engine.arrivals;
@@ -317,6 +393,9 @@ class _IslandState extends ConsumerState<Island> with TickerProviderStateMixin {
     // The closing card's content is dropped once the outline is home.
     // It can come to rest inside a build (reduced motion settles at once),
     // so the redraw waits its turn.
+    _shape.before = (_) {
+      if (_waiting && !islandHoldsOutline(_content.value)) _release();
+    };
     _shape.onRest = () {
       if (!_cardBuilt || _engine.expanded || _dragFrom != null) return;
       scheduleMicrotask(() {
@@ -324,6 +403,7 @@ class _IslandState extends ConsumerState<Island> with TickerProviderStateMixin {
       });
     };
     GestureBinding.instance.pointerRouter.addGlobalRoute(_anyPointer);
+    kitPressTargets.add(_pressTarget);
     _outside = ref
         .read(denialBridgeProvider)
         .shellActions
@@ -333,11 +413,13 @@ class _IslandState extends ConsumerState<Island> with TickerProviderStateMixin {
 
   @override
   void dispose() {
+    _lyrics.dispose();
     kitOpenPanel.removeListener(_onPanel);
     islandTimer.removeListener(_onTimer);
     micWatch.removeListener(_onMic);
     debugCommand.removeListener(_debug);
     GestureBinding.instance.pointerRouter.removeGlobalRoute(_anyPointer);
+    kitPressTargets.remove(_pressTarget);
     _clock?.cancel();
     _outside?.cancel();
     _cursor?.cancel();
@@ -345,7 +427,6 @@ class _IslandState extends ConsumerState<Island> with TickerProviderStateMixin {
       _deadline,
       _intent,
       _leave,
-      _idle,
       _progress,
       _dwell,
       _long,
@@ -368,7 +449,7 @@ class _IslandState extends ConsumerState<Island> with TickerProviderStateMixin {
     final number = words.length > 1 ? int.tryParse(words[1]) ?? 0 : 0;
     switch (words.first) {
       case 'island':
-        _setOpen(words.length < 2 || words[1] != 'close', byTouch: true);
+        _setOpen(words.length < 2 || words[1] != 'close');
       case 'timer':
         number > 0
             ? islandTimer.start(Duration(seconds: number), _now)
@@ -389,7 +470,7 @@ class _IslandState extends ConsumerState<Island> with TickerProviderStateMixin {
         BarIcons.circleFill,
         using ? users.first : context.tr('Microphone'),
         detail: context.tr(using ? 'Microphone in use' : 'Off'),
-        tint: using ? macOrange : _I.dim,
+        tint: using ? macOrange : _skin.dim,
       );
     }
     _micWas = using;
@@ -434,43 +515,64 @@ class _IslandState extends ConsumerState<Island> with TickerProviderStateMixin {
             })
           : null;
     }
-    if (!open) {
-      _idle?.cancel();
-      if (_focus.hasFocus) _focus.unfocus();
-    }
+    if (!open && _focus.hasFocus) _focus.unfocus();
     if (mounted) setState(() {});
   }
 
   /// Opens the panel, or closes it. [pinned] is a panel the user asked for:
   /// it stays until it is dismissed. A preview closes when the pointer goes.
-  void _setOpen(bool open, {bool pinned = true, bool byTouch = false}) {
+  ///
+  /// A pinned panel closes the way the shell's other panels do: a press
+  /// outside it, Escape, or a press on the pill's own place. Nothing closes
+  /// it for the pointer having left or for time having passed.
+  void _setOpen(bool open, {bool pinned = true}) {
     _intent?.cancel();
     _leave?.cancel();
-    _idle?.cancel();
     if (open) {
       if (kitOpenPanel.value != null || !_engine.canExpand) return;
       if (!_engine.expanded) _openedAt = _now;
       _engine.expand(pinned: pinned);
       if (pinned) _takeKeys();
-      if (byTouch) _armIdle();
+      // An open panel is not faded, and the wait to fade starts over when
+      // it closes.
+      _dwell?.cancel();
+      _dwelt = false;
     } else {
       if (!_engine.expanded) return;
       _engine.collapse(_now);
+      if (_hovered) _armDwell();
     }
     _sync();
   }
+
+  /// Starts the wait after which a resting pointer fades the pill.
+  void _armDwell() {
+    _dwell?.cancel();
+    final settings = widget.settings;
+    if (!settings.islandHoverFade) return;
+    _dwell = Timer(settings.islandFadeDwell, () {
+      if (!mounted || !_hovered || _engine.expanded) return;
+      _dwelt = true;
+      // Once the island gives up its input region the pointer belongs to
+      // whatever is underneath, and only the compositor knows where it is.
+      _cursor ??= ref.read(denialBridgeProvider).cursorPositions.listen((at) {
+        if (_hovered && !_within(at, slack: 4)) _left();
+      });
+      setState(() {});
+    });
+  }
+
+  /// A press on the island while another panel of the shell is open: that
+  /// panel closes and hands over, as one bar item does to the next.
+  VoidCallback? _pressTarget(Offset position) =>
+      mounted && !_yields && _engine.canExpand && _within(position)
+      ? () => _setOpen(true)
+      : null;
 
   /// A pinned panel takes the keyboard, for Escape and the arrow keys.
   void _takeKeys() {
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (mounted && _engine.pinned) _focus.requestFocus();
-    });
-  }
-
-  void _armIdle() {
-    _idle?.cancel();
-    _idle = Timer(_I.touchIdle, () {
-      if (!_hovered) _setOpen(false);
     });
   }
 
@@ -495,7 +597,7 @@ class _IslandState extends ConsumerState<Island> with TickerProviderStateMixin {
     IconData icon,
     String label, {
     String detail = '',
-    Color tint = _I.ink,
+    Color? tint,
     Duration hold = _I.statusHold,
   }) {
     // Sources report their first state as a change while the shell starts.
@@ -530,7 +632,7 @@ class _IslandState extends ConsumerState<Island> with TickerProviderStateMixin {
           BarIcons.bluetooth,
           device.name.isEmpty ? context.tr('Bluetooth') : device.name,
           detail: context.tr(device.connected ? 'Connected' : 'Disconnected'),
-          tint: device.connected ? macBlue : _I.dim,
+          tint: device.connected ? macBlue : _skin.dim,
         );
         break;
       }
@@ -552,7 +654,7 @@ class _IslandState extends ConsumerState<Island> with TickerProviderStateMixin {
           BarIcons.wifiSlash,
           previous,
           detail: context.tr('Disconnected'),
-          tint: _I.dim,
+          tint: _skin.dim,
         );
       }
     });
@@ -564,7 +666,7 @@ class _IslandState extends ConsumerState<Island> with TickerProviderStateMixin {
           next ? BarIcons.moonFill : BarIcons.moon,
           context.tr('Focus'),
           detail: context.tr(next ? 'On' : 'Off'),
-          tint: next ? macPurple : _I.dim,
+          tint: next ? macPurple : _skin.dim,
         );
       },
     );
@@ -655,6 +757,9 @@ class _IslandState extends ConsumerState<Island> with TickerProviderStateMixin {
 
   bool? _wasPlugged;
 
+  /// The resting pill's width in the look in force.
+  double get _rest => _skin.rest(widget.height);
+
   double _measure(String text, TextStyle style) {
     final painter = TextPainter(
       text: TextSpan(text: text, style: style),
@@ -669,14 +774,18 @@ class _IslandState extends ConsumerState<Island> with TickerProviderStateMixin {
   double _compactWidth(IslandKind kind, String label) => switch (kind) {
     IslandKind.home =>
       widget.workspace == null
-          ? _I.rest
-          : math.max(_I.rest, widget.workspaceWidth + 24),
-    IslandKind.media => _I.media,
-    IslandKind.hud => _I.hud,
-    IslandKind.charging => _I.charging,
-    IslandKind.timer ||
-    IslandKind.recording => _I.timer + (label.length > 5 ? 18 : 0),
-    IslandKind.progress => _I.progress,
+          ? _rest
+          : math.max(_rest, widget.workspaceWidth + 24),
+    // An activity never makes the pill narrower than it rests: on a long
+    // pill it shows at the two ends, as beside a camera housing.
+    IslandKind.media => math.max(_rest, _I.media),
+    IslandKind.hud => math.max(_rest, _I.hud),
+    IslandKind.charging => math.max(_rest, _I.charging),
+    IslandKind.timer || IslandKind.recording => math.max(
+      _rest,
+      _I.timer + (label.length > 5 ? 18 : 0),
+    ),
+    IslandKind.progress => math.max(_rest, _I.progress),
     IslandKind.status =>
       (_measure(label, BarType.islandLabel) +
               _measure(_statusDetail, BarType.islandLabel) +
@@ -700,26 +809,13 @@ class _IslandState extends ConsumerState<Island> with TickerProviderStateMixin {
 
   void _enter() {
     _leave?.cancel();
-    _idle?.cancel();
     // Coming back into a region the island had given up is not a new visit.
     if (_hovered) return;
     _hovered = true;
     _engine.hold(_now);
     final settings = widget.settings;
     if (settings.islandHoverFade) {
-      _dwell?.cancel();
-      _dwell = Timer(settings.islandFadeDwell, () {
-        if (!mounted || !_hovered) return;
-        _dwelt = true;
-        // Once the island gives up its input region the pointer belongs to
-        // whatever is underneath, and only the compositor knows where it is.
-        _cursor ??= ref.read(denialBridgeProvider).cursorPositions.listen((
-          at,
-        ) {
-          if (_hovered && !_within(at, slack: 4)) _left();
-        });
-        setState(() {});
-      });
+      if (!_engine.expanded) _armDwell();
     } else if (settings.islandHoverPeek &&
         !_engine.expanded &&
         _engine.tap == IslandTap.open &&
@@ -797,7 +893,7 @@ class _IslandState extends ConsumerState<Island> with TickerProviderStateMixin {
       // this press would never be reported.
       _held = true;
       _pressed = false;
-      _setOpen(true, byTouch: !_hovered);
+      _setOpen(true);
     });
     setState(() {});
   }
@@ -814,7 +910,7 @@ class _IslandState extends ConsumerState<Island> with TickerProviderStateMixin {
     if (_held) return;
     switch (_engine.tap) {
       case IslandTap.open:
-        _setOpen(true, byTouch: !_hovered);
+        _setOpen(true);
       case IslandTap.dismiss:
         _engine.dismiss(_now);
         _sync();
@@ -827,6 +923,7 @@ class _IslandState extends ConsumerState<Island> with TickerProviderStateMixin {
     _long?.cancel();
     _dragged = 0;
     if (!_engine.expanded && !_engine.canExpand) return;
+    _waiting = false;
     _card = _engine.card ?? _engine.opens;
     _dragFrom = islandOpenShare(
       _h.value,
@@ -843,7 +940,6 @@ class _IslandState extends ConsumerState<Island> with TickerProviderStateMixin {
     final share = islandRubber(from + _dragged / _travel);
     final card = _cardSize(_card);
     final h = widget.height;
-    final style = KitStyle.of(context);
     void hold(KitSpring spring, double value) {
       spring
         ..value = value
@@ -856,8 +952,8 @@ class _IslandState extends ConsumerState<Island> with TickerProviderStateMixin {
     hold(
       _r,
       lerpDouble(
-        IslandLook.pill(style, h),
-        IslandLook.card(style, _card, card),
+        _skin.pill(h),
+        _cardRadius(_card, card),
         share.clamp(0.0, 1.0),
       )!,
     );
@@ -890,7 +986,8 @@ class _IslandState extends ConsumerState<Island> with TickerProviderStateMixin {
       if (!_engine.expanded) _openedAt = _now;
       _engine.expand();
       _takeKeys();
-      if (!_hovered) _armIdle();
+      _dwell?.cancel();
+      _dwelt = false;
     } else if (_engine.expanded) {
       _engine.collapse(_now);
     } else if (from <= 0 && (velocity < -250 || _dragged < -14)) {
@@ -918,12 +1015,18 @@ class _IslandState extends ConsumerState<Island> with TickerProviderStateMixin {
     final settings = widget.settings;
     final style = KitStyle.of(context);
     final feel = IslandFeel.of(style);
+    _skin = IslandSkin.of(context);
     final playback = ref.watch(_services.media).value;
+    // Lyrics are looked for only while the playback card can show them.
+    _lyrics.follow(
+      settings.activityMedia && widget.subline == null ? playback : null,
+    );
     final recording = ref.watch(
       screenRecordingProvider.select((state) => state.recording),
     );
     _recordingSince = recording ? (_recordingSince ?? _now) : null;
     final progress = _launcherProgress();
+    if (progress.isNotEmpty) _progressCount = progress.length;
     // Paused playback keeps its place while its card is open: pausing from
     // the card must not take the card away.
     final playing = playback?.playing ?? false;
@@ -950,6 +1053,7 @@ class _IslandState extends ConsumerState<Island> with TickerProviderStateMixin {
     final note = ref.watch(
       desktopNotificationsProvider.select((state) => state.bannerNotification),
     );
+    if (note != null) _noticeAnswers = _answers(note).isNotEmpty;
     final battery = ref.watch(_services.battery);
     final kind = _engine.kind;
     final h = widget.height;
@@ -964,17 +1068,22 @@ class _IslandState extends ConsumerState<Island> with TickerProviderStateMixin {
       _ => '',
     };
     final compact = _compactWidth(kind, label);
-    final second = settings.islandSplit ? _engine.secondary : null;
-    if (second != null) _bubble = second;
-    final reserve = compact + (second == null ? 0 : (h + _I.gap) * 2);
+    final beside = settings.islandSplit
+        ? _engine.bubbles
+        : const <IslandKind>[];
+    if (beside.isNotEmpty) _bubble = beside.first;
+    if (beside.length > 1) _bubbleLeft = beside[1];
+    // Room is kept on both sides whenever a bubble stands on either, so the
+    // pill stays in the middle.
+    final reserve = compact + (beside.isEmpty ? 0 : (h + _I.gap) * 2);
     if (widget.reserved.value != reserve) {
       scheduleMicrotask(() => widget.reserved.value = reserve);
     }
 
     final open = _engine.card;
     if (open != null) _card = open;
-    _aimShape(compact, feel, style);
-    _aimFeel(feel, style, split: second != null);
+    _aimShape(compact, feel);
+    _aimFeel(feel, bubbles: beside.length);
 
     // Which way the new face and the new card come from: a turn of the page
     // moves sideways, a passing item rises over what it interrupts and sinks
@@ -1056,9 +1165,17 @@ class _IslandState extends ConsumerState<Island> with TickerProviderStateMixin {
               ],
             ),
           );
-    final bubbleLayer = RepaintBoundary(
-      child: _bubbleFor(_bubble, playback, progress),
+    Widget bubbleLayer(IslandKind bubble) => RepaintBoundary(
+      child: IslandSwap(
+        shrink: 0.4,
+        child: KeyedSubtree(
+          key: ValueKey<IslandKind>(bubble),
+          child: _bubbleFor(bubble, playback, progress),
+        ),
+      ),
     );
+    final rightBubble = bubbleLayer(_bubble);
+    final leftBubble = bubbleLayer(_bubbleLeft);
     final coverUrl = playback?.artUrl ?? '';
     final swipes =
         settings.islandSwipe &&
@@ -1071,24 +1188,33 @@ class _IslandState extends ConsumerState<Island> with TickerProviderStateMixin {
     return AnimatedBuilder(
       animation: Listenable.merge(<Listenable>[_shape, _feel]),
       builder: (context, _) {
-        final width = math.max(h, _w.value);
-        final height = math.max(h * 0.9, _h.value);
+        // A held press reaches a little towards the panel: wider, and
+        // deeper from the pill's own top edge, which is how it will open.
+        final charge = _charge.value.clamp(-0.2, 1.2) * (1 - _content.value);
+        final width = math.max(h, _w.value + 14 * charge);
+        final height = math.max(h * 0.9, _h.value + 5 * charge);
         final radius = math.max(0.0, _r.value);
-        final tc = islandOpenShare(height, h, cardSize.height);
+        final tc = islandOpenShare(_h.value, h, cardSize.height);
         final shown = _content.value;
-        final faceShown = 1 - kitPhase(shown, 0, 0.45);
-        final cardShown = kitPhase(shown, 0.4, 1);
+        final faceShown = islandFaceShare(shown, tc);
+        final cardShown = islandCardShare(shown, tc);
         final split = _split.value;
-        final reach = math.max(0.0, split) * (h + _I.gap);
-        final bubbleLeft =
-            reach + width + islandBubbleOffset(split, h, _I.gap);
+        final splitLeft = _splitLeft.value;
+        final reach =
+            math.max(0.0, math.max(split, splitLeft)) * (h + _I.gap);
+        final bubbleAt = reach + width + islandBubbleOffset(split, h, _I.gap);
+        final bubbleLeftAt =
+            reach - h - islandBubbleOffset(splitLeft, h, _I.gap);
         final hasBubble = split > 0.002;
+        final hasBubbleLeft = splitLeft > 0.002;
         final veil = _veil.value.clamp(0.0, 1.0);
         final hover = _hoverFeel.value * (1 - tc);
         final press = _pressFeel.value;
         final coverSize = lerpDouble(_I.cover, _I.bigCover, tc)!;
         final coverInset = (h - _I.cover) / 2;
-        final blur = BarTokens.islandContentBlur * (1 - cardShown);
+        final blur = _skin.blurs
+            ? BarTokens.islandContentBlur * (1 - cardShown)
+            : 0.0;
 
         final content = ClipPath(
           clipper: ContinuousCornersClipper(radius: radius),
@@ -1152,11 +1278,7 @@ class _IslandState extends ConsumerState<Island> with TickerProviderStateMixin {
                     child: IslandCover(
                       url: coverUrl,
                       size: coverSize,
-                      radius: IslandLook.corner(
-                        style,
-                        lerpDouble(5, 13, tc)!,
-                        coverSize,
-                      ),
+                      radius: _skin.corner(lerpDouble(5, 14, tc)!, coverSize),
                     ),
                   ),
                 ),
@@ -1198,12 +1320,20 @@ class _IslandState extends ConsumerState<Island> with TickerProviderStateMixin {
                       _takeKeys();
                       _sync();
                     }
-                    if (!_hovered) _armIdle();
                   },
                   child: GestureDetector(
                     behavior: HitTestBehavior.opaque,
                     onTapDown: expanded ? null : (_) => _pressDown(),
-                    onTapUp: expanded ? null : (_) => _pressUp(),
+                    // Open, a press where the pill was puts it back.
+                    onTapUp: expanded
+                        ? (details) {
+                            final at = details.localPosition;
+                            if (at.dy <= h &&
+                                (at.dx - width / 2).abs() <= compact / 2) {
+                              _setOpen(false);
+                            }
+                          }
+                        : (_) => _pressUp(),
                     onTapCancel: expanded ? null : _pressUp,
                     onTap: expanded ? null : _tap,
                     onVerticalDragStart: _dragStart,
@@ -1229,7 +1359,26 @@ class _IslandState extends ConsumerState<Island> with TickerProviderStateMixin {
           ),
         );
 
-        final bubbleShown = kitPhase(split, 0.5, 0.95);
+        Widget bubbleAtop(double left, double share, Widget layer) {
+          final bubbleShown = kitPhase(share, 0.5, 0.95);
+          return Positioned(
+            left: left,
+            top: 0,
+            width: h,
+            height: h,
+            child: IgnorePointer(
+              ignoring: yields || bubbleShown < 0.5,
+              child: Opacity(
+                opacity: bubbleShown,
+                child: Transform.scale(
+                  scale: 0.6 + 0.4 * bubbleShown,
+                  child: layer,
+                ),
+              ),
+            ),
+          );
+        }
+
         final island = SizedBox(
           width: width + reach * 2,
           height: height,
@@ -1241,12 +1390,21 @@ class _IslandState extends ConsumerState<Island> with TickerProviderStateMixin {
                   painter: IslandBlobPainter(
                     body: Rect.fromLTWH(reach, 0, width, height),
                     radius: radius,
-                    bubble: hasBubble
-                        ? Rect.fromLTWH(bubbleLeft, 0, h, h)
-                        : null,
-                    bubbleRadius: IslandLook.pill(style, h),
-                    neck: islandNeck(split),
+                    drops: <IslandDrop>[
+                      if (hasBubble)
+                        IslandDrop(
+                          Rect.fromLTWH(bubbleAt, 0, h, h),
+                          islandNeck(split),
+                        ),
+                      if (hasBubbleLeft)
+                        IslandDrop(
+                          Rect.fromLTWH(bubbleLeftAt, 0, h, h),
+                          islandNeck(splitLeft),
+                        ),
+                    ],
+                    bubbleRadius: _skin.pill(h),
                     shadow: tc,
+                    skin: _skin,
                   ),
                 ),
               ),
@@ -1257,23 +1415,9 @@ class _IslandState extends ConsumerState<Island> with TickerProviderStateMixin {
                 height: height,
                 child: body,
               ),
-              if (hasBubble && bubbleShown > 0)
-                Positioned(
-                  left: bubbleLeft,
-                  top: 0,
-                  width: h,
-                  height: h,
-                  child: IgnorePointer(
-                    ignoring: yields || bubbleShown < 0.5,
-                    child: Opacity(
-                      opacity: bubbleShown,
-                      child: Transform.scale(
-                        scale: 0.6 + 0.4 * bubbleShown,
-                        child: bubbleLayer,
-                      ),
-                    ),
-                  ),
-                ),
+              if (hasBubble) bubbleAtop(bubbleAt, split, rightBubble),
+              if (hasBubbleLeft)
+                bubbleAtop(bubbleLeftAt, splitLeft, leftBubble),
             ],
           ),
         );
@@ -1318,7 +1462,7 @@ class _IslandState extends ConsumerState<Island> with TickerProviderStateMixin {
   }
 
   Widget _progressIcon(Map<String, double> progress) => progress.isEmpty
-      ? const BarGlyph(BarIcons.arrowDown, size: 12, color: _I.ink)
+      ? BarGlyph(BarIcons.arrowDown, size: 12, color: _skin.ink)
       : _services.buildApplicationIcon(context, progress.keys.first);
 
   /// The second live activity, as a disc beside the pill.
@@ -1331,17 +1475,25 @@ class _IslandState extends ConsumerState<Island> with TickerProviderStateMixin {
     final Widget content = switch (kind) {
       IslandKind.timer => IslandRing(
         value: _timerFraction,
-        colour: macOrange,
+        colour: _skin.tone(macOrange),
         size: h - 12,
-        child: const BarGlyph(BarIcons.timer, size: 9, color: macOrange),
+        child: BarGlyph(
+          BarIcons.timer,
+          size: 9,
+          color: _skin.tone(macOrange),
+        ),
       ),
       IslandKind.recording => const IslandPulse(),
       IslandKind.progress => IslandRing(
         value: progress.values.firstOrNull ?? 0,
-        colour: macBlue,
+        colour: _skin.tone(macBlue),
         size: h - 12,
       ),
-      _ => IslandCover(url: playback?.artUrl ?? '', size: h - 10, radius: 5),
+      _ => IslandCover(
+        url: playback?.artUrl ?? '',
+        size: h - 10,
+        radius: _skin.corner(5, h - 10),
+      ),
     };
     return ShellInputRegion(
       debugLabel: 'denial_topbar.island.second',
@@ -1396,7 +1548,10 @@ class _IslandState extends ConsumerState<Island> with TickerProviderStateMixin {
             children: <Widget>[
               gap,
               const Spacer(),
-              IslandEqualizer(playing: playback?.playing ?? false),
+              IslandEqualizer(
+                playing: playback?.playing ?? false,
+                colour: _skin.tone(_skin.ink),
+              ),
               const SizedBox(width: 3),
             ],
           ),
@@ -1412,17 +1567,22 @@ class _IslandState extends ConsumerState<Island> with TickerProviderStateMixin {
                   label,
                   maxLines: 1,
                   overflow: TextOverflow.ellipsis,
-                  style: BarType.islandLabel.copyWith(color: _I.ink),
+                  style: BarType.islandLabel.copyWith(color: _skin.ink),
                 ),
               ),
               const SizedBox(width: 8),
-              IslandEqualizer(playing: playback?.playing ?? false),
+              IslandEqualizer(
+                playing: playback?.playing ?? false,
+                colour: _skin.tone(_skin.ink),
+              ),
               const SizedBox(width: 3),
             ],
           ),
         );
       case IslandKind.timer:
-        final colour = islandTimer.paused ? _I.dim : macOrange;
+        final colour = islandTimer.paused
+            ? _skin.dim
+            : _skin.tone(macOrange);
         return Padding(
           padding: const EdgeInsets.symmetric(horizontal: 12),
           child: Row(
@@ -1470,7 +1630,7 @@ class _IslandState extends ConsumerState<Island> with TickerProviderStateMixin {
               const Spacer(),
               IslandRing(
                 value: progress.values.firstOrNull ?? 0,
-                colour: macBlue,
+                colour: _skin.tone(macBlue),
               ),
             ],
           ),
@@ -1480,20 +1640,20 @@ class _IslandState extends ConsumerState<Island> with TickerProviderStateMixin {
           padding: const EdgeInsets.symmetric(horizontal: 12),
           child: Row(
             children: <Widget>[
-              BarGlyph(_statusIcon, size: 14, color: _statusTint),
+              BarGlyph(_statusIcon, size: 14, color: _statusTint ?? _skin.ink),
               const SizedBox(width: 8),
               Expanded(
                 child: Text(
                   label,
                   maxLines: 1,
                   overflow: TextOverflow.ellipsis,
-                  style: BarType.islandLabel.copyWith(color: _I.ink),
+                  style: BarType.islandLabel.copyWith(color: _skin.ink),
                 ),
               ),
               const SizedBox(width: 8),
               Text(
                 _statusDetail,
-                style: BarType.islandLabel.copyWith(color: _I.dim),
+                style: BarType.islandLabel.copyWith(color: _skin.dim),
               ),
             ],
           ),
@@ -1510,7 +1670,7 @@ class _IslandState extends ConsumerState<Island> with TickerProviderStateMixin {
                     _hudIcon,
                     key: ValueKey<int>(_hudIcon.codePoint),
                     size: 15,
-                    color: _I.ink,
+                    color: _skin.ink,
                   ),
                 ),
               ),
@@ -1529,7 +1689,7 @@ class _IslandState extends ConsumerState<Island> with TickerProviderStateMixin {
                     key: ValueKey<int>((_hudLevel * 100).round()),
                     textAlign: TextAlign.right,
                     style: BarType.islandLabel.copyWith(
-                      color: _I.dim,
+                      color: _skin.dim,
                       fontFeatures: const <FontFeature>[
                         FontFeature.tabularFigures(),
                       ],
@@ -1542,7 +1702,7 @@ class _IslandState extends ConsumerState<Island> with TickerProviderStateMixin {
         );
       case IslandKind.charging:
         final plugged = _wasPlugged ?? false;
-        final colour = plugged ? const Color(0xff30d158) : _I.ink;
+        final colour = plugged ? const Color(0xff30d158) : _skin.ink;
         return Padding(
           padding: const EdgeInsets.symmetric(horizontal: 13),
           child: Row(
@@ -1552,7 +1712,7 @@ class _IslandState extends ConsumerState<Island> with TickerProviderStateMixin {
                   context.tr(plugged ? 'Charging' : 'On Battery'),
                   maxLines: 1,
                   overflow: TextOverflow.ellipsis,
-                  style: BarType.islandLabel.copyWith(color: _I.ink),
+                  style: BarType.islandLabel.copyWith(color: _skin.ink),
                 ),
               ),
               Text(
@@ -1581,7 +1741,7 @@ class _IslandState extends ConsumerState<Island> with TickerProviderStateMixin {
                   label,
                   maxLines: 1,
                   overflow: TextOverflow.ellipsis,
-                  style: BarType.islandLabel.copyWith(color: _I.ink),
+                  style: BarType.islandLabel.copyWith(color: _skin.ink),
                 ),
               ),
             ],
@@ -1595,9 +1755,24 @@ class _IslandState extends ConsumerState<Island> with TickerProviderStateMixin {
         ? ''
         : (note.desktopEntry.isNotEmpty ? note.desktopEntry : note.appName);
     if (id.isEmpty) {
-      return BarGlyph(BarIcons.bellFill, size: glyph, color: _I.ink);
+      return BarGlyph(BarIcons.bellFill, size: glyph, color: _skin.ink);
     }
     return _services.buildApplicationIcon(context, id);
+  }
+
+  /// The answers a notification offers, apart from the one a press on the
+  /// card itself gives.
+  List<DesktopNotificationAction> _answers(DesktopNotification note) =>
+      <DesktopNotificationAction>[
+        for (final action in note.actions)
+          if (action.key != 'default' && action.label.trim().isNotEmpty)
+            action,
+      ].take(3).toList();
+
+  String _span(Duration span) {
+    final hours = span.inHours, minutes = span.inMinutes % 60;
+    final short = context.tr('{} min', minutes);
+    return hours > 0 ? '${context.tr('{} h', hours)} $short' : short;
   }
 
   Widget _cardBody(
@@ -1614,22 +1789,31 @@ class _IslandState extends ConsumerState<Island> with TickerProviderStateMixin {
           fraction: _timerFraction,
           paused: islandTimer.paused,
           caption: context.tr(islandTimer.paused ? 'Paused' : 'Timer'),
+          detail: context.tr('of {}', clockSpan(islandTimer.total)),
           onToggle: () => islandTimer.toggle(_now),
           onAdd: () => islandTimer.add(const Duration(minutes: 1), _now),
           onCancel: islandTimer.cancel,
         );
       case IslandKind.recording:
+        final speakers = micWatch.value;
         return IslandRecordingCard(
           elapsed: clockSpan(_now.difference(_recordingSince ?? _now)),
           caption: context.tr('Screen Recording'),
+          detail: speakers.isEmpty
+              ? ''
+              : context.tr('Microphone: {}', speakers.first),
           onStop: () => ref.read(screenRecordingProvider.notifier).toggle(),
         );
       case IslandKind.progress:
-        final id = progress.keys.firstOrNull;
         return IslandProgressCard(
-          icon: _progressIcon(progress),
-          name: id == null ? '' : _appLabel(id),
-          value: progress.values.firstOrNull ?? 0,
+          entries: <IslandProgressEntry>[
+            for (final entry in progress.entries.take(_I.progressRows))
+              IslandProgressEntry(
+                icon: _services.buildApplicationIcon(context, entry.key),
+                name: _appLabel(entry.key),
+                value: entry.value,
+              ),
+          ],
         );
       case IslandKind.home:
         void start(int minutes) {
@@ -1640,10 +1824,26 @@ class _IslandState extends ConsumerState<Island> with TickerProviderStateMixin {
           _setOpen(false);
           action?.call();
         }
+        final notices = ref.watch(desktopNotificationsProvider);
+        final latest = widget.settings.activityNotifications
+            ? notices.groups.firstOrNull?.members.firstOrNull?.notification
+            : null;
         return IslandHomeCard(
           time: widget.timeLabel,
           date: widget.dateLabel,
           workspace: widget.workspace,
+          nothing: context.tr('No Notifications'),
+          digest: latest == null
+              ? null
+              : IslandDigest(
+                  icon: _noticeIcon(latest, 16),
+                  title: latest.summary.isEmpty
+                      ? latest.appName
+                      : latest.summary.replaceAll('\n', ' '),
+                  body: latest.body.replaceAll('\n', ' '),
+                  unread: notices.unreadCount,
+                ),
+          onDigest: () => go(widget.onNotifications),
           trailing: battery.capacity == null
               ? null
               : Row(
@@ -1651,12 +1851,12 @@ class _IslandState extends ConsumerState<Island> with TickerProviderStateMixin {
                   children: <Widget>[
                     Text(
                       '${battery.capacity}%',
-                      style: BarType.islandLabel.copyWith(color: _I.dim),
+                      style: BarType.islandLabel.copyWith(color: _skin.dim),
                     ),
                     const SizedBox(width: 6),
                     BatteryGlyph(
                       level: battery.capacity! / 100,
-                      colour: plugged ? macGreen : _I.ink,
+                      colour: plugged ? macGreen : _skin.ink,
                       charging: plugged,
                       width: 24,
                     ),
@@ -1670,6 +1870,13 @@ class _IslandState extends ConsumerState<Island> with TickerProviderStateMixin {
                   label: context.tr('{}m', minutes),
                   onTap: () => start(minutes),
                 ),
+            IslandHomeAction(
+              icon: notices.doNotDisturb ? BarIcons.moonFill : BarIcons.moon,
+              on: notices.doNotDisturb,
+              onTap: ref
+                  .read(desktopNotificationsProvider.notifier)
+                  .toggleDoNotDisturb,
+            ),
             IslandHomeAction(
               icon: BarIcons.sliderHorizontal3,
               onTap: () => go(widget.onControlCenter),
@@ -1693,6 +1900,17 @@ class _IslandState extends ConsumerState<Island> with TickerProviderStateMixin {
               : (note.appName.isEmpty ? note.sender : note.appName),
           summary: (note?.summary ?? '').replaceAll('\n', ' '),
           body: (note?.body ?? '').replaceAll('\n', ' '),
+          actions: <(String, VoidCallback)>[
+            if (note != null)
+              for (final action in _answers(note))
+                (
+                  action.label,
+                  () {
+                    notifications.invokeAction(note.id, action.key);
+                    _setOpen(false);
+                  },
+                ),
+          ],
           onOpen: note == null
               ? null
               : () {
@@ -1707,13 +1925,31 @@ class _IslandState extends ConsumerState<Island> with TickerProviderStateMixin {
                 },
         );
       case IslandKind.charging:
+        final cell = ref.watch(
+          upowerProvider.select(
+            (state) => state.snapshot?.batteries.firstOrNull,
+          ),
+        );
+        final left = plugged ? cell?.timeToFull : cell?.timeToEmpty;
         return IslandChargeCard(
           percent: battery.capacity ?? 0,
           plugged: plugged,
           label: context.tr(plugged ? 'Charging' : 'On Battery'),
+          detail: left != null && left > Duration.zero
+              ? context.tr(
+                  plugged ? '{} until full' : '{} remaining',
+                  _span(left),
+                )
+              : '',
         );
       default:
         final commands = ref.watch(_services.mediaCommands);
+        // Where the sound goes, when the shell lists its outputs.
+        final output = ref.watch(
+          audioDevicesProvider.select(
+            (state) => state.devices.where((device) => device.active).firstOrNull,
+          ),
+        );
         return IslandMediaCard(
           playback: playback,
           onPrevious: () {
@@ -1726,7 +1962,13 @@ class _IslandState extends ConsumerState<Island> with TickerProviderStateMixin {
             commands.next();
           },
           turn: _trackTurn,
-          subline: widget.subline?.line,
+          subline: (widget.subline ?? _lyrics).line,
+          output: output == null
+              ? ''
+              : (output.description.isEmpty
+                    ? output.name
+                    : output.description),
+          outputIcon: output == null ? null : outputDeviceIcon(output),
           coverSlot: _I.bigCover,
           padding: _I.pad,
           nothing: context.tr('Not Playing'),

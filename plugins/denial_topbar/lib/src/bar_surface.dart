@@ -14,6 +14,7 @@ import 'package:denial_flutter_sdk/wallpaper.dart';
 import 'package:denial_shell_kit/kit_dock_link.dart';
 import 'package:denial_shell_kit/kit_host.dart';
 import 'package:denial_shell_kit/kit_motion.dart';
+import 'package:denial_shell_kit/kit_springs.dart' show Sprung;
 import 'package:denial_shell_kit/kit_style.dart' show KitStyle, kitDockEnabled;
 import 'package:denial_shell_kit/shell_preset.dart';
 import 'package:denial_shell_kit/kit_part.dart';
@@ -40,6 +41,9 @@ import 'bar_tokens.dart';
 import 'bar_type.dart';
 import 'clock_label.dart';
 import 'island/island.dart';
+import 'island/island_motion.dart';
+import 'island/island_options.dart';
+import 'island/island_skin.dart';
 import 'l10n.dart';
 import 'panels/about_dialog.dart';
 import 'panels/bar_settings_panel.dart';
@@ -294,9 +298,14 @@ class _TopBarSurfaceState extends ConsumerState<TopBarSurface>
     final zones = settings.zones;
     // A bar that draws only its island has one whatever the layout says.
     final mode = kitBarModeInForce;
-    final islandAvailable =
-        _side == PanelEdge.top &&
-        (settings.showsIsland || mode == KitBarMode.islandOnly);
+    // What the island's switches come to as things stand is decided in one
+    // place, which the settings page draws from too.
+    final islandOptions = IslandOptions(
+      settings,
+      mode: mode,
+      top: _side == PanelEdge.top,
+    );
+    final islandAvailable = islandOptions.present;
     final workspaceInIsland = settings.workspacesInIsland;
     final gap = settings.partGap;
 
@@ -337,7 +346,7 @@ class _TopBarSurfaceState extends ConsumerState<TopBarSurface>
         ? Island(
             services: _services,
             monitorId: widget.monitorId,
-            settings: settings,
+            settings: islandOptions.effective,
             height: islandHeight,
             reserved: _islandReserved,
             timeLabel: strings.time(now),
@@ -348,7 +357,7 @@ class _TopBarSurfaceState extends ConsumerState<TopBarSurface>
                 ? BarWorkspaces(
                     services: _services,
                     monitorId: widget.monitorId,
-                    ink: const Color(0xffffffff),
+                    ink: IslandSkin.of(context).ink,
                     settings: settings,
                     barHeight: bodyHeight,
                   )
@@ -409,13 +418,14 @@ class _TopBarSurfaceState extends ConsumerState<TopBarSurface>
       // width open.
       BarPart.island: (_) => ValueListenableBuilder<double>(
         valueListenable: _islandReserved,
-        builder: (context, width, _) => AnimatedContainer(
-          duration: KitMotion.duration(context, KitMotion.rebound),
-          // Only a liquid look runs past its mark.
-          curve: KitStyle.of(context).liquid
-              ? KitMotion.spring
-              : KitMotion.outCubic,
-          width: width,
+        // The slot follows the pill on a spring of the same family, dead
+        // beat, so the parts beside it give way as the pill grows.
+        builder: (context, width, _) => Sprung(
+          target: width,
+          tuning: IslandFeel.of(KitStyle.of(context)).slot,
+          tolerance: 0.05,
+          builder: (context, value, _) =>
+              SizedBox(width: math.max(0.0, value)),
         ),
       ),
     };
