@@ -252,11 +252,12 @@ class _KitSettingsWindowState extends State<_KitSettingsWindow> {
         ...?_said[entry.id],
       ],
     );
-    final activeList = filtered.isNotEmpty ? filtered : allPages;
-    final index = kitPageIndex(<String>[
-      for (final page in activeList) page.id,
-    ], _page);
-    final page = activeList[index];
+    // The page stays the one that was chosen while a search narrows the
+    // sidebar; only when the search leaves it out does the first match open.
+    final ids = <String>[for (final page in allPages) page.id];
+    final chosen = allPages[kitPageIndex(ids, _page)];
+    final index = filtered.indexOf(chosen);
+    final page = index >= 0 || filtered.isEmpty ? chosen : filtered.first;
     final subtitle = page.subtitle?.call(context);
 
     return SizedBox(
@@ -386,12 +387,12 @@ class _KitSettingsWindowState extends State<_KitSettingsWindow> {
                                   label: entry.title(context),
                                   icon: entry.icon,
                                   colour: entry.colour,
-                                  selected: at == index,
+                                  selected: entry.id == page.id,
                                   found: _found(context, entry),
                                   foundStyle: _type(
                                     11,
                                     FontWeight.w400,
-                                    at == index
+                                    entry.id == page.id
                                         ? KitStyle.of(
                                             context,
                                           ).onAccent(theme).withValues(
@@ -401,10 +402,10 @@ class _KitSettingsWindowState extends State<_KitSettingsWindow> {
                                   ),
                                   style: _type(
                                     13,
-                                    at == index
+                                    entry.id == page.id
                                         ? FontWeight.w600
                                         : FontWeight.w400,
-                                    at == index
+                                    entry.id == page.id
                                         ? KitStyle.of(context).onAccent(theme)
                                         : colors.textPrimary,
                                   ),
@@ -478,6 +479,8 @@ class _KitSettingsWindowState extends State<_KitSettingsWindow> {
                       fit: StackFit.expand,
                       children: <Widget>[...previous, ?current],
                     ),
+                    // A search that finds nothing leaves the page that was
+                    // open where it is; the sidebar says nothing matched.
                     child: KeyedSubtree(
                       key: ValueKey<String>(page.id),
                       child: page.builder(context),
