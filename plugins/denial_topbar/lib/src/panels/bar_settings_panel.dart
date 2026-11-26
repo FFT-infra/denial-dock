@@ -421,13 +421,14 @@ class _BarSettingsPanelState extends ConsumerState<BarSettingsPanel> {
     final currentPreset = ShellPreset.byId(kitPreset.value);
     final looks = <KitStyle>[...KitStyle.builtins, ...KitStyle.user];
     return <Widget>[
+      _PresetShelf(settings: s),
       _Group(
-        title: context.tr('Preset & Look'),
+        title: context.tr('Look only'),
         resetLabel: context.tr('Edit Look…'),
         onReset: () => openKitSettingsPage('bar.look'),
         note: context.tr(
-          'Current preset: “{}”. Presets arrange bar and Dock parts together; looks control colours, glass materials and motion.',
-          context.tr(currentPreset.label),
+          'A look changes colours, glass, corners, type and motion and leaves the layout where it is. The preset above chose “{}”.',
+          context.tr(KitStyle.byId(currentPreset.look).label),
         ),
         children: <Widget>[
           Padding(
@@ -435,29 +436,6 @@ class _BarSettingsPanelState extends ConsumerState<BarSettingsPanel> {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.stretch,
               children: <Widget>[
-                Row(
-                  children: <Widget>[
-                    Expanded(
-                      child: Text(
-                        context.tr('Look'),
-                        style: BarType.menuRow.copyWith(
-                          color: theme.colors.textPrimary,
-                        ),
-                      ),
-                    ),
-                    Pressable(
-                      onTap: () => openKitSettingsPage('bar.layout'),
-                      scale: 0.96,
-                      child: Text(
-                        context.tr('Switch Preset…'),
-                        style: BarType.caption.copyWith(
-                          color: activeStyle.accent(theme),
-                        ),
-                      ),
-                    ),
-                  ],
-                ),
-                const SizedBox(height: 8),
                 Wrap(
                   spacing: 8,
                   runSpacing: 8,

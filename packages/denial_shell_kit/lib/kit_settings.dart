@@ -409,7 +409,13 @@ class _KitSettingsWindowState extends State<_KitSettingsWindow> {
                                         ? KitStyle.of(context).onAccent(theme)
                                         : colors.textPrimary,
                                   ),
-                                  onTap: () => setState(() => _page = entry.id),
+                                  // Remembered outside the window too: a preset that moves
+                                  // the bar rebuilds the window, which must
+                                  // come back on this page.
+                                  onTap: () {
+                                    _wanted.value = entry.id;
+                                    setState(() => _page = entry.id);
+                                  },
                                 ),
                               ],
                             ],

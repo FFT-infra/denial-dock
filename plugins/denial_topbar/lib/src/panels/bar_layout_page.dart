@@ -435,18 +435,7 @@ class _LayoutPageState extends ConsumerState<_LayoutPage> {
     final zones = s.zones;
     final strip = s.shape == BarShape.strip;
     final plated = s.ground != BarGround.none;
-    // The preset last applied; or, when the shell no longer matches it but
-    // is exactly another one, that one.
-    var current = ShellPreset.byId(kitPreset.value);
-    var modified = shellPresetModified(current, s);
-    if (modified) {
-      for (final preset in ShellPreset.everything) {
-        if (shellPresetModified(preset, s)) continue;
-        current = preset;
-        modified = false;
-        break;
-      }
-    }
+
 
     // A part that went away under the selection.
     var picked = _picked;
@@ -528,80 +517,6 @@ class _LayoutPageState extends ConsumerState<_LayoutPage> {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: <Widget>[
-        _Group(
-          title: context.tr('Presets'),
-          note: context.tr(
-            'A preset sets the look and the layout of the bar and the Dock. Each preset remembers the changes you make to it; choose the one in use again to put it back as it came. Which items show stays as you set it.',
-          ),
-          children: <Widget>[
-            Padding(
-              padding: const EdgeInsets.fromLTRB(10, 10, 10, 4),
-              // Four to a row, so a card stays wide enough to read; one
-              // shelf for the shell's own presets, one for those made after
-              // other shells and one for the user's.
-              child: LayoutBuilder(
-                builder: (context, constraints) {
-                  const gap = 8.0;
-                  final width = (constraints.maxWidth - gap * 3) / 4;
-                  return Column(
-                    crossAxisAlignment: CrossAxisAlignment.stretch,
-                    children: <Widget>[
-                      for (final (group, title) in const <(ShellPresetGroup, String)>[
-                        (ShellPresetGroup.builtin, 'Built-in'),
-                        (ShellPresetGroup.reference, 'Reference styles'),
-                        (ShellPresetGroup.user, 'Mine'),
-                      ])
-                        if (ShellPreset.inGroup(group).isNotEmpty) ...<Widget>[
-                          Padding(
-                            padding: const EdgeInsets.fromLTRB(2, 0, 2, 6),
-                            child: Text(
-                              context.tr(title),
-                              style: BarType.caption.copyWith(
-                                fontSize: 11,
-                                fontWeight: FontWeight.w600,
-                                color: theme.colors.textTertiary,
-                              ),
-                            ),
-                          ),
-                          Wrap(
-                            spacing: gap,
-                            runSpacing: 6,
-                            children: <Widget>[
-                              for (final preset in ShellPreset.inGroup(group))
-                                SizedBox(
-                                  width: width,
-                                  child: _PresetCard(
-                                    preset: preset,
-                                    selected: preset.id == current.id,
-                                    modified:
-                                        preset.id == current.id && modified,
-                                    onTap: () {
-                                      setState(() {
-                                        _picked = null;
-                                        _dockPicked = null;
-                                      });
-                                      // The preset in force, tapped again,
-                                      // goes back to how it ships.
-                                      applyShellPreset(
-                                        ref,
-                                        preset,
-                                        fresh: preset.id == current.id,
-                                      );
-                                    },
-                                  ),
-                                ),
-                            ],
-                          ),
-                          const SizedBox(height: 4),
-                        ],
-                    ],
-                  );
-                },
-              ),
-            ),
-            PresetTools(current: current, modified: modified, settings: s),
-          ],
-        ),
         Stack(
           key: _groupKeys[0],
           clipBehavior: Clip.none,
@@ -1720,4 +1635,97 @@ class _BarSketch extends CustomPainter {
       old.corner != corner ||
       old.barMode != barMode ||
       old.dock.toString() != dock.toString();
+}
+
+/// Every preset as a card, one tap to wear the whole of it: the look, the
+/// bar's layout and the Dock's. The shell's own first, then those made
+/// after other shells, then the user's.
+class _PresetShelf extends ConsumerWidget {
+  const _PresetShelf({required this.settings});
+
+  final BarSettings settings;
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final theme = context.shellTheme;
+    final s = settings;
+    // The preset last applied; or, when the shell no longer matches it but
+    // is exactly another one, that one.
+    var current = ShellPreset.byId(kitPreset.value);
+    var modified = shellPresetModified(current, s);
+    if (modified) {
+      for (final preset in ShellPreset.everything) {
+        if (shellPresetModified(preset, s)) continue;
+        current = preset;
+        modified = false;
+        break;
+      }
+    }
+    return _Group(
+      title: context.tr('Presets'),
+      note: context.tr(
+        'A preset sets the look and the layout of the bar and the Dock. Each preset remembers the changes you make to it; choose the one in use again to put it back as it came. Which items show stays as you set it.',
+      ),
+      children: <Widget>[
+        Padding(
+          padding: const EdgeInsets.fromLTRB(10, 10, 10, 4),
+          // Four to a row, so a card stays wide enough to read.
+          child: LayoutBuilder(
+            builder: (context, constraints) {
+              const gap = 8.0;
+              final width = (constraints.maxWidth - gap * 3) / 4;
+              return Column(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: <Widget>[
+                  for (final (group, title)
+                      in const <(ShellPresetGroup, String)>[
+                        (ShellPresetGroup.builtin, 'Built-in'),
+                        (ShellPresetGroup.reference, 'Reference styles'),
+                        (ShellPresetGroup.user, 'Mine'),
+                      ])
+                    if (ShellPreset.inGroup(group).isNotEmpty) ...<Widget>[
+                      Padding(
+                        padding: const EdgeInsets.fromLTRB(2, 0, 2, 6),
+                        child: Text(
+                          context.tr(title),
+                          style: BarType.caption.copyWith(
+                            fontSize: 11,
+                            fontWeight: FontWeight.w600,
+                            color: theme.colors.textTertiary,
+                          ),
+                        ),
+                      ),
+                      Wrap(
+                        spacing: gap,
+                        runSpacing: 6,
+                        children: <Widget>[
+                          for (final preset in ShellPreset.inGroup(group))
+                            SizedBox(
+                              width: width,
+                              child: _PresetCard(
+                                preset: preset,
+                                selected: preset.id == current.id,
+                                modified: preset.id == current.id && modified,
+                                // The preset in force, tapped again, goes
+                                // back to how it ships.
+                                onTap: () => applyShellPreset(
+                                  ref,
+                                  preset,
+                                  fresh: preset.id == current.id,
+                                ),
+                              ),
+                            ),
+                        ],
+                      ),
+                      const SizedBox(height: 4),
+                    ],
+                ],
+              );
+            },
+          ),
+        ),
+        PresetTools(current: current, modified: modified, settings: s),
+      ],
+    );
+  }
 }

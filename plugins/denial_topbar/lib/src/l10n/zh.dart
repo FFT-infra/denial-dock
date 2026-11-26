@@ -483,6 +483,9 @@ const Map<String, String> zh = <String, String>{
       '收入控制中心时无需定时自动收起。',
   'No folded tray icons.': '暂无已收纳的托盘图标。',
   'Preset & Look': '预设与外观',
+  'Look only': '只换外观',
+  'A look changes colours, glass, corners, type and motion and leaves the layout where it is. The preset above chose “{}”.':
+      '外观只改颜色、玻璃、圆角、字体和动效，布局不动。上面的预设原本配的是“{}”。',
   'Edit Look…': '外观编辑…',
   'Switch Preset…': '切换预设…',
   'Auto-hide': '自动隐藏',
