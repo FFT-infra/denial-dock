@@ -113,6 +113,19 @@ class _LookPageState extends State<LookPage> {
   void initState() {
     super.initState();
     kitLooks.addListener(_changed);
+  }
+
+  Brightness? _seen;
+
+  /// The fill field shows the dark or the light material, so it is filled
+  /// here, where the theme may be read, and again when the system turns
+  /// from one to the other.
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    final now = context.shellTheme.brightness;
+    if (_seen == now) return;
+    _seen = now;
     _fields();
   }
 

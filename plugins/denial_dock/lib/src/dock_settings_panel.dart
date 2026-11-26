@@ -684,7 +684,15 @@ class _DockSettingsPanelState extends ConsumerState<DockSettingsPanel> {
                 label: _zh ? '与顶栏共用' : 'Shared with the top bar',
                 value: kitStyle.value,
                 options: [
-                  for (final style in KitStyle.presets)
+                  // The look in force is always among them, so the control
+                  // never shows a look that is not the one drawn.
+                  for (final style in <KitStyle>[
+                    ...KitStyle.presets,
+                    if (!KitStyle.presets.any(
+                      (one) => one.id == kitStyle.value.id,
+                    ))
+                      kitStyle.value,
+                  ])
                     (
                       style,
                       style.label,
@@ -741,6 +749,14 @@ class _DockSettingsPanelState extends ConsumerState<DockSettingsPanel> {
                   highlight: value == 1,
                 ),
               ),
+              if (look.shape == DockShape.bar)
+                _NoteRow(
+                  text: _zh
+                      ? '贴边通栏不放大图标，指针下的格子改为高亮。换回悬浮圆角后这里的选择生效。'
+                      : 'An edge bar never magnifies: the cell under the '
+                            'pointer lights up instead. This choice applies '
+                            'again on a floating dock.',
+                ),
               _SliderRow(
                 label: _zh ? '放大程度' : 'Magnification amount',
                 value: fit.magnifyAmount,

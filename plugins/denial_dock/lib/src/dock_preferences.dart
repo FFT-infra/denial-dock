@@ -168,7 +168,11 @@ class DockSettingsController extends AsyncNotifier<DockSettings> {
     final nextMap = <String, Map<String, Object?>>{...current.lookByStyle}
       ..remove(styleId);
     return current.copyWith(
-      look: const {},
+      // The dock's shape is a matter of layout, not of the look: it stays.
+      look: <String, Object?>{
+        for (final key in const [DockLook.shapeKey, DockMetrics.taskTitlesKey])
+          if (current.look.containsKey(key)) key: current.look[key],
+      },
       lookByStyle: Map.unmodifiable(nextMap),
       chosen: const {},
     );

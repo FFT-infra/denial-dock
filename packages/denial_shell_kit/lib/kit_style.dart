@@ -559,6 +559,13 @@ class KitLooksNotifier extends ValueNotifier<List<KitStyle>> {
         if (one.id != id) one,
     ]);
     if (kitStyle.chosen == id) kitStyle.choose(KitStyle.byId(gone.look.base));
+    // A preset the user saved over this look goes to the look it was made
+    // from, rather than silently to Denial's the next time it is applied.
+    for (final preset in kitPresets.value) {
+      if (preset.look == id) {
+        kitPresets.save(preset.renamed(look: KitStyle.byId(gone.look.base).id));
+      }
+    }
   }
 }
 
