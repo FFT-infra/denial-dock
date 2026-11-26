@@ -748,6 +748,7 @@ class DockSettings {
         ),
         <String, Object?>{
           ...look,
+          ...?lookByStyle[styleId],
           if (chosen.contains(DockMetrics.iconSizeKey))
             DockMetrics.iconSizeKey: iconSize,
           if (chosen.contains(DockMetrics.magnifyKey))

@@ -1452,7 +1452,10 @@ class _DockSettingsPanelState extends ConsumerState<DockSettingsPanel> {
     enabled: enabled,
     onChanged: (next) => _controller.setLook(keyName, next),
     resetLabel: _zh ? '恢复默认' : 'Restore default',
-    onReset: settings.look.containsKey(keyName)
+    onReset:
+        settings.look.containsKey(keyName) ||
+            (settings.lookByStyle[kitStyle.value.id]?.containsKey(keyName) ??
+                false)
         ? () => _controller.setLook(keyName, null)
         : null,
     reserveReset: true,

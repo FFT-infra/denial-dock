@@ -60,7 +60,10 @@ void applyShellPreset(WidgetRef ref, ShellPreset preset, {bool fresh = false}) {
         if (entry.key is String) entry.key as String: entry.value,
   };
   final leaving = ShellPreset.byId(kitPreset.value);
-  if (settings != null && leaving.id != preset.id) {
+  final known = ShellPreset.everything.any(
+    (one) => one.id == kitPreset.value,
+  );
+  if (settings != null && known && leaving.id != preset.id) {
     memory[leaving.id] = leaving.remember(
       look: kitStyle.chosen,
       barMode: kitBarMode.value.key,

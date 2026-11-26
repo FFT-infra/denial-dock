@@ -238,8 +238,10 @@ class _BarSettingsPanelState extends ConsumerState<BarSettingsPanel> {
   /// Puts the bar back as it came. The look and the preset live outside the
   /// bar's own settings, and go back with them.
   void _restore() {
-    forgetShellPresets();
+    // Forgotten after the switch: switching remembers the preset it leaves.
     applyShellPreset(ref, ShellPreset.denial, fresh: true);
+    forgetShellPresets();
+    kitSpeed.value = 1;
     ref
         .read(barSettingsProvider.notifier)
         .save((s) => BarSettings(recentsClearedAt: s.recentsClearedAt));
@@ -421,7 +423,17 @@ class _BarSettingsPanelState extends ConsumerState<BarSettingsPanel> {
     final currentPreset = ShellPreset.byId(kitPreset.value);
     final looks = <KitStyle>[...KitStyle.builtins, ...KitStyle.user];
     return <Widget>[
-      _PresetShelf(settings: s),
+      // A preset saved, updated or deleted, or the dock rearranged, changes
+      // which card is in force without touching the bar's own settings.
+      ListenableBuilder(
+        listenable: Listenable.merge(<Listenable>[
+          kitPreset,
+          kitPresets,
+          kitDock,
+          kitBarMode,
+        ]),
+        builder: (context, _) => _PresetShelf(settings: s),
+      ),
       _Group(
         title: context.tr('Look only'),
         resetLabel: context.tr('Edit Look…'),

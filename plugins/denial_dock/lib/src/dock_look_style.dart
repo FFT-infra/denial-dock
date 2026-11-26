@@ -38,7 +38,7 @@ DockLook dockPresetFor(KitStyle style) {
 
 /// The capsule's look for [settings] under the look of the shell in force.
 DockLook dockLookNow(DockSettings settings) => settings.lookFor(
-  kitStyle.value.look.dockKin,
+  kitStyle.value.id,
   preset: dockPresetFor(kitStyle.value),
 );
 
@@ -76,7 +76,7 @@ extension DockType on TextStyle {
 /// for a dock of [shape].
 DockMetrics dockMetricsNow(DockSettings settings, DockShape shape) =>
     settings.metricsFor(
-      kitStyle.value.look.dockKin,
+      kitStyle.value.id,
       shape: shape,
       preset: dockMetricsFor(kitStyle.value),
     );

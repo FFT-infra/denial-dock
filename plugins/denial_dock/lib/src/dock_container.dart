@@ -1938,7 +1938,7 @@ class _DockContainerState extends ConsumerState<DockContainer>
                             DockMenuRow(
                               icon: Icons.dashboard_customize_outlined,
                               label: chinese ? '外壳设置…' : 'Shell Settings…',
-                              onTap: () => _openSettings(page: null),
+                              onTap: () => _openSettings(page: 0),
                             ),
                             const DockMenuSeparator(),
                           ],

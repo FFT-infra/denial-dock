@@ -405,7 +405,16 @@ class _LayoutPageState extends ConsumerState<_LayoutPage> {
     final picked = _picked;
     if (picked == null) return;
     setState(() => _picked = null);
-    _setZones(_s.zones.removedAt(picked.$1, picked.$2));
+    final zones = _s.zones;
+    final parts = zones.zone(picked.$1);
+    final island =
+        picked.$2 < parts.length && parts[picked.$2] == BarPart.island;
+    final next = zones.removedAt(picked.$1, picked.$2);
+    // Taking the island off the bar also turns it off, so nothing puts it
+    // back behind the user's back.
+    island
+        ? widget.save((s) => s.copyWith(zones: next, islandEnabled: false))
+        : _setZones(next);
   }
 
   void _add(String id) {

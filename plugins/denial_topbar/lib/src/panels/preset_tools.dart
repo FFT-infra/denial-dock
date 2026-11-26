@@ -3,7 +3,6 @@ import 'dart:io';
 import 'package:denial_flutter_sdk/theme.dart';
 import 'package:denial_shell_kit/detached_run.dart';
 import 'package:denial_shell_kit/kit_store.dart';
-import 'package:denial_shell_kit/kit_style.dart';
 import 'package:denial_shell_kit/shell_preset.dart';
 import 'package:flutter/widgets.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -148,8 +147,10 @@ class _PresetToolsState extends ConsumerState<PresetTools> {
   void _delete() {
     final gone = widget.current;
     kitPresets.remove(gone.id);
-    // The shell stays as it is; it only no longer has that name.
-    kitPreset.value = ShellPreset.denial.id;
+    // The shell stays as it is and keeps the removed name, which no preset
+    // answers to: calling it Denial would have the next switch remember
+    // this arrangement as Denial's own.
+    setState(() {});
     _done(context.tr('Deleted “{}”.', gone.label));
   }
 

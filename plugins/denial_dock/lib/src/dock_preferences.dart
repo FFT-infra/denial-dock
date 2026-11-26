@@ -153,7 +153,13 @@ class DockSettingsController extends AsyncNotifier<DockSettings> {
     } else {
       nextMap[styleId] = scoped;
     }
-    return current.copyWith(lookByStyle: Map.unmodifiable(nextMap));
+    return current.copyWith(
+      // Clearing a value also clears one an older version kept for every look.
+      look: value == null
+          ? DockLook.withOverride(current.look, key, null)
+          : current.look,
+      lookByStyle: Map.unmodifiable(nextMap),
+    );
   });
 
   /// Puts the whole look back on the preset of the shell look in force.

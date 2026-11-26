@@ -247,7 +247,7 @@ class _LookPageState extends State<LookPage> {
     final Map<Object?, Object?> found = json is Map
         ? json
         : const <Object?, Object?>{};
-    if (found['materials'] is! Map && found['motion'] is! Map) {
+    if (found.isEmpty) {
       _say(context.tr('The clipboard holds no look.'), failed: true);
       return;
     }
