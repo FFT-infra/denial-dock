@@ -224,12 +224,12 @@ class BarStatusCluster extends ConsumerWidget {
     final hasFolded = part.folded.isNotEmpty;
     final inBarFold =
         hasFolded &&
-        (settings.trayFold == BarTrayFold.inline ||
-            settings.trayFold == BarTrayFold.hover);
+        (settings.trayFoldInForce == BarTrayFold.inline ||
+            settings.trayFoldInForce == BarTrayFold.hover);
     final popoverFold =
         hasFolded &&
-        (settings.trayFold == BarTrayFold.popover ||
-            settings.trayFold == BarTrayFold.floatingBar);
+        (settings.trayFoldInForce == BarTrayFold.popover ||
+            settings.trayFoldInForce == BarTrayFold.floatingBar);
     final showTrayCell =
         settings.showTray &&
         trayVisible &&
@@ -254,7 +254,7 @@ class BarStatusCluster extends ConsumerWidget {
               _TrayFold(
                 ink: ink,
                 enabled: true,
-                expandOnHover: settings.trayFold == BarTrayFold.hover,
+                expandOnHover: settings.trayFoldInForce == BarTrayFold.hover,
                 autoSeconds: settings.collapseAutoSeconds,
                 horizontal: horizontal,
                 crossExtent: crossExtent,
@@ -666,8 +666,9 @@ class _TrayFoldState extends State<_TrayFold> {
     if (!widget.expandOnHover) return;
     _hoverTimer?.cancel();
     if (inside) {
+      // Nothing folds while the pointer rests here.
+      _refold?.cancel();
       if (!_open) setState(() => _open = true);
-      _arm();
     } else if (_open) {
       _hoverTimer = Timer(const Duration(milliseconds: 500), () {
         if (mounted) setState(() => _open = false);

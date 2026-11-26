@@ -20,6 +20,8 @@ import 'setting_bits.dart';
 
 const KitSettingsPage _lookPage = KitSettingsPage(
   id: 'bar.look',
+  // Building the editor previews its draft, so the search does not read it.
+  readable: false,
   title: _lookTitle,
   group: _lookGroup,
   subtitle: _lookSubtitle,

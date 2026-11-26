@@ -478,10 +478,7 @@ const Map<String, String> zh = <String, String>{
   'Hover': '悬停',
   'Floating bar': '悬浮条',
   'Grid': '网格',
-  'Popover': '悬浮面板',
   'Collect tray icons': '收纳托盘图标',
-  'Picking a style starts collecting icons automatically, or mark items Hidden below.':
-      '选定非默认方式时会自动开始收纳，也可以在下方将单个图标设为“隐藏”。',
   'Not used while icons sit inside Control Centre.':
       '收入控制中心时无需定时自动收起。',
   'No folded tray icons.': '暂无已收纳的托盘图标。',
@@ -511,10 +508,12 @@ const Map<String, String> zh = <String, String>{
   'Enable System tray above to change icon appearance.':
       '开启上方的系统托盘后才能调整图标外观。',
   'System tray is turned off.': '系统托盘已关闭。',
+  'Items marked Hidden below are collected either way; this adds every other icon.':
+      '下方设为“隐藏”的图标总会被收纳；打开后其余图标也一并收纳。',
+  'Control Centre is off in the menu bar, so the icons open in a grid instead.':
+      '菜单栏里没有显示控制中心，图标改为在网格里打开。',
   'Turn on folding or set an item below to Hidden first.':
       '请先开启图标折叠，或将下方某个托盘项目设为“隐藏”。',
-  'Applies only to Arrow and Hover collection styles.':
-      '仅适用于“箭头”和“悬停”收纳方式。',
   'Overview': '概览',
   'Choose where to show the workspace switcher above first.':
       '请先在上方选择工作区指示器的显示位置。',

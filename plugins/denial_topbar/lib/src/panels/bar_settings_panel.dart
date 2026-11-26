@@ -459,11 +459,12 @@ class _BarSettingsPanelState extends ConsumerState<BarSettingsPanel> {
                 ),
                 const SizedBox(height: 8),
                 Wrap(
-                  spacing: 6,
-                  runSpacing: 6,
+                  spacing: 8,
+                  runSpacing: 8,
                   children: <Widget>[
                     for (final style in looks)
-                      _LookPill(
+                      _LookCard(
+                        look: style,
                         label: style.custom ? style.label : context.tr(style.label),
                         selected: style.id == activeStyle.id,
                         onTap: () => kitStyle.choose(style),
@@ -959,10 +960,11 @@ class _BarSettingsPanelState extends ConsumerState<BarSettingsPanel> {
       ),
       _Group(
         title: context.tr('System tray'),
+        // The per-item choices below are the user's own list and are not
+        // part of what this group puts back.
         resetLabel: s.collapseItems ||
                 s.trayFold != BarTrayFold.inline ||
-                s.trayHidden.isNotEmpty ||
-                s.trayNever.isNotEmpty
+                s.collapseAutoSeconds != 15
             ? context.tr('Reset')
             : null,
         onReset: () => save(
@@ -970,8 +972,6 @@ class _BarSettingsPanelState extends ConsumerState<BarSettingsPanel> {
             collapseItems: false,
             trayFold: BarTrayFold.inline,
             collapseAutoSeconds: 15,
-            trayHidden: const <String>[],
-            trayNever: const <String>[],
           ),
         ),
         children: <Widget>[
@@ -988,16 +988,28 @@ class _BarSettingsPanelState extends ConsumerState<BarSettingsPanel> {
             label: context.tr('Collect tray icons'),
             value: s.collapseItems,
             enabled: s.showTray,
+            note: !s.showTray
+                ? context.tr('System tray is turned off.')
+                : s.trayHidden.isNotEmpty
+                ? context.tr(
+                    'Items marked Hidden below are collected either way; this adds every other icon.',
+                  )
+                : null,
             onChanged: (v) => save((s) => s.copyWith(collapseItems: v)),
           ),
           _Row(
             label: context.tr('Collection style'),
-            enabled: s.showTray,
+            enabled: s.showTray && (s.collapseItems || s.trayHidden.isNotEmpty),
             note: !s.showTray
                 ? context.tr('System tray is turned off.')
                 : !(s.collapseItems || s.trayHidden.isNotEmpty)
                 ? context.tr(
-                    'Picking a style starts collecting icons automatically, or mark items Hidden below.',
+                    'Turn on folding or set an item below to Hidden first.',
+                  )
+                : s.trayFold == BarTrayFold.controlCenter &&
+                      !s.showControlCenter
+                ? context.tr(
+                    'Control Centre is off in the menu bar, so the icons open in a grid instead.',
                   )
                 : null,
             trailing: _Segments<BarTrayFold>(
@@ -1009,12 +1021,7 @@ class _BarSettingsPanelState extends ConsumerState<BarSettingsPanel> {
                 (BarTrayFold.popover, context.tr('Grid')),
                 (BarTrayFold.controlCenter, context.tr('Control Centre')),
               ],
-              onChanged: (v) => save(
-                (s) => s.copyWith(
-                  trayFold: v,
-                  collapseItems: s.trayHidden.isEmpty ? true : s.collapseItems,
-                ),
-              ),
+              onChanged: (v) => save((s) => s.copyWith(trayFold: v)),
             ),
           ),
           _Row(
@@ -1023,9 +1030,13 @@ class _BarSettingsPanelState extends ConsumerState<BarSettingsPanel> {
                 s.showTray &&
                 (s.collapseItems || s.trayHidden.isNotEmpty) &&
                 s.trayFold != BarTrayFold.controlCenter,
-            note: (s.showTray &&
-                    (s.collapseItems || s.trayHidden.isNotEmpty) &&
-                    s.trayFold == BarTrayFold.controlCenter)
+            note: !s.showTray
+                ? context.tr('System tray is turned off.')
+                : !(s.collapseItems || s.trayHidden.isNotEmpty)
+                ? context.tr(
+                    'Turn on folding or set an item below to Hidden first.',
+                  )
+                : s.trayFold == BarTrayFold.controlCenter
                 ? context.tr(
                     'Not used while icons sit inside Control Centre.',
                   )
@@ -1335,46 +1346,102 @@ class _Group extends StatelessWidget {
   }
 }
 
-class _LookPill extends StatelessWidget {
-  const _LookPill({
+/// One look as a small sample of itself: a panel in the look's own fill,
+/// corners, line and type, with a control in its accent.
+class _LookCard extends StatelessWidget {
+  const _LookCard({
+    required this.look,
     required this.label,
     required this.selected,
     required this.onTap,
   });
 
+  final KitStyle look;
   final String label;
   final bool selected;
   final VoidCallback onTap;
+
+  static const double width = 104;
 
   @override
   Widget build(BuildContext context) {
     final theme = context.shellTheme;
     final style = KitStyle.of(context);
-    final accent = style.accent(theme);
+    final own = look.themed(theme);
+    final ink = own.colors.textPrimary;
+    final accent = look.accent(own);
+    final corner = look.corner(9).clamp(0.0, 14.0);
     return Pressable(
       onTap: onTap,
       scale: 0.97,
-      child: AnimatedContainer(
-        duration: KitMotion.duration(context, KitMotion.fade),
-        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
-        decoration: BoxDecoration(
-          color: selected
-              ? accent
-              : theme.colors.textPrimary.withValues(alpha: 0.08),
-          borderRadius: BorderRadius.circular(style.corner(8)),
-          border: Border.all(
-            color: selected
-                ? accent
-                : theme.colors.textPrimary.withValues(alpha: 0.08),
-          ),
-        ),
-        child: Text(
-          label,
-          style: BarType.caption.copyWith(
-            fontSize: 12,
-            fontWeight: selected ? FontWeight.w600 : FontWeight.w400,
-            color: selected ? style.onAccent(theme) : theme.colors.textPrimary,
-          ),
+      child: SizedBox(
+        width: width,
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: <Widget>[
+            AnimatedContainer(
+              duration: KitMotion.duration(context, KitMotion.fade),
+              height: 52,
+              padding: const EdgeInsets.all(3),
+              decoration: BoxDecoration(
+                borderRadius: BorderRadius.circular(style.corner(11)),
+                border: Border.all(
+                  width: 2,
+                  color: selected
+                      ? style.accent(theme)
+                      : theme.colors.textPrimary.withValues(alpha: 0),
+                ),
+              ),
+              child: Container(
+                padding: const EdgeInsets.symmetric(horizontal: 8),
+                decoration: BoxDecoration(
+                  color: own.colors.panelBackground.withValues(
+                    alpha: look.opaque ? 1 : 0.72,
+                  ),
+                  borderRadius: BorderRadius.circular(corner),
+                  border: Border.all(
+                    width: look.borderWidth.clamp(0.5, 2.0),
+                    color: look.border(own),
+                  ),
+                ),
+                child: Row(
+                  children: <Widget>[
+                    Text(
+                      'Aa',
+                      style: TextStyle(
+                        fontFamily: look.fontFamily,
+                        package: look.fontPackage,
+                        fontSize: 15,
+                        fontWeight: look.weight(FontWeight.w600),
+                        color: ink,
+                      ),
+                    ),
+                    const Spacer(),
+                    Container(
+                      width: 24,
+                      height: 12,
+                      decoration: BoxDecoration(
+                        color: accent,
+                        borderRadius: BorderRadius.circular(look.pill(12)),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+            const SizedBox(height: 4),
+            Text(
+              label,
+              textAlign: TextAlign.center,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: BarType.caption.copyWith(
+                fontSize: 11.5,
+                fontWeight: selected ? FontWeight.w600 : FontWeight.w400,
+                color: theme.colors.textPrimary,
+              ),
+            ),
+          ],
         ),
       ),
     );

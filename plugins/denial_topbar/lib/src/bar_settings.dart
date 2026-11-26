@@ -442,6 +442,14 @@ class BarSettings {
   final bool collapseItems;
   final int collapseAutoSeconds;
   final BarTrayFold trayFold;
+
+  /// The collection style the bar acts on. Icons sent to Control Centre need
+  /// its button in the bar; without it they open in a grid of their own, so
+  /// no choice of settings leaves them out of reach.
+  BarTrayFold get trayFoldInForce =>
+      trayFold == BarTrayFold.controlCenter && !showControlCenter
+      ? BarTrayFold.popover
+      : trayFold;
   final bool showBluetooth;
   final bool showSearch;
 

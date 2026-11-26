@@ -273,7 +273,7 @@ mixin _BarActions<T extends ConsumerStatefulWidget> on ConsumerState<T> {
           settings: settings,
           resolveKey: (id) => trayNames.of(id).key,
         ).folded.length;
-        final capsule = settings.trayFold == BarTrayFold.floatingBar;
+        final capsule = settings.trayFoldInForce == BarTrayFold.floatingBar;
         final density = KitStyle.of(context).density.clamp(0.75, 1.35);
         final width = count == 0
             ? 196.0
@@ -287,7 +287,12 @@ mixin _BarActions<T extends ConsumerStatefulWidget> on ConsumerState<T> {
                       22.0 * density,
                 ),
               )
-            : math.min(256.0, math.max(52.0, count * 36.0 + 18.0));
+            // Six to a row: thirty-pixel cells, the gaps between them and
+            // the padding either side, all of which follow the density.
+            : math.min(count, 6) * 30.0 +
+                  (math.min(count, 6) - 1) * 6.0 * density +
+                  16.0 * density +
+                  2.0;
         _openPanel(
           'tray',
           _trayKey,

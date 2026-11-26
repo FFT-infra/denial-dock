@@ -719,7 +719,7 @@ class _ControlCenterPanelState extends ConsumerState<ControlCenterPanel>
     final trayFolded =
         settings.showTray &&
             trayVisible &&
-            settings.trayFold == BarTrayFold.controlCenter
+            settings.trayFoldInForce == BarTrayFold.controlCenter
         ? partitionTrayIds(
             trayIds,
             settings: settings,

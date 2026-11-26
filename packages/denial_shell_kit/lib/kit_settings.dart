@@ -30,6 +30,7 @@ class KitSettingsPage {
     this.keywords = const <String>[],
     this.order = 500,
     this.colour = const Color(0xff8e8e93),
+    this.readable = true,
   });
 
   /// `plugin.page`, such as `bar.layout` or `dock.visibility`.
@@ -46,6 +47,12 @@ class KitSettingsPage {
 
   /// Additional words matched by the sidebar search box.
   final List<String> keywords;
+
+  /// Whether the search box may build the page out of sight to read what
+  /// its rows say. A page that acts on the shell just by being built, such
+  /// as one that previews a draft, turns this off and is found by its
+  /// [keywords] alone.
+  final bool readable;
   final IconData icon;
 
   /// The plate under the icon in the sidebar.
@@ -129,6 +136,42 @@ class _KitSettingsWindowState extends State<_KitSettingsWindow> {
   final TextEditingController _search = TextEditingController();
   String _query = '';
 
+  /// What every page says on its rows, read once the search box is first
+  /// typed in, so a search finds an option by its own label and not only
+  /// the page that holds it.
+  final Map<String, List<String>> _said = <String, List<String>>{};
+  bool _reading = false;
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    // Another language or another look says other things.
+    _said.clear();
+    _reading = _query.trim().isNotEmpty;
+  }
+
+  void _read(String id, List<String> lines) {
+    _said[id] = lines;
+    if (!mounted) return;
+    final pages = kitSettingsPages.pages;
+    if (pages.every((page) => !page.readable || _said.containsKey(page.id))) {
+      setState(() => _reading = false);
+    }
+  }
+
+  /// The row of [entry] a search for [_query] found, when it was found by a
+  /// row and not by the page's own name.
+  String? _found(BuildContext context, KitSettingsPage entry) {
+    final terms = _query.trim().toLowerCase().split(RegExp(r'\s+'));
+    if (terms.first.isEmpty) return null;
+    if (terms.every(entry.title(context).toLowerCase().contains)) return null;
+    for (final line in _said[entry.id] ?? const <String>[]) {
+      final lower = line.toLowerCase();
+      if (terms.any(lower.contains)) return line;
+    }
+    return null;
+  }
+
   @override
   void initState() {
     super.initState();
@@ -151,7 +194,11 @@ class _KitSettingsWindowState extends State<_KitSettingsWindow> {
 
   void _searched() {
     final next = _search.text;
-    if (next != _query && mounted) setState(() => _query = next);
+    if (next == _query || !mounted) return;
+    setState(() {
+      _query = next;
+      if (next.trim().isNotEmpty && _said.isEmpty) _reading = true;
+    });
   }
 
   void _turn() {
@@ -159,7 +206,11 @@ class _KitSettingsWindowState extends State<_KitSettingsWindow> {
   }
 
   void _changed() {
-    if (mounted) setState(() {});
+    if (!mounted) return;
+    setState(() {
+      _said.clear();
+      _reading = _query.trim().isNotEmpty;
+    });
   }
 
   static TextStyle _type(double size, FontWeight weight, Color colour) {
@@ -185,8 +236,6 @@ class _KitSettingsWindowState extends State<_KitSettingsWindow> {
 
   @override
   Widget build(BuildContext context) {
-    final theme = context.shellTheme;
-    final colors = theme.colors;
     final allPages = kitSettingsPages.pages;
     final chinese = Localizations.maybeLocaleOf(context)?.languageCode == 'zh';
     final height = math.min(680.0, widget.maxHeight);
@@ -198,7 +247,10 @@ class _KitSettingsWindowState extends State<_KitSettingsWindow> {
       _query,
       titleOf: (entry) => entry.title(context),
       groupOf: (entry) => _groupOf(context, entry, chinese),
-      keywordsOf: (entry) => entry.keywords,
+      keywordsOf: (entry) => <String>[
+        ...entry.keywords,
+        ...?_said[entry.id],
+      ],
     );
     final activeList = filtered.isNotEmpty ? filtered : allPages;
     final index = kitPageIndex(<String>[
@@ -210,7 +262,55 @@ class _KitSettingsWindowState extends State<_KitSettingsWindow> {
     return SizedBox(
       width: _settingsWidth,
       height: height,
-      child: Row(
+      child: Stack(
+        fit: StackFit.expand,
+        children: <Widget>[
+          if (_reading)
+            Offstage(
+              child: ExcludeFocus(
+                child: TickerMode(
+                  enabled: false,
+                  child: OverflowBox(
+                    alignment: Alignment.topLeft,
+                    minWidth: _settingsWidth - _sidebarWidth - 1,
+                    maxWidth: _settingsWidth - _sidebarWidth - 1,
+                    // Tall enough that a page which builds its rows lazily
+                    // builds them all.
+                    minHeight: 6000,
+                    maxHeight: 6000,
+                    child: Stack(
+                      fit: StackFit.expand,
+                      children: <Widget>[
+                        for (final entry in allPages)
+                          if (entry.readable && !_said.containsKey(entry.id))
+                            _PageReader(
+                              key: ValueKey<String>('read.${entry.id}'),
+                              onRead: (lines) => _read(entry.id, lines),
+                              child: entry.builder(context),
+                            ),
+                      ],
+                    ),
+                  ),
+                ),
+              ),
+            ),
+          _window(context, filtered, index, page, subtitle, chinese),
+        ],
+      ),
+    );
+  }
+
+  Widget _window(
+    BuildContext context,
+    List<KitSettingsPage> filtered,
+    int index,
+    KitSettingsPage page,
+    String? subtitle,
+    bool chinese,
+  ) {
+    final theme = context.shellTheme;
+    final colors = theme.colors;
+    return Row(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: <Widget>[
           Container(
@@ -287,6 +387,18 @@ class _KitSettingsWindowState extends State<_KitSettingsWindow> {
                                   icon: entry.icon,
                                   colour: entry.colour,
                                   selected: at == index,
+                                  found: _found(context, entry),
+                                  foundStyle: _type(
+                                    11,
+                                    FontWeight.w400,
+                                    at == index
+                                        ? KitStyle.of(
+                                            context,
+                                          ).onAccent(theme).withValues(
+                                            alpha: 0.8,
+                                          )
+                                        : colors.textTertiary,
+                                  ),
                                   style: _type(
                                     13,
                                     at == index
@@ -376,7 +488,6 @@ class _KitSettingsWindowState extends State<_KitSettingsWindow> {
             ),
           ),
         ],
-      ),
     );
   }
 
@@ -384,6 +495,42 @@ class _KitSettingsWindowState extends State<_KitSettingsWindow> {
     final dot = id.indexOf('.');
     return dot < 0 ? id : id.substring(0, dot);
   }
+}
+
+/// Builds a page out of sight and reports the text it shows.
+class _PageReader extends StatefulWidget {
+  const _PageReader({required this.onRead, required this.child, super.key});
+
+  final ValueChanged<List<String>> onRead;
+  final Widget child;
+
+  @override
+  State<_PageReader> createState() => _PageReaderState();
+}
+
+class _PageReaderState extends State<_PageReader> {
+  @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      final lines = <String>{};
+      void visit(Element element) {
+        final widget = element.widget;
+        if (widget is RichText) {
+          final line = widget.text.toPlainText().trim();
+          if (line.length > 1) lines.add(line);
+        }
+        element.visitChildren(visit);
+      }
+
+      context.visitChildElements(visit);
+      widget.onRead(lines.toList());
+    });
+  }
+
+  @override
+  Widget build(BuildContext context) => widget.child;
 }
 
 class _SearchBar extends StatelessWidget {
@@ -459,8 +606,13 @@ class _SidebarItem extends StatelessWidget {
     required this.selected,
     required this.style,
     required this.onTap,
+    this.found,
+    this.foundStyle,
   });
 
+  /// The row a search found on this page, shown under its name.
+  final String? found;
+  final TextStyle? foundStyle;
   final String label;
   final IconData icon;
   final Color colour;
@@ -482,7 +634,7 @@ class _SidebarItem extends StatelessWidget {
         shape: shape,
         child: AnimatedContainer(
           duration: KitMotion.duration(context, KitMotion.fade),
-          height: 34,
+          height: found == null ? 34 : 46,
           padding: const EdgeInsets.symmetric(horizontal: 8),
           decoration: BoxDecoration(
             color: look.accent(theme).withValues(alpha: selected ? 1 : 0),
@@ -505,11 +657,24 @@ class _SidebarItem extends StatelessWidget {
               ),
               const SizedBox(width: 9),
               Expanded(
-                child: Text(
-                  label,
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                  style: style,
+                child: Column(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: <Widget>[
+                    Text(
+                      label,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: style,
+                    ),
+                    if (found != null)
+                      Text(
+                        found!,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: foundStyle,
+                      ),
+                  ],
                 ),
               ),
             ],

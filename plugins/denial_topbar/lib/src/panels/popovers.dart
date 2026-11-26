@@ -16,6 +16,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../bar_icons.dart';
 import '../bar_panel.dart';
+import '../bar_preferences.dart';
 import '../bar_settings.dart';
 import '../bar_status.dart';
 import '../bar_type.dart';
@@ -946,7 +947,9 @@ class _TrayPopoverState extends ConsumerState<TrayPopover> {
 
   void _arm() {
     _autoClose?.cancel();
-    final seconds = widget.settings.collapseAutoSeconds;
+    final seconds =
+        (ref.read(barSettingsProvider).value ?? widget.settings)
+            .collapseAutoSeconds;
     if (seconds <= 0 || _hovered) return;
     _autoClose = Timer(Duration(seconds: seconds), () {
       if (mounted && !_hovered) widget.onClose();
@@ -960,13 +963,16 @@ class _TrayPopoverState extends ConsumerState<TrayPopover> {
     final density = style.density.clamp(0.75, 1.35);
     final trayIds = ref.watch(widget.services.trayItemIds);
     trayNames.resolve(trayIds);
+    // The panel outlives the settings it was opened with.
+    final settings =
+        ref.watch(barSettingsProvider).value ?? widget.settings;
     final folded = partitionTrayIds(
       trayIds,
-      settings: widget.settings,
+      settings: settings,
       resolveKey: (id) => trayNames.of(id).key,
     ).folded;
     final ink = theme.colors.textPrimary;
-    final capsule = widget.settings.trayFold == BarTrayFold.floatingBar;
+    final capsule = settings.trayFoldInForce == BarTrayFold.floatingBar;
     return MouseRegion(
       onEnter: (_) {
         _hovered = true;
@@ -1002,7 +1008,7 @@ class _TrayPopoverState extends ConsumerState<TrayPopover> {
                               child: buildTrayIcons(
                                 context,
                                 services: widget.services,
-                                settings: widget.settings,
+                                settings: settings,
                                 ink: ink,
                                 itemIds: <String>[folded[i]],
                                 maxExtent: 22,
@@ -1035,7 +1041,7 @@ class _TrayPopoverState extends ConsumerState<TrayPopover> {
                           child: buildTrayIcons(
                             context,
                             services: widget.services,
-                            settings: widget.settings,
+                            settings: settings,
                             ink: ink,
                             itemIds: <String>[id],
                             maxExtent: 24,
