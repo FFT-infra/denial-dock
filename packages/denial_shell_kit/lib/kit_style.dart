@@ -191,9 +191,32 @@ class KitStyle {
         : ShellColorScheme.light;
     final tones = this.tones(theme);
     final own = tones == null ? null : _own(theme);
+    // Under the shell's glass every panel takes the glass's own backing and
+    // ignores the colour it is asked for, so a palette would colour the text
+    // and leave the surface white or black behind it. A look with a palette
+    // therefore draws its panels itself: solid where it is opaque, blurred
+    // and tinted where it is not. A look that only insists on an appearance
+    // keeps the glass and turns it the same way.
+    final glass = theme.transparencyMode == ShellTransparencyMode.glass;
     final next = theme.copyWith(
       colors: tones == null ? base : _scheme(tones, base),
       accent: own,
+      transparencyMode: !glass || tones == null
+          ? null
+          : look.opaque
+          ? ShellTransparencyMode.off
+          : ShellTransparencyMode.blur,
+      panelOpacity: !glass || tones == null
+          ? null
+          : look.opaque
+          ? 1
+          : theme.glass.opacity.clamp(0.72, 1.0).toDouble(),
+      cardOpacity: glass && tones != null && look.opaque ? 1 : null,
+      glass: theme.glass.copyWith(
+        appearance: dark
+            ? ShellGlassAppearance.dark
+            : ShellGlassAppearance.light,
+      ),
     );
     _themedFrom = theme;
     _themedLook = look;
