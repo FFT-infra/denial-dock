@@ -476,7 +476,12 @@ const Map<String, String> zh = <String, String>{
   'Collection style': '收纳方式',
   'Arrow': '箭头',
   'Hover': '悬停',
+  'Floating bar': '悬浮条',
+  'Grid': '网格',
   'Popover': '悬浮面板',
+  'Collect tray icons': '收纳托盘图标',
+  'Picking a style starts collecting icons automatically, or mark items Hidden below.':
+      '选定非默认方式时会自动开始收纳，也可以在下方将单个图标设为“隐藏”。',
   'Not used while icons sit inside Control Centre.':
       '收入控制中心时无需定时自动收起。',
   'No folded tray icons.': '暂无已收纳的托盘图标。',

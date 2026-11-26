@@ -966,6 +966,7 @@ class _TrayPopoverState extends ConsumerState<TrayPopover> {
       resolveKey: (id) => trayNames.of(id).key,
     ).folded;
     final ink = theme.colors.textPrimary;
+    final capsule = widget.settings.trayFold == BarTrayFold.floatingBar;
     return MouseRegion(
       onEnter: (_) {
         _hovered = true;
@@ -979,11 +980,40 @@ class _TrayPopoverState extends ConsumerState<TrayPopover> {
         onPointerDown: (_) => _arm(),
         child: Padding(
           padding: EdgeInsets.symmetric(
-            horizontal: 8 * density,
-            vertical: 6 * density,
+            horizontal: (capsule ? 10 : 8) * density,
+            vertical: (capsule ? 5 : 6) * density,
           ),
           child: folded.isEmpty
               ? _Note(context.tr('No folded tray icons.'))
+              : capsule
+              ? SingleChildScrollView(
+                  scrollDirection: Axis.horizontal,
+                  child: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: <Widget>[
+                      for (var i = 0; i < folded.length; i++) ...<Widget>[
+                        if (i > 0) SizedBox(width: 4 * density),
+                        Tooltip(
+                          message: trayNames.of(folded[i]).title,
+                          child: SizedBox(
+                            width: 28,
+                            height: 28,
+                            child: Center(
+                              child: buildTrayIcons(
+                                context,
+                                services: widget.services,
+                                settings: widget.settings,
+                                ink: ink,
+                                itemIds: <String>[folded[i]],
+                                maxExtent: 22,
+                              ),
+                            ),
+                          ),
+                        ),
+                      ],
+                    ],
+                  ),
+                )
               : Wrap(
                   spacing: 6 * density,
                   runSpacing: 6 * density,

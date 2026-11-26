@@ -36,6 +36,7 @@ void showBarPanel({
   bool glass = true,
   BarPanelAnchor placement = BarPanelAnchor.dropdown,
   Color? fill,
+  double? radius,
   double barHeight = BarTokens.height,
 }) {
   final menu = placement == BarPanelAnchor.dropdown;
@@ -51,7 +52,7 @@ void showBarPanel({
     edge: side.kitEdge,
     hostExtent: barHeight,
     gap: menu ? BarTokens.menuDropOffsetY : BarTokens.popoverGap,
-    radius: menu ? BarTokens.menuRadius : BarTokens.popoverRadius,
+    radius: radius ?? (menu ? BarTokens.menuRadius : BarTokens.popoverRadius),
     width: width,
     kind: menu ? KitPanelKind.menu : KitPanelKind.popover,
     align: switch (placement) {

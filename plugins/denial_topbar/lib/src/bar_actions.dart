@@ -39,6 +39,7 @@ mixin _BarActions<T extends ConsumerStatefulWidget> on ConsumerState<T> {
     bool glass = true,
     BarPanelAnchor placement = BarPanelAnchor.dropdown,
     Color? fill,
+    double? radius,
   }) {
     showBarPanel(
       ref: ref,
@@ -49,6 +50,7 @@ mixin _BarActions<T extends ConsumerStatefulWidget> on ConsumerState<T> {
       glass: glass,
       placement: placement,
       fill: fill,
+      radius: radius,
       barHeight: _bodyHeight,
       builder: builder,
     );
@@ -271,8 +273,20 @@ mixin _BarActions<T extends ConsumerStatefulWidget> on ConsumerState<T> {
           settings: settings,
           resolveKey: (id) => trayNames.of(id).key,
         ).folded.length;
+        final capsule = settings.trayFold == BarTrayFold.floatingBar;
+        final density = KitStyle.of(context).density.clamp(0.75, 1.35);
         final width = count == 0
             ? 196.0
+            : capsule
+            ? math.min(
+                640.0,
+                math.max(
+                  52.0,
+                  count * 28.0 +
+                      math.max(0, count - 1) * 4.0 * density +
+                      22.0 * density,
+                ),
+              )
             : math.min(256.0, math.max(52.0, count * 36.0 + 18.0));
         _openPanel(
           'tray',
@@ -283,6 +297,7 @@ mixin _BarActions<T extends ConsumerStatefulWidget> on ConsumerState<T> {
             onClose: close,
           ),
           width: width,
+          radius: capsule ? 22 : null,
           placement: BarPanelAnchor.centred,
         );
       },

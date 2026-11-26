@@ -21,6 +21,7 @@ Future<void> main() async {
 
     _expect(
       BarTrayFold.parse('popover') == BarTrayFold.popover &&
+          BarTrayFold.parse('floatingBar') == BarTrayFold.floatingBar &&
           BarTrayFold.parse('controlCenter') == BarTrayFold.controlCenter &&
           BarTrayFold.parse('hover') == BarTrayFold.hover &&
           BarTrayFold.parse('nonsense') == BarTrayFold.inline,

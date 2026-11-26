@@ -282,6 +282,13 @@ class _TopBarSurfaceState extends ConsumerState<TopBarSurface>
         _openBarSettings(page: number);
       case 'tray':
         status.onTray?.call();
+      case 'trayfold':
+        final fold = words.length > 1
+            ? BarTrayFold.parse(words[1])
+            : BarTrayFold.floatingBar;
+        ref
+            .read(barSettingsProvider.notifier)
+            .save((s) => s.copyWith(collapseItems: true, trayFold: fold));
     }
   }
 

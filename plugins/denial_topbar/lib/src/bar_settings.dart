@@ -198,6 +198,9 @@ enum BarTrayFold {
   /// Opens folded icons inside a compact grid popover under a tray button.
   popover,
 
+  /// Opens folded icons in one horizontal floating capsule row (Ice-bar style).
+  floatingBar,
+
   /// Moves folded icons out of the bar and into Control Centre.
   controlCenter;
 
@@ -209,6 +212,7 @@ enum BarTrayFold {
   }) => switch (value) {
     'hover' => BarTrayFold.hover,
     'popover' => BarTrayFold.popover,
+    'floatingBar' => BarTrayFold.floatingBar,
     'controlCenter' => BarTrayFold.controlCenter,
     'inline' => BarTrayFold.inline,
     _ => fallback,

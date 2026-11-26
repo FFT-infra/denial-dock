@@ -985,19 +985,19 @@ class _BarSettingsPanelState extends ConsumerState<BarSettingsPanel> {
             onChanged: (v) => save((s) => s.copyWith(trayColour: v)),
           ),
           _Switch(
-            label: context.tr('Fold icons behind an arrow'),
+            label: context.tr('Collect tray icons'),
             value: s.collapseItems,
             enabled: s.showTray,
             onChanged: (v) => save((s) => s.copyWith(collapseItems: v)),
           ),
           _Row(
             label: context.tr('Collection style'),
-            enabled: s.showTray && (s.collapseItems || s.trayHidden.isNotEmpty),
+            enabled: s.showTray,
             note: !s.showTray
                 ? context.tr('System tray is turned off.')
                 : !(s.collapseItems || s.trayHidden.isNotEmpty)
                 ? context.tr(
-                    'Turn on folding or set an item below to Hidden first.',
+                    'Picking a style starts collecting icons automatically, or mark items Hidden below.',
                   )
                 : null,
             trailing: _Segments<BarTrayFold>(
@@ -1005,10 +1005,16 @@ class _BarSettingsPanelState extends ConsumerState<BarSettingsPanel> {
               options: <(BarTrayFold, String)>[
                 (BarTrayFold.inline, context.tr('Arrow')),
                 (BarTrayFold.hover, context.tr('Hover')),
-                (BarTrayFold.popover, context.tr('Popover')),
+                (BarTrayFold.floatingBar, context.tr('Floating bar')),
+                (BarTrayFold.popover, context.tr('Grid')),
                 (BarTrayFold.controlCenter, context.tr('Control Centre')),
               ],
-              onChanged: (v) => save((s) => s.copyWith(trayFold: v)),
+              onChanged: (v) => save(
+                (s) => s.copyWith(
+                  trayFold: v,
+                  collapseItems: s.trayHidden.isEmpty ? true : s.collapseItems,
+                ),
+              ),
             ),
           ),
           _Row(

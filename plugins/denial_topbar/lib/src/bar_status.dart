@@ -226,7 +226,10 @@ class BarStatusCluster extends ConsumerWidget {
         hasFolded &&
         (settings.trayFold == BarTrayFold.inline ||
             settings.trayFold == BarTrayFold.hover);
-    final popoverFold = hasFolded && settings.trayFold == BarTrayFold.popover;
+    final popoverFold =
+        hasFolded &&
+        (settings.trayFold == BarTrayFold.popover ||
+            settings.trayFold == BarTrayFold.floatingBar);
     final showTrayCell =
         settings.showTray &&
         trayVisible &&
