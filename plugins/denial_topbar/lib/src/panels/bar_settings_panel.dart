@@ -25,6 +25,7 @@ import '../bar_type.dart';
 import '../island/island_options.dart';
 import '../tray_names.dart';
 import '../l10n.dart';
+import 'look_page.dart';
 import 'mac_kit.dart';
 import 'part_drop.dart';
 
@@ -66,6 +67,7 @@ void registerBarSettingsPages(ShellServices services) {
       ),
   ];
   kitSettingsPages.register(pages);
+  registerLookPage();
 }
 
 typedef _Save = void Function(BarSettings Function(BarSettings) change);

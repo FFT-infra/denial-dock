@@ -1,11 +1,17 @@
 import 'package:denial_shell_kit/kit_dock_link.dart';
 import 'package:denial_shell_kit/kit_host.dart';
+import 'package:denial_shell_kit/kit_presets.dart';
 import 'package:denial_shell_kit/kit_store.dart';
 import 'package:denial_shell_kit/kit_style.dart';
 import 'package:denial_shell_kit/shell_preset.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import 'bar_settings.dart';
+
+// The layout page is a part of the settings panel, which imports this file;
+// the preset tools reach it from here.
+export 'package:denial_shell_kit/kit_presets.dart' show kitPresets;
+export 'panels/preset_tools.dart' show PresetTools;
 
 /// Persisted bar preferences. Reads once, writes are serialized so two quick
 /// toggles cannot interleave their temp files.
@@ -56,7 +62,7 @@ void applyShellPreset(WidgetRef ref, ShellPreset preset, {bool fresh = false}) {
   final leaving = ShellPreset.byId(kitPreset.value);
   if (settings != null && leaving.id != preset.id) {
     memory[leaving.id] = leaving.remember(
-      look: kitStyle.value.id,
+      look: kitStyle.chosen,
       barMode: kitBarMode.value.key,
       bar: settings.layoutJson(),
       dock: kitDock.layout,
@@ -82,8 +88,50 @@ void forgetShellPresets() => kitStore.put('presets', <String, Object?>{});
 /// counts while one runs.
 bool shellPresetModified(ShellPreset preset, BarSettings settings) =>
     !preset.matches(
-      look: kitStyle.value.id,
+      look: kitStyle.chosen,
       bar: settings.layoutJson(),
       dock: kitDock.layout,
       barMode: kitBarMode.value.key,
     );
+
+/// The shell as it stands as a preset of the user's: the look in force, how
+/// much of itself the bar draws, the bar's layout and the dock's. With no
+/// dock running the dock's part is the one of the preset in force.
+ShellPreset snapshotShellPreset(
+  BarSettings settings, {
+  required String id,
+  required String label,
+}) => ShellPreset.fromJson(<String, Object?>{
+  'label': label,
+  'look': kitStyle.chosen,
+  'barMode': kitBarMode.value.key,
+  'bar': settings.layoutJson(),
+  'dock': kitDock.layout ?? ShellPreset.byId(kitPreset.value).dock,
+}, id: id)!;
+
+/// Saves the shell as it stands as a new preset called [label] and makes it
+/// the preset in force.
+ShellPreset saveShellPresetAs(BarSettings settings, String label) {
+  final preset = snapshotShellPreset(
+    settings,
+    id: kitPresets.freshId(),
+    label: label,
+  );
+  kitPresets.save(preset);
+  kitPreset.value = preset.id;
+  return preset;
+}
+
+/// Reads a preset from [text] and keeps it; see [KitPresetsNotifier.import].
+/// The bar's part is passed through the bar's own settings first, so every
+/// value is one the bar can draw and the preset matches the shell once it
+/// is applied.
+ShellPreset importShellPreset(String text) {
+  final read = kitPresets.import(text);
+  final sound = ShellPreset.fromJson(<String, Object?>{
+    ...read.toJson(),
+    'bar': BarSettings.defaults.withLayout(read.bar).layoutJson(),
+  }, id: read.id)!;
+  kitPresets.save(sound);
+  return sound;
+}

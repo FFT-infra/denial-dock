@@ -28,7 +28,7 @@ abstract final class BarType {
         : kitStyle.value.fontPackage,
     fontFamilyFallback: _fallback,
     fontSize: size * kitStyle.value.fontScale,
-    fontWeight: weight,
+    fontWeight: kitStyle.value.weight(weight),
     height: 1.2,
     letterSpacing: spacing,
     leadingDistribution: TextLeadingDistribution.even,
@@ -44,7 +44,7 @@ abstract final class BarType {
         : kitStyle.value.fontPackage,
     fontFamilyFallback: _fallback,
     fontSize: size * kitStyle.value.fontScale,
-    fontWeight: weight,
+    fontWeight: kitStyle.value.weight(weight),
   );
 
   /// A menu bar title: shell27 `font.pixelSize: 14`.

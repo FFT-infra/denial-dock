@@ -716,9 +716,15 @@ class DockSettings {
   /// of [shape], or of the shape these settings give when none is named.
   /// What the user set lies over the look's own values, see
   /// [DockMetrics.resolve].
-  DockMetrics metricsFor(String? styleId, {DockShape? shape}) =>
+  DockMetrics metricsFor(
+    String? styleId, {
+    DockShape? shape,
+    DockMetrics? preset,
+  }) =>
       DockMetrics.resolve(
-        DockMetrics.preset(styleId).shaped(shape ?? lookFor(styleId).shape),
+        (preset ?? DockMetrics.preset(styleId)).shaped(
+          shape ?? lookFor(styleId).shape,
+        ),
         <String, Object?>{
           ...look,
           if (chosen.contains(DockMetrics.iconSizeKey))

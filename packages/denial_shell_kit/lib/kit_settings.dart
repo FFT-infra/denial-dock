@@ -137,7 +137,7 @@ class _KitSettingsWindowState extends State<_KitSettingsWindow> {
       fontFamily: style.fontFamily,
       package: style.fontFamily == null ? null : style.fontPackage,
       fontSize: size * style.fontScale,
-      fontWeight: weight,
+      fontWeight: style.weight(weight),
       height: 1.2,
       color: colour,
       decoration: TextDecoration.none,

@@ -294,7 +294,7 @@ class _DockContainerState extends ConsumerState<DockContainer>
   void _reportToShell(DockSettings settings) {
     if (!mounted || !widget.environment.isMainOutput) return;
     _speaker = this;
-    kitDock.publish(settings.layoutJson(kitStyle.value.id));
+    kitDock.publish(settings.layoutJson(kitStyle.value.look.dockKin));
     kitHosts.report(
       KitHosts.dock,
       KitHostState(
@@ -1672,7 +1672,7 @@ class _DockContainerState extends ConsumerState<DockContainer>
                         ),
                       ),
                       child: DockIcon(
-                        mode: settings.iconMode,
+                        mode: dockIconModeNow(settings),
                         opacity: settings.iconOpacity,
                         accent: dockTintColor(
                           settings.tintColor,
@@ -2619,7 +2619,7 @@ class _DockContainerState extends ConsumerState<DockContainer>
               showDesktopActions: settings.showDesktopActions,
               previewMiddleClose: settings.previewMiddleClose,
               activation: _activation,
-              iconMode: settings.iconMode,
+              iconMode: dockIconModeNow(settings),
               iconOpacity: settings.iconOpacity,
               tintColor: tintColor,
               onTogglePin: () => _togglePin(entry),

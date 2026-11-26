@@ -58,10 +58,12 @@ final class DockPlugin implements ShellSurface {
       key: ValueKey(surface.environment.output.monitorId),
       valueListenable: kitDockEnabled,
       builder: (context, shown, _) => shown
-          ? DockContainer(
-              monitorId: surface.environment.output.monitorId,
-              services: surface.services,
-              environment: surface.environment,
+          ? KitThemed(
+              child: DockContainer(
+                monitorId: surface.environment.output.monitorId,
+                services: surface.services,
+                environment: surface.environment,
+              ),
             )
           : const SizedBox.shrink(),
     );
