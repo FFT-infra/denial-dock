@@ -139,8 +139,8 @@ class DockTile extends StatelessWidget {
     final radius = theme.borderRadius(size * 0.24);
     final picture = fill;
     return AnimatedContainer(
-      duration: KitMotion.duration(context, const Duration(milliseconds: 90)),
-      curve: Curves.easeOut,
+      duration: KitMotion.duration(context, KitMotion.tap),
+      curve: KitMotion.out,
       decoration: BoxDecoration(
         borderRadius: radius,
         color: picture == null

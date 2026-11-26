@@ -2,7 +2,6 @@ import 'package:flutter/widgets.dart';
 
 import 'kit_control_math.dart';
 import 'kit_motion.dart';
-import 'kit_style.dart';
 
 /// Lets the [KitEntranceItem]s below arrive one after another when the
 /// surface first appears: each rises a few pixels into place and fades in,
@@ -21,7 +20,7 @@ class _KitEntranceState extends State<KitEntrance>
     with SingleTickerProviderStateMixin {
   late final AnimationController _arrive = AnimationController(
     vsync: this,
-    duration: KitMotion.now.duration(KitMotion.fillSlow),
+    duration: KitMotion.timedNow.duration(KitMotion.fillSlow),
   );
 
   @override
@@ -80,9 +79,7 @@ class KitEntranceItem extends StatelessWidget {
     final delay = staggerDelay(row, col);
     // Denial lets a block pass its place by a hair; the other look lands
     // without any overshoot.
-    final curve = KitStyle.of(context).liquid
-        ? KitMotion.spring
-        : KitMotion.outCubic;
+    final curve = KitMotion.settleCurve(context);
     return AnimatedBuilder(
       animation: scope.arrive,
       builder: (context, child) {

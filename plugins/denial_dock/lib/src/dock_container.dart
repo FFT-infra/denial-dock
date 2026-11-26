@@ -506,7 +506,7 @@ class _DockContainerState extends ConsumerState<DockContainer>
     if (_settling) {
       _settleT = _motion.glide(_settleT, dt, DockSettings.dragSettleSeconds);
       final t = _settleT.clamp(0.0, 1.0);
-      final eased = Curves.easeOutCubic.transform(t);
+      final eased = KitMotion.outCubic.transform(t);
       dragDx = _settleFrom.dx + (_settleTo.dx - _settleFrom.dx) * eased;
       dragDy = _settleFrom.dy + (_settleTo.dy - _settleFrom.dy) * eased;
       settleFinished = t >= 1;
@@ -1662,10 +1662,8 @@ class _DockContainerState extends ConsumerState<DockContainer>
                     // and turns translucent while held, as in the reference.
                     child: TweenAnimationBuilder<double>(
                       tween: Tween(begin: 0.0, end: 1.0),
-                      duration: _motion.duration(
-                        const Duration(milliseconds: 120),
-                      ),
-                      curve: Curves.easeOutCubic,
+                      duration: KitMotion.duration(context, KitMotion.fade),
+                      curve: KitMotion.outCubic,
                       builder: (context, t, child) => Transform.scale(
                         scale: 1 + 0.10 * t,
                         child: Opacity(
@@ -2286,14 +2284,12 @@ class _DockContainerState extends ConsumerState<DockContainer>
     final lift = (slot.scale - 1.0) * _iconSize * DockSettings.liftRatio;
     // Neighbours ease into their new slot while an icon is being dragged,
     // matching the reorder animation in the reference docks.
-    final shuffle = _motion.duration(
-      dragging ? KitMotion.enter : Duration.zero,
-    );
+    final shuffle = dragging
+        ? KitMotion.duration(context, KitMotion.enter)
+        : Duration.zero;
     // A liquid look lets a neighbour run a hair past its new slot and come
     // back; the other eases straight into it.
-    final shuffleCurve = KitStyle.of(context).liquid
-        ? KitMotion.spring
-        : KitMotion.outCubic;
+    final shuffleCurve = KitMotion.settleCurve(context);
     Widget slotAt({
       required double cross,
       required double mainExtent,

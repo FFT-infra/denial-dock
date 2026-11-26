@@ -1323,9 +1323,9 @@ class _DockItemWidgetState extends State<DockItemWidget>
                             child: AnimatedOpacity(
                               duration: KitMotion.duration(
                                 context,
-                                const Duration(milliseconds: 180),
+                                KitMotion.turn,
                               ),
-                              curve: Curves.easeOut,
+                              curve: KitMotion.out,
                               opacity:
                                   (inactivePin ? _inactivePinOpacity : 1.0) *
                                   _launchPulse,
@@ -1408,9 +1408,9 @@ class _DockItemWidgetState extends State<DockItemWidget>
                               child: AnimatedOpacity(
                                 duration: KitMotion.duration(
                                   context,
-                                  const Duration(milliseconds: 90),
+                                  KitMotion.tap,
                                 ),
-                                curve: Curves.easeOut,
+                                curve: KitMotion.out,
                                 opacity: _pressed ? 1 : 0,
                                 child: DecoratedBox(
                                   decoration: BoxDecoration(
@@ -1800,9 +1800,9 @@ class _DockItemWidgetState extends State<DockItemWidget>
             tween: Tween<double>(begin: 0, end: 1),
             duration: KitMotion.duration(
               context,
-              const Duration(milliseconds: 240),
+              KitMotion.enterLarge,
             ),
-            curve: Curves.easeOutCubic,
+            curve: KitMotion.outCubic,
             builder: (context, t, child) => Opacity(
               opacity: t,
               child: Transform.scale(
@@ -1997,9 +1997,9 @@ class _DockItemWidgetState extends State<DockItemWidget>
             tween: Tween<double>(begin: 0, end: 1),
             duration: KitMotion.duration(
               context,
-              const Duration(milliseconds: 240),
+              KitMotion.enterLarge,
             ),
-            curve: Curves.easeOutCubic,
+            curve: KitMotion.outCubic,
             builder: (context, t, child) => Opacity(
               opacity: t,
               child: Transform.scale(
@@ -2166,8 +2166,8 @@ class _PreviewFrame extends StatelessWidget {
   Widget build(BuildContext context) {
     return TweenAnimationBuilder<double>(
       tween: Tween<double>(begin: 0, end: hovered ? 1 : 0),
-      duration: KitMotion.duration(context, const Duration(milliseconds: 120)),
-      curve: Curves.easeOutCubic,
+      duration: KitMotion.duration(context, KitMotion.fade),
+      curve: KitMotion.outCubic,
       builder: (context, t, child) => Transform.scale(
         scale: 1 + 0.02 * t,
         child: Stack(
@@ -2242,7 +2242,8 @@ class _Dot extends StatelessWidget {
   Widget build(BuildContext context) => TweenAnimationBuilder<double>(
     tween: Tween<double>(begin: 0, end: 1),
     duration: KitMotion.duration(context, KitMotion.fill),
-    curve: KitMotion.outBack,
+    // Only a liquid look lets the marker pop past its size.
+    curve: KitMotion.growCurve(context),
     builder: (context, grown, child) => Transform.scale(
       scale: grown,
       child: Opacity(opacity: grown.clamp(0.0, 1.0), child: child),
@@ -2255,9 +2256,7 @@ class _Dot extends StatelessWidget {
       // the front stretches into place; a liquid look lets it overshoot.
       builder: (context, shade, _) => AnimatedContainer(
         duration: KitMotion.duration(context, KitMotion.swap),
-        curve: KitStyle.of(context).liquid
-            ? KitMotion.outBack
-            : KitMotion.outCubic,
+        curve: KitMotion.growCurve(context),
         width: width,
         height: height,
         decoration: BoxDecoration(

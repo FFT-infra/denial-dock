@@ -30,6 +30,27 @@ class KitMotionPace {
     return nearest;
   }
 
+  /// The fastest a timed transition may run once a look's own pace has
+  /// multiplied the user's speed. Past this a short fade is under a frame
+  /// long and reads as a cut, which is what reduced motion is for.
+  static const double maxTimedSpeed = 4;
+
+  /// The speed of a transition that plays once: the user's [speed] times
+  /// the [look]'s pace, held between [minSpeed] and [maxTimedSpeed]. A
+  /// malformed pace counts as 1.
+  static double timedSpeed(double speed, double look) {
+    final pace = look.isFinite && look > 0 ? look : 1.0;
+    return (speed * pace).clamp(minSpeed, maxTimedSpeed).toDouble();
+  }
+
+  /// The pace of a transition that plays once under a look whose pace is
+  /// [look].
+  factory KitMotionPace.timed({
+    required double speed,
+    required double look,
+    required bool reduced,
+  }) => KitMotionPace(speed: timedSpeed(speed, look), reduced: reduced);
+
   /// 2 runs everything twice as fast, 0.5 twice as slow.
   final double speed;
 

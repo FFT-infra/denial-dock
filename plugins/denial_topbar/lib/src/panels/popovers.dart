@@ -572,7 +572,7 @@ class _SpinnerState extends State<_Spinner>
     with SingleTickerProviderStateMixin {
   late final AnimationController _turn = AnimationController(
     vsync: this,
-    duration: KitMotion.now.scaled(const Duration(milliseconds: 900)),
+    duration: KitMotion.now.scaled(KitMotion.spin),
   )..repeat();
 
   @override

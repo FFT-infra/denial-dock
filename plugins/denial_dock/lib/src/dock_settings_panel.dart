@@ -18,12 +18,13 @@ import 'dock_stack_view.dart' show stackFileColor, stackFileIcon;
 import 'package:denial_shell_kit/glass_card.dart';
 import 'package:denial_shell_kit/kit_motion.dart';
 import 'package:denial_shell_kit/kit_settings.dart';
+import 'package:denial_shell_kit/kit_springs.dart';
 import 'package:denial_shell_kit/kit_style.dart';
 
 const double _rowHeight = 48;
 const double _cardRadius = 12;
 const double _sheetRadius = 22;
-const Duration _quick = Duration(milliseconds: 140);
+const Duration _quick = KitMotion.ease;
 
 Duration _motion(BuildContext context, Duration duration) =>
     KitMotion.duration(context, duration);
@@ -238,7 +239,7 @@ class _DockSettingsPanelState extends ConsumerState<DockSettingsPanel> {
           SizedBox(height: 1, child: ColoredBox(color: theme.colors.hairline)),
           Expanded(
             child: AnimatedSwitcher(
-              duration: _motion(context, const Duration(milliseconds: 240)),
+              duration: _motion(context, KitMotion.enterLarge),
               switchInCurve: Motion.standard,
               switchOutCurve: Motion.standard,
               layoutBuilder: (current, previous) => Stack(
@@ -272,7 +273,7 @@ class _DockSettingsPanelState extends ConsumerState<DockSettingsPanel> {
   Widget _header(BuildContext context, bool browsing) {
     final theme = context.shellTheme;
     final colors = theme.colors;
-    final swap = _motion(context, const Duration(milliseconds: 200));
+    final swap = _motion(context, KitMotion.enter);
     final titleStyle = theme.text.base.copyWith(
       color: colors.textPrimary,
       fontWeight: FontWeight.w700,
@@ -1829,7 +1830,7 @@ class _CategoryItemState extends State<_CategoryItem> {
             behavior: HitTestBehavior.opaque,
             onTap: widget.onTap,
             child: AnimatedContainer(
-              duration: _motion(context, const Duration(milliseconds: 140)),
+              duration: _motion(context, _quick),
               height: 36,
               padding: const EdgeInsets.symmetric(horizontal: 10),
               decoration: BoxDecoration(
@@ -2000,7 +2001,14 @@ class _SlidingSegmentsState<T> extends State<_SlidingSegments<T>>
     with SingleTickerProviderStateMixin<_SlidingSegments<T>> {
   static const double _inset = 3;
 
-  late final AnimationController _slide;
+  /// The plate crossing to the chosen segment. Denial lets it run a little
+  /// past and come back; a look that is not liquid lands dead-beat. Being a
+  /// kit spring it also follows the shell's speed, and turns round from
+  /// where it is when the choice changes mid-flight.
+  static const KitSpringTuning _cross = KitSpringTuning(460, 0.79);
+
+  late final KitSpring _at = KitSpring(_target, _cross);
+  late final KitSprings _slide = KitSprings(this, <KitSpring>[_at]);
   int _pressedIndex = -1;
 
   double get _target => _positionFor(_selectedIndex);
@@ -2018,18 +2026,6 @@ class _SlidingSegmentsState<T> extends State<_SlidingSegments<T>>
   }
 
   @override
-  void initState() {
-    super.initState();
-    // initState may not read MediaQuery, so the pace comes from the platform
-    // value the kit falls back to.
-    _slide = AnimationController(
-      vsync: this,
-      duration: KitMotion.now.duration(const Duration(milliseconds: 360)),
-      value: _target,
-    );
-  }
-
-  @override
   void dispose() {
     _slide.dispose();
     super.dispose();
@@ -2038,27 +2034,19 @@ class _SlidingSegmentsState<T> extends State<_SlidingSegments<T>>
   @override
   void didUpdateWidget(covariant _SlidingSegments<T> oldWidget) {
     super.didUpdateWidget(oldWidget);
-    // A speed change inside the sheet reaches the running controls too.
-    final duration = KitMotion.now.duration(const Duration(milliseconds: 360));
-    if (_slide.duration != duration) _slide.duration = duration;
     if (oldWidget.options.length != widget.options.length) {
-      _slide.value = _target;
+      _at.target = _target;
+      _slide.kick(reduceMotion: true);
       return;
     }
     if (oldWidget.value != widget.value) _settle();
   }
 
   void _settle() {
-    if (MediaQuery.disableAnimationsOf(context)) {
-      _slide.value = _target;
-      return;
-    }
-    springTo(
-      _slide,
-      _target,
-      spring: Motion.bouncy,
-      telemetryLabel: 'dock.settings.segments',
-    );
+    _at
+      ..tune(KitStyle.of(context).spring(_cross))
+      ..target = _target;
+    _slide.kick(reduceMotion: KitMotion.reduced(context));
   }
 
   int _indexAt(double dx, double width) {
@@ -2128,7 +2116,7 @@ class _SlidingSegmentsState<T> extends State<_SlidingSegments<T>>
                         animation: _slide,
                         builder: (context, child) => Align(
                           alignment: Alignment(
-                            -1 + 2 * _slide.value.clamp(0.0, 1.0),
+                            -1 + 2 * _at.value.clamp(0.0, 1.0),
                             0,
                           ),
                           child: FractionallySizedBox(
@@ -2388,19 +2376,13 @@ class _DockSwitchState extends State<_DockSwitch>
   static const double _inset = 3;
   static const double _thumb = _height - _inset * 2;
 
-  late final AnimationController _slide;
+  late final KitSpring _at = KitSpring(
+    widget.value ? 1 : 0,
+    kitStyle.value.toggle,
+  );
+  late final KitSprings _slide = KitSprings(this, <KitSpring>[_at]);
   bool _hovered = false;
   bool _pressed = false;
-
-  @override
-  void initState() {
-    super.initState();
-    _slide = AnimationController(
-      vsync: this,
-      duration: KitMotion.now.duration(const Duration(milliseconds: 260)),
-      value: widget.value ? 1 : 0,
-    );
-  }
 
   @override
   void dispose() {
@@ -2411,20 +2393,12 @@ class _DockSwitchState extends State<_DockSwitch>
   @override
   void didUpdateWidget(covariant _DockSwitch oldWidget) {
     super.didUpdateWidget(oldWidget);
-    final duration = KitMotion.now.duration(const Duration(milliseconds: 260));
-    if (_slide.duration != duration) _slide.duration = duration;
     if (oldWidget.value == widget.value) return;
-    final target = widget.value ? 1.0 : 0.0;
-    if (MediaQuery.disableAnimationsOf(context)) {
-      _slide.value = target;
-    } else {
-      springTo(
-        _slide,
-        target,
-        spring: Motion.snappy,
-        telemetryLabel: 'dock.settings.switch',
-      );
-    }
+    // The look's own switch spring, the one the bar's switches cross on.
+    _at
+      ..tune(KitStyle.of(context).toggle)
+      ..target = widget.value ? 1.0 : 0.0;
+    _slide.kick(reduceMotion: KitMotion.reduced(context));
   }
 
   @override
@@ -2446,7 +2420,7 @@ class _DockSwitchState extends State<_DockSwitch>
         child: AnimatedBuilder(
           animation: _slide,
           builder: (context, _) {
-            final t = _slide.value.clamp(0.0, 1.0);
+            final t = _at.value.clamp(0.0, 1.0);
             final track = Color.lerp(
               colors.textPrimary.withValues(alpha: 0.16),
               theme.kitAccent,
@@ -3436,7 +3410,7 @@ class _PillButtonState extends State<_PillButton> {
           onTap: widget.onTap,
           child: AnimatedScale(
             scale: _pressed ? 0.97 : 1,
-            duration: _motion(context, const Duration(milliseconds: 110)),
+            duration: _motion(context, KitMotion.wash),
             curve: Motion.standard,
             child: AnimatedContainer(
               duration: _motion(context, _quick),

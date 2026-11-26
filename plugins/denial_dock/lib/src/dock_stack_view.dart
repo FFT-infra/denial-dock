@@ -155,11 +155,12 @@ class _DockStackViewState extends State<DockStackView>
   bool get _dragging => _dragFrom != null;
 
   /// A row leaving the pile. A liquid look runs past its place once and
-  /// comes back; the other settles with barely a trace of that. Going back
+  /// comes back; the other lands dead-beat, as every spring outside a
+  /// liquid look does. Going back
   /// uses the look's own shrink tuning, which never overshoots, so a card
   /// cannot dip past the icon it lands on.
   static const KitSpringTuning _liquidOut = KitSpringTuning(420, 0.62);
-  static const KitSpringTuning _plainOut = KitSpringTuning(520, 0.86);
+  static const KitSpringTuning _plainOut = KitSpringTuning(520, 1);
 
   /// The smallest gap between one row leaving the pile and the next, in
   /// seconds, and the longest the whole cascade may run. A stack of three
@@ -186,7 +187,8 @@ class _DockStackViewState extends State<DockStackView>
     super.didChangeDependencies();
     if (_launched) return;
     _launched = true;
-    _out = _springOf(KitStyle.of(context).liquid ? _liquidOut : _plainOut);
+    final style = KitStyle.of(context);
+    _out = _springOf(style.spring(style.liquid ? _liquidOut : _plainOut));
     if (KitMotion.reduced(context)) {
       // With motion turned off the stack has to be usable at once; the spring
       // would otherwise still stagger every row in.
@@ -1200,10 +1202,7 @@ class _DockStackViewState extends State<DockStackView>
       rect: rect,
       child: IgnorePointer(
         child: AnimatedContainer(
-          duration: KitMotion.duration(
-            context,
-            const Duration(milliseconds: 120),
-          ),
+          duration: KitMotion.duration(context, KitMotion.fade),
           decoration: BoxDecoration(
             color: accent.withValues(alpha: _overTrash ? 0.26 : 0.10),
             borderRadius: BorderRadius.circular(14),

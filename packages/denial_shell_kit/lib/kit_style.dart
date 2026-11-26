@@ -1,20 +1,13 @@
 import 'package:denial_flutter_sdk/theme.dart';
 import 'package:flutter/widgets.dart';
 
+import 'kit_look_motion.dart';
 import 'kit_material.dart';
 import 'kit_motion_pace.dart';
 import 'kit_store.dart';
 import 'shell_preset.dart';
 
-/// How a spring is tuned: stiffness and damping ratio, as Denial's liquid
-/// motion recipe writes them.
-@immutable
-class KitSpringTuning {
-  const KitSpringTuning(this.stiffness, this.dampingRatio);
-
-  final double stiffness;
-  final double dampingRatio;
-}
+export 'kit_look_motion.dart';
 
 /// One look for the dock and the top bar: where colour, type and corners come
 /// from, and how things move. A preset is one constant of this class, so a
@@ -26,11 +19,8 @@ class KitStyle {
     required this.fixedAccent,
     required this.fontFamily,
     required this.scaleCorners,
-    required this.liquid,
-    required this.panelGrow,
-    required this.panelShrink,
+    required this.motion,
     required this.panelBead,
-    required this.pressTuning,
     required this.accentMenuRows,
     this.label = '',
     this.fontPackage,
@@ -40,8 +30,6 @@ class KitStyle {
     this.borderFromAccent = false,
     this.opaque = false,
     this.shadow = 1,
-    this.switchTuning,
-    this.pace = 1,
     this.materials = KitMaterials.shell,
   });
 
@@ -54,11 +42,8 @@ class KitStyle {
     fixedAccent: null,
     fontFamily: null,
     scaleCorners: true,
-    liquid: true,
-    panelGrow: KitSpringTuning(230, 0.6),
-    panelShrink: KitSpringTuning(420, 1),
+    motion: KitLookMotion.denial,
     panelBead: Size(0.9, 0.72),
-    pressTuning: KitSpringTuning(520, 0.42),
     accentMenuRows: false,
   );
 
@@ -71,11 +56,8 @@ class KitStyle {
     fontFamily: 'Inter',
     fontPackage: 'denial_topbar',
     scaleCorners: false,
-    liquid: false,
-    panelGrow: KitSpringTuning(620, 1),
-    panelShrink: KitSpringTuning(900, 1),
+    motion: KitLookMotion.mac,
     panelBead: Size(0.96, 0.96),
-    pressTuning: KitSpringTuning(620, 0.7),
     accentMenuRows: true,
     materials: KitMaterials.mac,
   );
@@ -89,16 +71,12 @@ class KitStyle {
     fixedAccent: null,
     fontFamily: null,
     scaleCorners: true,
-    liquid: false,
-    panelGrow: KitSpringTuning(520, 1),
-    panelShrink: KitSpringTuning(800, 1),
+    motion: KitLookMotion.soft,
     panelBead: Size(0.94, 0.94),
-    pressTuning: KitSpringTuning(620, 0.8),
     accentMenuRows: false,
     cornerScale: 0.6,
     opaque: true,
     shadow: 0.6,
-    switchTuning: KitSpringTuning(620, 1),
   );
 
   /// A terminal's look: square corners, a 2 px line in the accent around
@@ -112,19 +90,14 @@ class KitStyle {
     fontPackage: 'denial_flutter_sdk',
     fontScale: 0.93,
     scaleCorners: false,
-    liquid: false,
-    panelGrow: KitSpringTuning(1100, 1),
-    panelShrink: KitSpringTuning(1400, 1),
+    motion: KitLookMotion.terminal,
     panelBead: Size(0.98, 0.98),
-    pressTuning: KitSpringTuning(1000, 1),
     accentMenuRows: true,
     cornerScale: 0,
     borderWidth: 2,
     borderFromAccent: true,
     opaque: true,
     shadow: 0,
-    switchTuning: KitSpringTuning(1000, 1),
-    pace: 1.6,
   );
 
   static const List<KitStyle> presets = <KitStyle>[denial, mac, soft, terminal];
@@ -158,15 +131,6 @@ class KitStyle {
   /// How much of the usual shadow a panel casts, 0 to 1.
   final double shadow;
 
-  /// A switch's knob crossing over, when the look does not take the usual
-  /// one for its kind; see [toggle].
-  final KitSpringTuning? switchTuning;
-
-  /// How much faster than written this look's timed transitions run. It
-  /// multiplies the user's speed for durations only: the springs are tuned
-  /// per look already.
-  final double pace;
-
   /// What the look's surfaces are made of.
   final KitMaterials materials;
 
@@ -179,18 +143,34 @@ class KitStyle {
   /// Whether corners follow the shell's roundness setting.
   final bool scaleCorners;
 
+  /// How the look moves: its springs, its pace, and whether it may
+  /// overshoot at all.
+  final KitLookMotion motion;
+
   /// Whether fills pour and bodies stretch, as Denial's own controls do.
-  final bool liquid;
+  bool get liquid => motion.liquid;
 
   /// A popup growing into its shape, and going back.
-  final KitSpringTuning panelGrow;
-  final KitSpringTuning panelShrink;
+  KitSpringTuning get panelGrow => motion.panelGrow;
+  KitSpringTuning get panelShrink => motion.panelShrink;
+
+  /// A control springing back after a press.
+  KitSpringTuning get pressTuning => motion.pressTuning;
+
+  /// A switch's knob crossing over.
+  KitSpringTuning get toggle => motion.toggle;
+
+  /// How much faster than written this look's timed transitions run. It
+  /// multiplies the user's speed for durations only: the springs are tuned
+  /// per look already.
+  double get pace => motion.pace;
+
+  /// [tuning] as this look may run it: a spring written with an overshoot
+  /// is critically damped outside a liquid look.
+  KitSpringTuning spring(KitSpringTuning tuning) => motion.settled(tuning);
 
   /// The share of its width and height a popup starts from.
   final Size panelBead;
-
-  /// A control springing back after a press.
-  final KitSpringTuning pressTuning;
 
   /// Whether a menu's hot row takes the accent, or a quiet plate.
   final bool accentMenuRows;
@@ -281,14 +261,6 @@ class KitStyle {
               color: one.color.withValues(alpha: one.color.a * shadow),
             ),
         ];
-
-  /// A switch's knob crossing over: with a little life where the look has
-  /// any, and dead-beat where it asks for that.
-  KitSpringTuning get toggle =>
-      switchTuning ??
-      (liquid
-          ? const KitSpringTuning(520, 0.6)
-          : const KitSpringTuning(620, 0.72));
 
   /// A panel's fill in this look.
   Color panelFill(Color fill) => opaque ? fill.withValues(alpha: 1) : fill;

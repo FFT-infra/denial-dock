@@ -374,7 +374,7 @@ class _DownloadBarState extends State<_DownloadBar>
   late final AnimationController _sweep = AnimationController(
     vsync: this,
     // A loop: it keeps its rhythm and only the speed scales it.
-    duration: KitMotion.now.scaled(const Duration(milliseconds: 1200)),
+    duration: KitMotion.now.scaled(KitMotion.sweep),
   );
 
   @override
