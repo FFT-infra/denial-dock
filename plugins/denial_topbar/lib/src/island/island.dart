@@ -6,7 +6,6 @@ import 'package:denial_flutter_sdk/input.dart';
 import 'package:denial_flutter_sdk/models.dart';
 import 'package:denial_flutter_sdk/services.dart';
 import 'package:denial_flutter_sdk/state.dart';
-import 'package:denial_flutter_sdk/theme.dart';
 import 'package:denial_sdk/system.dart' show BatteryStatus;
 import 'package:denial_shell_kit/continuous_corners.dart';
 import 'package:denial_shell_kit/kit_control_math.dart';
@@ -138,7 +137,7 @@ class _IslandState extends ConsumerState<Island> with TickerProviderStateMixin {
   IslandKind _card = IslandKind.home;
   IslandKind _bubble = IslandKind.media;
   IslandKind _bubbleLeft = IslandKind.media;
-  late IslandSkin _skin;
+  IslandSkin _skin = IslandSkin.plain;
 
   // What the cards whose size follows their content hold now.
   int _progressCount = 1;
@@ -755,6 +754,9 @@ class _IslandState extends ConsumerState<Island> with TickerProviderStateMixin {
 
   bool? _wasPlugged;
 
+  /// The resting pill's width in the look in force.
+  double get _rest => _skin.rest(widget.height);
+
   double _measure(String text, TextStyle style) {
     final painter = TextPainter(
       text: TextSpan(text: text, style: style),
@@ -769,14 +771,18 @@ class _IslandState extends ConsumerState<Island> with TickerProviderStateMixin {
   double _compactWidth(IslandKind kind, String label) => switch (kind) {
     IslandKind.home =>
       widget.workspace == null
-          ? _I.rest
-          : math.max(_I.rest, widget.workspaceWidth + 24),
-    IslandKind.media => _I.media,
-    IslandKind.hud => _I.hud,
-    IslandKind.charging => _I.charging,
-    IslandKind.timer ||
-    IslandKind.recording => _I.timer + (label.length > 5 ? 18 : 0),
-    IslandKind.progress => _I.progress,
+          ? _rest
+          : math.max(_rest, widget.workspaceWidth + 24),
+    // An activity never makes the pill narrower than it rests: on a long
+    // pill it shows at the two ends, as beside a camera housing.
+    IslandKind.media => math.max(_rest, _I.media),
+    IslandKind.hud => math.max(_rest, _I.hud),
+    IslandKind.charging => math.max(_rest, _I.charging),
+    IslandKind.timer || IslandKind.recording => math.max(
+      _rest,
+      _I.timer + (label.length > 5 ? 18 : 0),
+    ),
+    IslandKind.progress => math.max(_rest, _I.progress),
     IslandKind.status =>
       (_measure(label, BarType.islandLabel) +
               _measure(_statusDetail, BarType.islandLabel) +
@@ -1006,7 +1012,7 @@ class _IslandState extends ConsumerState<Island> with TickerProviderStateMixin {
     final settings = widget.settings;
     final style = KitStyle.of(context);
     final feel = IslandFeel.of(style);
-    _skin = IslandSkin.resolve(style, context.shellTheme);
+    _skin = IslandSkin.of(context);
     final playback = ref.watch(_services.media).value;
     final recording = ref.watch(
       screenRecordingProvider.select((state) => state.recording),
@@ -1199,7 +1205,9 @@ class _IslandState extends ConsumerState<Island> with TickerProviderStateMixin {
         final press = _pressFeel.value;
         final coverSize = lerpDouble(_I.cover, _I.bigCover, tc)!;
         final coverInset = (h - _I.cover) / 2;
-        final blur = BarTokens.islandContentBlur * (1 - cardShown);
+        final blur = _skin.blurs
+            ? BarTokens.islandContentBlur * (1 - cardShown)
+            : 0.0;
 
         final content = ClipPath(
           clipper: ContinuousCornersClipper(radius: radius),
@@ -1460,17 +1468,25 @@ class _IslandState extends ConsumerState<Island> with TickerProviderStateMixin {
     final Widget content = switch (kind) {
       IslandKind.timer => IslandRing(
         value: _timerFraction,
-        colour: macOrange,
+        colour: _skin.tone(macOrange),
         size: h - 12,
-        child: const BarGlyph(BarIcons.timer, size: 9, color: macOrange),
+        child: BarGlyph(
+          BarIcons.timer,
+          size: 9,
+          color: _skin.tone(macOrange),
+        ),
       ),
       IslandKind.recording => const IslandPulse(),
       IslandKind.progress => IslandRing(
         value: progress.values.firstOrNull ?? 0,
-        colour: macBlue,
+        colour: _skin.tone(macBlue),
         size: h - 12,
       ),
-      _ => IslandCover(url: playback?.artUrl ?? '', size: h - 10, radius: 5),
+      _ => IslandCover(
+        url: playback?.artUrl ?? '',
+        size: h - 10,
+        radius: _skin.corner(5, h - 10),
+      ),
     };
     return ShellInputRegion(
       debugLabel: 'denial_topbar.island.second',
@@ -1525,7 +1541,10 @@ class _IslandState extends ConsumerState<Island> with TickerProviderStateMixin {
             children: <Widget>[
               gap,
               const Spacer(),
-              IslandEqualizer(playing: playback?.playing ?? false),
+              IslandEqualizer(
+                playing: playback?.playing ?? false,
+                colour: _skin.tone(_skin.ink),
+              ),
               const SizedBox(width: 3),
             ],
           ),
@@ -1545,13 +1564,18 @@ class _IslandState extends ConsumerState<Island> with TickerProviderStateMixin {
                 ),
               ),
               const SizedBox(width: 8),
-              IslandEqualizer(playing: playback?.playing ?? false),
+              IslandEqualizer(
+                playing: playback?.playing ?? false,
+                colour: _skin.tone(_skin.ink),
+              ),
               const SizedBox(width: 3),
             ],
           ),
         );
       case IslandKind.timer:
-        final colour = islandTimer.paused ? _skin.dim : macOrange;
+        final colour = islandTimer.paused
+            ? _skin.dim
+            : _skin.tone(macOrange);
         return Padding(
           padding: const EdgeInsets.symmetric(horizontal: 12),
           child: Row(
@@ -1599,7 +1623,7 @@ class _IslandState extends ConsumerState<Island> with TickerProviderStateMixin {
               const Spacer(),
               IslandRing(
                 value: progress.values.firstOrNull ?? 0,
-                colour: macBlue,
+                colour: _skin.tone(macBlue),
               ),
             ],
           ),
@@ -1825,7 +1849,7 @@ class _IslandState extends ConsumerState<Island> with TickerProviderStateMixin {
                     const SizedBox(width: 6),
                     BatteryGlyph(
                       level: battery.capacity! / 100,
-                      colour: plugged ? _skin.tone(macGreen) : _skin.ink,
+                      colour: plugged ? macGreen : _skin.ink,
                       charging: plugged,
                       width: 24,
                     ),

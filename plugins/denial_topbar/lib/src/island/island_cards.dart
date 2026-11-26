@@ -2,7 +2,6 @@ import 'dart:math' as math;
 
 import 'package:denial_shell_kit/kit_motion.dart';
 import 'package:denial_shell_kit/kit_springs.dart';
-import 'package:denial_flutter_sdk/theme.dart';
 import 'package:denial_shell_kit/kit_style.dart';
 import 'package:flutter/widgets.dart';
 
@@ -48,6 +47,9 @@ class IslandRoundButton extends StatelessWidget {
         decoration: BoxDecoration(
           color: fill ?? skin.plate,
           borderRadius: skin.disc(size),
+          border: skin.controlLine == null
+              ? null
+              : Border.all(color: skin.controlLine!),
         ),
         child: text != null
             ? Text(
@@ -112,7 +114,10 @@ class _IslandPulseState extends State<IslandPulse>
       child: Container(
         width: widget.size,
         height: widget.size,
-        decoration: BoxDecoration(color: widget.colour, shape: BoxShape.circle),
+        decoration: BoxDecoration(
+          color: widget.colour,
+          borderRadius: IslandSkin.of(context).disc(widget.size),
+        ),
       ),
     );
   }
@@ -384,7 +389,7 @@ class IslandRecordingCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final skin = IslandSkin.of(context);
-    final colour = skin.tone(macRed);
+    final colour = skin.tone(macRed, meaning: true);
     return _BigCard(
       leading: SizedBox.square(
         dimension: 64,
@@ -647,7 +652,7 @@ class IslandHomeCard extends StatelessWidget {
                       padding: const EdgeInsets.symmetric(horizontal: 6),
                       alignment: Alignment.center,
                       decoration: BoxDecoration(
-                        color: skin.tone(macRed),
+                        color: skin.tone(macRed, meaning: true),
                         borderRadius: skin.disc(20),
                       ),
                       child: Text(
@@ -673,7 +678,7 @@ class IslandHomeCard extends StatelessWidget {
                   label: action.label,
                   size: 46,
                   fill: action.on ? skin.accent : null,
-                  ink: action.on ? skin.style.onAccent(context.shellTheme) : null,
+                  ink: action.on ? skin.onAccent : null,
                   onTap: action.onTap,
                 ),
             ],

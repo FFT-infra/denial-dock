@@ -42,6 +42,7 @@ import 'bar_type.dart';
 import 'clock_label.dart';
 import 'island/island.dart';
 import 'island/island_motion.dart';
+import 'island/island_skin.dart';
 import 'l10n.dart';
 import 'panels/about_dialog.dart';
 import 'panels/bar_settings_panel.dart';
@@ -348,7 +349,7 @@ class _TopBarSurfaceState extends ConsumerState<TopBarSurface>
                 ? BarWorkspaces(
                     services: _services,
                     monitorId: widget.monitorId,
-                    ink: const Color(0xffffffff),
+                    ink: IslandSkin.of(context).ink,
                     settings: settings.copyWith(workspacePreview: false),
                     barHeight: bodyHeight,
                   )

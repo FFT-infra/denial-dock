@@ -103,3 +103,14 @@ double islandSpringCurve(double t, double damping) {
   // so the curve lands exactly.
   return at(t) + (1 - at(1)) * t;
 }
+
+/// How much brisker than an ordinary panel the island moves in a look
+/// whose panels open on a spring of [panelStiffness]. 620 is a panel that
+/// settles at an ordinary pace.
+double islandPace(double panelStiffness) =>
+    (panelStiffness / 620).clamp(0.6, 2.4).toDouble();
+
+/// The damping ratio the island may use where a design asks for [ratio]:
+/// only a [liquid] look may pass a target, every other settles dead-beat.
+double islandDamping(double ratio, {required bool liquid}) =>
+    liquid || ratio >= 1 ? ratio : 1;

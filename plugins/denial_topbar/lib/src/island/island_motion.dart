@@ -70,11 +70,11 @@ class IslandFeel {
   static IslandFeel of(KitStyle style) {
     if (style.liquid) return liquid;
     return _made.putIfAbsent(style, () {
-      // 620 is the stiffness of a panel that settles at an ordinary pace;
-      // a look whose panels are stiffer has a quicker island too.
-      final pace = (style.panelGrow.stiffness / 620).clamp(0.6, 2.4);
-      KitSpringTuning still(double stiffness) =>
-          KitSpringTuning(stiffness * pace, 1);
+      final pace = islandPace(style.panelGrow.stiffness);
+      KitSpringTuning still(double stiffness) => KitSpringTuning(
+        stiffness * pace,
+        islandDamping(0.7, liquid: false),
+      );
       return IslandFeel(
         grow: still(440),
         shrink: still(560),
@@ -90,10 +90,10 @@ class IslandFeel {
         level: still(520),
         press: KitSpringTuning(
           style.pressTuning.stiffness,
-          math.max(1, style.pressTuning.dampingRatio),
+          islandDamping(style.pressTuning.dampingRatio, liquid: false),
         ),
         gulp: 0.7,
-        swap: 1,
+        swap: islandDamping(liquid.swap, liquid: false),
       );
     });
   }
@@ -181,7 +181,8 @@ class IslandSwap extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final key = child.key;
-    final feel = IslandFeel.of(KitStyle.of(context));
+    final style = KitStyle.of(context);
+    final feel = IslandFeel.of(style);
     return AnimatedSwitcher(
       duration: KitMotion.duration(context, BarTokens.islandContentIn),
       reverseDuration: KitMotion.duration(context, BarTokens.islandContentOut),
@@ -196,6 +197,8 @@ class IslandSwap extends StatelessWidget {
         from: from * distance,
         shrink: shrink,
         damping: feel.swap,
+        // A look with no blur behind its panels has none in here either.
+        blurs: style.glassy,
         child: child,
       ),
       child: child,
@@ -210,6 +213,7 @@ class _SwapMotion extends AnimatedWidget {
     required this.from,
     required this.shrink,
     required this.damping,
+    required this.blurs,
     required this.child,
   }) : super(listenable: animation);
 
@@ -217,6 +221,7 @@ class _SwapMotion extends AnimatedWidget {
   final Offset from;
   final double shrink;
   final double damping;
+  final bool blurs;
   final Widget child;
 
   @override
@@ -250,7 +255,7 @@ class _SwapMotion extends AnimatedWidget {
           child: Transform.scale(
             scale: scale,
             child: ImageFiltered(
-              enabled: blur > 0.3,
+              enabled: blurs && blur > 0.3,
               imageFilter: ImageFilter.blur(sigmaX: blur, sigmaY: blur),
               child: child,
             ),

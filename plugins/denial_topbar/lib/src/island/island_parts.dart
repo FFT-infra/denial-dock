@@ -763,7 +763,7 @@ class IslandChargeCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final skin = IslandSkin.of(context);
-    final colour = plugged ? skin.tone(_green) : skin.ink;
+    final colour = plugged ? skin.tone(_green, meaning: true) : skin.ink;
     return Padding(
       padding: const EdgeInsets.symmetric(horizontal: 24),
       child: Row(
