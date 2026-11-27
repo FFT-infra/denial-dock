@@ -37,6 +37,8 @@ mixin _BarActions<T extends ConsumerStatefulWidget> on ConsumerState<T> {
     double width = BarTokens.panelMaxWidth,
     PanelEdge? side,
     bool glass = true,
+    bool frameless = false,
+    double? gap,
     BarPanelAnchor placement = BarPanelAnchor.dropdown,
     Color? fill,
     double? radius,
@@ -48,6 +50,8 @@ mixin _BarActions<T extends ConsumerStatefulWidget> on ConsumerState<T> {
       width: width,
       side: side ?? _side,
       glass: glass,
+      frameless: frameless,
+      gap: gap,
       placement: placement,
       fill: fill,
       radius: radius,
@@ -359,17 +363,26 @@ mixin _BarActions<T extends ConsumerStatefulWidget> on ConsumerState<T> {
       ),
       onNotifications: () =>
           _openNotificationCenter('notifications', merged: false),
-      onControlCenter: () => _openPanel(
-        'controlcenter',
-        _controlCenterKey,
-        (_, close) => _controlCenterBody(close),
-        width: controlCenterWidth,
-        // The sheet keeps its place at the screen's trailing side while its
-        // item is on that side, and hangs under the item anywhere else.
-        placement: _nearTrailingSide(_controlCenterKey)
-            ? BarPanelAnchor.trailing
-            : BarPanelAnchor.centred,
-      ),
+      onControlCenter: () {
+        final panelStyle = kitStyle.value.panelStyle;
+        final floating = panelStyle == KitPanelStyle.floating;
+        final attached = panelStyle == KitPanelStyle.attached;
+        _openPanel(
+          'controlcenter',
+          _controlCenterKey,
+          (_, close) => _controlCenterBody(close),
+          width: controlCenterWidth,
+          frameless: floating,
+          gap: attached ? 0 : null,
+          // The sheet keeps its place at the screen's trailing side while its
+          // item is on that side, and hangs under the item anywhere else.
+          placement: panelStyle == KitPanelStyle.anchored
+              ? BarPanelAnchor.centred
+              : _nearTrailingSide(_controlCenterKey)
+              ? BarPanelAnchor.trailing
+              : BarPanelAnchor.centred,
+        );
+      },
       onSettings: _openBarSettings,
     );
   }

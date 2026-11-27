@@ -36,6 +36,15 @@ void startDebugRemote() {
           ? null
           : KitSurfaceMode.tryParse(words[1]);
       return;
+    } else if (words.length > 1 && words.first == 'panelstyle') {
+      kitPanelStyle.value = words[1] == 'auto'
+          ? null
+          : KitPanelStyle.tryParse(words[1]);
+      return;
+    } else if (words.length > 1 && words.first == 'widgetstyle') {
+      final parsed = KitWidgetStyle.tryParse(words[1]);
+      if (parsed != null) kitWidgetStyle.value = parsed;
+      return;
     }
     debugCommand.value = '${words.join(' ')} #${count++}';
   });

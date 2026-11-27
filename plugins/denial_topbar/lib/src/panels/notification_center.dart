@@ -7,9 +7,12 @@ import 'package:denial_flutter_sdk/services.dart';
 import 'package:denial_flutter_sdk/state.dart';
 import 'package:denial_flutter_sdk/theme.dart';
 import 'package:denial_shell_kit/continuous_corners.dart';
+import 'package:denial_shell_kit/kit_glass.dart';
+import 'package:denial_shell_kit/kit_material.dart';
 import 'package:denial_shell_kit/kit_motion.dart';
 import 'package:denial_shell_kit/kit_springs.dart';
 import 'package:denial_shell_kit/kit_style.dart';
+import 'package:denial_shell_kit/kit_widgets.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/gestures.dart';
 import 'package:flutter/rendering.dart';
@@ -28,6 +31,7 @@ import 'nc_card.dart';
 import 'nc_motion.dart';
 import 'nc_parts.dart';
 import 'tile_grid.dart';
+import 'widget_gallery.dart';
 import 'widgets.dart';
 
 double get notificationCenterWidth => NcLook.layout.width;
@@ -149,9 +153,10 @@ class _ColumnState extends ConsumerState<_Column>
   /// How far in the column is, for the dimming behind it.
   final ValueNotifier<double> _shown = ValueNotifier<double>(0);
 
-  /// Whether the cards may blur what is behind them: only while the column
-  /// stands open and still.
-  final ValueNotifier<bool> _glass = ValueNotifier<bool>(false);
+  /// Whether cards blur what is behind them: enabled from frame 0 inside the
+  /// column's single [BackdropGroup] so cards and widgets slide in with their
+  /// final glass material and never flash or jump after landing.
+  final ValueNotifier<bool> _glass = ValueNotifier<bool>(true);
   Animation<double>? _layer;
   VoidCallback? _finish;
   double _travel = notificationCenterWidth + 24;
@@ -163,7 +168,7 @@ class _ColumnState extends ConsumerState<_Column>
   /// for them.
   bool _all = false;
   bool _editing = false;
-  bool _ready = false;
+  final bool _ready = true;
   bool _readScheduled = false;
   List<DesktopNotificationGroup> _groups = const <DesktopNotificationGroup>[];
   final Set<String> _seen = <String>{};
@@ -219,7 +224,6 @@ class _ColumnState extends ConsumerState<_Column>
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (!mounted) return;
       _opened = true;
-      setState(() => _ready = true);
       _springs.kick(reduceMotion: KitMotion.reduced(context));
       _scope.requestFocus();
       final first = _focusable().firstOrNull;
@@ -295,7 +299,6 @@ class _ColumnState extends ConsumerState<_Column>
     // The same spring both ways: a close while the column is still coming in
     // turns it round from where it is, at the speed it has.
     _slide.target = open ? 1 : 0;
-    _glass.value = false;
     if (_closing == open) setState(() => _closing = !open);
     if (_opened) _springs.kick(reduceMotion: KitMotion.reduced(context));
   }
@@ -320,7 +323,6 @@ class _ColumnState extends ConsumerState<_Column>
       final finish = _finish;
       if (_closing && finish != null) scheduleMicrotask(finish);
     } else if (mounted) {
-      _glass.value = !_closing;
       // Lets the build below mark what is listed as read, now that doing so
       // no longer rebuilds the column while it is moving.
       setState(() {});
@@ -348,20 +350,81 @@ class _ColumnState extends ConsumerState<_Column>
       .read(barSettingsProvider.notifier)
       .save((s) => s.copyWith(widgets: ids));
 
-  void _resize(String id) => ref.read(barSettingsProvider.notifier).save((s) {
+  void _resizeTo(String id, TileSize next) =>
+      ref.read(barSettingsProvider.notifier).save((s) {
+        final sizes = parseTileSizes(s.tileSizes);
+        return s.copyWith(
+          tileSizes: writeTileSizes(<String, TileSize>{
+            ...sizes,
+            widgetSizeKey(id): next,
+          }),
+        );
+      });
+
+  void _resize(String id) {
+    final s = ref.read(barSettingsProvider).value ?? BarSettings.defaults;
     final sizes = parseTileSizes(s.tileSizes);
-    final key = widgetSizeKey(id);
-    final wide = (sizes[key]?.w ?? 1) > 1;
-    return s.copyWith(
-      tileSizes: writeTileSizes(<String, TileSize>{
-        ...sizes,
-        key: TileSize(wide ? 1 : 2, 1),
-      }),
-    );
-  });
+    final spec = kitWidgetRegistry.byId(id);
+    if (spec == null || !spec.resizable) return;
+    final cur = resolveWidgetSize(id, sizes) ?? spec.defaultSize;
+    final next = spec.nextSize(cur);
+    _resizeTo(id, TileSize(next.w, next.h));
+  }
+
+  void _showWidgetMenu(
+    BuildContext context,
+    String id,
+    Rect anchor,
+    List<String> order,
+    Map<String, TileSize> sizes,
+  ) {
+    final spec = kitWidgetRegistry.byId(id);
+    if (spec == null) return;
+    final cur = resolveWidgetSize(id, sizes) ?? spec.defaultSize;
+    final items = <NcMenuItem>[
+      for (final sz in spec.supportedSizes)
+        NcMenuItem(
+          label:
+              '${sz == cur ? '✓ ' : '   '}${context.tr(sz.label)} (${sz.gridLabel})',
+          onTap: () => _resizeTo(id, TileSize(sz.w, sz.h)),
+        ),
+      if (id == 'clock')
+        NcMenuItem(
+          label: context.tr(
+            widgetClockDigital.value ? 'Analog Clock' : 'Digital Clock',
+          ),
+          onTap: () => setWidgetClockDigital(!widgetClockDigital.value),
+        ),
+      NcMenuItem(
+        label: context.tr(
+          kitWidgetStyle.value == KitWidgetStyle.glass
+              ? 'Use Color Cards'
+              : 'Use Glass Cards',
+        ),
+        onTap: () => kitWidgetStyle.value =
+            kitWidgetStyle.value == KitWidgetStyle.glass
+            ? KitWidgetStyle.color
+            : KitWidgetStyle.glass,
+      ),
+      NcMenuItem(
+        label: context.tr('Edit Widgets'),
+        onTap: () => setState(() => _editing = true),
+      ),
+      NcMenuItem(
+        label: context.tr('Remove Widget'),
+        onTap: () => _save(<String>[
+          for (final other in order)
+            if (other != id) other,
+        ]),
+      ),
+    ];
+    showMenu(anchor, items);
+  }
 
   List<Widget> _widgets(BuildContext context, double width) {
+    ensureCustomWidgetsLoaded();
     final theme = context.shellTheme;
+    final wStyle = kitWidgetStyle.value;
     final sizes = parseTileSizes(
       ref.watch(
         barSettingsProvider.select(
@@ -369,7 +432,6 @@ class _ColumnState extends ConsumerState<_Column>
         ),
       ),
     );
-    bool wide(String id) => (sizes[widgetSizeKey(id)]?.w ?? 1) > 1;
     final order = ref.watch(
       barSettingsProvider.select(
         (state) => state.value?.widgets ?? defaultWidgets,
@@ -377,7 +439,7 @@ class _ColumnState extends ConsumerState<_Column>
     );
     final shown = <String>[
       for (final id in order)
-        if (widgetSize(id) != null) id,
+        if (widgetTileSize(id, sizes) != null) id,
     ];
     final side = NcMotion.widgetCell(width);
     final cell = Size.square(side);
@@ -389,11 +451,24 @@ class _ColumnState extends ConsumerState<_Column>
           for (final id in shown)
             Tile(
               id: id,
-              size: widgetSize(id, wide: wide(id))!,
+              size: widgetTileSize(id, sizes)!,
+              supportedSizes: widgetSupportedTileSizes(id),
               onResize: widgetResizable(id) ? () => _resize(id) : null,
+              onResizeTo: widgetResizable(id)
+                  ? (next) => _resizeTo(id, next)
+                  : null,
+              onSecondaryTap: (anchor) =>
+                  _showWidgetMenu(context, id, anchor, order, sizes),
               child: _Surface(
-                fill: widgetPlate(id, theme),
-                child: buildBarWidget(id, services, side, wide: wide(id)),
+                fill: widgetPlate(id, theme, style: wStyle),
+                child: buildBarWidget(
+                  id,
+                  services,
+                  side,
+                  size: resolveWidgetSize(id, sizes)!,
+                  widgetStyle: wStyle,
+                  onClosePanel: onClose,
+                ),
               ),
             ),
         ],
@@ -412,20 +487,10 @@ class _ColumnState extends ConsumerState<_Column>
       // opens it is only the cards. Their room is kept, so nothing moves
       // when they arrive.
       final rows = packTiles(<TileSize>[
-        for (final id in shown) widgetSize(id, wide: wide(id))!,
+        for (final id in shown) widgetTileSize(id, sizes)!,
       ], NcMotion.widgetColumns).rows;
       grid = SizedBox(height: NcMotion.widgetsHeight(rows, width));
     }
-    final spare = <TileChoice>[
-      if (_ready)
-        for (final choice in widgetLibrary)
-          if (!order.contains(choice.id))
-            TileChoice(
-              id: choice.id,
-              icon: choice.icon,
-              label: context.tr(choice.label),
-            ),
-    ];
     return <Widget>[
       grid,
       if (_ready)
@@ -434,27 +499,12 @@ class _ColumnState extends ConsumerState<_Column>
           child: Padding(
             padding: const EdgeInsets.only(top: gap),
             child: _Surface(
-              child: Padding(
-                padding: const EdgeInsets.fromLTRB(14, 12, 14, 14),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: <Widget>[
-                    Padding(
-                      padding: const EdgeInsets.only(bottom: 8),
-                      child: Text(
-                        context.tr('Add Widgets'),
-                        style: BarType.section.copyWith(
-                          color: theme.colors.textSecondary,
-                        ),
-                      ),
-                    ),
-                    TileLibrary(
-                      choices: spare,
-                      empty: context.tr('Everything is already here.'),
-                      onAdd: (id) => _save(<String>[...order, id]),
-                    ),
-                  ],
-                ),
+              child: WidgetGallery(
+                activeIds: order,
+                onAdd: (id, size) {
+                  _resizeTo(id, TileSize(size.w, size.h));
+                  _save(<String>[...order, id]);
+                },
               ),
             ),
           ),
@@ -1164,12 +1214,15 @@ class _DimPainter extends CustomPainter {
       old.shown != shown || old.fromLeft != fromLeft;
 }
 
-/// A widget's card: opaque, with a colour of its own, a hairline and a soft
-/// shadow.
+/// A widget's card: follows unified [KitGlass] (all 5 [KitSurfaceMode]s, shared
+/// in the column's [BackdropGroup]) when [KitWidgetStyle.glass] is active, or
+/// draws its signature opaque/paper colour plate when [KitWidgetStyle.color] is
+/// chosen.
 class _Surface extends StatelessWidget {
   const _Surface({required this.child, this.fill});
 
-  /// The theme's surface unless the widget brings its own.
+  /// The widget's signature colour under [KitWidgetStyle.color]; null uses
+  /// unified [KitGlass].
   final Color? fill;
   final Widget child;
 
@@ -1177,10 +1230,29 @@ class _Surface extends StatelessWidget {
   Widget build(BuildContext context) {
     final theme = context.shellTheme;
     final style = KitStyle.of(context);
-    final framed = NcScope.of(context).framed;
-    final shape = ContinuousCorners(
-      radius: style.outer(theme, NcLook.widgetRadius),
-    );
+    final host = NcScope.of(context);
+    final framed = host.framed;
+    final radius = style.outer(theme, NcLook.widgetRadius);
+    if (fill == null &&
+        kitWidgetStyle.value == KitWidgetStyle.glass &&
+        !framed) {
+      return Listener(
+        behavior: HitTestBehavior.opaque,
+        child: ValueListenableBuilder<bool>(
+          valueListenable: host.glass,
+          builder: (context, blurs, child) => KitGlass(
+            material: kitMaterialOf(context, KitTier.card),
+            tier: KitTier.card,
+            radius: radius,
+            grouped: true,
+            blur: blurs,
+            child: child,
+          ),
+          child: child,
+        ),
+      );
+    }
+    final shape = ContinuousCorners(radius: radius);
     return Listener(
       behavior: HitTestBehavior.opaque,
       child: DecoratedBox(

@@ -18,10 +18,12 @@ import 'package:denial_shell_kit/kit_look_motion.dart';
 import 'package:denial_shell_kit/kit_springs.dart' show Sprung;
 import 'package:denial_shell_kit/kit_style.dart'
     show
+        KitPanelStyle,
         KitScaleScope,
         KitStyle,
         kitDockEnabled,
         kitShellScale,
+        kitStyle,
         resolveKitScale;
 import 'package:denial_shell_kit/shell_preset.dart';
 import 'package:denial_shell_kit/kit_part.dart';

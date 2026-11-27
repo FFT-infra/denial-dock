@@ -2,25 +2,31 @@ import 'package:denial_flutter_sdk/localization.dart';
 import 'package:denial_flutter_sdk/state.dart';
 import 'package:denial_flutter_sdk/theme.dart';
 import 'package:denial_shell_kit/kit_style.dart';
+import 'package:denial_shell_kit/kit_widgets.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../bar_icons.dart';
 import '../bar_type.dart';
+import '../l10n.dart';
 import 'mac_kit.dart';
 
 /// The red of the weekday and of today's date.
 const Color calendarRed = Color(0xffff453a);
 
-/// The medium calendar widget, filling the card it is given:
-/// - Left column: the weekday in red, the day's number large, and the month
-///   and year at the bottom.
-/// - A hairline between the columns.
-/// - Right column: a compact month grid under seven weekday headers, with
-///   today in a filled circle.
+/// Calendar widget supporting Small (1×1), Medium (2×1), and Large (2×2):
+/// - Small: Today's weekday, large day numeral, month & year.
+/// - Medium: Left today summary + vertical hairline + right compact month grid.
+/// - Large: Full interactive month calendar with week numbers, prev/next month,
+///   and a quick Today reset pill.
 class CalendarWidget extends ConsumerStatefulWidget {
-  const CalendarWidget({this.onTap, super.key});
+  const CalendarWidget({
+    this.size = KitWidgetSize.medium,
+    this.onTap,
+    super.key,
+  });
 
+  final KitWidgetSize size;
   final VoidCallback? onTap;
 
   @override
@@ -30,13 +36,70 @@ class CalendarWidget extends ConsumerStatefulWidget {
 class _CalendarWidgetState extends ConsumerState<CalendarWidget> {
   int _monthOffset = 0;
 
+  int _isoWeekNumber(DateTime date) {
+    final thursday = date.add(Duration(days: 4 - date.weekday));
+    final firstJan = DateTime(thursday.year, 1, 1);
+    return ((thursday.difference(firstJan).inDays) ~/ 7) + 1;
+  }
+
   @override
   Widget build(BuildContext context) {
     final theme = context.shellTheme;
     final now = ref.watch(clockProvider).value ?? DateTime.now();
+
+    if (widget.size == KitWidgetSize.small) {
+      return GestureDetector(
+        onTap: widget.onTap,
+        child: Padding(
+          padding: const EdgeInsets.fromLTRB(16, 14, 12, 12),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: <Widget>[
+              FittedBox(
+                fit: BoxFit.scaleDown,
+                alignment: Alignment.centerLeft,
+                child: Text(
+                  localizedWeekday(context.l10n, now.weekday).toUpperCase(),
+                  maxLines: 1,
+                  style: BarType.section.copyWith(
+                    fontSize: 13,
+                    fontWeight: FontWeight.w700,
+                    color: calendarRed,
+                  ),
+                ),
+              ),
+              FittedBox(
+                fit: BoxFit.scaleDown,
+                alignment: Alignment.centerLeft,
+                child: Text(
+                  '${now.day}',
+                  style: BarType.display.copyWith(
+                    fontSize: 58,
+                    height: 1.05,
+                    fontWeight: FontWeight.w300,
+                    letterSpacing: -2,
+                    color: theme.colors.textPrimary,
+                  ),
+                ),
+              ),
+              const Spacer(),
+              Text(
+                '${localizedMonth(context.l10n, now.month)} ${now.year}',
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: BarType.caption.copyWith(
+                  fontSize: 12,
+                  color: theme.colors.textSecondary,
+                ),
+              ),
+            ],
+          ),
+        ),
+      );
+    }
+
     final shown = DateTime(now.year, now.month + _monthOffset);
     final first = DateTime(shown.year, shown.month);
-    // Sunday = 0 or Monday = 1 based on locale; default Monday-first:
     final leading = (first.weekday - DateTime.monday) % 7;
     final daysInMonth = DateTime(shown.year, shown.month + 1, 0).day;
     final cells = <DateTime?>[
@@ -48,7 +111,165 @@ class _CalendarWidgetState extends ConsumerState<CalendarWidget> {
       cells.add(null);
     }
 
-    // The card under it is the grid's: this draws no plate of its own.
+    if (widget.size == KitWidgetSize.large) {
+      final rows = cells.length ~/ 7;
+      return GestureDetector(
+        onTap: widget.onTap,
+        child: Padding(
+          padding: const EdgeInsets.fromLTRB(16, 14, 16, 14),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: <Widget>[
+              Row(
+                children: <Widget>[
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: <Widget>[
+                        Text(
+                          '${localizedMonth(context.l10n, shown.month)} ${shown.year}',
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: BarType.title.copyWith(
+                            fontSize: 16,
+                            fontWeight: FontWeight.w700,
+                            color: theme.colors.textPrimary,
+                          ),
+                        ),
+                        Text(
+                          '${localizedWeekday(context.l10n, now.weekday)} · ${now.month}/${now.day}',
+                          style: BarType.caption.copyWith(
+                            fontSize: 11,
+                            color: calendarRed,
+                            fontWeight: FontWeight.w600,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                  if (_monthOffset != 0)
+                    Padding(
+                      padding: const EdgeInsets.only(right: 6),
+                      child: Pressable(
+                        onTap: () => setState(() => _monthOffset = 0),
+                        scale: Pressable.small,
+                        wash: true,
+                        shape: BorderRadius.circular(
+                          KitStyle.of(context).pill(22),
+                        ),
+                        child: Container(
+                          height: 22,
+                          padding: const EdgeInsets.symmetric(horizontal: 8),
+                          alignment: Alignment.center,
+                          decoration: BoxDecoration(
+                            color: theme.colors.textPrimary.withValues(
+                              alpha: 0.1,
+                            ),
+                            borderRadius: BorderRadius.circular(
+                              KitStyle.of(context).pill(22),
+                            ),
+                          ),
+                          child: Text(
+                            context.tr('Today'),
+                            style: BarType.caption.copyWith(
+                              fontSize: 11,
+                              fontWeight: FontWeight.w600,
+                              color: theme.colors.textPrimary,
+                            ),
+                          ),
+                        ),
+                      ),
+                    ),
+                  _ChevronBtn(
+                    icon: BarIcons.chevronLeft,
+                    onTap: () => setState(() => _monthOffset--),
+                  ),
+                  const SizedBox(width: 4),
+                  _ChevronBtn(
+                    icon: BarIcons.chevronRight,
+                    onTap: () => setState(() => _monthOffset++),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 10),
+              Row(
+                children: <Widget>[
+                  SizedBox(
+                    width: 24,
+                    child: Center(
+                      child: Text(
+                        '#',
+                        style: BarType.bare(10, FontWeight.w600).copyWith(
+                          color: theme.colors.textTertiary,
+                        ),
+                      ),
+                    ),
+                  ),
+                  for (var i = 1; i <= 7; i++)
+                    Expanded(
+                      child: Center(
+                        child: Text(
+                          _shortWeekday(context, i),
+                          style: BarType.bare(11, FontWeight.w700).copyWith(
+                            color: i >= 6
+                                ? calendarRed.withValues(alpha: 0.8)
+                                : theme.colors.textSecondary,
+                          ),
+                        ),
+                      ),
+                    ),
+                ],
+              ),
+              const SizedBox(height: 6),
+              Expanded(
+                child: LayoutBuilder(
+                  builder: (context, box) {
+                    final size = (box.maxHeight / rows).clamp(18.0, 28.0);
+                    return Column(
+                      mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+                      children: <Widget>[
+                        for (var r = 0; r < rows; r++)
+                          Row(
+                            children: <Widget>[
+                              SizedBox(
+                                width: 24,
+                                child: Center(
+                                  child: Text(
+                                    '${_isoWeekNumber(cells.sublist(r * 7, r * 7 + 7).whereType<DateTime>().first)}',
+                                    style: BarType.bare(10, FontWeight.w500)
+                                        .copyWith(
+                                          color: theme.colors.textTertiary,
+                                          fontFeatures: const <FontFeature>[
+                                            FontFeature.tabularFigures(),
+                                          ],
+                                        ),
+                                  ),
+                                ),
+                              ),
+                              for (var c = 0; c < 7; c++)
+                                Expanded(
+                                  child: Center(
+                                    child: _CompactDay(
+                                      date: cells[r * 7 + c],
+                                      today: now,
+                                      size: size,
+                                    ),
+                                  ),
+                                ),
+                            ],
+                          ),
+                      ],
+                    );
+                  },
+                ),
+              ),
+            ],
+          ),
+        ),
+      );
+    }
+
+    // Medium (2×1): left day summary + right compact month grid.
     return GestureDetector(
       onTap: widget.onTap,
       child: SizedBox.expand(
@@ -57,9 +278,8 @@ class _CalendarWidgetState extends ConsumerState<CalendarWidget> {
           child: Row(
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: <Widget>[
-              // ── Left Column: Day & Date summary ──
               SizedBox(
-                width: 120,
+                width: 116,
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: <Widget>[
@@ -94,33 +314,33 @@ class _CalendarWidgetState extends ConsumerState<CalendarWidget> {
                   ],
                 ),
               ),
-
-              // ── Vertical Hairline Divider ──
               Container(
                 width: 1,
                 margin: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
                 color: theme.colors.hairlineSoft.withValues(alpha: 0.6),
               ),
-
-              // ── Right Column: Compact Month Grid ──
               Expanded(
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.stretch,
                   children: <Widget>[
-                    // Month title + pagination arrows
                     SizedBox(
                       height: 20,
                       child: Row(
                         children: <Widget>[
                           Expanded(
-                            child: Text(
-                              '${localizedMonth(context.l10n, shown.month)} ${shown.year}',
-                              maxLines: 1,
-                              overflow: TextOverflow.ellipsis,
-                              style: BarType.bare(
-                                12,
-                                FontWeight.w700,
-                              ).copyWith(color: theme.colors.textPrimary),
+                            child: GestureDetector(
+                              onTap: _monthOffset == 0
+                                  ? null
+                                  : () => setState(() => _monthOffset = 0),
+                              child: Text(
+                                '${localizedMonth(context.l10n, shown.month)} ${shown.year}',
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
+                                style: BarType.bare(
+                                  12,
+                                  FontWeight.w700,
+                                ).copyWith(color: theme.colors.textPrimary),
+                              ),
                             ),
                           ),
                           _ChevronBtn(
@@ -136,7 +356,6 @@ class _CalendarWidgetState extends ConsumerState<CalendarWidget> {
                       ),
                     ),
                     const SizedBox(height: 4),
-                    // Weekday headers
                     Row(
                       children: <Widget>[
                         for (var i = 1; i <= 7; i++)
@@ -155,7 +374,6 @@ class _CalendarWidgetState extends ConsumerState<CalendarWidget> {
                       ],
                     ),
                     const SizedBox(height: 2),
-                    // Day rows (up to 6 rows)
                     Expanded(
                       child: LayoutBuilder(
                         builder: (context, box) {
@@ -210,8 +428,6 @@ class _ChevronBtn extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final theme = context.shellTheme;
-    // The kit's press: it gives under a finger, washes under the pointer and
-    // takes a ring from the keyboard, as every other small control does.
     return Pressable(
       onTap: onTap,
       scale: Pressable.small,
@@ -259,7 +475,7 @@ class _CompactDay extends StatelessWidget {
         '${value.day}',
         style:
             BarType.bare(
-              size < 16 ? 10 : 11,
+              size < 16 ? 10 : (size > 22 ? 12 : 11),
               isToday ? FontWeight.w700 : FontWeight.w400,
             ).copyWith(
               height: 1,

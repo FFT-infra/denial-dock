@@ -20,14 +20,26 @@ class Tile {
     required this.size,
     required this.child,
     this.onResize,
+    this.supportedSizes,
+    this.onResizeTo,
+    this.onSecondaryTap,
   });
 
   final String id;
   final TileSize size;
   final Widget child;
 
-  /// Switches the tile to its other size, when it has one.
+  /// Switches the tile to its next size on tap, when it has one.
   final VoidCallback? onResize;
+
+  /// Supported footprint sizes for magnetic corner drag resizing in edit mode.
+  final List<TileSize>? supportedSizes;
+
+  /// Commits a specific snapped [TileSize] after magnetic corner dragging.
+  final ValueChanged<TileSize>? onResizeTo;
+
+  /// Optional right-click handler (outside edit mode) receiving global anchor rect.
+  final ValueChanged<Rect>? onSecondaryTap;
 }
 
 /// A grid of tiles. While [editing] the tiles jiggle, carry a remove badge,
@@ -68,6 +80,11 @@ class _TileGridState extends State<TileGrid>
   List<String>? _order;
   DateTime _swapped = DateTime(0);
 
+  // Magnetic corner resize state (NextKDE WidgetResizeHandle style).
+  String? _resizeId;
+  Offset _resizeDelta = Offset.zero;
+  TileSize? _resizePreview;
+
   /// A repeat keeps the period it started with, so a speed change re-arms the
   /// running wobble from its current value instead of restarting it.
   void _repace() {
@@ -96,6 +113,9 @@ class _TileGridState extends State<TileGrid>
       _jiggle.value = 0.5;
       _dragId = null;
       _order = null;
+      _resizeId = null;
+      _resizePreview = null;
+      _resizeDelta = Offset.zero;
     }
   }
 
@@ -159,6 +179,60 @@ class _TileGridState extends State<TileGrid>
     if (order != null) widget.onReorder(order);
   }
 
+  TileSize _snapSize(Tile tile, Offset delta) {
+    final supported = tile.supportedSizes;
+    if (supported == null || supported.length <= 1) return tile.size;
+    final startW = _span(tile.size.w, widget.cell.width);
+    final startH = _span(tile.size.h, widget.cell.height);
+    final targetW = math.max(widget.cell.width * 0.5, startW + delta.dx);
+    final targetH = math.max(widget.cell.height * 0.5, startH + delta.dy);
+    var best = tile.size;
+    var bestDist = double.infinity;
+    for (final candidate in supported) {
+      final cw = _span(math.min(candidate.w, widget.columns), widget.cell.width);
+      final ch = _span(candidate.h, widget.cell.height);
+      final dist = (cw - targetW).abs() + (ch - targetH).abs();
+      if (dist < bestDist) {
+        bestDist = dist;
+        best = candidate;
+      }
+    }
+    return best;
+  }
+
+  void _resizeStart(Tile tile) {
+    setState(() {
+      _resizeId = tile.id;
+      _resizeDelta = Offset.zero;
+      _resizePreview = tile.size;
+    });
+  }
+
+  void _resizeUpdate(Tile tile, Offset delta) {
+    if (_resizeId != tile.id) return;
+    _resizeDelta += delta;
+    final snapped = _snapSize(tile, _resizeDelta);
+    if (snapped.w != _resizePreview?.w || snapped.h != _resizePreview?.h) {
+      setState(() => _resizePreview = snapped);
+    } else {
+      setState(() {});
+    }
+  }
+
+  void _resizeEnd(Tile tile) {
+    if (_resizeId != tile.id) return;
+    final target = _resizePreview;
+    setState(() {
+      _resizeId = null;
+      _resizePreview = null;
+      _resizeDelta = Offset.zero;
+    });
+    if (target != null &&
+        (target.w != tile.size.w || target.h != tile.size.h)) {
+      tile.onResizeTo?.call(target);
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     final tiles = _tiles;
@@ -177,8 +251,23 @@ class _TileGridState extends State<TileGrid>
       final tile = tiles[index];
       final rect = rects[tile.id]!;
       final dragging = _dragId == tile.id;
+      final resizing = _resizeId == tile.id;
       Widget body = IgnorePointer(ignoring: widget.editing, child: tile.child);
+      if (!widget.editing && tile.onSecondaryTap != null) {
+        body = GestureDetector(
+          behavior: HitTestBehavior.translucent,
+          onSecondaryTapUp: (details) {
+            final pos = details.globalPosition;
+            tile.onSecondaryTap!(Rect.fromLTWH(pos.dx, pos.dy, 1, 1));
+          },
+          child: body,
+        );
+      }
       if (widget.editing) {
+        final canResize =
+            tile.onResize != null ||
+            (tile.onResizeTo != null &&
+                (tile.supportedSizes?.length ?? 0) > 1);
         body = RawGestureDetector(
           behavior: HitTestBehavior.opaque,
           gestures: <Type, GestureRecognizerFactory>{
@@ -201,7 +290,7 @@ class _TileGridState extends State<TileGrid>
             // With reduced motion the tiles hold still; the badges on them
             // already say the grid is being edited.
             builder: (context, child) => Transform.rotate(
-              angle: dragging || KitMotion.reduced(context)
+              angle: dragging || resizing || KitMotion.reduced(context)
                   ? 0
                   : (_jiggle.value - 0.5) *
                         (index.isEven ? 1 : -1) *
@@ -221,7 +310,7 @@ class _TileGridState extends State<TileGrid>
           clipBehavior: Clip.none,
           children: <Widget>[
             Positioned.fill(child: body),
-            if (!dragging)
+            if (!dragging && !resizing)
               Positioned(
                 left: -6,
                 top: -6,
@@ -230,11 +319,30 @@ class _TileGridState extends State<TileGrid>
                   onTap: () => widget.onRemove(tile.id),
                 ),
               ),
-            if (!dragging && tile.onResize != null)
+            if (!dragging && canResize)
               Positioned(
                 right: -6,
                 bottom: -6,
-                child: _Badge(icon: BarIcons.resize, onTap: tile.onResize!),
+                child: tile.onResizeTo != null &&
+                        (tile.supportedSizes?.length ?? 0) > 1
+                    ? _MagneticResizeHandle(
+                        onTap: () {
+                          if (tile.onResize != null) {
+                            tile.onResize!();
+                          } else {
+                            final sup = tile.supportedSizes!;
+                            final idx = sup.indexWhere(
+                              (s) =>
+                                  s.w == tile.size.w && s.h == tile.size.h,
+                            );
+                            tile.onResizeTo!(sup[(idx + 1) % sup.length]);
+                          }
+                        },
+                        onDragStart: () => _resizeStart(tile),
+                        onDragUpdate: (d) => _resizeUpdate(tile, d),
+                        onDragEnd: () => _resizeEnd(tile),
+                      )
+                    : _Badge(icon: BarIcons.resize, onTap: tile.onResize!),
               ),
           ],
         );
@@ -259,6 +367,19 @@ class _TileGridState extends State<TileGrid>
     }
 
     final dragIndex = tiles.indexWhere((t) => t.id == _dragId);
+    final resizeIndex = tiles.indexWhere((t) => t.id == _resizeId);
+    final previewRect = resizeIndex >= 0 && _resizePreview != null
+        ? Rect.fromLTWH(
+            rects[tiles[resizeIndex].id]!.left,
+            rects[tiles[resizeIndex].id]!.top,
+            _span(
+              math.min(_resizePreview!.w, widget.columns),
+              widget.cell.width,
+            ),
+            _span(_resizePreview!.h, widget.cell.height),
+          )
+        : null;
+    final accent = KitStyle.of(context).accent(context.shellTheme);
     return AnimatedSize(
       duration: KitMotion.loop(context, KitMotion.travel),
       curve: KitMotion.outCubic,
@@ -272,6 +393,29 @@ class _TileGridState extends State<TileGrid>
             for (var i = 0; i < tiles.length; i++)
               if (i != dragIndex) tileOf(i),
             if (dragIndex >= 0) tileOf(dragIndex),
+            if (previewRect != null)
+              AnimatedPositioned(
+                duration: KitMotion.duration(context, KitMotion.tap),
+                curve: KitMotion.outCubic,
+                left: previewRect.left,
+                top: previewRect.top,
+                width: previewRect.width,
+                height: previewRect.height,
+                child: IgnorePointer(
+                  child: DecoratedBox(
+                    decoration: BoxDecoration(
+                      color: accent.withValues(alpha: 0.14),
+                      borderRadius: BorderRadius.circular(
+                        KitStyle.of(context).corner(20),
+                      ),
+                      border: Border.all(
+                        color: accent.withValues(alpha: 0.85),
+                        width: 2,
+                      ),
+                    ),
+                  ),
+                ),
+              ),
           ],
         ),
       ),
@@ -317,6 +461,87 @@ class _Badge extends StatelessWidget {
             ]),
           ),
           child: BarGlyph(icon, size: 11, color: const Color(0xffffffff)),
+        ),
+      ),
+    );
+  }
+}
+
+/// NextKDE-inspired magnetic corner resize handle: tap cycles sizes, drag
+/// stretches a live magnetic grid outline that snaps to supported footprints.
+class _MagneticResizeHandle extends StatefulWidget {
+  const _MagneticResizeHandle({
+    required this.onTap,
+    required this.onDragStart,
+    required this.onDragUpdate,
+    required this.onDragEnd,
+  });
+
+  final VoidCallback onTap;
+  final VoidCallback onDragStart;
+  final ValueChanged<Offset> onDragUpdate;
+  final VoidCallback onDragEnd;
+
+  @override
+  State<_MagneticResizeHandle> createState() => _MagneticResizeHandleState();
+}
+
+class _MagneticResizeHandleState extends State<_MagneticResizeHandle> {
+  bool _dragging = false;
+  Offset _moved = Offset.zero;
+
+  @override
+  Widget build(BuildContext context) {
+    final style = KitStyle.of(context);
+    final accent = style.accent(context.shellTheme);
+    return MouseRegion(
+      cursor: SystemMouseCursors.resizeUpLeftDownRight,
+      child: RawGestureDetector(
+        behavior: HitTestBehavior.opaque,
+        gestures: <Type, GestureRecognizerFactory>{
+          _EagerPan: GestureRecognizerFactoryWithHandlers<_EagerPan>(
+            _EagerPan.new,
+            (recognizer) {
+              recognizer.onStart = (_) {
+                _moved = Offset.zero;
+                _dragging = true;
+                widget.onDragStart();
+              };
+              recognizer.onUpdate = (d) {
+                _moved += d.delta;
+                widget.onDragUpdate(d.delta);
+              };
+              recognizer.onEnd = (_) {
+                final tap = _moved.distance < 6;
+                _dragging = false;
+                widget.onDragEnd();
+                if (tap) widget.onTap();
+              };
+              recognizer.onCancel = () {
+                _dragging = false;
+                widget.onDragEnd();
+              };
+            },
+          ),
+        },
+        child: Padding(
+          padding: const EdgeInsets.all(3),
+          child: Container(
+            width: 22,
+            height: 22,
+            decoration: BoxDecoration(
+              borderRadius: style.disc(22),
+              color: _dragging ? accent : const Color(0xff636366),
+              boxShadow: style.cast(const <BoxShadow>[
+                BoxShadow(color: Color(0x48000000), blurRadius: 5),
+              ]),
+            ),
+            child: const BarGlyph(
+              BarIcons.resize,
+              size: 11,
+              color: Color(0xffffffff),
+            ),
+          ),
         ),
       ),
     );

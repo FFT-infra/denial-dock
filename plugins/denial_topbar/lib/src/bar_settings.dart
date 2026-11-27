@@ -278,7 +278,7 @@ enum BarTrayFold {
   return (visible: shown, folded: const <String>[]);
 }
 
-const List<String> defaultControls = <String>[
+const List<String> _legacyDefaultControls = <String>[
   'wifi',
   'media',
   'bluetooth',
@@ -290,6 +290,11 @@ const List<String> defaultControls = <String>[
   'recording',
   'display',
   'sound',
+];
+
+const List<String> defaultControls = <String>[
+  ..._legacyDefaultControls,
+  'session',
 ];
 
 const List<String> defaultWidgets = <String>['calendar', 'worldclock'];
@@ -1079,7 +1084,17 @@ class BarSettings {
       trayHidden: ids('trayHidden', const <String>[]),
       trayNever: ids('trayNever', const <String>[]),
       tileSizes: ids('tileSizes', const <String>[]),
-      controls: ids('controls', defaultControls),
+      controls: () {
+        final raw = ids('controls', defaultControls);
+        if (raw.length == _legacyDefaultControls.length &&
+            [
+              for (var i = 0; i < raw.length; i++)
+                raw[i] == _legacyDefaultControls[i],
+            ].every((ok) => ok)) {
+          return defaultControls;
+        }
+        return raw;
+      }(),
       widgets: ids('widgets', defaultWidgets),
       statusOrder: ids('statusOrder', defaultStatusOrder),
     );

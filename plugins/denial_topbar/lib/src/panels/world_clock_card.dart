@@ -1,7 +1,9 @@
 import 'dart:async';
 import 'dart:math' as math;
 
+import 'package:denial_flutter_sdk/theme.dart';
 import 'package:denial_shell_kit/detached_run.dart';
+import 'package:denial_shell_kit/kit_widgets.dart';
 import 'package:flutter/widgets.dart';
 
 import '../bar_type.dart';
@@ -77,11 +79,17 @@ class WorldClock {
   }
 }
 
-/// The World Clock widget: four dials on a dark card, each with its city
-/// and the time there under it. A dial is light while it is day in its city
-/// and dark at night, so the row reads at a glance.
+/// The World Clock widget: Medium (2×1) shows 4 compact dials in a row;
+/// Large (2×2) shows a 2×2 grid of larger dials with day/night faces.
 class WorldClockCard extends StatefulWidget {
-  const WorldClockCard({super.key});
+  const WorldClockCard({
+    this.size = KitWidgetSize.medium,
+    this.glass = false,
+    super.key,
+  });
+
+  final KitWidgetSize size;
+  final bool glass;
 
   @override
   State<WorldClockCard> createState() => _WorldClockCardState();
@@ -114,6 +122,56 @@ class _WorldClockCardState extends State<WorldClockCard> {
   @override
   Widget build(BuildContext context) {
     if (_clocks.isEmpty) return const SizedBox.shrink();
+    final theme = context.shellTheme;
+    final primary = widget.glass ? theme.colors.textPrimary : NcLook.onNight;
+    final secondary = widget.glass
+        ? theme.colors.textSecondary
+        : NcLook.onNightDim;
+    if (widget.size == KitWidgetSize.large) {
+      return Padding(
+        padding: const EdgeInsets.all(14),
+        child: Column(
+          children: <Widget>[
+            Expanded(
+              child: Row(
+                children: <Widget>[
+                  for (final clock in _clocks.take(2))
+                    Expanded(
+                      child: Padding(
+                        padding: const EdgeInsets.all(6),
+                        child: _Dial(
+                          clock: clock,
+                          primary: primary,
+                          secondary: secondary,
+                          large: true,
+                        ),
+                      ),
+                    ),
+                ],
+              ),
+            ),
+            Expanded(
+              child: Row(
+                children: <Widget>[
+                  for (final clock in _clocks.skip(2).take(2))
+                    Expanded(
+                      child: Padding(
+                        padding: const EdgeInsets.all(6),
+                        child: _Dial(
+                          clock: clock,
+                          primary: primary,
+                          secondary: secondary,
+                          large: true,
+                        ),
+                      ),
+                    ),
+                ],
+              ),
+            ),
+          ],
+        ),
+      );
+    }
     return Padding(
       padding: const EdgeInsets.fromLTRB(12, 14, 12, 12),
       child: Row(
@@ -123,7 +181,11 @@ class _WorldClockCardState extends State<WorldClockCard> {
             Expanded(
               child: Padding(
                 padding: const EdgeInsets.symmetric(horizontal: 5),
-                child: _Dial(clock: clock),
+                child: _Dial(
+                  clock: clock,
+                  primary: primary,
+                  secondary: secondary,
+                ),
               ),
             ),
         ],
@@ -134,9 +196,17 @@ class _WorldClockCardState extends State<WorldClockCard> {
 
 /// One city: its dial, its name, and the time in figures.
 class _Dial extends StatelessWidget {
-  const _Dial({required this.clock});
+  const _Dial({
+    required this.clock,
+    required this.primary,
+    required this.secondary,
+    this.large = false,
+  });
 
   final WorldClock clock;
+  final Color primary;
+  final Color secondary;
+  final bool large;
 
   @override
   Widget build(BuildContext context) {
@@ -160,19 +230,17 @@ class _Dial extends StatelessWidget {
             ),
           ),
         ),
-        const SizedBox(height: 8),
+        SizedBox(height: large ? 10 : 8),
         Text(
           context.tr(clock.city),
           maxLines: 1,
           overflow: TextOverflow.ellipsis,
           style: BarType.caption.copyWith(
-            fontSize: 12,
+            fontSize: large ? 13 : 12,
             fontWeight: FontWeight.w600,
-            color: NcLook.onNight,
+            color: primary,
           ),
         ),
-        // Shrunk to the column rather than cut: the end of the line is the
-        // time itself.
         FittedBox(
           fit: BoxFit.scaleDown,
           child: Text(
@@ -182,7 +250,8 @@ class _Dial extends StatelessWidget {
                       '${clock.time}',
             maxLines: 1,
             style: BarType.caption.copyWith(
-              color: NcLook.onNightDim,
+              fontSize: large ? 12 : 11,
+              color: secondary,
               fontFeatures: const <FontFeature>[FontFeature.tabularFigures()],
             ),
           ),

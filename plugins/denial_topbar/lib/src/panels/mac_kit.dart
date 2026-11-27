@@ -317,25 +317,31 @@ class MacDisc extends StatelessWidget {
   Widget build(BuildContext context) {
     final theme = context.shellTheme;
     final style = KitStyle.of(context);
+    // macOS 26 Tahoe active round discs use a crisp white disc with the
+    // control's own vibrant colour for the glyph.
+    final macWhiteDisc =
+        on && style.id == 'mac' && style.panelStyle == KitPanelStyle.floating;
+    final fillColor = macWhiteDisc
+        ? const Color(0xffffffff)
+        : style.plate(theme, colour, meaning: meaning);
+    final glyphColor = !on
+        ? theme.colors.textPrimary
+        : macWhiteDisc
+        ? colour
+        : style.onPlate(theme, meaning: meaning);
     return Container(
       width: size,
       height: size,
       foregroundDecoration: BoxDecoration(border: style.controlLine(theme)),
       child: LiquidFill(
         level: on ? 1 : 0,
-        color: style.plate(theme, colour, meaning: meaning),
+        color: fillColor,
         base: theme.colors.textPrimary.withValues(alpha: 0.14),
         radius: style.disc(size),
         child: Center(
           child:
               child ??
-              MacGlyph(
-                icon,
-                size: size * 0.5,
-                color: on
-                    ? style.onPlate(theme, meaning: meaning)
-                    : theme.colors.textPrimary,
-              ),
+              MacGlyph(icon, size: size * 0.5, color: glyphColor),
         ),
       ),
     );
@@ -529,6 +535,7 @@ class MacSlider extends StatefulWidget {
     this.onChangeEnd,
     this.leading,
     this.trailing,
+    this.trailingWidget,
     this.height = 18,
     this.inList = false,
     this.enabled = true,
@@ -546,6 +553,10 @@ class MacSlider extends StatefulWidget {
   final ValueChanged<double>? onChangeEnd;
   final IconData? leading;
   final IconData? trailing;
+
+  /// Optional interactive widget placed at the trailing end (e.g. audio output
+  /// picker disc on macOS 26 Sound slider).
+  final Widget? trailingWidget;
 
   /// Height of the resting knob.
   final double height;
@@ -830,7 +841,13 @@ class _MacSliderState extends State<MacSlider>
             ),
           ),
         ),
-        if (widget.trailing != null) glyph(widget.trailing!),
+        if (widget.trailingWidget != null)
+          Padding(
+            padding: const EdgeInsets.only(left: 8),
+            child: widget.trailingWidget!,
+          )
+        else if (widget.trailing != null)
+          glyph(widget.trailing!),
       ],
     );
     return IgnorePointer(

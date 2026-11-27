@@ -133,8 +133,11 @@ class _NcCardState extends State<NcCard> with TickerProviderStateMixin {
 
   /// How much of the plate is glass. It starts as a plain fill and turns
   /// once the card is at rest in a column at rest.
-  late final AnimationController _glass = AnimationController(vsync: this);
-  bool _glassOn = false;
+  late final AnimationController _glass = AnimationController(
+    vsync: this,
+    value: widget.settled ? 1 : 0,
+  );
+  late bool _glassOn = widget.settled;
   late final KitSpring _home = KitSpring(0, ncSpring(NcMotion.rebound));
   late final KitSprings _springs = KitSprings(this, <KitSpring>[
     _home,

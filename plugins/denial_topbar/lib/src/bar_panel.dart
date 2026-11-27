@@ -34,6 +34,8 @@ void showBarPanel({
   PanelEdge side = PanelEdge.top,
   double width = BarTokens.panelMaxWidth,
   bool glass = true,
+  bool frameless = false,
+  double? gap,
   BarPanelAnchor placement = BarPanelAnchor.dropdown,
   Color? fill,
   double? radius,
@@ -51,7 +53,7 @@ void showBarPanel({
     anchor: kitSceneRect(anchor),
     edge: side.kitEdge,
     hostExtent: barHeight,
-    gap: menu ? BarTokens.menuDropOffsetY : BarTokens.popoverGap,
+    gap: gap ?? (menu ? BarTokens.menuDropOffsetY : BarTokens.popoverGap),
     radius: radius ?? (menu ? BarTokens.menuRadius : BarTokens.popoverRadius),
     width: width,
     kind: menu ? KitPanelKind.menu : KitPanelKind.popover,
@@ -67,6 +69,7 @@ void showBarPanel({
       BarPanelAnchor.trailing => BarTokens.controlCenterInset,
     },
     glass: glass,
+    frameless: frameless,
     fill: fill,
     bead: sheet
         ? Size.square(math.max(0.94, math.max(bead.width, bead.height)))

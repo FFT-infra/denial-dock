@@ -9,7 +9,9 @@ import 'package:denial_flutter_sdk/system_services.dart'
 import 'package:denial_flutter_sdk/theme.dart';
 import 'package:denial_shell_kit/kit_control_math.dart';
 import 'package:denial_shell_kit/kit_entrance.dart';
+import 'package:denial_shell_kit/kit_glass.dart';
 import 'package:denial_shell_kit/kit_layer.dart' show KitLayer;
+import 'package:denial_shell_kit/kit_material.dart';
 import 'package:denial_shell_kit/kit_morph.dart';
 import 'package:denial_shell_kit/kit_motion.dart';
 import 'package:denial_shell_kit/kit_springs.dart';
@@ -72,6 +74,29 @@ class ControlCenterPanel extends ConsumerStatefulWidget {
   ConsumerState<ControlCenterPanel> createState() => _ControlCenterPanelState();
 }
 
+/// Propagates whether Control Centre is in macOS 26 floating-module mode (each
+/// tile draws its own grouped [KitGlass] block) and whether the entrance
+/// animation has settled so backdrop blur can activate without costing entry
+/// frames.
+class _CcGlassScope extends InheritedWidget {
+  const _CcGlassScope({
+    required this.floating,
+    required this.blur,
+    required super.child,
+  });
+
+  final bool floating;
+  final bool blur;
+
+  static _CcGlassScope of(BuildContext context) =>
+      context.dependOnInheritedWidgetOfExactType<_CcGlassScope>() ??
+      const _CcGlassScope(floating: false, blur: true, child: SizedBox.shrink());
+
+  @override
+  bool updateShouldNotify(_CcGlassScope old) =>
+      floating != old.floating || blur != old.blur;
+}
+
 class _ControlCenterPanelState extends ConsumerState<ControlCenterPanel>
     with SingleTickerProviderStateMixin {
   /// The page the panel is heading for; empty is the grid.
@@ -80,6 +105,10 @@ class _ControlCenterPanelState extends ConsumerState<ControlCenterPanel>
   /// The detail page on screen, kept while it shrinks back into its tile.
   String _shown = '';
   bool _editing = false;
+
+  /// Always true so floating modules share one BackdropGroup from frame 0
+  /// without a post-settle opacity/rim flash.
+  final bool _settled = true;
 
   /// One spring carries a detail page out of its tile and back: the frame,
   /// its corners, the hand-over between the two faces and the panel's height
@@ -170,9 +199,8 @@ class _ControlCenterPanelState extends ConsumerState<ControlCenterPanel>
   @override
   void didChangeDependencies() {
     super.didChangeDependencies();
-    final hook = context
-        .dependOnInheritedWidgetOfExactType<KitLayer>()
-        ?.interceptBack;
+    final layer = context.dependOnInheritedWidgetOfExactType<KitLayer>();
+    final hook = layer?.interceptBack;
     if (hook != _intercept) {
       _intercept?.call(null);
       _intercept = hook;
@@ -272,14 +300,20 @@ class _ControlCenterPanelState extends ConsumerState<ControlCenterPanel>
   Widget build(BuildContext context) {
     final theme = context.shellTheme;
     final style = KitStyle.of(context);
+    final floating = style.panelStyle == KitPanelStyle.floating;
     final ink = theme.colors.textPrimary;
-    final Widget? detail = switch (_shown) {
+    final Widget? rawDetail = switch (_shown) {
       'wifi' => WifiPopover(
         onBack: () => _go(''),
         onJoin: widget.onJoinNetwork,
         onSettings: widget.onSettings,
       ),
       'bluetooth' => BluetoothPopover(
+        onBack: () => _go(''),
+        onSettings: widget.onSettings,
+      ),
+      'display' => DisplayPopover(
+        output: widget.output,
         onBack: () => _go(''),
         onSettings: widget.onSettings,
       ),
@@ -291,6 +325,19 @@ class _ControlCenterPanelState extends ConsumerState<ControlCenterPanel>
       'timer' => _TimerPage(onBack: () => _go('')),
       _ => null,
     };
+    // In floating mode there is no outer KitCard, so a detail page wraps
+    // itself in a complete glass card matching the active surface mode.
+    final Widget? detail = rawDetail == null
+        ? null
+        : floating
+        ? KitGlass(
+            material: kitMaterialOf(context, KitTier.popover),
+            tier: KitTier.popover,
+            radius: style.outer(theme, BarTokens.popoverRadius),
+            blur: _settled,
+            child: rawDetail,
+          )
+        : rawDetail;
     final home = KeyedSubtree(
       key: const ValueKey<String>('home'),
       child: ExcludeFocus(
@@ -306,7 +353,7 @@ class _ControlCenterPanelState extends ConsumerState<ControlCenterPanel>
             skipTraversal: true,
             child: detail,
           );
-    return SizedBox(
+    Widget content = SizedBox(
       width: controlCenterWidth,
       child: FocusScope(
         node: _root,
@@ -320,8 +367,12 @@ class _ControlCenterPanelState extends ConsumerState<ControlCenterPanel>
               from: _from,
               fromRadius: _fromRadius,
               toRadius: BarTokens.popoverRadius * style.cornerScale,
-              plate: ink.withValues(alpha: 0.07),
-              rim: style.flat
+              plate: floating
+                  ? const Color(0x00000000)
+                  : ink.withValues(alpha: 0.07),
+              rim: floating
+                  ? const Color(0x00000000)
+                  : style.flat
                   ? theme.colors.hairline
                   : ink.withValues(alpha: 0.08),
               home: home,
@@ -331,6 +382,10 @@ class _ControlCenterPanelState extends ConsumerState<ControlCenterPanel>
         ),
       ),
     );
+    if (floating) {
+      content = BackdropGroup(child: content);
+    }
+    return _CcGlassScope(floating: floating, blur: _settled, child: content);
   }
 
   static const List<TileChoice> _library = <TileChoice>[
@@ -359,13 +414,30 @@ class _ControlCenterPanelState extends ConsumerState<ControlCenterPanel>
     TileChoice(id: 'search', icon: BarIcons.search, label: 'Search'),
     TileChoice(id: 'settings', icon: BarIcons.gear, label: 'Settings'),
     TileChoice(id: 'timer', icon: BarIcons.timer, label: 'Timer'),
+    TileChoice(id: 'session', icon: BarIcons.power, label: 'Power Row'),
   ];
 
   void _saveControls(List<String> controls) => ref
       .read(barSettingsProvider.notifier)
       .save((s) => s.copyWith(controls: controls));
 
-  Tile? _tile(BuildContext context, String id) {
+  void _saveTileSize(String key, TileSize next) => ref
+      .read(barSettingsProvider.notifier)
+      .save(
+        (s) => s.copyWith(
+          tileSizes: writeTileSizes(<String, TileSize>{
+            ...parseTileSizes(s.tileSizes),
+            key: next,
+          }),
+        ),
+      );
+
+  Tile? _tile(
+    BuildContext context,
+    String id, {
+    BarSettings? settings,
+    List<String> trayFolded = const <String>[],
+  }) {
     final sizes = parseTileSizes(
       ref.watch(
         barSettingsProvider.select(
@@ -374,24 +446,29 @@ class _ControlCenterPanelState extends ConsumerState<ControlCenterPanel>
       ),
     );
     final key = 'cc.$id';
+    const toggleSizes = <TileSize>[TileSize(1, 1), TileSize(2, 1)];
     // A toggle is either a capsule with its name or a bare disc; the user
     // picks, and each kind knows how to draw itself as the other.
-    Tile sized(TileSize natural, Widget child) {
-      final wide = (sizes[key] ?? natural).w > 1;
+    Tile sized(
+      TileSize natural,
+      Widget child, {
+      List<TileSize> supported = toggleSizes,
+    }) {
+      final current = sizes[key] ?? natural;
+      final clamped = supported.any((s) => s.w == current.w && s.h == current.h)
+          ? current
+          : natural;
+      final idx = supported.indexWhere(
+        (s) => s.w == clamped.w && s.h == clamped.h,
+      );
+      final next = supported[(idx + 1) % supported.length];
       return Tile(
         id: id,
-        size: TileSize(wide ? 2 : 1, 1),
+        size: clamped,
         child: child,
-        onResize: () => ref
-            .read(barSettingsProvider.notifier)
-            .save(
-              (s) => s.copyWith(
-                tileSizes: writeTileSizes(<String, TileSize>{
-                  ...parseTileSizes(s.tileSizes),
-                  key: TileSize(wide ? 1 : 2, 1),
-                }),
-              ),
-            ),
+        supportedSizes: supported,
+        onResize: () => _saveTileSize(key, next),
+        onResizeTo: (target) => _saveTileSize(key, target),
       );
     }
 
@@ -595,12 +672,14 @@ class _ControlCenterPanelState extends ConsumerState<ControlCenterPanel>
           size: const TileSize(4, 1),
           child: _SliderTile(
             label: context.tr('Display'),
+            reading: level == null ? null : '${(level * 100).round()}%',
             // No level until the backlight has been read, and none at all
             // on a screen that has no backlight to set.
             value: level ?? 0,
             enabled: level != null,
             leading: BarIcons.sunMax,
             trailing: BarIcons.sunMaxFill,
+            onOpen: () => _go('display'),
             onChanged: (value) => brightness.setLevel(widget.output, value),
             onChangeEnd: (value) =>
                 brightness.commitLevel(widget.output, value),
@@ -609,17 +688,46 @@ class _ControlCenterPanelState extends ConsumerState<ControlCenterPanel>
       case 'sound':
         final volume = ref.watch(services.volume);
         final audible = ref.watch(services.volumeAvailable);
+        final style = KitStyle.of(context);
+        final macFloat =
+            style.id == 'mac' && style.panelStyle == KitPanelStyle.floating;
         return Tile(
           id: id,
           size: const TileSize(4, 1),
           child: _SliderTile(
             label: context.tr('Sound'),
+            reading: audible ? '${(volume * 100).round()}%' : null,
             value: volume,
             enabled: audible,
             leading: volume <= 0.001
                 ? BarIcons.speakerSlashFill
                 : BarIcons.speaker1Fill,
-            trailing: BarIcons.speaker3Fill,
+            trailingWidget: Pressable(
+              onTap: () => _go('sound'),
+              scale: Pressable.small,
+              wash: true,
+              darken: true,
+              shape: style.disc(28),
+              child: Container(
+                width: 28,
+                height: 28,
+                decoration: BoxDecoration(
+                  borderRadius: style.disc(28),
+                  color: macFloat
+                      ? const Color(0xffffffff)
+                      : context.shellTheme.colors.textPrimary.withValues(
+                          alpha: 0.14,
+                        ),
+                ),
+                child: BarGlyph(
+                  BarIcons.speaker3Fill,
+                  size: 14,
+                  color: macFloat
+                      ? macBlue
+                      : context.shellTheme.colors.textPrimary,
+                ),
+              ),
+            ),
             onOpen: () => _go('sound'),
             onChangeStart: services.beginVolumeInteraction,
             onChanged: services.setVolume,
@@ -684,11 +792,63 @@ class _ControlCenterPanelState extends ConsumerState<ControlCenterPanel>
           ),
         );
       case 'desktop':
-        return round(
-          _Round(
-            icon: BarIcons.desktopcomputer,
-            on: ref.watch(services.desktopVisible),
-            onTap: () => act(services.toggleDesktop),
+        final active = ref.watch(services.desktopVisible);
+        final currentSize = sizes[key] ?? const TileSize(1, 1);
+        final isSquare = currentSize.w == 2 && currentSize.h == 2;
+        return sized(
+          const TileSize(1, 1),
+          isSquare
+              ? _LargeActionTile(
+                  icon: BarIcons.desktopcomputer,
+                  label: label,
+                  on: active,
+                  onTap: () => act(services.toggleDesktop),
+                )
+              : fit(
+                  _Round(
+                    icon: BarIcons.desktopcomputer,
+                    on: active,
+                    onTap: () => act(services.toggleDesktop),
+                  ),
+                  const TileSize(1, 1),
+                ),
+          supported: const <TileSize>[
+            TileSize(1, 1),
+            TileSize(2, 1),
+            TileSize(2, 2),
+          ],
+        );
+      case 'session':
+        return Tile(
+          id: id,
+          size: const TileSize(4, 1),
+          child: _PowerRow(
+            onSleep: () => widget.onClose(),
+            confirm: (action) {
+              widget.onClose();
+              widget.onConfirmPower(action);
+            },
+            request: (action) {
+              widget.onClose();
+              ref.read(sessionPowerProvider.notifier).request(action);
+            },
+            immediate: (action) async {
+              widget.onClose();
+              final p = ref.read(sessionPowerProvider.notifier);
+              await p.request(action);
+              await p.confirm();
+            },
+          ),
+        );
+      case 'tray':
+        if (trayFolded.isEmpty || settings == null) return null;
+        return Tile(
+          id: id,
+          size: const TileSize(4, 1),
+          child: _TrayShelf(
+            services: widget.services,
+            settings: settings,
+            itemIds: trayFolded,
           ),
         );
       case 'search':
@@ -731,14 +891,22 @@ class _ControlCenterPanelState extends ConsumerState<ControlCenterPanel>
             resolveKey: (id) => trayNames.of(id).key,
           ).folded
         : const <String>[];
+    final floating = _CcGlassScope.of(context).floating;
+    final effectiveOrder = <String>[
+      ...order,
+      if (trayFolded.isNotEmpty && !order.contains('tray')) 'tray',
+    ];
     final tiles = <Tile>[
-      for (final id in order)
-        if (_tile(context, id) case final tile?)
+      for (final id in effectiveOrder)
+        if (_tile(context, id, settings: settings, trayFolded: trayFolded)
+            case final tile?)
           // Keyed so a detail page can find the tile it grows out of.
           Tile(
             id: tile.id,
             size: tile.size,
             onResize: tile.onResize,
+            supportedSizes: tile.supportedSizes,
+            onResizeTo: tile.onResizeTo,
             child: KeyedSubtree(
               key: _tileKeys.putIfAbsent(id, GlobalKey.new),
               child: tile.child,
@@ -755,11 +923,12 @@ class _ControlCenterPanelState extends ConsumerState<ControlCenterPanel>
           ),
     ];
     final density = KitStyle.of(context).density.clamp(0.75, 1.35);
+    final pad = floating ? 6.0 * density : _C.inset * density;
     // On a short screen, or with every control added, the sheet is taller
     // than the room above a dock: it scrolls then, and only then, so a tile
     // dragged while editing is not taken for a scroll when all of it fits.
     return SingleChildScrollView(
-      padding: EdgeInsets.all(_C.inset * density),
+      padding: EdgeInsets.all(pad),
       child: Column(
         mainAxisSize: MainAxisSize.min,
         crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -770,81 +939,70 @@ class _ControlCenterPanelState extends ConsumerState<ControlCenterPanel>
             cell: const Size.square(_C.row),
             gap: _C.gap * density,
             editing: _editing,
-            onReorder: _saveControls,
-            onRemove: (id) => _saveControls(<String>[
-              for (final other in order)
-                if (other != id) other,
+            onReorder: (next) => _saveControls(<String>[
+              for (final id in next)
+                if (id != 'tray') id,
             ]),
+            onRemove: (id) {
+              if (id == 'tray') return;
+              _saveControls(<String>[
+                for (final other in order)
+                  if (other != id) other,
+              ]);
+            },
           ),
           Reveal(
             open: _editing,
             child: Padding(
               padding: const EdgeInsets.only(top: 14),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: <Widget>[
-                  Padding(
-                    padding: const EdgeInsets.fromLTRB(2, 0, 0, 8),
-                    child: Text(
-                      context.tr('Add Controls'),
-                      style: BarType.section.copyWith(
-                        color: theme.colors.textSecondary,
+              child: _Tile(
+                radius: KitStyle.of(context).corner(20),
+                child: Padding(
+                  padding: const EdgeInsets.all(12),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: <Widget>[
+                      Padding(
+                        padding: const EdgeInsets.fromLTRB(2, 0, 0, 8),
+                        child: Text(
+                          context.tr('Add Controls'),
+                          style: BarType.section.copyWith(
+                            color: theme.colors.textSecondary,
+                          ),
+                        ),
                       ),
-                    ),
+                      TileLibrary(
+                        choices: spare,
+                        empty: context.tr('Everything is already here.'),
+                        onAdd: (id) => _saveControls(<String>[...order, id]),
+                      ),
+                    ],
                   ),
-                  TileLibrary(
-                    choices: spare,
-                    empty: context.tr('Everything is already here.'),
-                    onAdd: (id) => _saveControls(<String>[...order, id]),
-                  ),
-                ],
+                ),
               ),
             ),
           ),
           const SizedBox(height: 12),
-          if (trayFolded.isNotEmpty) ...<Widget>[
-            _TrayShelf(
-              services: widget.services,
-              settings: settings,
-              itemIds: trayFolded,
-            ),
-            const SizedBox(height: 10),
-          ],
-          // Session actions live here rather than in the bar's system menu:
-          // this is the panel that is open when someone wants to stop work.
-          KitEntranceItem(
-            row: 4,
-            child: Padding(
-              padding: const EdgeInsets.only(bottom: 2),
-              child: _PowerRow(
-                onSleep: () => widget.onClose(),
-                confirm: (action) {
-                  widget.onClose();
-                  widget.onConfirmPower(action);
-                },
-                request: (action) {
-                  widget.onClose();
-                  ref.read(sessionPowerProvider.notifier).request(action);
-                },
-              ),
-            ),
-          ),
           KitEntranceItem(
             row: 5,
             child: Row(
               mainAxisAlignment: MainAxisAlignment.center,
               children: <Widget>[
                 if (_editing) ...<Widget>[
-                  TileEditButton(
-                    label: context.tr('Reset'),
-                    onTap: () => _saveControls(defaultControls),
+                  _FloatingEditPill(
+                    child: TileEditButton(
+                      label: context.tr('Reset'),
+                      onTap: () => _saveControls(defaultControls),
+                    ),
                   ),
                   const SizedBox(width: 8),
                 ],
-                TileEditButton(
-                  label: context.tr(_editing ? 'Done' : 'Edit Controls'),
-                  strong: _editing,
-                  onTap: () => setState(() => _editing = !_editing),
+                _FloatingEditPill(
+                  child: TileEditButton(
+                    label: context.tr(_editing ? 'Done' : 'Edit Controls'),
+                    strong: _editing,
+                    onTap: () => setState(() => _editing = !_editing),
+                  ),
                 ),
               ],
             ),
@@ -860,6 +1018,75 @@ class _ControlCenterPanelState extends ConsumerState<ControlCenterPanel>
 /// Lock and sleep go at once; the three that end the session ask first,
 /// because none of them can be undone. An action the session cannot take is
 /// dimmed rather than hidden, so the row does not change shape.
+class _FloatingEditPill extends StatelessWidget {
+  const _FloatingEditPill({required this.child});
+
+  final Widget child;
+
+  @override
+  Widget build(BuildContext context) {
+    final scope = _CcGlassScope.of(context);
+    if (!scope.floating) return child;
+    final style = KitStyle.of(context);
+    return KitGlass(
+      material: kitMaterialOf(context, KitTier.popover),
+      tier: KitTier.popover,
+      radius: style.pill(28),
+      grouped: true,
+      blur: scope.blur,
+      child: child,
+    );
+  }
+}
+
+/// 2×2 Stage-Manager style action card (icon top-left, label bottom-left).
+class _LargeActionTile extends StatelessWidget {
+  const _LargeActionTile({
+    required this.icon,
+    required this.label,
+    required this.on,
+    required this.onTap,
+  });
+
+  final IconData icon;
+  final String label;
+  final bool on;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = context.shellTheme;
+    final style = KitStyle.of(context);
+    final radius = style.corner(26);
+    return Pressable(
+      onTap: onTap,
+      scale: Pressable.large,
+      wash: true,
+      darken: on,
+      shape: BorderRadius.circular(radius),
+      child: _Tile(
+        radius: radius,
+        child: Padding(
+          padding: const EdgeInsets.all(14),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: <Widget>[
+              MacDisc(icon: icon, on: on, size: 36),
+              const Spacer(),
+              Text(
+                label,
+                maxLines: 2,
+                overflow: TextOverflow.ellipsis,
+                style: BarType.title.copyWith(color: theme.colors.textPrimary),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
 class _TrayShelf extends StatelessWidget {
   const _TrayShelf({
     required this.services,
@@ -876,55 +1103,53 @@ class _TrayShelf extends StatelessWidget {
     final theme = context.shellTheme;
     final style = KitStyle.of(context);
     final ink = theme.colors.textPrimary;
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
-      decoration: BoxDecoration(
-        color: theme.colors.tileOff.withValues(alpha: style.opaque ? 1 : 0.72),
-        borderRadius: BorderRadius.circular(style.corner(16)),
-        border: style.controlLine(theme) != null
-            ? Border.all(color: style.border(theme))
-            : null,
-      ),
-      child: Row(
-        children: <Widget>[
-          Text(
-            context.tr('System tray'),
-            style: BarType.caption.copyWith(color: theme.colors.textSecondary),
-          ),
-          const SizedBox(width: 10),
-          Expanded(
-            child: Align(
-              alignment: Alignment.centerRight,
-              child: Wrap(
-                spacing: 6,
-                runSpacing: 6,
-                children: <Widget>[
-                  for (final id in itemIds)
-                    Tooltip(
-                      message: trayNames.of(id).title,
-                      child: Container(
-                        width: 30,
-                        height: 30,
-                        alignment: Alignment.center,
-                        decoration: BoxDecoration(
-                          color: ink.withValues(alpha: 0.08),
-                          borderRadius: BorderRadius.circular(style.corner(8)),
-                        ),
-                        child: buildTrayIcons(
-                          context,
-                          services: services,
-                          settings: settings,
-                          ink: ink,
-                          itemIds: <String>[id],
-                          maxExtent: 26,
+    return _Tile(
+      radius: style.corner(20),
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+        child: Row(
+          children: <Widget>[
+            Text(
+              context.tr('System tray'),
+              style: BarType.caption.copyWith(color: theme.colors.textSecondary),
+            ),
+            const SizedBox(width: 10),
+            Expanded(
+              child: Align(
+                alignment: Alignment.centerRight,
+                child: Wrap(
+                  spacing: 6,
+                  runSpacing: 6,
+                  children: <Widget>[
+                    for (final id in itemIds)
+                      Tooltip(
+                        message: trayNames.of(id).title,
+                        child: Container(
+                          width: 30,
+                          height: 30,
+                          alignment: Alignment.center,
+                          decoration: BoxDecoration(
+                            color: ink.withValues(alpha: 0.08),
+                            borderRadius: BorderRadius.circular(
+                              style.corner(8),
+                            ),
+                          ),
+                          child: buildTrayIcons(
+                            context,
+                            services: services,
+                            settings: settings,
+                            ink: ink,
+                            itemIds: <String>[id],
+                            maxExtent: 26,
+                          ),
                         ),
                       ),
-                    ),
-                ],
+                  ],
+                ),
               ),
             ),
-          ),
-        ],
+          ],
+        ),
       ),
     );
   }
@@ -935,12 +1160,14 @@ class _PowerRow extends ConsumerWidget {
     required this.onSleep,
     required this.confirm,
     required this.request,
+    required this.immediate,
   });
 
   /// Called before any action so the sheet is out of the way.
   final VoidCallback onSleep;
   final ValueChanged<SessionPowerAction> confirm;
   final ValueChanged<SessionPowerAction> request;
+  final ValueChanged<SessionPowerAction> immediate;
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
@@ -950,56 +1177,92 @@ class _PowerRow extends ConsumerWidget {
         session.busyAction == null && session.availabilityFor(action).enabled;
     final theme = context.shellTheme;
     final style = KitStyle.of(context);
+    final scope = _CcGlassScope.of(context);
     final ink = theme.colors.textPrimary;
-    final shape = BorderRadius.circular(kitStyle.value.radius(theme, 14));
+    final radius = scope.floating
+        ? style.corner(20)
+        : kitStyle.value.radius(theme, 14);
+    final shape = BorderRadius.circular(radius);
 
-    Widget button(String label, IconData icon, VoidCallback? onTap) => Expanded(
-      child: Pressable(
-        onTap: onTap,
-        scale: Pressable.large,
-        wash: true,
-        shape: shape,
-        child: Container(
-          height: 52,
-          decoration: BoxDecoration(
-            borderRadius: shape,
-            color: ink.withValues(alpha: 0.07),
-            border: style.controlLine(theme),
-          ),
-          child: Column(
-            mainAxisAlignment: MainAxisAlignment.center,
-            children: <Widget>[
-              BarGlyph(
-                icon,
-                size: 17,
+    Widget button(
+      String label,
+      IconData icon,
+      VoidCallback? onTap, {
+      VoidCallback? onLongPress,
+      String? tip,
+    }) {
+      Widget face = Container(
+        height: 56,
+        decoration: scope.floating
+            ? null
+            : BoxDecoration(
+                borderRadius: shape,
+                color: ink.withValues(alpha: 0.07),
+                border: style.controlLine(theme),
+              ),
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: <Widget>[
+            BarGlyph(
+              icon,
+              size: 17,
+              color: onTap == null
+                  ? ink.withValues(alpha: 0.35)
+                  : ink.withValues(alpha: 0.9),
+            ),
+            const SizedBox(height: 3),
+            Text(
+              label,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: BarType.caption.copyWith(
+                fontSize: 10.5,
+                fontWeight: FontWeight.w600,
                 color: onTap == null
                     ? ink.withValues(alpha: 0.35)
                     : ink.withValues(alpha: 0.9),
               ),
-              const SizedBox(height: 3),
-              Text(
-                label,
-                maxLines: 1,
-                overflow: TextOverflow.ellipsis,
-                style: BarType.caption.copyWith(
-                  fontSize: 10.5,
-                  fontWeight: FontWeight.w600,
-                  color: onTap == null
-                      ? ink.withValues(alpha: 0.35)
-                      : ink.withValues(alpha: 0.9),
-                ),
-              ),
-            ],
-          ),
+            ),
+          ],
         ),
-      ),
-    );
+      );
+      if (scope.floating) {
+        face = KitGlass(
+          material: kitMaterialOf(context, KitTier.popover),
+          tier: KitTier.popover,
+          radius: radius,
+          grouped: true,
+          blur: scope.blur,
+          child: face,
+        );
+      }
+      Widget interactive = Pressable(
+        onTap: onTap,
+        scale: Pressable.large,
+        wash: true,
+        darken: true,
+        shape: shape,
+        child: face,
+      );
+      if (onLongPress != null) {
+        interactive = GestureDetector(
+          onLongPress: onLongPress,
+          child: interactive,
+        );
+      }
+      if (tip != null) {
+        interactive = Tooltip(message: tip, child: interactive);
+      }
+      return Expanded(child: interactive);
+    }
 
     VoidCallback? at(SessionPowerAction action, VoidCallback run) =>
         can(action) ? run : null;
+    final skipTip = context.tr('Hold or Alt-click to skip confirmation');
+    final showSleep = session.availabilityFor(SessionPowerAction.suspend).enabled;
 
-    return Row(
-      children: <Widget>[
+    final buttons = <Widget>[
+      if (showSleep)
         button(
           context.tr('Sleep'),
           BarIcons.moonFill,
@@ -1008,33 +1271,52 @@ class _PowerRow extends ConsumerWidget {
             power.request(SessionPowerAction.suspend);
           }),
         ),
-        const SizedBox(width: 8),
-        button(
-          context.tr('Restart'),
-          BarIcons.arrowClockwise,
-          at(
-            SessionPowerAction.reboot,
-            () => confirm(SessionPowerAction.reboot),
-          ),
+      button(
+        context.tr('Restart'),
+        BarIcons.arrowClockwise,
+        at(
+          SessionPowerAction.reboot,
+          () => HardwareKeyboard.instance.isAltPressed
+              ? immediate(SessionPowerAction.reboot)
+              : confirm(SessionPowerAction.reboot),
         ),
-        const SizedBox(width: 8),
-        button(
-          context.tr('Shut Down'),
-          BarIcons.power,
-          at(
-            SessionPowerAction.powerOff,
-            () => confirm(SessionPowerAction.powerOff),
-          ),
+        onLongPress: at(
+          SessionPowerAction.reboot,
+          () => immediate(SessionPowerAction.reboot),
         ),
-        const SizedBox(width: 8),
-        button(
-          context.tr('Lock'),
-          BarIcons.lockFill,
-          at(SessionPowerAction.lock, () {
-            onSleep();
-            request(SessionPowerAction.lock);
-          }),
+        tip: skipTip,
+      ),
+      button(
+        context.tr('Shut Down'),
+        BarIcons.power,
+        at(
+          SessionPowerAction.powerOff,
+          () => HardwareKeyboard.instance.isAltPressed
+              ? immediate(SessionPowerAction.powerOff)
+              : confirm(SessionPowerAction.powerOff),
         ),
+        onLongPress: at(
+          SessionPowerAction.powerOff,
+          () => immediate(SessionPowerAction.powerOff),
+        ),
+        tip: skipTip,
+      ),
+      button(
+        context.tr('Lock'),
+        BarIcons.lockFill,
+        at(SessionPowerAction.lock, () {
+          onSleep();
+          request(SessionPowerAction.lock);
+        }),
+      ),
+    ];
+
+    return Row(
+      children: <Widget>[
+        for (var i = 0; i < buttons.length; i++) ...<Widget>[
+          if (i > 0) const SizedBox(width: 8),
+          buttons[i],
+        ],
       ],
     );
   }
@@ -1060,6 +1342,30 @@ class _Tile extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final theme = context.shellTheme;
+    final scope = _CcGlassScope.of(context);
+    if (scope.floating) {
+      return KitGlass(
+        material: kitMaterialOf(context, KitTier.popover),
+        tier: KitTier.popover,
+        radius: radius,
+        grouped: true,
+        blur: scope.blur,
+        child: AnimatedContainer(
+          duration: KitMotion.duration(
+            context,
+            pressed ? KitMotion.wash : KitMotion.enter,
+          ),
+          color: theme.colors.textPrimary.withValues(
+            alpha: pressed
+                ? 0.12
+                : hovered
+                ? 0.05
+                : 0.0,
+          ),
+          child: child,
+        ),
+      );
+    }
     return AnimatedContainer(
       duration: KitMotion.duration(
         context,
@@ -1275,41 +1581,61 @@ class _Round extends StatelessWidget {
   Widget build(BuildContext context) {
     final theme = context.shellTheme;
     final style = KitStyle.of(context);
+    final scope = _CcGlassScope.of(context);
+    final radius = style.pill(_C.row);
     final shape = style.disc(_C.row);
+    final macWhiteDisc = on && style.id == 'mac' && scope.floating;
+    final activeFill = macWhiteDisc
+        ? const Color(0xffffffff)
+        : style.plate(theme, colour);
+    final activeInk = macWhiteDisc ? colour : style.onPlate(theme);
+    Widget inner = LiquidFill(
+      level: on ? 1 : 0,
+      color: activeFill,
+      base: scope.floating
+          ? const Color(0x00000000)
+          : theme.colors.textPrimary.withValues(alpha: 0.07),
+      radius: shape,
+      child: Center(
+        child: MacGlyph(
+          icon,
+          size: 24,
+          color: on ? activeInk : theme.colors.textPrimary,
+        ),
+      ),
+    );
+    if (scope.floating) {
+      inner = KitGlass(
+        material: kitMaterialOf(context, KitTier.popover),
+        tier: KitTier.popover,
+        radius: radius,
+        grouped: true,
+        blur: scope.blur,
+        child: inner,
+      );
+    } else {
+      inner = DecoratedBox(
+        position: DecorationPosition.foreground,
+        decoration: BoxDecoration(
+          borderRadius: shape,
+          border:
+              style.controlLine(theme) ??
+              Border.all(
+                color: theme.colors.textPrimary.withValues(alpha: 0.08),
+              ),
+        ),
+        child: inner,
+      );
+    }
     return Opacity(
       opacity: onTap == null ? 0.45 : 1,
       child: Pressable(
         onTap: onTap,
         scale: Pressable.small,
         wash: true,
-        darken: on,
+        darken: true,
         shape: shape,
-        // The same fill as a capsule's disc, so every switch in the panel
-        // turns on the same way.
-        child: DecoratedBox(
-          position: DecorationPosition.foreground,
-          decoration: BoxDecoration(
-            borderRadius: shape,
-            border:
-                style.controlLine(theme) ??
-                Border.all(
-                  color: theme.colors.textPrimary.withValues(alpha: 0.08),
-                ),
-          ),
-          child: LiquidFill(
-            level: on ? 1 : 0,
-            color: style.plate(theme, colour),
-            base: theme.colors.textPrimary.withValues(alpha: 0.07),
-            radius: shape,
-            child: Center(
-              child: MacGlyph(
-                icon,
-                size: 24,
-                color: on ? style.onPlate(theme) : theme.colors.textPrimary,
-              ),
-            ),
-          ),
-        ),
+        child: inner,
       ),
     );
   }
@@ -1334,6 +1660,7 @@ class _MediaTile extends ConsumerWidget {
           onTap: enabled ? onTap : null,
           scale: Pressable.small,
           wash: true,
+          darken: true,
           shape: BorderRadius.circular(style.pill(32)),
           child: SizedBox(
             width: 36,
@@ -1501,19 +1828,23 @@ class _SliderTile extends StatelessWidget {
     required this.label,
     required this.value,
     required this.leading,
-    required this.trailing,
     required this.onChanged,
     required this.onChangeEnd,
+    this.trailing,
+    this.trailingWidget,
+    this.reading,
     this.onChangeStart,
     this.onOpen,
     this.enabled = true,
   });
 
   final String label;
+  final String? reading;
   final double value;
   final bool enabled;
   final IconData leading;
-  final IconData trailing;
+  final IconData? trailing;
+  final Widget? trailingWidget;
   final ValueChanged<double> onChanged;
   final ValueChanged<double> onChangeEnd;
   final VoidCallback? onChangeStart;
@@ -1545,6 +1876,20 @@ class _SliderTile extends StatelessWidget {
                         ),
                       ),
                     ),
+                    if (reading != null)
+                      Padding(
+                        padding: EdgeInsets.only(right: onOpen != null ? 5 : 0),
+                        child: Text(
+                          reading!,
+                          style: BarType.caption.copyWith(
+                            fontSize: 11,
+                            color: theme.colors.textSecondary,
+                            fontFeatures: const <FontFeature>[
+                              FontFeature.tabularFigures(),
+                            ],
+                          ),
+                        ),
+                      ),
                     if (onOpen != null)
                       BarGlyph(
                         BarIcons.chevronRight,
@@ -1561,6 +1906,7 @@ class _SliderTile extends StatelessWidget {
               enabled: enabled,
               leading: leading,
               trailing: trailing,
+              trailingWidget: trailingWidget,
               onChangeStart: onChangeStart,
               onChanged: onChanged,
               onChangeEnd: onChangeEnd,

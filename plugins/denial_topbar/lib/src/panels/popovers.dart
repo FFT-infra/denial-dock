@@ -1,5 +1,6 @@
 import 'dart:async';
 
+import 'package:denial_flutter_sdk/models.dart' show DisplayOutput;
 import 'package:denial_flutter_sdk/services.dart';
 import 'package:denial_flutter_sdk/state.dart';
 import 'package:denial_flutter_sdk/system_services.dart'
@@ -23,6 +24,7 @@ import '../bar_type.dart';
 import '../clipboard_history.dart';
 import '../clipboard_watch.dart';
 import '../l10n.dart';
+import '../night_light.dart';
 import '../tray_names.dart';
 import 'dialogs.dart';
 import 'mac_kit.dart';
@@ -140,10 +142,26 @@ class _WifiPopoverState extends ConsumerState<WifiPopover> {
 
     Widget row(WifiNetwork network) {
       final busy = state.busyNetworks.contains(network.identity);
+      final band = network.frequency >= 5925
+          ? '6 GHz'
+          : network.frequency >= 4900
+          ? '5 GHz'
+          : network.frequency > 0
+          ? '2.4 GHz'
+          : '';
+      final meta = <String>[
+        if (network.connected) context.tr('Connected'),
+        if (network.strength > 0) '${network.strength}%',
+        if (band.isNotEmpty) band,
+      ].join(' · ');
       final row = MacRow(
         leading: MacDisc(icon: BarIcons.wifi, on: network.connected),
         title: network.ssid,
-        detail: busy ? context.tr('Connecting…') : null,
+        detail: busy
+            ? context.tr('Connecting…')
+            : meta.isEmpty
+            ? null
+            : meta,
         trailing: network.security.requiresPassword
             ? BarGlyph(
                 BarIcons.lockFill,
@@ -318,15 +336,35 @@ class _BluetoothPopoverState extends ConsumerState<BluetoothPopover> {
             final right = b.signalStrength ?? -127;
             return right.compareTo(left);
           });
+    final upowerBatteries = ref.watch(
+      upowerProvider.select((s) => s.snapshot?.batteries ?? const []),
+    );
+    int? peripheralBattery(String deviceName) {
+      final needle = deviceName.trim().toLowerCase();
+      if (needle.isEmpty) return null;
+      for (final b in upowerBatteries) {
+        final hay = b.displayName.toLowerCase();
+        if (hay.isNotEmpty &&
+            (hay.contains(needle) || needle.contains(hay)) &&
+            b.percentage != null) {
+          return b.percentage!.round();
+        }
+      }
+      return null;
+    }
+
     Widget row(BluetoothDeviceInfo device, {required bool paired}) {
       final busy = state.busyDevices.contains(device.objectPath);
+      final bat = device.connected ? peripheralBattery(device.name) : null;
       final row = MacRow(
         leading: MacDisc(icon: _bluetoothIcon(device), on: device.connected),
         title: device.name,
         detail: busy
             ? context.tr(paired ? 'Connecting…' : 'Pairing…')
             : device.connected
-            ? context.tr('Connected')
+            ? (bat != null
+                ? '${context.tr('Connected')} · $bat%'
+                : context.tr('Connected'))
             : null,
         // Both kinds connect on a tap; an unpaired one is paired and trusted
         // first by the same call.
@@ -642,7 +680,7 @@ IconData outputDeviceIcon(AudioOutputDevice device) {
   return BarIcons.speaker3Fill;
 }
 
-/// Sound: the output level and the list of outputs.
+/// Sound: the output level, output devices, and per-app mute/volume sliders.
 class SoundPopover extends ConsumerWidget {
   const SoundPopover({
     required this.services,
@@ -655,8 +693,13 @@ class SoundPopover extends ConsumerWidget {
   final VoidCallback onSettings;
   final VoidCallback? onBack;
 
+  /// Remembers each application stream's volume before muting to 0% so tapping
+  /// its speaker icon again restores the prior level.
+  static final Map<int, double> _preMuteLevel = <int, double>{};
+
   @override
   Widget build(BuildContext context, WidgetRef ref) {
+    final theme = context.shellTheme;
     final volume = ref.watch(services.volume);
     final audible = ref.watch(services.volumeAvailable);
     final devices = ref
@@ -668,7 +711,26 @@ class SoundPopover extends ConsumerWidget {
     final apps = ref.read(appAudioProvider.notifier);
     return _Popover(
       children: <Widget>[
-        MacHeader(title: context.tr('Sound'), onBack: onBack),
+        MacHeader(
+          title: context.tr('Sound'),
+          onBack: onBack,
+          trailing: audible
+              ? Padding(
+                  padding: const EdgeInsets.only(right: 4),
+                  child: Text(
+                    '${(volume * 100).round()}%',
+                    style: BarType.caption.copyWith(
+                      fontSize: 12,
+                      fontWeight: FontWeight.w600,
+                      color: theme.colors.textSecondary,
+                      fontFeatures: const <FontFeature>[
+                        FontFeature.tabularFigures(),
+                      ],
+                    ),
+                  ),
+                )
+              : null,
+        ),
         Padding(
           padding: const EdgeInsets.symmetric(horizontal: 2),
           child: MacSlider(
@@ -712,27 +774,79 @@ class SoundPopover extends ConsumerWidget {
           const MacDivider(),
           MacSection(context.tr('Applications')),
           _Scroll(
-            maxHeight: 150,
+            maxHeight: 165,
             children: <Widget>[
               for (final stream in streams)
                 Padding(
-                  padding: const EdgeInsets.fromLTRB(8, 0, 2, 2),
+                  padding: const EdgeInsets.fromLTRB(6, 2, 4, 4),
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: <Widget>[
-                      Text(
-                        stream.name,
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                        style: BarType.caption.copyWith(
-                          color: context.shellTheme.colors.textSecondary,
-                        ),
+                      Row(
+                        children: <Widget>[
+                          Pressable(
+                            onTap: () {
+                              final muted =
+                                  stream.muted || stream.level <= 0.001;
+                              if (muted) {
+                                final restore =
+                                    _preMuteLevel.remove(stream.id) ?? 0.5;
+                                apps.commitVolume(stream.id, restore);
+                              } else {
+                                _preMuteLevel[stream.id] = stream.level;
+                                apps.commitVolume(stream.id, 0);
+                              }
+                            },
+                            scale: Pressable.small,
+                            wash: true,
+                            shape: KitStyle.of(context).disc(22),
+                            child: SizedBox(
+                              width: 22,
+                              height: 22,
+                              child: Center(
+                                child: BarGlyph(
+                                  stream.muted || stream.level <= 0.001
+                                      ? BarIcons.speakerSlashFill
+                                      : BarIcons.speaker1Fill,
+                                  size: 12,
+                                  color: stream.muted || stream.level <= 0.001
+                                      ? theme.colors.textTertiary
+                                      : theme.colors.textSecondary,
+                                ),
+                              ),
+                            ),
+                          ),
+                          const SizedBox(width: 4),
+                          Expanded(
+                            child: Text(
+                              stream.name,
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                              style: BarType.caption.copyWith(
+                                color: theme.colors.textPrimary,
+                              ),
+                            ),
+                          ),
+                          Text(
+                            '${(stream.level * 100).round()}%',
+                            style: BarType.caption.copyWith(
+                              fontSize: 11,
+                              color: theme.colors.textSecondary,
+                              fontFeatures: const <FontFeature>[
+                                FontFeature.tabularFigures(),
+                              ],
+                            ),
+                          ),
+                        ],
                       ),
                       MacSlider(
                         height: 14,
                         inList: true,
                         value: stream.level,
-                        onChanged: (value) => apps.setVolume(stream.id, value),
+                        onChanged: (value) {
+                          if (value > 0.001) _preMuteLevel.remove(stream.id);
+                          apps.setVolume(stream.id, value);
+                        },
                         onChangeEnd: (value) =>
                             apps.commitVolume(stream.id, value),
                       ),
@@ -745,6 +859,137 @@ class SoundPopover extends ConsumerWidget {
         const MacDivider(),
         MacRow(
           title: context.tr('Sound Settings…'),
+          height: 32,
+          onTap: onSettings,
+        ),
+      ],
+    );
+  }
+}
+
+/// Display detail popover: brightness percentage, per-display sliders when
+/// multiple outputs report backlight levels, and Night Light toggle.
+class DisplayPopover extends ConsumerWidget {
+  const DisplayPopover({
+    required this.output,
+    required this.onSettings,
+    this.onBack,
+    super.key,
+  });
+
+  final DisplayOutput output;
+  final VoidCallback onSettings;
+  final VoidCallback? onBack;
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final theme = context.shellTheme;
+    final brightnessState = ref.watch(displayBrightnessProvider);
+    final brightness = ref.read(displayBrightnessProvider.notifier);
+    final layout = ref.watch(displayLayoutProvider);
+    final outputs = layout?.outputs ?? <DisplayOutput>[output];
+    final mainLevel = brightnessState.levels[output.monitorId];
+    return _Popover(
+      children: <Widget>[
+        MacHeader(
+          title: context.tr('Display'),
+          onBack: onBack,
+          trailing: mainLevel != null
+              ? Padding(
+                  padding: const EdgeInsets.only(right: 4),
+                  child: Text(
+                    '${(mainLevel * 100).round()}%',
+                    style: BarType.caption.copyWith(
+                      fontSize: 12,
+                      fontWeight: FontWeight.w600,
+                      color: theme.colors.textSecondary,
+                      fontFeatures: const <FontFeature>[
+                        FontFeature.tabularFigures(),
+                      ],
+                    ),
+                  ),
+                )
+              : null,
+        ),
+        if (outputs.length <= 1)
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 2),
+            child: MacSlider(
+              value: mainLevel ?? 0,
+              enabled: mainLevel != null,
+              leading: BarIcons.sunMax,
+              trailing: BarIcons.sunMaxFill,
+              onChanged: (value) => brightness.setLevel(output, value),
+              onChangeEnd: (value) => brightness.commitLevel(output, value),
+            ),
+          )
+        else ...<Widget>[
+          MacSection(context.tr('Displays')),
+          for (final item in outputs)
+            Padding(
+              padding: const EdgeInsets.fromLTRB(6, 2, 4, 4),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: <Widget>[
+                  Row(
+                    children: <Widget>[
+                      Expanded(
+                        child: Text(
+                          item.name,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: BarType.caption.copyWith(
+                            color: theme.colors.textPrimary,
+                          ),
+                        ),
+                      ),
+                      if (brightnessState.levels[item.monitorId] != null)
+                        Text(
+                          '${(brightnessState.levels[item.monitorId]! * 100).round()}%',
+                          style: BarType.caption.copyWith(
+                            fontSize: 11,
+                            color: theme.colors.textSecondary,
+                            fontFeatures: const <FontFeature>[
+                              FontFeature.tabularFigures(),
+                            ],
+                          ),
+                        ),
+                    ],
+                  ),
+                  MacSlider(
+                    height: 15,
+                    value: brightnessState.levels[item.monitorId] ?? 0,
+                    enabled: brightnessState.levels[item.monitorId] != null,
+                    leading: BarIcons.sunMax,
+                    trailing: BarIcons.sunMaxFill,
+                    onChanged: (value) => brightness.setLevel(item, value),
+                    onChangeEnd: (value) => brightness.commitLevel(item, value),
+                  ),
+                ],
+              ),
+            ),
+        ],
+        const MacDivider(),
+        ValueListenableBuilder<bool>(
+          valueListenable: NightLight.enabled,
+          builder: (context, night, _) => MacRow(
+            leading: MacDisc(
+              icon: night ? BarIcons.sunMaxFill : BarIcons.sunMax,
+              on: night,
+              colour: macOrange,
+            ),
+            title: context.tr('Night Light'),
+            detail: context.tr(night ? 'On' : 'Off'),
+            trailing: MacSwitch(
+              value: night,
+              onChanged: (_) => NightLight.toggle(),
+            ),
+            onTap: NightLight.toggle,
+          ),
+        ),
+        const MacDivider(),
+        MacRow(
+          title: context.tr('Display Settings…'),
           height: 32,
           onTap: onSettings,
         ),

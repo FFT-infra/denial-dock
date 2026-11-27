@@ -16,9 +16,6 @@ import 'kit_palette.dart';
 
 /// After Noctalia's default: solid, softly rounded surfaces in a deep
 /// indigo with a pale gold accent, little shadow, panels that scale in.
-///
-/// Not reproduced: its bar widgets' own capsule backgrounds, and its
-/// panels being attached to the bar with an inverted corner.
 const KitLook _noctalia = KitLook(
   id: 'noctalia',
   label: 'Noctalia style',
@@ -26,6 +23,7 @@ const KitLook _noctalia = KitLook(
   accentSource: KitAccentSource.palette,
   scaleCorners: false,
   opaque: true,
+  panelStyle: KitPanelStyle.attached,
   shadow: 0.45,
   cornerScale: 0.85,
   accentMenuRows: true,
@@ -106,6 +104,7 @@ const KitLook _axShell = KitLook(
   palette: KitPalette.graphite,
   scaleCorners: false,
   opaque: true,
+  panelStyle: KitPanelStyle.attached,
   shadow: 0.5,
   cornerScale: 1.15,
   borderWidth: 0,
@@ -156,6 +155,7 @@ const KitLook _gnome = KitLook(
   accentSource: KitAccentSource.palette,
   scaleCorners: false,
   opaque: true,
+  panelStyle: KitPanelStyle.anchored,
   shadow: 0.6,
   cornerScale: 0.95,
   borderWidth: 0,
@@ -179,6 +179,7 @@ const KitLook _windows = KitLook(
   accentSource: KitAccentSource.palette,
   scaleCorners: false,
   surfaceMode: KitSurfaceMode.blur,
+  panelStyle: KitPanelStyle.anchored,
   shadow: 0.8,
   cornerScale: 0.55,
   panelGrow: KitSpringTuning(600, 1),
@@ -205,6 +206,7 @@ const KitLook _cosmic = KitLook(
   accentSource: KitAccentSource.palette,
   scaleCorners: false,
   opaque: true,
+  panelStyle: KitPanelStyle.anchored,
   shadow: 0.4,
   cornerScale: 0.55,
   accentMenuRows: true,

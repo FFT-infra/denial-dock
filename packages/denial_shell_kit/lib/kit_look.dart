@@ -13,8 +13,10 @@ import 'kit_look_motion.dart';
 import 'kit_look_refs.dart';
 import 'kit_material.dart';
 import 'kit_palette.dart';
+import 'kit_panel_style.dart';
 
 export 'kit_look_motion.dart' show KitSpringTuning;
+export 'kit_panel_style.dart' show KitPanelStyle, KitWidgetStyle;
 
 /// Where a look's accent comes from.
 enum KitAccentSource {
@@ -359,6 +361,7 @@ class KitLook {
     this.borderTone = KitBorderTone.hairline,
     this.opaque = false,
     this.surfaceMode,
+    this.panelStyle,
     this.shadow = 1,
     this.materials = KitMaterials.shell,
     this.liquid = false,
@@ -405,6 +408,7 @@ class KitLook {
     fontPackage: 'denial_topbar',
     scaleCorners: false,
     surfaceMode: KitSurfaceMode.liquidGlass,
+    panelStyle: KitPanelStyle.floating,
     panelGrow: KitSpringTuning(620, 1),
     panelShrink: KitSpringTuning(900, 1),
     beadWidth: 0.96,
@@ -468,6 +472,7 @@ class KitLook {
     cornerScale: 0,
     borderWidth: 0,
     opaque: true,
+    panelStyle: KitPanelStyle.anchored,
     shadow: 0,
     accentMenuRows: true,
     panelGrow: KitSpringTuning(1100, 1),
@@ -598,6 +603,12 @@ class KitLook {
   KitSurfaceMode get effectiveSurfaceMode =>
       surfaceMode ?? (opaque ? KitSurfaceMode.solid : KitSurfaceMode.system);
 
+  /// Default Control Centre / panel layout archetype for this look.
+  final KitPanelStyle? panelStyle;
+
+  /// Effective default panel archetype before user overrides.
+  KitPanelStyle get effectivePanelStyle => panelStyle ?? KitPanelStyle.framed;
+
   /// How much of the usual shadow a panel casts, 0 to 1.
   final double shadow;
 
@@ -684,6 +695,7 @@ class KitLook {
     },
     'opaque': opaque,
     'surfaceMode': effectiveSurfaceMode.name,
+    'panelStyle': effectivePanelStyle.name,
     'shadow': shadow,
     'materials': KitMaterialJson.table(materials),
     'motion': <String, Object?>{
@@ -789,6 +801,8 @@ class KitLook {
       ),
       opaque: resolvedOpaque,
       surfaceMode: resolvedSurfaceMode,
+      panelStyle:
+          KitPanelStyle.tryParse(json['panelStyle']) ?? base.panelStyle,
       shadow: _number(json['shadow'], 0, 1, base.shadow),
       materials: KitMaterialJson.parseTable(json['materials'], base.materials),
       liquid: liquid is bool ? liquid : base.liquid,

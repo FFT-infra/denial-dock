@@ -2,7 +2,6 @@ import 'package:denial_flutter_sdk/effects.dart';
 import 'package:denial_flutter_sdk/models.dart' show PanelEdge;
 import 'package:denial_flutter_sdk/theme.dart';
 import 'package:denial_shell_kit/kit_glass.dart';
-import 'package:denial_shell_kit/kit_material.dart';
 import 'package:denial_shell_kit/kit_style.dart';
 import 'package:flutter/widgets.dart';
 

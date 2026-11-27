@@ -433,6 +433,61 @@ class _BarSettingsPanelState extends ConsumerState<BarSettingsPanel> {
           ),
           Builder(
             builder: (context) {
+              final override = kitPanelStyle.value;
+              final active = activeStyle.panelStyle;
+              return _Row(
+                label: context.tr('Control Center style'),
+                note: context.tr(
+                  'Floating draws independent glass modules like macOS 26; Framed, Anchored and Attached match classic desktop shells.',
+                ),
+                trailing: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: <Widget>[
+                    if (override != null)
+                      Padding(
+                        padding: const EdgeInsets.only(right: 8),
+                        child: Pressable(
+                          onTap: () => kitPanelStyle.value = null,
+                          scale: 0.96,
+                          child: Text(
+                            context.tr('As look'),
+                            style: BarType.caption.copyWith(
+                              color: activeStyle.accent(theme),
+                            ),
+                          ),
+                        ),
+                      ),
+                    _Segments<KitPanelStyle>(
+                      value: active,
+                      options: <(KitPanelStyle, String)>[
+                        (KitPanelStyle.floating, context.tr('Floating')),
+                        (KitPanelStyle.framed, context.tr('Framed')),
+                        (KitPanelStyle.anchored, context.tr('Anchored')),
+                        (KitPanelStyle.attached, context.tr('Attached')),
+                      ],
+                      onChanged: (p) => kitPanelStyle.value = p,
+                    ),
+                  ],
+                ),
+              );
+            },
+          ),
+          _Row(
+            label: context.tr('Widget cards'),
+            note: context.tr(
+              'Glass matches the active surface material; Color uses distinct paper and tinted widget cards.',
+            ),
+            trailing: _Segments<KitWidgetStyle>(
+              value: kitWidgetStyle.value,
+              options: <(KitWidgetStyle, String)>[
+                (KitWidgetStyle.glass, context.tr('Glass')),
+                (KitWidgetStyle.color, context.tr('Color')),
+              ],
+              onChanged: (w) => kitWidgetStyle.value = w,
+            ),
+          ),
+          Builder(
+            builder: (context) {
               final layout = ref.watch(displayLayoutProvider);
               final mainId = layout?.mainOutput?.monitorId;
               final hostScale =

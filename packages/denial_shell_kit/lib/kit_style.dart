@@ -20,6 +20,7 @@ export 'kit_look.dart'
         KitPanelEntry;
 export 'kit_look_motion.dart' show KitLookMotion, KitSpringTuning;
 export 'kit_material.dart' show KitSurfaceMode;
+export 'kit_panel_style.dart' show KitPanelStyle, KitWidgetStyle;
 export 'kit_store.dart' show resolveKitScale;
 
 /// One look for the dock and the top bar: where colour, type and corners come
@@ -89,6 +90,13 @@ class KitStyle {
   /// Effective surface material mode (user override wins over look default).
   KitSurfaceMode get surfaceMode =>
       kitSurfaceMode.value ?? look.effectiveSurfaceMode;
+
+  /// Effective panel layout archetype (user override wins over look default).
+  KitPanelStyle get panelStyle =>
+      kitPanelStyle.value ?? look.effectivePanelStyle;
+
+  /// Active Notification Centre widget card style (`glass` or `color`).
+  KitWidgetStyle get widgetStyle => kitWidgetStyle.value;
 
   /// Whether panels are filled solid, which also leaves nothing to blur.
   bool get opaque => surfaceMode == KitSurfaceMode.solid;
@@ -644,6 +652,42 @@ class KitSurfaceModeNotifier extends ValueNotifier<KitSurfaceMode?> {
     super.value = next;
     _rebuildEverything();
     kitStore.put('surfaceMode', next?.name);
+  }
+}
+
+/// Optional user Control Centre / panel archetype override (`null` follows the
+/// active look's default [KitLook.effectivePanelStyle]).
+final KitPanelStyleNotifier kitPanelStyle = KitPanelStyleNotifier._();
+
+class KitPanelStyleNotifier extends ValueNotifier<KitPanelStyle?> {
+  KitPanelStyleNotifier._()
+    : super(KitPanelStyle.tryParse(kitStore.read()['panelStyle']));
+
+  @override
+  set value(KitPanelStyle? next) {
+    if (super.value == next) return;
+    super.value = next;
+    _rebuildEverything();
+    kitStore.put('panelStyle', next?.name);
+  }
+}
+
+/// Notification Centre widget card visual style (`glass` vs `color`).
+final KitWidgetStyleNotifier kitWidgetStyle = KitWidgetStyleNotifier._();
+
+class KitWidgetStyleNotifier extends ValueNotifier<KitWidgetStyle> {
+  KitWidgetStyleNotifier._()
+    : super(
+        KitWidgetStyle.tryParse(kitStore.read()['widgetStyle']) ??
+            KitWidgetStyle.glass,
+      );
+
+  @override
+  set value(KitWidgetStyle next) {
+    if (super.value == next) return;
+    super.value = next;
+    _rebuildEverything();
+    kitStore.put('widgetStyle', next.name);
   }
 }
 

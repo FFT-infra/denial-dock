@@ -490,6 +490,7 @@ void showKitPanel({
   KitPanelAlign align = KitPanelAlign.anchorCenter,
   double alignOffset = 0,
   bool glass = true,
+  bool frameless = false,
   Color? fill,
   String? debugLabel,
   Size? bead,
@@ -516,6 +517,7 @@ void showKitPanel({
       align: align,
       alignOffset: alignOffset,
       glass: glass,
+      frameless: frameless,
       fill: fill,
       bead: bead,
       cornerOrigin: cornerOrigin,
@@ -853,6 +855,7 @@ class KitPanelFrame extends StatelessWidget {
     this.align = KitPanelAlign.anchorCenter,
     this.alignOffset = 0,
     this.glass = true,
+    this.frameless = false,
     this.fill,
     this.bead,
     this.cornerOrigin = false,
@@ -877,6 +880,10 @@ class KitPanelFrame extends StatelessWidget {
   final KitPanelAlign align;
   final double alignOffset;
   final bool glass;
+
+  /// When true, omits the outer [KitCard] slab so modular panels (macOS 26
+  /// floating Control Centre) render each module as its own glass block.
+  final bool frameless;
   final Color? fill;
   final Widget child;
 
@@ -933,16 +940,18 @@ class KitPanelFrame extends StatelessWidget {
                 ),
                 fadeOnly: menu,
                 bead: bead,
-                child: Listener(
-                  behavior: HitTestBehavior.opaque,
-                  child: KitCard(
-                    radius: radius,
-                    fill: cardColor,
-                    elevation: menu ? 0.7 : 1,
-                    tier: menu ? KitTier.menu : KitTier.popover,
-                    child: child,
-                  ),
-                ),
+                child: frameless
+                    ? child
+                    : Listener(
+                        behavior: HitTestBehavior.opaque,
+                        child: KitCard(
+                          radius: radius,
+                          fill: cardColor,
+                          elevation: menu ? 0.7 : 1,
+                          tier: menu ? KitTier.menu : KitTier.popover,
+                          child: child,
+                        ),
+                      ),
               ),
             ),
           ),
