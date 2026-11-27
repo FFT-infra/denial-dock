@@ -319,18 +319,18 @@ class MacDisc extends StatelessWidget {
     final style = KitStyle.of(context);
     final dark = theme.brightness == Brightness.dark;
     final arch = style.archetype;
-    // macOS 26 Tahoe active round discs use a crisp white disc with the
-    // control's own vibrant colour for the glyph (with subtle elevation in
-    // light mode so the disc separates cleanly from frosted light glass).
-    final macWhiteDisc =
-        on && style.id == 'mac' && style.panelStyle == KitPanelStyle.floating;
-    final fillColor = macWhiteDisc
-        ? const Color(0xffffffff)
+    // Authentic macOS 26 Tahoe active discs use vibrant system accent plates
+    // with crisp white glyphs and a delicate glossy sheen, while inactive discs
+    // sit on a subtle translucent glass well.
+    final isMacGlass =
+        style.id == 'mac' && style.panelStyle == KitPanelStyle.floating;
+    final fillColor = isMacGlass
+        ? colour
         : style.plate(theme, colour, meaning: meaning);
     final glyphColor = !on
         ? theme.colors.textPrimary
-        : macWhiteDisc
-        ? colour
+        : isMacGlass
+        ? const Color(0xffffffff)
         : style.onPlate(theme, meaning: meaning);
     final BorderRadius shape = switch (arch) {
       KitShellArchetype.omarchy => BorderRadius.zero,
@@ -343,26 +343,38 @@ class MacDisc extends StatelessWidget {
     return Container(
       width: size,
       height: size,
-      decoration: macWhiteDisc && !dark
+      decoration: on && isMacGlass
           ? BoxDecoration(
               borderRadius: shape,
-              boxShadow: const <BoxShadow>[
+              boxShadow: <BoxShadow>[
                 BoxShadow(
-                  color: Color(0x1f000000),
-                  blurRadius: 6,
-                  offset: Offset(0, 1.5),
+                  color: colour.withValues(alpha: dark ? 0.36 : 0.28),
+                  blurRadius: 8,
+                  offset: const Offset(0, 2),
                 ),
               ],
             )
           : null,
       foregroundDecoration: BoxDecoration(
         borderRadius: shape,
-        border: style.controlLine(theme),
+        gradient: on && isMacGlass
+            ? const LinearGradient(
+                begin: Alignment.topCenter,
+                end: Alignment.bottomCenter,
+                colors: <Color>[Color(0x33ffffff), Color(0x00ffffff)],
+              )
+            : null,
+        border: on && isMacGlass
+            ? Border.all(
+                color: const Color(0xffffffff).withValues(alpha: 0.28),
+                width: 0.6,
+              )
+            : style.controlLine(theme),
       ),
       child: LiquidFill(
         level: on ? 1 : 0,
         color: fillColor,
-        base: theme.colors.textPrimary.withValues(alpha: dark ? 0.14 : 0.09),
+        base: theme.colors.textPrimary.withValues(alpha: dark ? 0.14 : 0.10),
         radius: shape,
         child: Center(
           child:
@@ -791,6 +803,12 @@ class _MacSliderState extends State<MacSlider>
         square: style.square,
         flat: style.flat,
         shade: style.shadow,
+        capsuleTrack:
+            !widget.inList &&
+            !style.square &&
+            !style.flat &&
+            (style.id == 'mac' || style.id == 'denial'),
+        dark: theme.brightness == Brightness.dark,
       ),
       child: SizedBox(height: widget.height + 14, width: double.infinity),
     );
@@ -909,6 +927,8 @@ class _SliderPainter extends CustomPainter {
     required this.square,
     required this.flat,
     required this.shade,
+    this.capsuleTrack = false,
+    this.dark = false,
   }) : super(repaint: repaint);
 
   final KitSpring shown;
@@ -923,6 +943,8 @@ class _SliderPainter extends CustomPainter {
   final bool square;
   final bool flat;
   final double shade;
+  final bool capsuleTrack;
+  final bool dark;
 
   static const Color _white = Color(0xffffffff);
   static const Color _black = Color(0xff000000);
@@ -934,20 +956,41 @@ class _SliderPainter extends CustomPainter {
     final swell = held.value;
     final glass = swell.clamp(0.0, 1.0).toDouble();
     final cy = size.height / 2;
-    final track = h / 3;
+    final track = capsuleTrack ? (h * 0.62) : (h / 3);
     final centre = sliderCentreFor(shown.value, size.width, h * 1.5);
-    final fill = Color.lerp(accent, _black, 0.24 * glass)!;
-    final groove = ink.withValues(alpha: 0.16);
+    final fill = capsuleTrack
+        ? Color.lerp(
+            dark ? _white.withValues(alpha: 0.90) : _white,
+            accent,
+            0.12 * glass,
+          )!
+        : Color.lerp(accent, _black, 0.24 * glass)!;
+    final groove = ink.withValues(alpha: capsuleTrack ? (dark ? 0.18 : 0.14) : 0.16);
     final radius = Radius.circular(square ? 0 : track / 2);
 
-    canvas.drawRRect(
-      RRect.fromLTRBR(0, cy - track / 2, size.width, cy + track / 2, radius),
-      Paint()..color = groove,
+    final trackRect = RRect.fromLTRBR(
+      0,
+      cy - track / 2,
+      size.width,
+      cy + track / 2,
+      radius,
     );
+    canvas.drawRRect(trackRect, Paint()..color = groove);
     canvas.drawRRect(
       RRect.fromLTRBR(0, cy - track / 2, centre, cy + track / 2, radius),
       Paint()..color = fill,
     );
+    if (capsuleTrack) {
+      canvas.drawRRect(
+        trackRect.deflate(0.35),
+        Paint()
+          ..style = PaintingStyle.stroke
+          ..strokeWidth = 0.7
+          ..color = (dark ? _white : _black).withValues(
+            alpha: dark ? 0.18 : 0.08,
+          ),
+      );
+    }
 
     final knobHeightNow = h + h / 6 * swell;
     final box = Rect.fromCenter(
@@ -1058,7 +1101,9 @@ class _SliderPainter extends CustomPainter {
       old.ring != ring ||
       old.square != square ||
       old.flat != flat ||
-      old.shade != shade;
+      old.shade != shade ||
+      old.capsuleTrack != capsuleTrack ||
+      old.dark != dark;
 }
 
 /// Fades and sizes between a collapsed and an expanded child.

@@ -2,6 +2,7 @@ import 'dart:async';
 
 import 'package:denial_flutter_sdk/models.dart' show DisplayOutput;
 import 'package:denial_flutter_sdk/services.dart';
+import 'package:denial_flutter_sdk/settings.dart' show shellSettingsProvider;
 import 'package:denial_flutter_sdk/state.dart';
 import 'package:denial_flutter_sdk/system_services.dart'
     show
@@ -211,7 +212,32 @@ class _WifiPopoverState extends ConsumerState<WifiPopover> {
             children: <Widget>[
               const MacDivider(),
               if (known.isNotEmpty) ...<Widget>[
-                MacSection(context.tr('Known Networks')),
+                MacSection(
+                  context.tr('Known Networks'),
+                  trailing: Pressable(
+                    onTap: state.scanning ? null : controller.scan,
+                    scale: Pressable.small,
+                    wash: true,
+                    shape: KitStyle.of(context).disc(22),
+                    child: SizedBox(
+                      width: 22,
+                      height: 22,
+                      child: Center(
+                        child: state.scanning
+                            ? const SizedBox(
+                                width: 12,
+                                height: 12,
+                                child: _Spinner(),
+                              )
+                            : BarGlyph(
+                                BarIcons.arrowClockwise,
+                                size: 12,
+                                color: theme.colors.textSecondary,
+                              ),
+                      ),
+                    ),
+                  ),
+                ),
                 for (final network in known) row(network),
                 const MacDivider(),
               ],
@@ -696,6 +722,7 @@ class SoundPopover extends ConsumerWidget {
   /// Remembers each application stream's volume before muting to 0% so tapping
   /// its speaker icon again restores the prior level.
   static final Map<int, double> _preMuteLevel = <int, double>{};
+  static double _preMuteMaster = 0.5;
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
@@ -709,25 +736,60 @@ class SoundPopover extends ConsumerWidget {
         .toList();
     final streams = ref.watch(appAudioProvider).streams;
     final apps = ref.read(appAudioProvider.notifier);
+    final masterMuted = volume <= 0.001;
     return _Popover(
       children: <Widget>[
         MacHeader(
           title: context.tr('Sound'),
           onBack: onBack,
           trailing: audible
-              ? Padding(
-                  padding: const EdgeInsets.only(right: 4),
-                  child: Text(
-                    '${(volume * 100).round()}%',
-                    style: BarType.caption.copyWith(
-                      fontSize: 12,
-                      fontWeight: FontWeight.w600,
-                      color: theme.colors.textSecondary,
-                      fontFeatures: const <FontFeature>[
-                        FontFeature.tabularFigures(),
-                      ],
+              ? Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: <Widget>[
+                    Pressable(
+                      onTap: () {
+                        if (masterMuted) {
+                          services.commitVolume(_preMuteMaster.clamp(0.15, 1.0));
+                        } else {
+                          _preMuteMaster = volume;
+                          services.commitVolume(0);
+                        }
+                      },
+                      scale: Pressable.small,
+                      wash: true,
+                      shape: KitStyle.of(context).disc(24),
+                      child: SizedBox(
+                        width: 24,
+                        height: 24,
+                        child: Center(
+                          child: BarGlyph(
+                            masterMuted
+                                ? BarIcons.speakerSlashFill
+                                : BarIcons.speaker3Fill,
+                            size: 13,
+                            color: masterMuted
+                                ? theme.colors.textTertiary
+                                : KitStyle.of(context).accent(theme),
+                          ),
+                        ),
+                      ),
                     ),
-                  ),
+                    const SizedBox(width: 4),
+                    Padding(
+                      padding: const EdgeInsets.only(right: 4),
+                      child: Text(
+                        '${(volume * 100).round()}%',
+                        style: BarType.caption.copyWith(
+                          fontSize: 12,
+                          fontWeight: FontWeight.w600,
+                          color: theme.colors.textSecondary,
+                          fontFeatures: const <FontFeature>[
+                            FontFeature.tabularFigures(),
+                          ],
+                        ),
+                      ),
+                    ),
+                  ],
                 )
               : null,
         ),
@@ -970,6 +1032,25 @@ class DisplayPopover extends ConsumerWidget {
             ),
         ],
         const MacDivider(),
+        Builder(
+          builder: (context) {
+            final dark = ref.watch(shellSettingsProvider.select(kitSystemIsDark));
+            return MacRow(
+              leading: MacDisc(
+                icon: BarIcons.circleHalf,
+                on: dark,
+                colour: const Color(0xff636366),
+              ),
+              title: context.tr('Dark Mode'),
+              detail: context.tr(dark ? 'On' : 'Off'),
+              trailing: MacSwitch(
+                value: dark,
+                onChanged: (next) => setKitSystemDarkMode(ref, next),
+              ),
+              onTap: () => setKitSystemDarkMode(ref, !dark),
+            );
+          },
+        ),
         ValueListenableBuilder<bool>(
           valueListenable: NightLight.enabled,
           builder: (context, night, _) => MacRow(

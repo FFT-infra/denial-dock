@@ -391,7 +391,11 @@ class _DockStackViewState extends State<DockStackView>
                       _buildList(context, layout)
                     else
                       _buildGrid(context, layout),
-                    if (_searchable) _buildSearch(context, layout),
+                    if (_searchable &&
+                        (!layout.isFan ||
+                            _query.text.isNotEmpty ||
+                            _queryFocus.hasFocus))
+                      _buildSearch(context, layout),
                     if (_dragging && widget.trashRect != null)
                       _buildTrashTarget(context),
                     if (_dragging) _buildGhost(context, layout),
@@ -939,13 +943,17 @@ class _DockStackViewState extends State<DockStackView>
         widget.bounds.right - anchorX,
       ),
     };
+    final free =
+        available -
+        DockStackFan.thumbSize -
+        DockStackFan.padX * 2 -
+        DockStackFan.thumbGap -
+        28;
+    // Keep fan pills elegant and legible instead of spanning half the screen
+    // on long book/PDF titles; middle-ellipsizing preserves both prefix and
+    // file extension.
     return DockStackFan.maxLabelFor(
-      availableWidth:
-          available -
-          DockStackFan.thumbSize -
-          DockStackFan.padX * 2 -
-          DockStackFan.thumbGap -
-          28,
+      availableWidth: math.min(free, 280.0),
     );
   }
 
@@ -977,14 +985,30 @@ class _DockStackViewState extends State<DockStackView>
   /// it sits where the eye already is.
   Widget _buildSearch(BuildContext context, _StackLayout layout) {
     final theme = context.shellTheme;
-    final width = math.min(240.0, widget.bounds.width - 32);
-    final left = (widget.anchor.center.dx - width / 2)
+    final width = math.min(
+      240.0,
+      layout.isFan ? widget.bounds.width - 32 : layout.width - 16,
+    );
+    final anchorCenterX = layout.isFan
+        ? widget.anchor.center.dx
+        : layout.origin.dx + layout.width / 2;
+    final left = (anchorCenterX - width / 2)
         .clamp(
           widget.bounds.left + 16,
           math.max(widget.bounds.left + 16, widget.bounds.right - width - 16),
         )
         .toDouble();
-    final top = _room.top;
+    final double top;
+    if (layout.isFan) {
+      top = _room.top;
+    } else if (widget.position == DockPosition.top) {
+      top = math.min(
+        widget.bounds.bottom - 38,
+        layout.origin.dy + layout.height + 8,
+      );
+    } else {
+      top = math.max(_room.top, layout.origin.dy - 38);
+    }
     _searchRect = Rect.fromLTWH(left, top, width, 30);
     return Positioned(
       left: left,

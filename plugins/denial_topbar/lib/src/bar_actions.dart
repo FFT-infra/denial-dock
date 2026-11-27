@@ -43,19 +43,21 @@ mixin _BarActions<T extends ConsumerStatefulWidget> on ConsumerState<T> {
     Color? fill,
     double? radius,
   }) {
+    final dockTaskbarFallback =
+        kitBarModeInForce == KitBarMode.hidden && kitSceneRect(anchor) == null;
     showBarPanel(
       ref: ref,
       panelId: id,
       anchor: anchor,
       width: width,
-      side: side ?? _side,
+      side: side ?? (dockTaskbarFallback ? PanelEdge.bottom : _side),
       glass: glass,
       frameless: frameless,
       gap: gap,
       placement: placement,
       fill: fill,
       radius: radius,
-      barHeight: _bodyHeight,
+      barHeight: dockTaskbarFallback ? 56.0 : _bodyHeight,
       builder: builder,
     );
   }
@@ -182,15 +184,19 @@ mixin _BarActions<T extends ConsumerStatefulWidget> on ConsumerState<T> {
   }
 
   void _openNotificationCenter(String id, {required bool merged}) {
+    final anchorKey = id == 'notifications' ? _notificationsKey : _clockKey;
+    final dockTaskbarFallback =
+        kitBarModeInForce == KitBarMode.hidden &&
+        kitSceneRect(anchorKey) == null;
     showNotificationCenter(
       ref: ref,
       services: _services,
-      side: _side,
-      barHeight: _bodyHeight,
+      side: dockTaskbarFallback ? PanelEdge.bottom : _side,
+      barHeight: dockTaskbarFallback ? 56.0 : _bodyHeight,
       panelId: id,
       // A look that hangs the centre under its item hangs it from this one,
       // away from the edge the host is on.
-      anchor: id == 'notifications' ? _notificationsKey : _clockKey,
+      anchor: anchorKey,
       notifications: merged || id == 'notifications',
       widgets: id == 'clock',
     );

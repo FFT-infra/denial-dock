@@ -1440,16 +1440,23 @@ class _PresetCard extends StatelessWidget {
                     : ink.withValues(alpha: 0),
               ),
             ),
-            child: CustomPaint(
-              painter: _BarSketch(
-                settings: BarSettings.defaults.withLayout(preset.bar),
-                look: look,
-                ink: ink,
-                accent: look.accent(theme),
-                corner: style.corner(5),
-                barMode: preset.barMode,
-                dock: preset.dock,
-              ),
+            child: Builder(
+              builder: (context) {
+                final own = look.themed(theme);
+                return CustomPaint(
+                  painter: _BarSketch(
+                    settings: BarSettings.defaults.withLayout(preset.bar),
+                    look: look,
+                    ink: own.colors.textPrimary,
+                    surface: own.colors.surfaceContainer,
+                    background: own.colors.background,
+                    accent: look.accent(own),
+                    corner: style.corner(5),
+                    barMode: preset.barMode,
+                    dock: preset.dock,
+                  ),
+                );
+              },
             ),
           ),
           const SizedBox(height: 5),
@@ -1486,6 +1493,8 @@ class _BarSketch extends CustomPainter {
     required this.settings,
     required this.look,
     required this.ink,
+    required this.surface,
+    required this.background,
     required this.accent,
     required this.corner,
     this.barMode = 'shown',
@@ -1495,6 +1504,8 @@ class _BarSketch extends CustomPainter {
   final BarSettings settings;
   final KitStyle look;
   final Color ink;
+  final Color surface;
+  final Color background;
   final Color accent;
 
   /// The corner of the tile the sketch is drawn on, in the look in force.
@@ -1531,12 +1542,17 @@ class _BarSketch extends CustomPainter {
   @override
   void paint(Canvas canvas, Size size) {
     final s = settings;
+    final cardRect = Offset.zero & size;
+    final hasPalette = look.look.palette != null;
     canvas.drawRRect(
-      RRect.fromRectAndRadius(Offset.zero & size, Radius.circular(corner)),
-      Paint()..color = ink.withValues(alpha: 0.07),
+      RRect.fromRectAndRadius(cardRect, Radius.circular(corner)),
+      Paint()
+        ..color = hasPalette
+            ? background.withValues(alpha: 0.72)
+            : ink.withValues(alpha: 0.07),
     );
     canvas.clipRRect(
-      RRect.fromRectAndRadius(Offset.zero & size, Radius.circular(corner)),
+      RRect.fromRectAndRadius(cardRect, Radius.circular(corner)),
     );
     final strip = s.shape == BarShape.strip;
     final top = strip ? 0.0 : 3.0;
@@ -1774,7 +1790,38 @@ class _BarSketch extends CustomPainter {
     );
     canvas.drawRRect(
       shape,
-      Paint()..color = ink.withValues(alpha: look.opaque ? 0.22 : 0.12),
+      Paint()
+        ..color = hasPalette
+            ? surface.withValues(alpha: look.opaque ? 0.94 : 0.72)
+            : ink.withValues(alpha: look.opaque ? 0.22 : 0.12),
+    );
+    // Tiny active accent pill inside the mini Control Centre preview so each
+    // preset's signature accent & shape are legible at a glance.
+    final pillRect = Rect.fromLTWH(
+      panel.left + 4,
+      panel.top + 4,
+      (panel.width - 8) * 0.56,
+      5,
+    );
+    canvas.drawRRect(
+      RRect.fromRectAndRadius(
+        pillRect,
+        Radius.circular(2.5 * look.cornerScale),
+      ),
+      Paint()..color = accent,
+    );
+    final pillRect2 = Rect.fromLTWH(
+      panel.left + 4,
+      panel.top + 11.5,
+      panel.width - 8,
+      3.5,
+    );
+    canvas.drawRRect(
+      RRect.fromRectAndRadius(
+        pillRect2,
+        Radius.circular(1.75 * look.cornerScale),
+      ),
+      Paint()..color = ink.withValues(alpha: 0.22),
     );
     canvas.drawRRect(
       shape.deflate(look.borderFromAccent ? 0.75 : 0.3),
@@ -1791,6 +1838,8 @@ class _BarSketch extends CustomPainter {
           settings.layoutJson().toString() ||
       old.look != look ||
       old.ink != ink ||
+      old.surface != surface ||
+      old.background != background ||
       old.accent != accent ||
       old.corner != corner ||
       old.barMode != barMode ||

@@ -25,7 +25,8 @@ import 'package:denial_shell_kit/kit_style.dart'
         kitDockEnabled,
         kitShellScale,
         kitStyle,
-        resolveKitScale;
+        resolveKitScale,
+        setKitSystemDarkMode;
 import 'package:denial_shell_kit/shell_preset.dart';
 import 'package:denial_shell_kit/kit_part.dart';
 import 'package:denial_shell_kit/kit_requests.dart';
@@ -279,6 +280,10 @@ class _TopBarSurfaceState extends ConsumerState<TopBarSurface>
     switch (words.first) {
       case 'close':
         closeKitPanel();
+      case 'dark':
+        setKitSystemDarkMode(ref, true);
+      case 'light':
+        setKitSystemDarkMode(ref, false);
       case 'ask':
         if (words.length > 1) {
           KitRequests.send(words[1], monitorId: widget.monitorId);

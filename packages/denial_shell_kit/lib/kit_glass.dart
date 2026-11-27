@@ -138,20 +138,23 @@ class KitGlass extends StatelessWidget {
     final preset = kitGlassPreset.value;
     final refractionScale = switch (preset) {
       KitGlassPreset.system => 1.0,
-      KitGlassPreset.clear => 1.15,
+      KitGlassPreset.clear => 1.18,
       KitGlassPreset.tinted => 0.88,
       KitGlassPreset.custom => kitGlassRefraction.value,
     };
-    final s = (strength * refractionScale).clamp(0.0, 1.4).toDouble();
+    final s = (strength * refractionScale).clamp(0.0, 1.5).toDouble();
     final dark = theme.brightness == Brightness.dark;
     final tintColor = preset == KitGlassPreset.clear
-        ? (dark ? const Color(0xff1e1e24) : const Color(0xffffffff))
+        ? (dark ? const Color(0xff1e1e26) : const Color(0xffffffff))
         : theme.kitAccent;
     final tintBoost = switch (preset) {
-      KitGlassPreset.clear => 0.35,
-      KitGlassPreset.tinted => 1.25,
+      KitGlassPreset.clear => 0.30,
+      KitGlassPreset.tinted => 1.30,
       _ => 1.0,
     };
+    final dispersion = preset == KitGlassPreset.clear
+        ? math.max(g.dispersion, 0.22)
+        : g.dispersion;
     final corner = cornerRadius > 0
         ? Radius.circular(cornerRadius)
         : Radius.zero;
@@ -165,16 +168,22 @@ class KitGlass extends StatelessWidget {
       downsampleScale: g.quality,
       thickness: g.thickness,
       refraction: g.refraction * s,
-      dispersion: g.dispersion,
+      dispersion: dispersion,
       saturation: kitSaturate.value ? 1 + (g.saturation - 1) * strength : 1,
       tint: tintColor,
       tintStrength: (g.tintStrength * strength * tintBoost).clamp(0.0, 1.0),
       brightness: g.brightness * strength,
       lightAngle: g.lightAngle * math.pi / 180,
       lightIntensity:
-          (g.lightIntensity * strength * (preset == KitGlassPreset.clear ? 1.12 : 1.0))
+          (g.lightIntensity *
+                  strength *
+                  (preset == KitGlassPreset.clear ? 1.18 : 1.0))
               .clamp(0.0, 2.0),
-      edgeStrength: g.edgeStrength * strength,
+      edgeStrength:
+          (g.edgeStrength *
+                  strength *
+                  (preset == KitGlassPreset.clear ? 1.12 : 1.0))
+              .clamp(0.0, 2.0),
       bevelWidthScale: g.bevelWidthScale,
       refractionDepthScale: g.refractionDepthScale,
       rimWidth: g.rimWidth,
@@ -262,9 +271,9 @@ class KitGlass extends StatelessWidget {
       final dark = theme.brightness == Brightness.dark;
       final dock = tier == KitTier.dock;
       final double targetCap = switch (preset) {
-        KitGlassPreset.system => dock ? 0.26 : 0.48,
-        KitGlassPreset.clear => dock ? 0.18 : (dark ? 0.32 : 0.28),
-        KitGlassPreset.tinted => dock ? 0.40 : (dark ? 0.62 : 0.60),
+        KitGlassPreset.system => dock ? 0.28 : (dark ? 0.54 : 0.52),
+        KitGlassPreset.clear => dock ? 0.20 : (dark ? 0.36 : 0.34),
+        KitGlassPreset.tinted => dock ? 0.44 : (dark ? 0.68 : 0.66),
         KitGlassPreset.custom =>
           dock ? (kitGlassOpacity.value * 0.65).clamp(0.08, 0.80) : kitGlassOpacity.value,
       };
@@ -273,6 +282,10 @@ class KitGlass extends StatelessWidget {
         tone = tone.withValues(alpha: cap);
       } else if (tone.a > cap) {
         tone = tone.withValues(alpha: cap);
+      } else if (!dock && preset == KitGlassPreset.system && tone.a < cap * 0.72) {
+        // Keep floating panels legible over busy desktop widgets while
+        // preserving full Liquid Glass refraction.
+        tone = tone.withValues(alpha: cap * 0.85);
       }
     }
     final filtered =
@@ -299,16 +312,24 @@ class KitGlass extends StatelessWidget {
           offset: Offset(0, cast.dy * lift),
         ),
     ];
-    // Liquid Glass draws its own refractive specular rim in the shader, so
-    // suppress custom outer/inner lines to prevent double strokes. Pure blur
-    // replaces specular glow lines with a crisp hairline.
+    // Liquid Glass draws its own refractive specular rim in the shader; add a
+    // subtle crisp specular inner edge so floating modules separate cleanly
+    // over light and dark wallpapers without double heavy strokes.
     final suppressRims = filtered && plan.mode == KitSurfaceMode.liquidGlass;
     final pureBlur = filtered && plan.mode == KitSurfaceMode.blur;
+    final darkSurface = theme.brightness == Brightness.dark;
     final outer = suppressRims || pureBlur
         ? null
         : _lineOf(material.outer, theme, style);
     final inner = suppressRims
-        ? null
+        ? _lineOf(
+            KitLine(
+              KitTone(KitTone.white, darkSurface ? 0.18 : 0.52),
+              width: 0.75,
+            ),
+            theme,
+            style,
+          )
         : pureBlur
         ? _lineOf(
             const KitLine(KitTone.of(KitRole.hairline), width: 1),

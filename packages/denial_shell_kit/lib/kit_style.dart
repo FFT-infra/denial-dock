@@ -1,5 +1,9 @@
+import 'dart:async';
+
+import 'package:denial_flutter_sdk/settings.dart';
 import 'package:denial_flutter_sdk/theme.dart';
 import 'package:flutter/widgets.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import 'kit_look.dart';
 import 'kit_look_motion.dart';
@@ -192,30 +196,44 @@ class KitStyle {
   static ShellThemeData? _themedFrom;
   static KitLook? _themedLook;
   static KitSurfaceMode? _themedMode;
+  static Brightness? _themedBrightness;
   static ShellThemeData? _themed;
 
   /// [theme] as this look colours it: the palette's tones in place of the
-  /// shell's, and the appearance the look insists on. A look with neither
-  /// gets [theme] itself. Everything under a [KitThemed] reads the result,
-  /// so a widget that asks the theme for a colour gets the look's.
-  ShellThemeData themed(ShellThemeData theme) {
-    if (look.palette == null && look.appearance == KitAppearance.system) {
+  /// shell's, and the appearance the look insists on. When [systemBrightness]
+  /// is supplied, looks with [KitAppearance.system] follow it even in Denial
+  /// Glass mode where the host's [theme.brightness] tracks `glass.appearance`.
+  ShellThemeData themed(
+    ShellThemeData theme, {
+    Brightness? systemBrightness,
+  }) {
+    final effectiveHostDark =
+        (systemBrightness ?? theme.brightness) == Brightness.dark;
+    final dark = switch (look.appearance) {
+      KitAppearance.system => effectiveHostDark,
+      KitAppearance.dark => true,
+      KitAppearance.light => false,
+    };
+    if (look.palette == null &&
+        look.appearance == KitAppearance.system &&
+        dark == (theme.brightness == Brightness.dark)) {
       return theme;
     }
     final activeMode = surfaceMode;
+    final desiredBrightness = dark ? Brightness.dark : Brightness.light;
     if (identical(theme, _themedFrom) &&
         identical(look, _themedLook) &&
-        activeMode == _themedMode) {
+        activeMode == _themedMode &&
+        desiredBrightness == _themedBrightness) {
       return _themed!;
     }
-    final dark = this.dark(theme);
     final base = dark == (theme.brightness == Brightness.dark)
         ? theme.colors
         : dark
         ? ShellColorScheme.dark
         : ShellColorScheme.light;
-    final tones = this.tones(theme);
-    final own = tones == null ? null : _own(theme);
+    final tones = look.palette?.of(dark: dark);
+    final own = tones == null ? null : _ownFor(dark: dark);
     final glass = theme.transparencyMode == ShellTransparencyMode.glass;
     final solidSurface = activeMode == KitSurfaceMode.solid;
     final keepGlass = activeMode == KitSurfaceMode.liquidGlass;
@@ -242,6 +260,7 @@ class KitStyle {
     _themedFrom = theme;
     _themedLook = look;
     _themedMode = activeMode;
+    _themedBrightness = desiredBrightness;
     return _themed = next;
   }
 
@@ -302,12 +321,14 @@ class KitStyle {
   }
 
   /// The accent the look brings under [theme], if it brings one.
-  Color? _own(ShellThemeData theme) {
+  Color? _own(ShellThemeData theme) => _ownFor(dark: dark(theme));
+
+  Color? _ownFor({required bool dark}) {
     switch (look.accentSource) {
       case KitAccentSource.fixed:
         return fixedAccent;
       case KitAccentSource.palette:
-        final tones = this.tones(theme);
+        final tones = look.palette?.of(dark: dark);
         return tones == null ? null : Color(0xff000000 | tones.accent);
       case KitAccentSource.wallpaper:
         return null;
@@ -455,18 +476,143 @@ class KitStyle {
   static KitStyle of(BuildContext context) => kitStyle.value;
 }
 
+/// Whether the active Denial system settings prefer dark appearance.
+///
+/// In Denial Glass transparency mode, `appearance.glass.appearance` drives the
+/// host's `ShellThemeData.brightness`, whereas `colorSchemePreference` drives
+/// apps, portals, and non-glass modes. Reading both through this helper keeps
+/// dark-mode indicators consistent with what is actually drawn.
+bool kitSystemIsDark(ShellSettings settings) {
+  final appearance = settings.appearance;
+  if (appearance.transparencyMode == ShellTransparencyMode.glass) {
+    return appearance.glass.appearance == ShellGlassAppearance.dark;
+  }
+  return appearance.colorSchemePreference.effectiveBrightness ==
+      Brightness.dark;
+}
+
+/// Switches system Dark/Light mode atomically across BOTH
+/// `colorSchemePreference` (apps, portals, standard shell theme) AND
+/// `glass.appearance` (Denial Glass-mode shell theme & native glass widgets).
+void setKitSystemDarkMode(WidgetRef ref, bool dark) {
+  final controller = ref.read(shellSettingsProvider.notifier);
+  final appearance = ref.read(shellSettingsProvider).appearance;
+  final nextPref = dark
+      ? DesktopColorSchemePreference.preferDark
+      : DesktopColorSchemePreference.preferLight;
+  final nextGlass = dark
+      ? ShellGlassAppearance.dark
+      : ShellGlassAppearance.light;
+  _lastSeenColorScheme = nextPref;
+  _lastSeenGlassAppearance = nextGlass;
+  if (appearance.colorSchemePreference != nextPref) {
+    controller.setColorSchemePreference(nextPref);
+  }
+  if (appearance.glass.appearance != nextGlass) {
+    controller.setGlassConfiguration(
+      appearance.glass.copyWith(appearance: nextGlass),
+    );
+  }
+}
+
+DesktopColorSchemePreference? _lastSeenColorScheme;
+ShellGlassAppearance? _lastSeenGlassAppearance;
+bool _syncScheduled = false;
+
 /// Puts the look's colours in force for everything under it: the theme the
 /// shell hands down, as [KitStyle.themed] colours it. Each surface and each
 /// popup of the plugins is built under one.
-class KitThemed extends StatelessWidget {
+///
+/// Also bridges Denial's split `colorSchemePreference` vs `glass.appearance`
+/// settings so toggling system Dark/Light mode in either Denial Settings or a
+/// plugin Control Centre always switches every preset and surface in lockstep.
+class KitThemed extends ConsumerWidget {
   const KitThemed({required this.child, super.key});
 
   final Widget child;
 
   @override
-  Widget build(BuildContext context) {
+  Widget build(BuildContext context, WidgetRef ref) {
     final theme = context.shellTheme;
-    final themed = KitStyle.of(context).themed(theme);
+    final appearance = ref.watch(
+      shellSettingsProvider.select((s) => s.appearance),
+    );
+    final pref = appearance.colorSchemePreference;
+    final glassApp = appearance.glass.appearance;
+    final glassMode =
+        appearance.transparencyMode == ShellTransparencyMode.glass;
+
+    Brightness? effectiveSystemBrightness;
+    if (glassMode) {
+      final prevPref = _lastSeenColorScheme;
+      final prevGlass = _lastSeenGlassAppearance;
+      if (prevPref != null && pref != prevPref) {
+        // User toggled System Dark/Light (colorSchemePreference) while in Glass
+        // mode: immediately adopt its brightness and mirror to glass.appearance
+        // so Denial's native glass & widgets switch together.
+        final wantDark = pref.effectiveBrightness == Brightness.dark;
+        effectiveSystemBrightness = wantDark
+            ? Brightness.dark
+            : Brightness.light;
+        final targetGlass = wantDark
+            ? ShellGlassAppearance.dark
+            : ShellGlassAppearance.light;
+        _lastSeenColorScheme = pref;
+        _lastSeenGlassAppearance = targetGlass;
+        if (glassApp != targetGlass && !_syncScheduled) {
+          _syncScheduled = true;
+          scheduleMicrotask(() {
+            _syncScheduled = false;
+            final current = ref.read(shellSettingsProvider).appearance;
+            if (current.glass.appearance != targetGlass) {
+              ref
+                  .read(shellSettingsProvider.notifier)
+                  .setGlassConfiguration(
+                    current.glass.copyWith(appearance: targetGlass),
+                  );
+            }
+          });
+        }
+      } else if (prevGlass != null && glassApp != prevGlass) {
+        // User toggled Glass Appearance directly: follow it and mirror to
+        // colorSchemePreference so apps/portals match too.
+        final wantDark = glassApp == ShellGlassAppearance.dark;
+        effectiveSystemBrightness = wantDark
+            ? Brightness.dark
+            : Brightness.light;
+        final targetPref = wantDark
+            ? DesktopColorSchemePreference.preferDark
+            : DesktopColorSchemePreference.preferLight;
+        _lastSeenGlassAppearance = glassApp;
+        _lastSeenColorScheme = targetPref;
+        if (pref != targetPref && !_syncScheduled) {
+          _syncScheduled = true;
+          scheduleMicrotask(() {
+            _syncScheduled = false;
+            final current = ref.read(shellSettingsProvider).appearance;
+            if (current.colorSchemePreference != targetPref) {
+              ref
+                  .read(shellSettingsProvider.notifier)
+                  .setColorSchemePreference(targetPref);
+            }
+          });
+        }
+      } else {
+        _lastSeenColorScheme ??= pref;
+        _lastSeenGlassAppearance ??= glassApp;
+        effectiveSystemBrightness = glassApp == ShellGlassAppearance.dark
+            ? Brightness.dark
+            : Brightness.light;
+      }
+    } else {
+      _lastSeenColorScheme = pref;
+      _lastSeenGlassAppearance = glassApp;
+      effectiveSystemBrightness = pref.effectiveBrightness;
+    }
+
+    final themed = KitStyle.of(
+      context,
+    ).themed(theme, systemBrightness: effectiveSystemBrightness);
     // The same widgets whatever the look, so going from a look with a
     // palette to one without keeps the state of everything below.
     return ShellTheme(

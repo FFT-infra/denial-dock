@@ -1877,13 +1877,7 @@ class _QuickActionsWidget extends ConsumerWidget {
   Widget build(BuildContext context, WidgetRef ref) {
     final theme = context.shellTheme;
     final style = KitStyle.of(context);
-    final dark = ref.watch(
-      shellSettingsProvider.select(
-        (s) =>
-            s.appearance.colorSchemePreference.effectiveBrightness ==
-            Brightness.dark,
-      ),
-    );
+    final dark = ref.watch(shellSettingsProvider.select(kitSystemIsDark));
 
     Widget btn(
       IconData icon,
@@ -1939,13 +1933,7 @@ class _QuickActionsWidget extends ConsumerWidget {
             context.tr('Dark Mode'),
             dark,
             const Color(0xff636366),
-            () => ref
-                .read(shellSettingsProvider.notifier)
-                .setColorSchemePreference(
-                  dark
-                      ? DesktopColorSchemePreference.preferLight
-                      : DesktopColorSchemePreference.preferDark,
-                ),
+            () => setKitSystemDarkMode(ref, !dark),
           ),
           btn(
             night ? BarIcons.sunMaxFill : BarIcons.sunMax,

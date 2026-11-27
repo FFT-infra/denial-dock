@@ -77,13 +77,7 @@ class ShellControlCenterView extends ConsumerWidget {
     final focus = ref.watch(
       desktopNotificationsProvider.select((state) => state.doNotDisturb),
     );
-    final dark = ref.watch(
-      shellSettingsProvider.select(
-        (state) =>
-            state.appearance.colorSchemePreference.effectiveBrightness ==
-            Brightness.dark,
-      ),
-    );
+    final dark = ref.watch(shellSettingsProvider.select(kitSystemIsDark));
     final power = ref.watch(desktopPowerModesProvider);
     final battery = ref.watch(services.battery);
     final plugged = ref.watch(
@@ -131,13 +125,8 @@ class ShellControlCenterView extends ConsumerWidget {
   void _toggleDnd(WidgetRef ref) =>
       ref.read(desktopNotificationsProvider.notifier).toggleDoNotDisturb();
 
-  void _toggleDark(WidgetRef ref, bool dark) => ref
-      .read(shellSettingsProvider.notifier)
-      .setColorSchemePreference(
-        dark
-            ? DesktopColorSchemePreference.preferLight
-            : DesktopColorSchemePreference.preferDark,
-      );
+  void _toggleDark(WidgetRef ref, bool dark) =>
+      setKitSystemDarkMode(ref, !dark);
 
   void _cyclePower(WidgetRef ref, _ShellLiveState s) {
     if (!s.powerAvailable) return;
@@ -1607,7 +1596,9 @@ class ShellControlCenterView extends ConsumerWidget {
               onConfirmPower(SessionPowerAction.powerOff);
             },
           ),
-          const SizedBox(height: 12),
+          const SizedBox(height: 10),
+          _DrawerMediaStrip(services: services, radius: r, padBg: padBg),
+          const SizedBox(height: 10),
           Row(
             children: <Widget>[
               Expanded(
@@ -1708,6 +1699,129 @@ class ShellControlCenterView extends ConsumerWidget {
         PowerProfile.performance => context.tr('High Power'),
         _ => context.tr('Balanced'),
       };
+}
+
+class _DrawerMediaStrip extends ConsumerWidget {
+  const _DrawerMediaStrip({
+    required this.services,
+    required this.radius,
+    required this.padBg,
+  });
+
+  final ShellServices services;
+  final double radius;
+  final Color padBg;
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final theme = context.shellTheme;
+    final style = KitStyle.of(context);
+    final playback = ref.watch(services.media).value;
+    final commands = ref.watch(services.mediaCommands);
+    final hasTrack = playback != null && playback.title.trim().isNotEmpty;
+    final playing = playback?.playing ?? false;
+    final accent = style.accent(theme);
+
+    Widget btn(IconData icon, VoidCallback? onTap, {bool primary = false}) =>
+        Pressable(
+          onTap: onTap,
+          scale: Pressable.small,
+          wash: !primary,
+          shape: style.disc(28),
+          child: Container(
+            width: 28,
+            height: 28,
+            decoration: primary
+                ? BoxDecoration(
+                    color: accent,
+                    borderRadius: style.disc(28),
+                  )
+                : null,
+            child: Center(
+              child: BarGlyph(
+                icon,
+                size: primary ? 12 : 13,
+                color: primary
+                    ? style.onAccent(theme)
+                    : theme.colors.textPrimary.withValues(
+                        alpha: onTap == null ? 0.35 : 0.85,
+                      ),
+              ),
+            ),
+          ),
+        );
+
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+      decoration: BoxDecoration(
+        color: padBg,
+        borderRadius: BorderRadius.circular(radius),
+      ),
+      child: Row(
+        children: <Widget>[
+          Container(
+            width: 34,
+            height: 34,
+            decoration: BoxDecoration(
+              color: accent.withValues(alpha: 0.16),
+              borderRadius: BorderRadius.circular(style.corner(8)),
+            ),
+            child: Center(
+              child: BarGlyph(
+                BarIcons.playFill,
+                size: 15,
+                color: accent,
+              ),
+            ),
+          ),
+          const SizedBox(width: 10),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              mainAxisSize: MainAxisSize.min,
+              children: <Widget>[
+                Text(
+                  hasTrack ? playback.title : context.tr('Not Playing'),
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: BarType.title.copyWith(
+                    fontSize: 12.5,
+                    color: theme.colors.textPrimary,
+                  ),
+                ),
+                if (hasTrack && playback.artistLabel.trim().isNotEmpty)
+                  Text(
+                    playback.artistLabel,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: BarType.caption.copyWith(
+                      fontSize: 10.5,
+                      color: theme.colors.textSecondary,
+                    ),
+                  ),
+              ],
+            ),
+          ),
+          const SizedBox(width: 6),
+          btn(
+            BarIcons.backward,
+            playback?.canGoPrevious == true ? commands.previous : null,
+          ),
+          const SizedBox(width: 2),
+          btn(
+            playing ? BarIcons.pauseFill : BarIcons.playFill,
+            playback?.available == true ? commands.playPause : null,
+            primary: hasTrack,
+          ),
+          const SizedBox(width: 2),
+          btn(
+            BarIcons.forward,
+            playback?.canGoNext == true ? commands.next : null,
+          ),
+        ],
+      ),
+    );
+  }
 }
 
 class _ShellLiveState {

@@ -395,7 +395,6 @@ class SmallButton extends StatelessWidget {
         builder: (context, hovered, pressed) => Container(
           height: 28,
           padding: const EdgeInsets.symmetric(horizontal: 12),
-          alignment: Alignment.center,
           decoration: BoxDecoration(
             color: primary
                 ? style.accent(theme)
@@ -405,14 +404,20 @@ class SmallButton extends StatelessWidget {
             borderRadius: BorderRadius.circular(style.corner(8)),
             border: primary ? null : style.controlLine(theme),
           ),
-          child: Text(
-            label,
-            maxLines: 1,
-            style: BarType.caption.copyWith(
-              fontSize: 12,
-              fontWeight: FontWeight.w500,
-              color: primary ? style.onAccent(theme) : ink,
-            ),
+          child: Row(
+            mainAxisSize: MainAxisSize.min,
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: <Widget>[
+              Text(
+                label,
+                maxLines: 1,
+                style: BarType.caption.copyWith(
+                  fontSize: 12,
+                  fontWeight: FontWeight.w500,
+                  color: primary ? style.onAccent(theme) : ink,
+                ),
+              ),
+            ],
           ),
         ),
         child: const SizedBox.shrink(),

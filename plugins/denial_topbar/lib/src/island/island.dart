@@ -5,12 +5,10 @@ import 'dart:ui' show ImageFilter, lerpDouble;
 import 'package:denial_flutter_sdk/input.dart';
 import 'package:denial_flutter_sdk/models.dart';
 import 'package:denial_flutter_sdk/services.dart';
-import 'package:denial_flutter_sdk/settings.dart'
-    show DesktopColorSchemePreference, shellSettingsProvider;
+import 'package:denial_flutter_sdk/settings.dart' show shellSettingsProvider;
 import 'package:denial_flutter_sdk/state.dart';
 import 'package:denial_flutter_sdk/system_services.dart'
     show systemActionsServiceProvider;
-import 'package:denial_flutter_sdk/theme.dart';
 import 'package:denial_sdk/system.dart' show BatteryStatus;
 import 'package:denial_shell_kit/continuous_corners.dart';
 import 'package:denial_shell_kit/kit_control_math.dart';
@@ -2226,8 +2224,9 @@ class _IslandState extends ConsumerState<Island> with TickerProviderStateMixin {
               final recording = ref.watch(
                 screenRecordingProvider.select((s) => s.recording),
               );
-              final isDark =
-                  context.shellTheme.brightness == Brightness.dark;
+              final isDark = ref.watch(
+                shellSettingsProvider.select(kitSystemIsDark),
+              );
               final built = <IslandHomeAction>[];
               for (final id in islandHomeActions.value) {
                 switch (id) {
@@ -2310,13 +2309,7 @@ class _IslandState extends ConsumerState<Island> with TickerProviderStateMixin {
                       IslandHomeAction(
                         icon: BarIcons.circleHalf,
                         on: isDark,
-                        onTap: () => ref
-                            .read(shellSettingsProvider.notifier)
-                            .setColorSchemePreference(
-                              isDark
-                                  ? DesktopColorSchemePreference.preferLight
-                                  : DesktopColorSchemePreference.preferDark,
-                            ),
+                        onTap: () => setKitSystemDarkMode(ref, !isDark),
                       ),
                     );
                   case 'lock':

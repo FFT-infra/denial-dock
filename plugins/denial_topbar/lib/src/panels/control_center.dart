@@ -612,25 +612,13 @@ class _ControlCenterPanelState extends ConsumerState<ControlCenterPanel>
           ),
         );
       case 'dark':
-        final dark = ref.watch(
-          shellSettingsProvider.select(
-            (state) =>
-                state.appearance.colorSchemePreference.effectiveBrightness ==
-                Brightness.dark,
-          ),
-        );
+        final dark = ref.watch(shellSettingsProvider.select(kitSystemIsDark));
         return round(
           _Round(
             icon: BarIcons.circleHalf,
             on: dark,
             colour: const Color(0xff636366),
-            onTap: () => ref
-                .read(shellSettingsProvider.notifier)
-                .setColorSchemePreference(
-                  dark
-                      ? DesktopColorSchemePreference.preferLight
-                      : DesktopColorSchemePreference.preferDark,
-                ),
+            onTap: () => setKitSystemDarkMode(ref, !dark),
           ),
         );
       case 'night':
