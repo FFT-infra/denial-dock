@@ -65,6 +65,9 @@ enum IslandWhy {
 
   /// Only with an activity that has a panel to preview.
   needsPanel,
+
+  /// Cursor absorption is off while the island fades out under the pointer.
+  fadesOnHover,
 }
 
 /// One option as the settings page draws it.
@@ -150,6 +153,8 @@ class IslandOptions {
             ? null
             : IslandWhy.needsPages,
       IslandOption.hoverPeek => _previews ? null : IslandWhy.needsPanel,
+      IslandOption.cursorAbsorb =>
+        settings.islandHoverFade ? IslandWhy.fadesOnHover : null,
       _ => null,
     };
   }

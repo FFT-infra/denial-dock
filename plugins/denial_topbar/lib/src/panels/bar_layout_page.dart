@@ -80,6 +80,21 @@ class _LayoutPageState extends ConsumerState<_LayoutPage> {
   GlobalKey _chipKey(int group, int zone, int at) =>
       _chipKeys.putIfAbsent((group, zone, at), GlobalKey.new);
 
+  void _pruneChipKeys() {
+    if (_chipKeys.length <= 24) return;
+    final active = <(int, int, int)>{};
+    for (var g = 0; g < 2; g++) {
+      final zones = _zonesOf(g);
+      if (zones == null) continue;
+      for (var z = 0; z < zones.length; z++) {
+        for (var i = 0; i < zones[z].length; i++) {
+          active.add((g, z, i));
+        }
+      }
+    }
+    _chipKeys.removeWhere((k, _) => !active.contains(k));
+  }
+
   /// The zones of a drag group, or null when there is no dock to show.
   List<List<String>>? _zonesOf(int group) => group == 0
       ? <List<String>>[_s.zones.start, _s.zones.center, _s.zones.end]
@@ -401,9 +416,18 @@ class _LayoutPageState extends ConsumerState<_LayoutPage> {
     }
   }
 
-  void _setZones(BarZones zones, {bool island = false}) => widget.save(
-    (s) => s.copyWith(zones: zones, islandEnabled: island ? true : null),
-  );
+  void _setZones(BarZones zones, {bool island = false}) {
+    _pruneChipKeys();
+    final hasIsland = zones.contains(BarPart.island);
+    widget.save(
+      (s) => s.copyWith(
+        zones: zones,
+        islandEnabled: island
+            ? true
+            : (!hasIsland ? false : null),
+      ),
+    );
+  }
 
   /// Moves the picked part one step along the bar, into the next zone when
   /// it is at the end of its own.
@@ -748,16 +772,38 @@ class _LayoutPageState extends ConsumerState<_LayoutPage> {
                 ],
                 (v) => save((s) => s.copyWith(partPill: v)),
               ),
-              slider(
-                context.tr('Bar height'),
-                s.barHeight ?? 28,
-                BarMetric.barHeightMin,
-                BarMetric.barHeightMax,
-                (v) => save((s) => s.copyWith(barHeight: v)),
-                step: 1,
-                text: (v) => s.barHeight == null
-                    ? context.tr('As the look has it')
-                    : '${v.round()} px',
+              Column(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: <Widget>[
+                  slider(
+                    context.tr('Bar height'),
+                    s.barHeight ?? 28,
+                    BarMetric.barHeightMin,
+                    BarMetric.barHeightMax,
+                    (v) => save((s) => s.copyWith(barHeight: v)),
+                    step: 1,
+                    text: (v) => s.barHeight == null
+                        ? context.tr('Auto')
+                        : '${v.round()} px',
+                  ),
+                  if (s.barHeight != null)
+                    Align(
+                      alignment: Alignment.centerRight,
+                      child: Padding(
+                        padding: const EdgeInsets.only(right: 12, bottom: 6),
+                        child: Pressable(
+                          onTap: () => save((s) => s.copyWith(barHeight: null)),
+                          scale: 0.96,
+                          child: Text(
+                            context.tr('Auto'),
+                            style: BarType.caption.copyWith(
+                              color: KitStyle.of(context).accent(theme),
+                            ),
+                          ),
+                        ),
+                      ),
+                    ),
+                ],
               ),
             ),
             _Pair(

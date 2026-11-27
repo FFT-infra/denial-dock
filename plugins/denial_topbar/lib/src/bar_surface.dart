@@ -20,7 +20,6 @@ import 'package:denial_shell_kit/kit_style.dart'
     show
         KitScaleScope,
         KitStyle,
-        KitThemeAccent,
         kitDockEnabled,
         kitShellScale,
         resolveKitScale;
@@ -505,13 +504,17 @@ class _TopBarSurfaceState extends ConsumerState<TopBarSurface>
             horizontal: _horizontal,
           ),
           BarPart.island => KitPartView(id: id, part: part),
+          // Status cluster wraps each individual status item in its own pill
+          // inside BarStatusCluster rather than fusing the whole cluster.
+          BarPart.status => KitPartView(id: id, part: part),
           _ => pillActive
-              ? _partPill(
-                  settings: settings,
+              ? barPartPillBox(
+                  pill: settings.partPill,
                   theme: theme,
                   style: style,
                   id: id,
                   bodyHeight: bodyHeight,
+                  horizontal: _horizontal,
                   child: KitPartView(id: id, part: part),
                 )
               : KitPartView(id: id, part: part),
@@ -732,8 +735,8 @@ class _TopBarSurfaceState extends ConsumerState<TopBarSurface>
             borderRadius: radius,
             backdrop: wallpaper,
             edges: ends,
-            concaveEdge:
-                settings.concaveEdge && attached && _horizontal && _side == PanelEdge.top,
+            concaveEdge: settings.concaveEdge && attached,
+            side: _side,
             child: pad + clear == 0
                 ? hosted
                 : Padding(
@@ -895,80 +898,6 @@ class _TopBarSurfaceState extends ConsumerState<TopBarSurface>
       d.stiffness / d.mass,
       d.damping / (2 * math.sqrt(d.stiffness * d.mass)),
     );
-  }
-
-  Widget _partPill({
-    required BarSettings settings,
-    required ShellThemeData theme,
-    required KitStyle style,
-    required String id,
-    required double bodyHeight,
-    required Widget child,
-  }) {
-    final dark = theme.brightness == Brightness.dark;
-    final base = theme.colors.surfaceContainerHigh;
-    final radius = switch (settings.partPill) {
-      BarPartPill.uniform => style.pill(bodyHeight - 4),
-      BarPartPill.tinted => style.corner(9),
-      BarPartPill.split => style.corner(8),
-      BarPartPill.none => 0.0,
-    };
-    final tint = switch (settings.partPill) {
-      BarPartPill.tinted => _moduleTint(id, dark),
-      BarPartPill.split => theme.kitAccent,
-      _ => null,
-    };
-    final fill = tint == null
-        ? base.withValues(alpha: dark ? 0.72 : 0.78)
-        : Color.alphaBlend(
-            tint.withValues(alpha: dark ? 0.22 : 0.18),
-            base,
-          ).withValues(alpha: dark ? 0.84 : 0.88);
-    return Padding(
-      padding: _horizontal
-          ? const EdgeInsets.symmetric(vertical: 2)
-          : const EdgeInsets.symmetric(horizontal: 2),
-      child: DecoratedBox(
-        decoration: BoxDecoration(
-          color: fill,
-          borderRadius: BorderRadius.circular(radius),
-          border: tint == null
-              ? null
-              : Border.all(
-                  width: 0.7,
-                  color: tint.withValues(alpha: dark ? 0.36 : 0.30),
-                ),
-        ),
-        child: Padding(
-          padding: EdgeInsets.symmetric(
-            horizontal: _horizontal ? 6 : 2,
-            vertical: _horizontal ? 0 : 4,
-          ),
-          child: child,
-        ),
-      ),
-    );
-  }
-
-  static Color _moduleTint(String id, bool dark) {
-    const darkSwatches = <Color>[
-      Color(0xffb4befe), // Lavender
-      Color(0xff74c7ec), // Sapphire
-      Color(0xfffab387), // Peach
-      Color(0xffcba6f7), // Mauve
-      Color(0xffa6e3a1), // Green
-      Color(0xfff5c2e7), // Pink
-    ];
-    const lightSwatches = <Color>[
-      Color(0xff7287fd),
-      Color(0xff209fb5),
-      Color(0xfffe640b),
-      Color(0xff8839ef),
-      Color(0xff40a02b),
-      Color(0xffea76cb),
-    ];
-    final palette = dark ? darkSwatches : lightSwatches;
-    return palette[id.hashCode.abs() % palette.length];
   }
 
   /// The app's own name from the shell's catalog, falling back to the id's

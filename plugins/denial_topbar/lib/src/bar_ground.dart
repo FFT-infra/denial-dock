@@ -1,4 +1,5 @@
 import 'package:denial_flutter_sdk/effects.dart';
+import 'package:denial_flutter_sdk/models.dart' show PanelEdge;
 import 'package:denial_flutter_sdk/theme.dart';
 import 'package:denial_shell_kit/kit_style.dart';
 import 'package:flutter/widgets.dart';
@@ -28,6 +29,7 @@ class BarGroundLayer extends StatelessWidget {
     this.edges,
     this.fill,
     this.concaveEdge = false,
+    this.side = PanelEdge.top,
     super.key,
   });
 
@@ -43,6 +45,7 @@ class BarGroundLayer extends StatelessWidget {
   /// The plate's colour when it is not the bar's own, without its opacity.
   final Color? fill;
   final bool concaveEdge;
+  final PanelEdge side;
   final Widget child;
 
   static double luminanceOf(Color color) =>
@@ -144,50 +147,118 @@ class BarGroundLayer extends StatelessWidget {
             child: plate,
           );
     if (!concaveEdge) return backed;
+    const ear = 12.0;
+    final Positioned ears = switch (side) {
+      PanelEdge.bottom => Positioned(
+        left: 0,
+        right: 0,
+        top: -ear,
+        height: ear,
+        child: IgnorePointer(
+          child: CustomPaint(painter: _ConcaveEarsPainter(colour, side)),
+        ),
+      ),
+      PanelEdge.left => Positioned(
+        top: 0,
+        bottom: 0,
+        right: -ear,
+        width: ear,
+        child: IgnorePointer(
+          child: CustomPaint(painter: _ConcaveEarsPainter(colour, side)),
+        ),
+      ),
+      PanelEdge.right => Positioned(
+        top: 0,
+        bottom: 0,
+        left: -ear,
+        width: ear,
+        child: IgnorePointer(
+          child: CustomPaint(painter: _ConcaveEarsPainter(colour, side)),
+        ),
+      ),
+      _ => Positioned(
+        left: 0,
+        right: 0,
+        bottom: -ear,
+        height: ear,
+        child: IgnorePointer(
+          child: CustomPaint(painter: _ConcaveEarsPainter(colour, side)),
+        ),
+      ),
+    };
     return Stack(
       clipBehavior: Clip.none,
-      children: <Widget>[
-        backed,
-        Positioned(
-          left: 0,
-          right: 0,
-          bottom: -12,
-          height: 12,
-          child: IgnorePointer(
-            child: CustomPaint(painter: _ConcaveEarsPainter(colour)),
-          ),
-        ),
-      ],
+      children: <Widget>[backed, ears],
     );
   }
 }
 
 class _ConcaveEarsPainter extends CustomPainter {
-  const _ConcaveEarsPainter(this.color);
+  const _ConcaveEarsPainter(this.color, this.side);
 
   final Color color;
+  final PanelEdge side;
 
   @override
   void paint(Canvas canvas, Size size) {
     const r = 12.0;
     final paint = Paint()..color = color;
-    final left = Path()
-      ..moveTo(0, 0)
-      ..lineTo(0, r)
-      ..quadraticBezierTo(0, 0, r, 0)
-      ..close();
-    final right = Path()
-      ..moveTo(size.width, 0)
-      ..lineTo(size.width, r)
-      ..quadraticBezierTo(size.width, 0, size.width - r, 0)
-      ..close();
+    final Path a;
+    final Path b;
+    switch (side) {
+      case PanelEdge.bottom:
+        a = Path()
+          ..moveTo(0, r)
+          ..lineTo(0, 0)
+          ..quadraticBezierTo(0, r, r, r)
+          ..close();
+        b = Path()
+          ..moveTo(size.width, r)
+          ..lineTo(size.width, 0)
+          ..quadraticBezierTo(size.width, r, size.width - r, r)
+          ..close();
+      case PanelEdge.left:
+        a = Path()
+          ..moveTo(0, 0)
+          ..lineTo(r, 0)
+          ..quadraticBezierTo(0, 0, 0, r)
+          ..close();
+        b = Path()
+          ..moveTo(0, size.height)
+          ..lineTo(r, size.height)
+          ..quadraticBezierTo(0, size.height, 0, size.height - r)
+          ..close();
+      case PanelEdge.right:
+        a = Path()
+          ..moveTo(r, 0)
+          ..lineTo(0, 0)
+          ..quadraticBezierTo(r, 0, r, r)
+          ..close();
+        b = Path()
+          ..moveTo(r, size.height)
+          ..lineTo(0, size.height)
+          ..quadraticBezierTo(r, size.height, r, size.height - r)
+          ..close();
+      default:
+        a = Path()
+          ..moveTo(0, 0)
+          ..lineTo(0, r)
+          ..quadraticBezierTo(0, 0, r, 0)
+          ..close();
+        b = Path()
+          ..moveTo(size.width, 0)
+          ..lineTo(size.width, r)
+          ..quadraticBezierTo(size.width, 0, size.width - r, 0)
+          ..close();
+    }
     canvas
-      ..drawPath(left, paint)
-      ..drawPath(right, paint);
+      ..drawPath(a, paint)
+      ..drawPath(b, paint);
   }
 
   @override
-  bool shouldRepaint(_ConcaveEarsPainter old) => old.color != color;
+  bool shouldRepaint(_ConcaveEarsPainter old) =>
+      old.color != color || old.side != side;
 }
 
 Path _segmentPath(Size size, BarSegmentEdges edges) {

@@ -203,7 +203,7 @@ const KitLook _cosmic = KitLook(
   scaleCorners: false,
   opaque: true,
   shadow: 0.4,
-  cornerScale: 0,
+  cornerScale: 0.55,
   accentMenuRows: true,
   panelGrow: KitSpringTuning(680, 1),
   entry: KitPanelEntry.fade,

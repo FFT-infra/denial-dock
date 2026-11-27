@@ -1373,6 +1373,7 @@ class _IslandState extends ConsumerState<Island> with TickerProviderStateMixin {
                 ),
               if (!expanded &&
                   !yields &&
+                  !settings.islandHoverFade &&
                   settings.islandCursorAbsorb &&
                   hover > 0.01)
                 Positioned.fill(
@@ -1407,7 +1408,10 @@ class _IslandState extends ConsumerState<Island> with TickerProviderStateMixin {
             // Not opaque while faded, so the bar under the island is hit
             // too; the region itself still sees the pointer come and go.
             opaque: !yields,
-            cursor: !expanded && !yields && settings.islandCursorAbsorb
+            cursor: !expanded &&
+                    !yields &&
+                    !settings.islandHoverFade &&
+                    settings.islandCursorAbsorb
                 ? SystemMouseCursors.none
                 : !expanded && _engine.canExpand
                 ? SystemMouseCursors.click

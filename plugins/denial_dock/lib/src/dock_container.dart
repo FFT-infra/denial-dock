@@ -16,6 +16,7 @@ import 'package:denial_shell_kit/kit_style.dart';
 import 'package:denial_flutter_sdk/applications.dart'
     show applicationRecentsProvider;
 import 'package:denial_flutter_sdk/input.dart';
+import 'package:denial_flutter_sdk/models.dart' show DenialWindow;
 import 'package:denial_flutter_sdk/popups.dart';
 import 'package:denial_flutter_sdk/services.dart';
 import 'package:denial_flutter_sdk/settings.dart' show ShellScale;
@@ -1557,13 +1558,21 @@ class _DockContainerState extends ConsumerState<DockContainer>
           ),
           ready: !storedSettings.isLoading,
         );
-        _requestFloat(
-          _look.defloatOnTouch &&
-                  settings.visibility == DockVisibilityMode.always &&
-                  conflict
-              ? 0.0
-              : 1.0,
-        );
+        final defloatTouch = _look.defloatOnTouch &&
+            settings.visibility == DockVisibilityMode.always &&
+            (conflict ||
+                _hasTouchingWindow(
+                  windows: denialWindows,
+                  dockRect: dockRect,
+                  origin: origin,
+                  effectiveScale: effectiveScale,
+                  environment: environment,
+                  activeIds: {
+                    for (final window in allWindows)
+                      if (window.active) window.id,
+                  },
+                ));
+        _requestFloat(defloatTouch ? 0.0 : 1.0);
 
         if (_dragKey != null) {
           final baseFrame = _layout(surfaceMain, baseSpecs, hover: 0);
@@ -1870,6 +1879,54 @@ class _DockContainerState extends ConsumerState<DockContainer>
             scale: rel,
             child: ShellOverlayHost(child: scoped),
           );
+  }
+
+  /// Whether any visible window on this workspace is maximized or touches the
+  /// floating dock's inward margin (used by Plasma/COSMIC `defloatOnTouch`).
+  bool _hasTouchingWindow({
+    required List<DenialWindow> windows,
+    required Rect dockRect,
+    required Offset origin,
+    required double effectiveScale,
+    required ShellSurfaceEnvironment environment,
+    required Set<int> activeIds,
+  }) {
+    if (environment.desktopVisible) return false;
+    final pad = _look.edgeMargin + 4.0;
+    final touchRect = switch (_position) {
+      DockPosition.bottom => Rect.fromLTRB(
+        dockRect.left,
+        dockRect.top - pad,
+        dockRect.right,
+        dockRect.bottom,
+      ),
+      DockPosition.left => Rect.fromLTRB(
+        dockRect.left,
+        dockRect.top,
+        dockRect.right + pad,
+        dockRect.bottom,
+      ),
+      DockPosition.right => Rect.fromLTRB(
+        dockRect.left - pad,
+        dockRect.top,
+        dockRect.right,
+        dockRect.bottom,
+      ),
+    };
+    final screenTouch = ShellScale.toScreen(touchRect, origin, effectiveScale);
+    return DockAutoHide.hasConflict(
+      windows: windows,
+      trigger: screenTouch,
+      release: screenTouch,
+      previousConflict: _floatTarget < 0.5,
+      monitorId: widget.monitorId,
+      workspaceId: environment.workspaceId,
+      outputScale: environment.output.scale / environment.shellScale,
+      outputWidth: environment.screenRect.width,
+      desktopVisible: environment.desktopVisible,
+      scope: DockHideScope.all,
+      activeIds: activeIds,
+    );
   }
 
   /// A short bar on the screen edge while the dock is retracted, so a hidden
@@ -2296,13 +2353,15 @@ class _DockContainerState extends ConsumerState<DockContainer>
     // A glass surface owns the fade so the backdrop and foreground can fade
     // independently instead of being isolated in one opacity group.
     final fade = ShellSurfacePresentation.opacityOf(context);
-    final plate = KitGlass(
-      material: material,
-      radius: corner,
-      fill: fill.withValues(alpha: alpha),
-      blurScale: look.blurSigma == null ? look.blur : 1,
-      separate: true,
-      fade: fade,
+    final plate = RepaintBoundary(
+      child: KitGlass(
+        material: material,
+        radius: corner,
+        fill: fill.withValues(alpha: alpha),
+        blurScale: look.blurSigma == null ? look.blur : 1,
+        separate: true,
+        fade: fade,
+      ),
     );
     if (look.shadow <= 0) return plate;
     return Stack(

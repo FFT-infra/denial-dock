@@ -511,65 +511,241 @@ class BarStatusCluster extends ConsumerWidget {
     final micUsers = settings.showMic
         ? ref.watch(_micProvider)
         : const <String>[];
-    final only = this.only;
-    final cells = only != null
-        ? <Widget>[?byId[only]]
-        : <Widget>[
+    final pillActive = settings.partPill != BarPartPill.none;
+    final theme = context.shellTheme;
+    final style = KitStyle.of(context);
+    final pillCells = <Widget>[
       if (micUsers.isNotEmpty)
-        BarStatusCell(
-          ink: ink,
-          width: span(20),
-          tooltip: '${context.tr('Microphone in use')}: ${micUsers.join(', ')}',
-          child: Container(
-            width: 7,
-            height: 7,
-            decoration: BoxDecoration(
-              color: const Color(0xffff9f0a),
-              borderRadius: KitStyle.of(context).disc(7),
+        _wrapCell(
+          id: 'mic',
+          pill: settings.partPill,
+          theme: theme,
+          style: style,
+          horizontal: horizontal,
+          child: BarStatusCell(
+            ink: ink,
+            width: span(20),
+            tooltip:
+                '${context.tr('Microphone in use')}: ${micUsers.join(', ')}',
+            child: Container(
+              width: 7,
+              height: 7,
+              decoration: BoxDecoration(
+                color: const Color(0xffff9f0a),
+                borderRadius: style.disc(7),
+              ),
             ),
           ),
         ),
       if (settings.showRecording && recording.recording)
-        BarStatusCell(
-          ink: ink,
-          width: span(BarTokens.statusCellWidth),
-          tooltip: context.tr('Stop Recording'),
-          onTap: () => ref.read(screenRecordingProvider.notifier).toggle(),
-          child: Container(
-            width: 16,
-            height: 16,
-            alignment: Alignment.center,
-            decoration: BoxDecoration(
-              color: const Color(0xffff453a),
-              borderRadius: KitStyle.of(context).disc(16),
-            ),
+        _wrapCell(
+          id: 'recording',
+          pill: settings.partPill,
+          theme: theme,
+          style: style,
+          horizontal: horizontal,
+          child: BarStatusCell(
+            ink: ink,
+            width: span(BarTokens.statusCellWidth),
+            tooltip: context.tr('Stop Recording'),
+            onTap: () => ref.read(screenRecordingProvider.notifier).toggle(),
             child: Container(
-              width: 6,
-              height: 6,
+              width: 16,
+              height: 16,
+              alignment: Alignment.center,
               decoration: BoxDecoration(
-                color: const Color(0xffffffff),
-                borderRadius: BorderRadius.circular(
-                  KitStyle.of(context).corner(1.5),
+                color: const Color(0xffff453a),
+                borderRadius: style.disc(16),
+              ),
+              child: Container(
+                width: 6,
+                height: 6,
+                decoration: BoxDecoration(
+                  color: const Color(0xffffffff),
+                  borderRadius: BorderRadius.circular(style.corner(1.5)),
                 ),
               ),
             ),
           ),
         ),
       for (final id in <String>{...settings.statusOrder, ...byId.keys})
-        if (byId[id] != null && !omit.contains(id)) byId[id]!,
+        if (byId[id] != null && !omit.contains(id))
+          _wrapCell(
+            id: id,
+            pill: settings.partPill,
+            theme: theme,
+            style: style,
+            horizontal: horizontal,
+            child: byId[id]!,
+          ),
     ];
+    final only = this.only;
+    final rendered = only != null
+        ? <Widget>[
+            if (byId[only] != null)
+              _wrapCell(
+                id: only,
+                pill: settings.partPill,
+                theme: theme,
+                style: style,
+                horizontal: horizontal,
+                child: byId[only]!,
+              ),
+          ]
+        : pillCells;
+    final cellGap = pillActive ? (spacing < 4 ? 4.0 : spacing) : spacing;
 
     return Flex(
       direction: horizontal ? Axis.horizontal : Axis.vertical,
       mainAxisSize: MainAxisSize.min,
       children: <Widget>[
-        for (var index = 0; index < cells.length; index++) ...<Widget>[
-          if (index > 0) SizedBox.square(dimension: spacing),
-          cells[index],
+        for (var index = 0; index < rendered.length; index++) ...<Widget>[
+          if (index > 0) SizedBox.square(dimension: cellGap),
+          rendered[index],
         ],
       ],
     );
   }
+
+  static Widget _wrapCell({
+    required String id,
+    required BarPartPill pill,
+    required ShellThemeData theme,
+    required KitStyle style,
+    required bool horizontal,
+    required Widget child,
+  }) => pill == BarPartPill.none
+      ? child
+      : barPartPillBox(
+          pill: pill,
+          theme: theme,
+          style: style,
+          id: id,
+          bodyHeight: BarTokens.height,
+          horizontal: horizontal,
+          compact: true,
+          child: child,
+        );
+}
+
+/// Draws a per-part pill around a bar module or individual status item.
+///
+/// - `uniform`: neutral surface pill.
+/// - `tinted`: derives distinct module hues rotated around the active look's
+///   accent color, adapted to dark/light luminance.
+/// - `split`: true two-tone badge with an accent-tinted leading stripe/cap and
+///   neutral surface body.
+Widget barPartPillBox({
+  required BarPartPill pill,
+  required ShellThemeData theme,
+  required KitStyle style,
+  required String id,
+  required double bodyHeight,
+  required bool horizontal,
+  required Widget child,
+  bool compact = false,
+}) {
+  if (pill == BarPartPill.none) return child;
+  final dark = theme.brightness == Brightness.dark;
+  final base = theme.colors.surfaceContainerHigh;
+  final radius = switch (pill) {
+    BarPartPill.uniform => style.pill(bodyHeight - 4),
+    BarPartPill.tinted => style.corner(9),
+    BarPartPill.split => style.corner(8),
+    BarPartPill.none => 0.0,
+  };
+  final tint = switch (pill) {
+    BarPartPill.tinted => _paletteModuleTint(id, style.accent(theme), dark),
+    BarPartPill.split => _paletteModuleTint(id, style.accent(theme), dark),
+    _ => null,
+  };
+  final hPad = compact ? (horizontal ? 3.0 : 1.0) : (horizontal ? 6.0 : 2.0);
+  final vPad = compact ? (horizontal ? 0.0 : 2.0) : (horizontal ? 0.0 : 4.0);
+  if (pill == BarPartPill.split && tint != null) {
+    final capColor = Color.alphaBlend(
+      tint.withValues(alpha: dark ? 0.36 : 0.28),
+      base,
+    );
+    final bodyColor = base.withValues(alpha: dark ? 0.88 : 0.92);
+    return Padding(
+      padding: horizontal
+          ? const EdgeInsets.symmetric(vertical: 2)
+          : const EdgeInsets.symmetric(horizontal: 2),
+      child: ClipRRect(
+        borderRadius: BorderRadius.circular(radius),
+        child: DecoratedBox(
+          decoration: BoxDecoration(
+            gradient: LinearGradient(
+              begin: horizontal ? Alignment.centerLeft : Alignment.topCenter,
+              end: horizontal ? Alignment.centerRight : Alignment.bottomCenter,
+              colors: <Color>[capColor, capColor, bodyColor, bodyColor],
+              stops: const <double>[0.0, 0.34, 0.34, 1.0],
+            ),
+            borderRadius: BorderRadius.circular(radius),
+            border: Border.all(
+              width: 0.7,
+              color: tint.withValues(alpha: dark ? 0.42 : 0.34),
+            ),
+          ),
+          child: Padding(
+            padding: EdgeInsets.symmetric(horizontal: hPad, vertical: vPad),
+            child: child,
+          ),
+        ),
+      ),
+    );
+  }
+  final fill = tint == null
+      ? base.withValues(alpha: dark ? 0.72 : 0.78)
+      : Color.alphaBlend(
+          tint.withValues(alpha: dark ? 0.24 : 0.16),
+          base,
+        ).withValues(alpha: dark ? 0.88 : 0.92);
+  return Padding(
+    padding: horizontal
+        ? const EdgeInsets.symmetric(vertical: 2)
+        : const EdgeInsets.symmetric(horizontal: 2),
+    child: DecoratedBox(
+      decoration: BoxDecoration(
+        color: fill,
+        borderRadius: BorderRadius.circular(radius),
+        border: tint == null
+            ? null
+            : Border.all(
+                width: 0.7,
+                color: tint.withValues(alpha: dark ? 0.42 : 0.34),
+              ),
+      ),
+      child: Padding(
+        padding: EdgeInsets.symmetric(horizontal: hPad, vertical: vPad),
+        child: child,
+      ),
+    ),
+  );
+}
+
+Color _paletteModuleTint(String id, Color accent, bool dark) {
+  const offsets = <String, double>{
+    'system': 0,
+    'workspaces': 28,
+    'app': 64,
+    'clock': 110,
+    'wifi': 168,
+    'bluetooth': 205,
+    'volume': 248,
+    'battery': 132,
+    'notifications': 315,
+    'controlcenter': 280,
+    'tray': 45,
+    'keyboard': 190,
+    'clipboard': 85,
+  };
+  final shift = offsets[id] ?? ((id.hashCode.abs() % 6) * 58.0);
+  final hsl = HSLColor.fromColor(accent);
+  final hue = (hsl.hue + shift) % 360.0;
+  final sat = hsl.saturation.clamp(0.45, 0.78).toDouble();
+  final light = dark ? 0.68 : 0.44;
+  return HSLColor.fromAHSL(1.0, hue, sat, light).toColor();
 }
 
 final _micProvider = Provider.autoDispose<List<String>>((ref) {
@@ -584,9 +760,8 @@ final _textInputActiveProvider = StreamProvider.autoDispose<DenialTextInputState
 );
 
 String _layoutBadge(String layout, DenialTextInputState? textInput) {
-  if (textInput?.inputMethod == true) return '中';
   final clean = layout.trim();
-  if (clean.isEmpty) return 'KB';
+  if (clean.isEmpty) return textInput?.inputMethod == true ? 'IME' : 'KB';
   final short = clean.length <= 3 ? clean : clean.substring(0, 2);
   return short.toUpperCase();
 }

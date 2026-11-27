@@ -225,7 +225,7 @@ void main() {
   );
   _expect(back.present, 'the switch brings it back');
 
-  // Cursor absorption defaults on, does not conflict with hoverFade/hoverPeek,
+  // Cursor absorption defaults on, is disabled when hoverFade is enabled,
   // and follows the active island state.
   _expect(
     back[IslandOption.cursorAbsorb].enabled &&
@@ -233,6 +233,18 @@ void main() {
         back.inForce(IslandOption.cursorAbsorb) &&
         back.effective.islandCursorAbsorb,
     'cursorAbsorb is active by default when island is shown',
+  );
+  final fadeOn = IslandOptions(
+    back.set(IslandOption.hoverFade, true),
+    mode: KitBarMode.shown,
+    top: true,
+  );
+  _expect(
+    !fadeOn[IslandOption.cursorAbsorb].enabled &&
+        fadeOn[IslandOption.cursorAbsorb].why == IslandWhy.fadesOnHover &&
+        !fadeOn.inForce(IslandOption.cursorAbsorb) &&
+        !fadeOn.effective.islandCursorAbsorb,
+    'cursorAbsorb is disabled when hoverFade is enabled',
   );
   final absorbOff = IslandOptions(
     back.set(IslandOption.cursorAbsorb, false),

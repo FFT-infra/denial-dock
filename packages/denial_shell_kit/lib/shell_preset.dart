@@ -282,12 +282,14 @@ class ShellPreset {
     },
   );
 
-  /// After DankMaterialShell & Dux: one floating rounded bar with
-  /// launcher, workspaces and application at its start, clock in the
-  /// middle and status at its end.
+  /// After DankMaterialShell's default bar (also matching dux-shell): one
+  /// floating rounded bar with launcher, workspaces and application at its
+  /// start, clock in the middle and status at its end.
+  /// Not reproduced: weather, media and system-monitor bar widgets.
   static final ShellPreset material = _reference(
     'material',
     'Material style',
+    dockVisible: false,
     bar: const <String, Object?>{
       'shape': 'floating',
       'ground': 'plate',
@@ -308,10 +310,12 @@ class ShellPreset {
   );
 
   /// After HyprPanel's default bar: a flat solid strip with numbered
-  /// workspaces, tinted per-module pills, and the window title at the start.
+  /// workspaces and the window title at the start, clock in the centre, and
+  /// tinted per-module status pills at the end.
   static final ShellPreset hyprpanel = _reference(
     'hyprpanel',
     'HyprPanel style',
+    dockVisible: false,
     bar: <String, Object?>{
       ..._solidStrip,
       'endInset': 4,
@@ -320,16 +324,18 @@ class ShellPreset {
       'partPill': 'tinted',
       'workspaceStyle': 'numbers',
       'start': <String>['system', 'workspaces', 'app'],
-      'center': <String>['island'],
-      'end': <String>['status', 'clock'],
+      'center': <String>['clock'],
+      'end': <String>['status'],
     },
   );
 
   /// After Ax-Shell's default bar: floating pills at the two ends and the
   /// flared top-edge notch between them.
+  /// Not reproduced: Ax-Shell's optional vertical bar layout.
   static final ShellPreset axShell = _reference(
     'axshell',
     'Ax-Shell style',
+    dockVisible: false,
     bar: const <String, Object?>{
       'shape': 'islands',
       'ground': 'plate',

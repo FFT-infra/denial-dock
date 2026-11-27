@@ -19,16 +19,35 @@ Future<DetachedResult> runDetached(
   String? input,
   Map<String, String>? environment,
 }) async {
-  final Process process;
+  Process process;
   try {
+    // Unblock SIGTERM inherited from the compositor's signal mask so detached
+    // child processes respond cleanly to termination signals.
     process = await Process.start(
-      'sh',
-      <String>['-c', r'"$@"; printf "\n%s" $?', 'sh', program, ...arguments],
+      'env',
+      <String>[
+        '--default-signal=TERM',
+        'sh',
+        '-c',
+        r'"$@"; printf "\n%s" $?',
+        'sh',
+        program,
+        ...arguments,
+      ],
       environment: environment,
       mode: ProcessStartMode.detachedWithStdio,
     );
   } on ProcessException {
-    return (exitCode: 127, stdout: '');
+    try {
+      process = await Process.start(
+        'sh',
+        <String>['-c', r'"$@"; printf "\n%s" $?', 'sh', program, ...arguments],
+        environment: environment,
+        mode: ProcessStartMode.detachedWithStdio,
+      );
+    } on ProcessException {
+      return (exitCode: 127, stdout: '');
+    }
   }
   process.stderr.drain<void>().ignore();
   if (input != null) process.stdin.add(utf8.encode(input));

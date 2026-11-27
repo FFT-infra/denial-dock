@@ -17,7 +17,6 @@ import 'package:flutter/widgets.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../bar_icons.dart';
-import '../bar_panel.dart';
 import '../bar_preferences.dart';
 import '../bar_segments.dart';
 import '../bar_settings.dart';
@@ -32,8 +31,6 @@ import 'part_drop.dart';
 import 'setting_bits.dart' show SettingSlider;
 
 part 'bar_layout_page.dart';
-
-const double barSettingsWidth = 700;
 
 /// The ids the bar's pages have in the shell's settings window, in the
 /// order of the panel's own pages.
@@ -230,21 +227,16 @@ class _BarSettingsPanelState extends ConsumerState<BarSettingsPanel> {
         ('Clock & Notifications', BarIcons.clock, macRed),
       ];
 
-  late int _page = (widget.embedded ?? widget.initialPage).clamp(
+  late final int _page = (widget.embedded ?? widget.initialPage).clamp(
     0,
     _pages.length - 1,
   );
 
   void _namesChanged() => setState(() {});
 
-  /// Puts the bar back as it came. The look and the preset live outside the
-  /// bar's own settings, and go back with them.
+  /// Puts the menu bar's own preferences back to defaults without wiping
+  /// shared shell presets, look, dock settings, scale, or motion speed.
   void _restore() {
-    // Forgotten after the switch: switching remembers the preset it leaves.
-    applyShellPreset(ref, ShellPreset.denial, fresh: true);
-    forgetShellPresets();
-    kitSpeed.value = 1;
-    kitShellScale.value = null;
     ref
         .read(barSettingsProvider.notifier)
         .save((s) => BarSettings(recentsClearedAt: s.recentsClearedAt));
@@ -266,7 +258,6 @@ class _BarSettingsPanelState extends ConsumerState<BarSettingsPanel> {
 
   @override
   Widget build(BuildContext context) {
-    final theme = context.shellTheme;
     final settings =
         ref.watch(barSettingsProvider).value ?? BarSettings.defaults;
     void save(BarSettings Function(BarSettings) change) =>
@@ -281,142 +272,29 @@ class _BarSettingsPanelState extends ConsumerState<BarSettingsPanel> {
       _ => _clock(context, settings, save),
     };
 
-    if (widget.embedded != null) {
-      return SingleChildScrollView(
-        padding: const EdgeInsets.fromLTRB(20, 6, 20, 22),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.stretch,
-          children: <Widget>[
-            ...body,
-            // The window's own sidebar has no room for it, so the reset
-            // sits at the foot of the first page.
-            if (_page == 0)
-              _Group(
-                children: <Widget>[
-                  _Row(
-                    label: context.tr('Menu Bar'),
-                    trailing: SizedBox(
-                      width: 132,
-                      child: _TextButton(
-                        label: context.tr('Restore Defaults'),
-                        onTap: _restore,
-                      ),
-                    ),
-                  ),
-                ],
-              ),
-          ],
-        ),
-      );
-    }
-
-    return SizedBox(
-      width: barSettingsWidth,
-      height: math.min(560, widget.maxHeight),
-      child: Row(
+    return SingleChildScrollView(
+      padding: const EdgeInsets.fromLTRB(20, 6, 20, 22),
+      child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: <Widget>[
-          Container(
-            width: 204,
-            color: theme.colors.textPrimary.withValues(alpha: 0.04),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.stretch,
+          ...body,
+          // The window's own sidebar has no room for it, so the reset
+          // sits at the foot of the first page.
+          if (_page == 0)
+            _Group(
               children: <Widget>[
-                KitWindowHandle(
-                  child: Padding(
-                    padding: const EdgeInsets.fromLTRB(18, 18, 12, 12),
-                    child: Text(
-                      context.tr('Menu Bar'),
-                      style: BarType.title.copyWith(
-                        fontSize: 17,
-                        fontWeight: FontWeight.w700,
-                        color: theme.colors.textPrimary,
-                      ),
-                    ),
-                  ),
-                ),
-                for (var i = 0; i < _pages.length; i++)
-                  _SidebarItem(
-                    label: context.tr(_pages[i].$1),
-                    icon: _pages[i].$2,
-                    colour: _pages[i].$3,
-                    selected: i == _page,
-                    onTap: () => setState(() => _page = i),
-                  ),
-                const Spacer(),
-                Padding(
-                  padding: const EdgeInsets.all(12),
-                  child: _TextButton(
-                    label: context.tr('Restore Defaults'),
-                    onTap: _restore,
-                  ),
-                ),
-              ],
-            ),
-          ),
-          SizedBox(width: 1, child: ColoredBox(color: theme.colors.hairline)),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.stretch,
-              children: <Widget>[
-                KitWindowHandle(
-                  child: Padding(
-                    padding: const EdgeInsets.fromLTRB(22, 14, 12, 8),
-                    child: Row(
-                      children: <Widget>[
-                        Expanded(
-                          child: Text(
-                            context.tr(_pages[_page].$1),
-                            style: BarType.title.copyWith(
-                              fontSize: 15,
-                              fontWeight: FontWeight.w700,
-                              color: theme.colors.textPrimary,
-                            ),
-                          ),
-                        ),
-                        Pressable(
-                          onTap: widget.onClose,
-                          scale: 0.85,
-                          child: Container(
-                            width: 26,
-                            height: 26,
-                            decoration: BoxDecoration(
-                              borderRadius: KitStyle.of(context).disc(26),
-                              color: theme.colors.textPrimary.withValues(
-                                alpha: 0.10,
-                              ),
-                            ),
-                            child: BarGlyph(
-                              BarIcons.xmark,
-                              size: 11,
-                              color: theme.colors.textSecondary,
-                            ),
-                          ),
-                        ),
-                      ],
-                    ),
-                  ),
-                ),
-                Expanded(
-                  child: AnimatedSwitcher(
-                    duration: KitMotion.duration(context, KitMotion.turn),
-                    layoutBuilder: (current, previous) => Stack(
-                      alignment: Alignment.topCenter,
-                      children: <Widget>[...previous, ?current],
-                    ),
-                    child: SingleChildScrollView(
-                      key: ValueKey<int>(_page),
-                      padding: const EdgeInsets.fromLTRB(20, 6, 20, 22),
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.stretch,
-                        children: body,
-                      ),
+                _Row(
+                  label: context.tr('Menu Bar'),
+                  trailing: SizedBox(
+                    width: 132,
+                    child: _TextButton(
+                      label: context.tr('Restore Defaults'),
+                      onTap: _restore,
                     ),
                   ),
                 ),
               ],
             ),
-          ),
         ],
       ),
     );
@@ -607,6 +485,8 @@ class _BarSettingsPanelState extends ConsumerState<BarSettingsPanel> {
     IslandWhy.needsPages =>
       'Needs two activities to turn between, or one and the home panel.',
     IslandWhy.needsPanel => 'Needs an activity that opens a panel.',
+    IslandWhy.fadesOnHover =>
+      'Disabled while the island fades under the pointer.',
   });
 
   List<Widget> _island(BuildContext context, BarSettings s, _Save save) {
@@ -1229,80 +1109,6 @@ class _BarSettingsPanelState extends ConsumerState<BarSettingsPanel> {
       ],
     ),
   ];
-}
-
-class _SidebarItem extends StatelessWidget {
-  const _SidebarItem({
-    required this.label,
-    required this.icon,
-    required this.colour,
-    required this.selected,
-    required this.onTap,
-  });
-
-  final String label;
-  final IconData icon;
-  final Color colour;
-  final bool selected;
-  final VoidCallback onTap;
-
-  @override
-  Widget build(BuildContext context) {
-    final theme = context.shellTheme;
-    return Padding(
-      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 1),
-      child: Pressable(
-        onTap: onTap,
-        scale: 0.98,
-        child: const SizedBox.shrink(),
-        builder: (context, hovered, _) => AnimatedContainer(
-          duration: KitMotion.duration(context, KitMotion.fade),
-          height: 34,
-          padding: const EdgeInsets.symmetric(horizontal: 8),
-          decoration: BoxDecoration(
-            color: selected
-                ? KitStyle.of(context).accent(context.shellTheme)
-                : theme.colors.textPrimary.withValues(
-                    alpha: hovered ? 0.07 : 0,
-                  ),
-            borderRadius: BorderRadius.circular(KitStyle.of(context).corner(8)),
-          ),
-          child: Row(
-            children: <Widget>[
-              Container(
-                width: 22,
-                height: 22,
-                decoration: BoxDecoration(
-                  color: colour,
-                  borderRadius: BorderRadius.circular(
-                    KitStyle.of(context).corner(6),
-                  ),
-                  border: Border.all(
-                    color: const Color(0x33ffffff),
-                    width: 0.5,
-                  ),
-                ),
-                child: BarGlyph(icon, size: 13, color: const Color(0xffffffff)),
-              ),
-              const SizedBox(width: 9),
-              Expanded(
-                child: Text(
-                  label,
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                  style: BarType.menuRow.copyWith(
-                    color: selected
-                        ? const Color(0xffffffff)
-                        : theme.colors.textPrimary,
-                  ),
-                ),
-              ),
-            ],
-          ),
-        ),
-      ),
-    );
-  }
 }
 
 /// A length of time in milliseconds, set with a slider.

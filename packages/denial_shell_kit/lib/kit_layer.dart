@@ -806,7 +806,7 @@ class KitWindowState extends State<KitWindow> {
                   elevation: 1.25,
                   // Windows hold text over whatever is behind them, so
                   // they stay denser than a popup.
-                  minOpacity: 0.94,
+                  minOpacity: 0.9,
                   child: IgnorePointer(ignoring: _super, child: widget.child),
                 ),
               ),

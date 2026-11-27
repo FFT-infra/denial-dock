@@ -550,4 +550,7 @@ const Map<String, String> zh = <String, String>{
   'Bar height': '顶栏高度',
   'Concave bar corners': '顶栏内凹衔接角',
   'Notch-style island': '贴顶外扩刘海',
+  'Disabled while the island fades under the pointer.':
+      '指针悬停淡出开启时不可用。',
+  'Auto': '自动',
 };

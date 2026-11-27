@@ -1,7 +1,7 @@
 import 'dart:async';
-import 'dart:io';
 import 'dart:math' as math;
 
+import 'package:denial_shell_kit/detached_run.dart';
 import 'package:flutter/widgets.dart';
 
 import '../bar_type.dart';
@@ -39,42 +39,41 @@ class WorldClock {
   /// What the last read found, so a card that opens again shows its rows
   /// in its first frame.
   static List<WorldClock> last = const <WorldClock>[];
+  static int _lastMinuteKey = -1;
 
-  /// Reads every city, or returns an empty list when the host has no `date`.
-  /// The processes run off the UI thread's time: started in the frame that
-  /// opens the notification centre, a blocking read would hold that frame
-  /// for as long as four of them take.
+  /// Reads every city (cached per wall-clock minute), using detached helpers
+  /// so opening Notification Centre repeatedly does not fork `date` 4× each
+  /// time or spawn attached children.
   static Future<List<WorldClock>> read(DateTime now) async {
+    final minuteKey = now.millisecondsSinceEpoch ~/ 60000;
+    if (last.isNotEmpty && minuteKey == _lastMinuteKey) return last;
     final localDay = DateTime(now.year, now.month, now.day);
-    try {
-      final results = await Future.wait(<Future<ProcessResult>>[
-        for (final (_, zone) in cities)
-          Process.run(
-            'date',
-            <String>['+%H:%M %Y-%m-%d'],
-            environment: <String, String>{'TZ': zone},
-          ),
-      ]);
-      final clocks = <WorldClock>[];
-      for (var i = 0; i < cities.length; i++) {
-        final result = results[i];
-        if (result.exitCode != 0) continue;
-        final parts = (result.stdout as String).trim().split(' ');
-        if (parts.length != 2) continue;
-        final day = DateTime.tryParse(parts[1]);
-        clocks.add(
-          WorldClock(
-            city: cities[i].$1,
-            zone: cities[i].$2,
-            time: parts[0],
-            dayDelta: day == null ? 0 : day.difference(localDay).inDays,
-          ),
-        );
-      }
-      return last = clocks;
-    } on ProcessException {
-      return last = const <WorldClock>[];
+    final results = await Future.wait(<Future<DetachedResult>>[
+      for (final (_, zone) in cities)
+        runDetached(
+          'date',
+          const <String>['+%H:%M %Y-%m-%d'],
+          environment: <String, String>{'TZ': zone},
+        ),
+    ]);
+    final clocks = <WorldClock>[];
+    for (var i = 0; i < cities.length; i++) {
+      final result = results[i];
+      if (result.exitCode != 0) continue;
+      final parts = result.stdout.trim().split(' ');
+      if (parts.length != 2) continue;
+      final day = DateTime.tryParse(parts[1]);
+      clocks.add(
+        WorldClock(
+          city: cities[i].$1,
+          zone: cities[i].$2,
+          time: parts[0],
+          dayDelta: day == null ? 0 : day.difference(localDay).inDays,
+        ),
+      );
     }
+    _lastMinuteKey = minuteKey;
+    return last = clocks;
   }
 }
 

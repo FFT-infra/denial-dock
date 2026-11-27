@@ -1106,7 +1106,7 @@ class _LookPageState extends State<LookPage> {
                       label: context.tr('Dock icon size'),
                       value: dock['iconSize'] is num
                           ? (dock['iconSize'] as num).toDouble()
-                          : 0,
+                          : 30,
                       min: 30,
                       max: 72,
                       step: 2,
