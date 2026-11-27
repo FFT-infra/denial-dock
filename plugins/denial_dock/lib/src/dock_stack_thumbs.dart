@@ -16,6 +16,26 @@ class DockThumbnail {
   final DateTime? knownVersion;
 }
 
+/// Lightweight revision broadcaster when background thumbnailers complete.
+class DockThumbRevision {
+  DockThumbRevision._();
+
+  int value = 0;
+  final List<void Function()> _listeners = <void Function()>[];
+
+  void addListener(void Function() listener) => _listeners.add(listener);
+  void removeListener(void Function() listener) => _listeners.remove(listener);
+
+  void _bump() {
+    value++;
+    for (final listener in List<void Function()>.of(_listeners)) {
+      listener();
+    }
+  }
+}
+
+final DockThumbRevision dockThumbsRevision = DockThumbRevision._();
+
 /// Thumbnails for the files in a folder stack.
 ///
 /// Reads the freedesktop cache the file manager and the thumbnailers fill,
@@ -50,9 +70,12 @@ abstract final class DockStackThumbs {
     'bmp',
   };
 
+  static const Set<String> _pdfExtensions = {'pdf'};
+
   static _ThumbIndex? _index;
   static DateTime? _indexedAt;
   static Future<void>? _warming;
+  static final Map<String, double?> _aspectCache = <String, double?>{};
 
   /// The image to draw for [file]: a cached thumbnail, else the file itself
   /// when it is an image, else null.
@@ -65,7 +88,120 @@ abstract final class DockStackThumbs {
     if (cached != null) return cached;
     final extension = _extension(file);
     if (_imageExtensions.contains(extension)) return file;
-    if (_videoExtensions.contains(extension)) warm();
+    if (_videoExtensions.contains(extension)) {
+      final generated = _generated(file);
+      if (generated != null) return generated.path;
+      warm();
+    } else if (_pdfExtensions.contains(extension)) {
+      final generated = _generatedPdf(file);
+      if (generated != null) return generated.path;
+    }
+    return null;
+  }
+
+  /// Natural width / height aspect ratio of an image file clamped to
+  /// `[0.55, 1.85]`, or null when the header cannot be read cleanly.
+  static double? aspectRatio(String path) {
+    if (_aspectCache.containsKey(path)) return _aspectCache[path];
+    final ratio = _readAspectRatio(path);
+    if (_aspectCache.length > 512) _aspectCache.clear();
+    _aspectCache[path] = ratio;
+    return ratio;
+  }
+
+  static double? _readAspectRatio(String path) {
+    RandomAccessFile? file;
+    try {
+      file = File(path).openSync();
+      final head = file.readSync(32);
+      if (head.length < 12) return null;
+      // PNG IHDR
+      if (head.length >= 24 &&
+          head[0] == 0x89 &&
+          head[1] == 0x50 &&
+          head[2] == 0x4E &&
+          head[3] == 0x47) {
+        final data = ByteData.sublistView(head);
+        final w = data.getUint32(16);
+        final h = data.getUint32(20);
+        if (w > 0 && h > 0) return (w / h).clamp(0.55, 1.85);
+        return null;
+      }
+      // WebP RIFF
+      if (head.length >= 30 &&
+          head[0] == 0x52 &&
+          head[1] == 0x49 &&
+          head[2] == 0x46 &&
+          head[3] == 0x46 &&
+          head[8] == 0x57 &&
+          head[9] == 0x45 &&
+          head[10] == 0x42 &&
+          head[11] == 0x50) {
+        final chunk = String.fromCharCodes(head.sublist(12, 16));
+        if (chunk == 'VP8X') {
+          final w = 1 + (head[24] | (head[25] << 8) | (head[26] << 16));
+          final h = 1 + (head[27] | (head[28] << 8) | (head[29] << 16));
+          if (w > 0 && h > 0) return (w / h).clamp(0.55, 1.85);
+        } else if (chunk == 'VP8L') {
+          final b0 = head[21], b1 = head[22], b2 = head[23], b3 = head[24];
+          final w = 1 + (b0 | ((b1 & 0x3F) << 8));
+          final h = 1 + ((b1 >> 6) | (b2 << 2) | ((b3 & 0x0F) << 10));
+          if (w > 0 && h > 0) return (w / h).clamp(0.55, 1.85);
+        } else if (chunk == 'VP8 ') {
+          final w = (head[26] | (head[27] << 8)) & 0x3FFF;
+          final h = (head[28] | (head[29] << 8)) & 0x3FFF;
+          if (w > 0 && h > 0) return (w / h).clamp(0.55, 1.85);
+        }
+        return null;
+      }
+      // JPEG SOF0..SOF3 / SOF5..SOF7 / SOF9..SOF11 / SOF13..SOF15
+      if (head[0] == 0xFF && head[1] == 0xD8) {
+        file.setPositionSync(2);
+        var scanned = 2;
+        while (scanned < 65536) {
+          final marker = file.readSync(2);
+          if (marker.length < 2) break;
+          scanned += 2;
+          if (marker[0] != 0xFF) break;
+          var code = marker[1];
+          while (code == 0xFF) {
+            final next = file.readByteSync();
+            if (next < 0) return null;
+            scanned++;
+            code = next;
+          }
+          if (code == 0xD9 || code == 0xDA) break;
+          if (code >= 0xD0 && code <= 0xD8 || code == 0x01 || code == 0x00) {
+            continue;
+          }
+          final lenBytes = file.readSync(2);
+          if (lenBytes.length < 2) break;
+          scanned += 2;
+          final segLen = (lenBytes[0] << 8) | lenBytes[1];
+          if (segLen < 2) break;
+          final isSof =
+              (code >= 0xC0 && code <= 0xC3) ||
+              (code >= 0xC5 && code <= 0xC7) ||
+              (code >= 0xC9 && code <= 0xCB) ||
+              (code >= 0xCD && code <= 0xCF);
+          if (isSof && segLen >= 7) {
+            final sof = file.readSync(5);
+            if (sof.length == 5) {
+              final h = (sof[1] << 8) | sof[2];
+              final w = (sof[3] << 8) | sof[4];
+              if (w > 0 && h > 0) return (w / h).clamp(0.55, 1.85);
+            }
+            return null;
+          }
+          file.setPositionSync(file.positionSync() + segLen - 2);
+          scanned += segLen - 2;
+        }
+      }
+    } on FileSystemException {
+      return null;
+    } finally {
+      file?.closeSync();
+    }
     return null;
   }
 
@@ -255,9 +391,70 @@ abstract final class DockStackThumbs {
         } on FileSystemException {
           // A missing stamp only costs one regeneration.
         }
+        dockThumbsRevision._bump();
       }),
     );
     return null;
+  }
+
+  static DockThumbnail? _generatedPdf(String file) {
+    final cacheDir = _ownCacheDir();
+    if (cacheDir == null) return null;
+    final name = '${_stableName(file)}_pdf';
+    final out = File('$cacheDir/$name.png');
+    final stat = _stat(file);
+    if (stat == null) return null;
+    try {
+      if (out.existsSync()) {
+        final made = out.statSync().modified;
+        if (!made.isBefore(stat.modified)) {
+          return DockThumbnail(out.path, knownVersion: made);
+        }
+      }
+    } on FileSystemException {
+      return null;
+    }
+    Directory(cacheDir).createSync(recursive: true);
+    unawaited(
+      _runPdftoppm(file, '$cacheDir/$name.tmp', out.path).then((ok) {
+        if (!ok) return;
+        try {
+          out.setLastModifiedSync(stat.modified);
+        } on FileSystemException {
+          // Best-effort mtime sync.
+        }
+        dockThumbsRevision._bump();
+      }),
+    );
+    return null;
+  }
+
+  static Future<bool> _runPdftoppm(
+    String input,
+    String tmpPrefix,
+    String output,
+  ) async {
+    try {
+      final process = await runDetached('pdftoppm', [
+        '-png',
+        '-f',
+        '1',
+        '-l',
+        '1',
+        '-scale-to',
+        '320',
+        '-singlefile',
+        input,
+        tmpPrefix,
+      ]);
+      if (process.exitCode != 0) return false;
+      final file = File('$tmpPrefix.png');
+      if (!file.existsSync() || file.lengthSync() == 0) return false;
+      file.renameSync(output);
+      return true;
+    } on FileSystemException {
+      return false;
+    }
   }
 
   static Future<bool> _runFfmpeg(String input, String output) async {

@@ -106,8 +106,12 @@ abstract final class DockStackFan {
   /// however tall the screen is; a longer folder opens as a grid instead.
   static const int maxRows = 12;
 
-  /// Label width past which the text ellipsizes.
+  /// Label width past which the text ellipsizes by default.
   static const double labelMaxWidth = 260;
+
+  /// Dynamic label ceiling based on available horizontal room beside the fan.
+  static double maxLabelFor({required double availableWidth}) =>
+      availableWidth.clamp(160.0, 440.0).toDouble();
 
   /// The pill around a label measured [textWidth] wide.
   static double pillWidth(double textWidth) => padX * 2 + textWidth;

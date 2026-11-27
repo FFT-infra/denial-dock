@@ -1,6 +1,8 @@
 import 'dart:io';
 import 'dart:math' as math;
 
+import 'package:denial_shell_kit/glass_card.dart';
+import 'package:denial_shell_kit/kit_material.dart' show KitTier;
 import 'package:denial_shell_kit/kit_motion.dart';
 import 'package:denial_shell_kit/kit_style.dart';
 import 'package:denial_flutter_sdk/theme.dart';
@@ -184,6 +186,17 @@ class _DockStackViewState extends State<DockStackView>
   );
 
   @override
+  void initState() {
+    super.initState();
+    dockThumbsRevision.addListener(_onThumbsReady);
+  }
+
+  void _onThumbsReady() {
+    if (!mounted || _closing) return;
+    setState(() => _layout = null);
+  }
+
+  @override
   void didChangeDependencies() {
     super.didChangeDependencies();
     if (_launched) return;
@@ -210,6 +223,7 @@ class _DockStackViewState extends State<DockStackView>
 
   @override
   void dispose() {
+    dockThumbsRevision.removeListener(_onThumbsReady);
     _gridControllerInstance?.dispose();
     _query.dispose();
     _queryFocus.dispose();
@@ -604,11 +618,13 @@ class _DockStackViewState extends State<DockStackView>
     if (side != null) {
       return _sideLayout(style, entries, side, truncate: truncate);
     }
+    final maxLabel = _maxLabelWidthFor(widget.anchor.center.dx, null);
     // The top row is the way into the folder itself, so it takes a slot of
     // its own above the files.
     final widths = <double>[
-      for (final entry in entries) _rowWidth(entry.name, style),
-      _rowWidth(_openLabel, style),
+      for (final entry in entries)
+        _rowWidth(entry.name, style, maxWidth: maxLabel),
+      _rowWidth(_openLabel, style, maxWidth: maxLabel),
     ];
     // Automatic view follows macOS: a fan that would have to leave files out
     // is replaced by the grid panel, which shows all of them. Only an explicit
@@ -635,9 +651,6 @@ class _DockStackViewState extends State<DockStackView>
         overflows ? _moreLabel(entries.length - shown) : _openLabel,
       ),
     ];
-    final rowWidths = <double>[
-      for (final row in rows) _rowWidth(row.label, style),
-    ];
     final reach = math.min(
       DockStackFan.shiftMax,
       DockStackFan.shift * math.pow(rows.length - 1, DockStackFan.shiftPower),
@@ -648,6 +661,11 @@ class _DockStackViewState extends State<DockStackView>
       right: widget.bounds.right - 8,
       reach: reach,
     );
+    final leanMaxLabel = _maxLabelWidthFor(widget.anchor.center.dx, lean);
+    final rowWidths = <double>[
+      for (final row in rows)
+        _rowWidth(row.label, style, maxWidth: leanMaxLabel),
+    ];
     final geometry = _clampFan(
       DockStackFan.layout(
         widths: rowWidths,
@@ -801,16 +819,42 @@ class _DockStackViewState extends State<DockStackView>
     ];
   }
 
-  double _rowWidth(String label, TextStyle style) =>
-      DockStackFan.rowWidth(_measure(label, style));
+  double _maxLabelWidthFor(double anchorX, DockFanLean? lean) {
+    final available = switch (lean) {
+      DockFanLean.right => anchorX - widget.bounds.left,
+      DockFanLean.left => widget.bounds.right - anchorX,
+      null => math.max(
+        anchorX - widget.bounds.left,
+        widget.bounds.right - anchorX,
+      ),
+    };
+    return DockStackFan.maxLabelFor(
+      availableWidth:
+          available -
+          DockStackFan.thumbSize -
+          DockStackFan.padX * 2 -
+          DockStackFan.thumbGap -
+          28,
+    );
+  }
 
-  double _measure(String text, TextStyle style) {
+  double _rowWidth(
+    String label,
+    TextStyle style, {
+    double maxWidth = DockStackFan.labelMaxWidth,
+  }) => DockStackFan.rowWidth(_measure(label, style, maxWidth: maxWidth));
+
+  double _measure(
+    String text,
+    TextStyle style, {
+    double maxWidth = DockStackFan.labelMaxWidth,
+  }) {
     final painter = TextPainter(
       text: TextSpan(text: text, style: style),
       textDirection: TextDirection.ltr,
       maxLines: 1,
       ellipsis: '…',
-    )..layout(maxWidth: DockStackFan.labelMaxWidth);
+    )..layout(maxWidth: maxWidth);
     final width = painter.width;
     painter.dispose();
     return width;
@@ -839,12 +883,10 @@ class _DockStackViewState extends State<DockStackView>
         opacity: _panelProgress.clamp(0.0, 1.0),
         child: SizedBox(
           height: 30,
-          child: DecoratedBox(
-            decoration: BoxDecoration(
-              color: theme.panelColor(theme.colors.surfaceContainerHigh),
-              borderRadius: BorderRadius.circular(kitStyle.value.outer(theme, 15)),
-              border: Border.all(color: theme.colors.hairline),
-            ),
+          child: GlassCard(
+            tier: KitTier.popover,
+            minOpacity: 0.78,
+            radius: 15,
             child: Padding(
               padding: const EdgeInsets.symmetric(horizontal: 10),
               child: Row(
@@ -988,6 +1030,12 @@ class _DockStackViewState extends State<DockStackView>
                     label: label,
                     dropTarget: dropTarget,
                     iconLeading: layout.iconLeading,
+                    maxLabelWidth: math.max(
+                      DockStackFan.labelMaxWidth,
+                      box.width -
+                          DockStackFan.thumbSize -
+                          DockStackFan.thumbGap,
+                    ),
                   ),
                 ),
               ),
@@ -1015,12 +1063,10 @@ class _DockStackViewState extends State<DockStackView>
         child: Transform.scale(
           scale: 0.60 + 0.40 * progress,
           alignment: Alignment.bottomCenter,
-          child: DecoratedBox(
-            decoration: BoxDecoration(
-              color: theme.panelColor(theme.colors.surfaceContainerHigh),
-              border: Border.all(color: theme.colors.hairline),
-              borderRadius: BorderRadius.circular(kitStyle.value.outer(theme, DockStackFan.radius)),
-            ),
+          child: GlassCard(
+            tier: KitTier.popover,
+            minOpacity: 0.78,
+            radius: DockStackFan.radius,
             child: ClipRRect(
               borderRadius: BorderRadius.circular(kitStyle.value.outer(theme, DockStackFan.radius)),
               child: SingleChildScrollView(
@@ -1122,12 +1168,10 @@ class _DockStackViewState extends State<DockStackView>
         child: Transform.scale(
           scale: 0.60 + 0.40 * progress,
           alignment: Alignment.bottomCenter,
-          child: DecoratedBox(
-            decoration: BoxDecoration(
-              color: theme.panelColor(theme.colors.surfaceContainerHigh),
-              border: Border.all(color: theme.colors.hairline),
-              borderRadius: BorderRadius.circular(kitStyle.value.outer(theme, DockStackFan.radius)),
-            ),
+          child: GlassCard(
+            tier: KitTier.popover,
+            minOpacity: 0.78,
+            radius: DockStackFan.radius,
             child: ClipRRect(
               borderRadius: BorderRadius.circular(kitStyle.value.outer(theme, DockStackFan.radius)),
               child: Column(
@@ -1453,6 +1497,7 @@ class _StackRowTile extends StatelessWidget {
     this.label = 1,
     this.dropTarget = false,
     this.iconLeading = false,
+    this.maxLabelWidth = DockStackFan.labelMaxWidth,
   });
 
   final _StackRow row;
@@ -1469,6 +1514,8 @@ class _StackRowTile extends StatelessWidget {
 
   /// A left-leaning fan keeps its previews on the left, so the card leads.
   final bool iconLeading;
+
+  final double maxLabelWidth;
 
   /// The row's turn, in radians. The whole row turns — preview and name
   /// together — pivoting on the end nearest the dock icon, which is what a
@@ -1519,8 +1566,8 @@ class _StackRowTile extends StatelessWidget {
         height: DockStackFan.pillHeight,
         child: IntrinsicWidth(
           child: ConstrainedBox(
-            constraints: const BoxConstraints(
-              maxWidth: DockStackFan.labelMaxWidth + DockStackFan.padX * 2,
+            constraints: BoxConstraints(
+              maxWidth: maxLabelWidth + DockStackFan.padX * 2,
             ),
             child: DecoratedBox(
               decoration: BoxDecoration(
@@ -1573,10 +1620,9 @@ class _StackRowTile extends StatelessWidget {
               border: Border.all(color: colours.edge),
               boxShadow: _plateShadow(theme),
             ),
-            child: Icon(
-              Icons.arrow_outward_rounded,
-              size: DockStackFan.openSize * 0.5,
-              color: colours.ink,
+            child: Padding(
+              padding: const EdgeInsets.all(11),
+              child: CustomPaint(painter: _CurvedOpenArrowPainter(colours.ink)),
             ),
           ),
         ),
@@ -1584,9 +1630,56 @@ class _StackRowTile extends StatelessWidget {
     );
   }
 
-  /// The preview card: the file's own picture where there is one, otherwise
-  /// its type icon on the same card so a row never changes height.
+  /// The preview card: natural-aspect thumbnail directly without a heavy box
+  /// when an image/video/PDF preview exists, else a clean type icon card.
   Widget _previewCard() {
+    final thumbPath = row.thumbnail;
+    if (thumbPath != null && !(row.entry?.isDirectory ?? false)) {
+      final ratio = DockStackThumbs.aspectRatio(thumbPath) ?? 1.0;
+      final w = ratio >= 1.0
+          ? DockStackFan.thumbSize
+          : math.max(30.0, DockStackFan.thumbSize * ratio);
+      final h = ratio >= 1.0
+          ? math.max(30.0, DockStackFan.thumbSize / ratio)
+          : DockStackFan.thumbSize;
+      final radius = BorderRadius.circular(kitStyle.value.radius(theme, 6));
+      return SizedBox(
+        width: DockStackFan.thumbSize,
+        height: DockStackFan.thumbSize,
+        child: Center(
+          child: Container(
+            width: w,
+            height: h,
+            decoration: BoxDecoration(
+              borderRadius: radius,
+              border: hover > 0.01
+                  ? Border.all(
+                      color: theme.kitAccent.withValues(alpha: 0.75 * hover),
+                      width: 1.5,
+                    )
+                  : null,
+              boxShadow: _plateShadow(theme),
+            ),
+            child: ClipRRect(
+              borderRadius: radius,
+              child: Image.file(
+                File(thumbPath),
+                width: w,
+                height: h,
+                fit: BoxFit.contain,
+                cacheWidth: (w * 3).round(),
+                gaplessPlayback: true,
+                errorBuilder: (_, _, _) => _fallbackCard(),
+              ),
+            ),
+          ),
+        ),
+      );
+    }
+    return _fallbackCard();
+  }
+
+  Widget _fallbackCard() {
     return SizedBox(
       width: DockStackFan.thumbSize,
       height: DockStackFan.thumbSize,
@@ -1607,13 +1700,44 @@ class _StackRowTile extends StatelessWidget {
           padding: const EdgeInsets.all(3),
           child: _StackIcon(
             entry: row.entry,
-            thumbnail: row.thumbnail,
+            thumbnail: null,
             size: DockStackFan.thumbSize - 6,
           ),
         ),
       ),
     );
   }
+}
+
+class _CurvedOpenArrowPainter extends CustomPainter {
+  const _CurvedOpenArrowPainter(this.color);
+
+  final Color color;
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final w = size.width;
+    final h = size.height;
+    final paint = Paint()
+      ..color = color
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = 2.0
+      ..strokeCap = StrokeCap.round
+      ..strokeJoin = StrokeJoin.round;
+    final curve = Path()
+      ..moveTo(w * 0.22, h * 0.78)
+      ..cubicTo(w * 0.22, h * 0.36, w * 0.42, h * 0.28, w * 0.80, h * 0.28);
+    final head = Path()
+      ..moveTo(w * 0.56, h * 0.10)
+      ..lineTo(w * 0.84, h * 0.28)
+      ..lineTo(w * 0.56, h * 0.46);
+    canvas
+      ..drawPath(curve, paint)
+      ..drawPath(head, paint);
+  }
+
+  @override
+  bool shouldRepaint(_CurvedOpenArrowPainter old) => old.color != color;
 }
 
 /// One grid cell: the preview over a centred name.

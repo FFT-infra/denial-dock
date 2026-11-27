@@ -317,6 +317,11 @@ void main() {
     DockStackFan.pillWidth(120) == 120 + DockStackFan.padX * 2,
     'pill width is the text plus its padding',
   );
+  _expect(
+    DockStackFan.maxLabelFor(availableWidth: 420) == 420 &&
+        DockStackFan.maxLabelFor(availableWidth: 80) == 160,
+    'dynamic label limit adapts cleanly within [160, 440]',
+  );
 }
 
 void _expect(bool condition, String message) {

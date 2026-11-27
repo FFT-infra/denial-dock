@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'dart:math' as math;
+import 'dart:ui' show PointerDeviceKind;
 
 import 'package:denial_shell_kit/kit_dock_link.dart';
 import 'package:denial_shell_kit/kit_host.dart';
@@ -575,14 +576,14 @@ class _DockContainerState extends ConsumerState<DockContainer>
     final settled =
         (pointer - _pointer).abs() < 0.001 &&
         (hover - _hover).abs() < 0.001 &&
-        (reveal - _reveal).abs() < 0.001 &&
-        (floatFraction - _floatFraction).abs() < 0.001 &&
+        (reveal - _revealTarget).abs() < 1e-3 &&
+        (floatFraction - _floatTarget).abs() < 1e-3 &&
         !_settling;
     setState(() {
       _pointer = pointer;
       _hover = hover;
-      _reveal = reveal;
-      _floatFraction = floatFraction;
+      _reveal = settled ? _revealTarget : reveal;
+      _floatFraction = settled ? _floatTarget : floatFraction;
       _dragDx = dragDx;
       _dragDy = dragDy;
     });
@@ -594,7 +595,8 @@ class _DockContainerState extends ConsumerState<DockContainer>
     }
   }
 
-  void _tapEdge() {
+  void _tapEdge(PointerDownEvent event) {
+    if (event.kind == PointerDeviceKind.mouse) return;
     if (_reveal > 0.5) return;
     _revealTimer?.cancel();
     _revealTimer = null;
@@ -721,6 +723,9 @@ class _DockContainerState extends ConsumerState<DockContainer>
   }
 
   void _onEdgeEnter(PointerEnterEvent event) {
+    if (_reveal > 0.5 && !_look.shape.name.contains('bar')) {
+      _insideCapsule = true;
+    }
     if (_edgeHover) return;
     _edgeHover = true;
     _evaluateHide();
@@ -729,6 +734,7 @@ class _DockContainerState extends ConsumerState<DockContainer>
   void _onEdgeExit(PointerExitEvent event) {
     _revealTimer?.cancel();
     _revealTimer = null;
+    if (_reveal > 0.5) _insideCapsule = false;
     if (!_edgeHover) return;
     _edgeHover = false;
     _evaluateHide();
@@ -1821,12 +1827,15 @@ class _DockContainerState extends ConsumerState<DockContainer>
                 main: 0,
                 cross: _reserved,
                 mainExtent: surfaceMain,
-                // Beside a bar the pointer cannot rest on the screen edge, so
-                // the strip is thick enough to stop on.
-                crossExtent: math.max(
-                  _reserved > 0 ? 10 : 4,
-                  _capsuleCross - _reserved,
-                ),
+                // Keep a 1 px translucent wake strip when retracted, and
+                // bridge seamlessly to the capsule while revealed so cursor
+                // motion into the bottom margin never flickers smart-hide.
+                crossExtent: _reveal > 0.5
+                    ? math.max(
+                        _reserved > 0 ? 10.0 : 4.0,
+                        _capsuleCross - _reserved + 2.0,
+                      )
+                    : (_reserved > 0 ? 10.0 : 1.0),
                 child: ShellInputRegion(
                   debugLabel: 'Dock reveal edge',
                   child: MouseRegion(
@@ -1834,9 +1843,9 @@ class _DockContainerState extends ConsumerState<DockContainer>
                     onExit: _onEdgeExit,
                     child: Listener(
                       behavior: HitTestBehavior.opaque,
-                      onPointerDown: (_) => _tapEdge(),
+                      onPointerDown: _tapEdge,
                       child: ColoredBox(
-                        color: const Color(0x00000000),
+                        color: const Color(0x01000000),
                         child: settings.revealIndicator && _reveal < 0.5
                             ? _revealHandle(theme)
                             : const SizedBox.shrink(),
