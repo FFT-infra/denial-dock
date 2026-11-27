@@ -664,6 +664,10 @@ class ShellPreset {
     return a == b;
   }
 
+  /// Presets whose remembered state predates [memoryRevision] fall back to
+  /// their newly shipped defaults so stale caches cannot hide preset updates.
+  static const int memoryRevision = 2;
+
   /// The shell as it stands, in the shape [recall] reads: what to keep for
   /// this preset when the user goes to another. Only the keys the preset
   /// decides are kept; [dock] is null while no dock runs, and then the
@@ -676,6 +680,7 @@ class ShellPreset {
     bool? dockVisible,
     Object? before,
   }) => <String, Object?>{
+    'rev': memoryRevision,
     'look': look,
     'barMode': barMode,
     'dockVisible': ?dockVisible,
@@ -703,6 +708,18 @@ class ShellPreset {
     Map<String, Object?> dock,
   })
   recall(Object? memory) {
+    final map = memory is Map ? memory : const <Object?, Object?>{};
+    final rev = map['rev'];
+    if (group != ShellPresetGroup.user &&
+        (rev is! int || rev < memoryRevision)) {
+      return (
+        look: look,
+        barMode: barMode,
+        dockVisible: dockVisible,
+        bar: Map<String, Object?>.of(bar),
+        dock: Map<String, Object?>.of(dock),
+      );
+    }
     Map<String, Object?> over(Map<String, Object?> base, Object? saved) =>
         <String, Object?>{
           for (final entry in base.entries)
@@ -713,12 +730,11 @@ class ShellPreset {
                 ? saved[entry.key]
                 : entry.value,
         };
-    final map = memory is Map ? memory : const <Object?, Object?>{};
-    final look = map['look'];
+    final rememberedLook = map['look'];
     final mode = map['barMode'];
     final dockShown = map['dockVisible'];
     return (
-      look: look is String ? look : this.look,
+      look: rememberedLook is String ? rememberedLook : look,
       barMode: mode is String ? mode : barMode,
       dockVisible: dockShown is bool ? dockShown : dockVisible,
       bar: over(bar, map['bar']),

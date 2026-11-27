@@ -550,6 +550,7 @@ class NcPlate extends StatelessWidget {
                     theme,
                     sigma: plan.sigma,
                     saturation: material.saturation,
+                    cornerRadius: radius,
                   ),
                   blendMode: BlendMode.srcOver,
                   child: const SizedBox.expand(),

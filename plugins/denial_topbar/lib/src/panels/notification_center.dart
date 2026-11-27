@@ -139,9 +139,7 @@ class _ColumnState extends ConsumerState<_Column>
   static double _liveValue = 0;
   static double _liveVelocity = 0;
 
-  late final DesktopNotificationsController _controller = ref.read(
-    desktopNotificationsProvider.notifier,
-  );
+  late final DesktopNotificationsController _controller;
 
   // ── The slide ──
   late final KitSpring _slide = KitSpring(0, ncSpring(NcMotion.slide));
@@ -201,6 +199,7 @@ class _ColumnState extends ConsumerState<_Column>
   @override
   void initState() {
     super.initState();
+    _controller = ref.read(desktopNotificationsProvider.notifier);
     debugCommand.addListener(_debug);
     if (framed) {
       // The panel that frames it does the coming and going.

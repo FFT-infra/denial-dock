@@ -252,6 +252,7 @@ void main() {
       );
       // A value of the wrong kind falls back to what ships.
       final wrong = preset.recall(<String, Object?>{
+        'rev': ShellPreset.memoryRevision,
         'bar': <String, Object?>{'shape': 5, 'start': 'x', 'partGap': 'wide'},
         'dock': <String, Object?>{'leading': <Object?>[1, 2]},
       });
@@ -262,6 +263,45 @@ void main() {
         '${preset.id} ignores values of the wrong kind',
       );
     }
+
+    // Stale built-in/reference preset memory (missing or older 'rev') falls
+    // back to the updated shipped defaults; user presets stay intact.
+    final staleMemory = <String, Object?>{
+      'look': 'terminal',
+      'barMode': 'hidden',
+      'dockVisible': false,
+      'bar': <String, Object?>{'barHeight': 40, 'endInset': 0},
+      'dock': <String, Object?>{'shape': 'bar'},
+    };
+    final refreshed = ShellPreset.omarchy.recall(staleMemory);
+    _expect(
+      refreshed.look == ShellPreset.omarchy.look &&
+          refreshed.barMode == ShellPreset.omarchy.barMode &&
+          refreshed.bar['barHeight'] == ShellPreset.omarchy.bar['barHeight'] &&
+          refreshed.dock['shape'] == ShellPreset.omarchy.dock['shape'],
+      'pre-revision memory on builtin preset is ignored in favor of shipped defaults',
+    );
+    final oldRev = ShellPreset.hyprpanel.recall(<String, Object?>{
+      ...staleMemory,
+      'rev': 1,
+    });
+    _expect(
+      oldRev.look == ShellPreset.hyprpanel.look &&
+          oldRev.bar['partPill'] == ShellPreset.hyprpanel.bar['partPill'],
+      'revision 1 memory on reference preset is ignored',
+    );
+    final userPreset = ShellPreset.fromJson(<String, Object?>{
+      'id': 'custom-user',
+      'label': 'User',
+      'look': 'mac',
+      'bar': ShellPreset.denial.bar,
+      'dock': ShellPreset.denial.dock,
+    })!;
+    final keptUser = userPreset.recall(staleMemory);
+    _expect(
+      keptUser.look == 'terminal' && keptUser.barMode == 'hidden',
+      'user preset memory without rev is preserved',
+    );
     stdout.writeln('All shell preset and store tests passed.');
   } finally {
     directory.deleteSync(recursive: true);

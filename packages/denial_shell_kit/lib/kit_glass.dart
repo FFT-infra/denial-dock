@@ -117,29 +117,47 @@ class KitGlass extends StatelessWidget {
   /// fading one carries them through the fade inside it.
   final bool? separate;
 
-  static final Map<double, ColorFilter> _saturations = <double, ColorFilter>{};
-
   /// The filter for a blur the kit carries out itself.
   static ImageFilterConfig filterFor(
     ShellThemeData theme, {
     required double sigma,
     required double saturation,
+    double cornerRadius = 0,
   }) {
-    final blur = ImageFilterConfig.blur(
+    if (saturation == 1 || !kitSaturate.value) {
+      return ImageFilterConfig.blur(
+        sigmaX: sigma,
+        sigmaY: sigma,
+        tileMode: ui.TileMode.clamp,
+        downsampleScale: theme.backdropBlurDownsampleScale,
+      );
+    }
+    final corner = cornerRadius > 0
+        ? Radius.circular(cornerRadius)
+        : Radius.zero;
+    return ImageFilterConfig.glass(
       sigmaX: sigma,
       sigmaY: sigma,
-      tileMode: ui.TileMode.clamp,
+      topLeft: corner,
+      topRight: corner,
+      bottomRight: corner,
+      bottomLeft: corner,
       downsampleScale: theme.backdropBlurDownsampleScale,
-    );
-    if (saturation == 1 || !kitSaturate.value) return blur;
-    return ImageFilterConfig.compose(
-      outer: ImageFilterConfig(
-        _saturations.putIfAbsent(
-          saturation,
-          () => ColorFilter.matrix(kitSaturationMatrix(saturation)),
-        ),
-      ),
-      inner: blur,
+      thickness: 0,
+      refraction: 0,
+      dispersion: 0,
+      saturation: saturation,
+      tint: const Color(0x00000000),
+      tintStrength: 0,
+      brightness: 0,
+      lightAngle: 0,
+      lightIntensity: 0,
+      edgeStrength: 0,
+      bevelWidthScale: 1,
+      refractionDepthScale: 1,
+      rimWidth: 0,
+      rimFalloff: 1,
+      oppositeLightStrength: 0,
     );
   }
 
@@ -226,6 +244,7 @@ class KitGlass extends StatelessWidget {
         theme,
         sigma: sigma,
         saturation: material.saturation,
+        cornerRadius: radius,
       );
       // Laid out as the shell's own backdrop is: a steady one replaces what
       // is behind it, a fading one blends over it.
