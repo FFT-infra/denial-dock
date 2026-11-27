@@ -22,6 +22,12 @@ import '../bar_segments.dart';
 import '../bar_settings.dart';
 import '../bar_tokens.dart';
 import '../bar_type.dart';
+import '../island/island.dart'
+    show
+        ensureIslandHomeActionsLoaded,
+        islandHomeActionCatalog,
+        islandHomeActions,
+        setIslandHomeActions;
 import '../island/island_options.dart';
 import '../tray_names.dart';
 import '../l10n.dart';
@@ -761,6 +767,73 @@ class _BarSettingsPanelState extends ConsumerState<BarSettingsPanel> {
                   (i, BarMetric.islandTimerSets[i].join(' · ')),
               ],
               onChanged: (v) => save((s) => s.copyWith(islandTimerSet: v)),
+            ),
+          ),
+          _Cell(
+            label: context.tr('Home card shortcuts'),
+            detail: options[IslandOption.home].on
+                ? context.tr('Pick up to 5')
+                : context.tr('Turn on the home card first.'),
+            enabled: options[IslandOption.home].on,
+            child: ValueListenableBuilder<List<String>>(
+              valueListenable: islandHomeActions,
+              builder: (context, selected, _) {
+                ensureIslandHomeActionsLoaded();
+                final theme = context.shellTheme;
+                final style = KitStyle.of(context);
+                return Wrap(
+                  spacing: 6,
+                  runSpacing: 6,
+                  children: <Widget>[
+                    for (final item in islandHomeActionCatalog)
+                      () {
+                        final on = selected.contains(item.$1);
+                        return Pressable(
+                          onTap: options[IslandOption.home].on
+                              ? () {
+                                  if (on && selected.length <= 1) return;
+                                  if (!on && selected.length >= 5) return;
+                                  final next = on
+                                      ? selected
+                                          .where((id) => id != item.$1)
+                                          .toList()
+                                      : <String>[...selected, item.$1];
+                                  setIslandHomeActions(next);
+                                }
+                              : null,
+                          scale: 0.94,
+                          child: Container(
+                            padding: const EdgeInsets.symmetric(
+                              horizontal: 9,
+                              vertical: 5,
+                            ),
+                            decoration: BoxDecoration(
+                              color: on
+                                  ? style.accent(theme)
+                                  : theme.colors.textPrimary.withValues(
+                                      alpha: 0.08,
+                                    ),
+                              borderRadius: BorderRadius.circular(
+                                style.corner(8),
+                              ),
+                            ),
+                            child: Text(
+                              context.tr(item.$2),
+                              style: BarType.caption.copyWith(
+                                fontSize: 11.5,
+                                fontWeight:
+                                    on ? FontWeight.w600 : FontWeight.w500,
+                                color: on
+                                    ? style.onPlate(theme)
+                                    : theme.colors.textPrimary,
+                              ),
+                            ),
+                          ),
+                        );
+                      }(),
+                  ],
+                );
+              },
             ),
           ),
         ],

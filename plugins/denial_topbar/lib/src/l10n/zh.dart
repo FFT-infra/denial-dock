@@ -626,4 +626,8 @@ const Map<String, String> zh = <String, String>{
   'Command output card': '定时执行命令状态卡',
   'Quick launch shortcut': '一键执行快捷命令',
   'Sticky note card': '本地便签卡片',
+  'Battery Full': '已充满',
+  'Home card shortcuts': '主卡片快捷按钮',
+  'Pick up to 5': '最多选 5 项',
+  'Turn on the home card first.': '请先开启「点击静态灵动岛展开主卡片」。',
 };

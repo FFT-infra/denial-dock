@@ -5,7 +5,12 @@ import 'dart:ui' show ImageFilter, lerpDouble;
 import 'package:denial_flutter_sdk/input.dart';
 import 'package:denial_flutter_sdk/models.dart';
 import 'package:denial_flutter_sdk/services.dart';
+import 'package:denial_flutter_sdk/settings.dart'
+    show DesktopColorSchemePreference, shellSettingsProvider;
 import 'package:denial_flutter_sdk/state.dart';
+import 'package:denial_flutter_sdk/system_services.dart'
+    show systemActionsServiceProvider;
+import 'package:denial_flutter_sdk/theme.dart';
 import 'package:denial_sdk/system.dart' show BatteryStatus;
 import 'package:denial_shell_kit/continuous_corners.dart';
 import 'package:denial_shell_kit/kit_control_math.dart';
@@ -13,6 +18,7 @@ import 'package:denial_shell_kit/kit_layer.dart'
     show kitOpenPanel, kitPressTargets;
 import 'package:denial_shell_kit/kit_motion.dart';
 import 'package:denial_shell_kit/kit_springs.dart';
+import 'package:denial_shell_kit/kit_store.dart';
 import 'package:denial_shell_kit/kit_style.dart';
 import 'package:denial_shell_kit/launcher_entry_bus.dart';
 import 'package:flutter/gestures.dart';
@@ -27,6 +33,7 @@ import '../bar_type.dart';
 import '../debug_remote.dart';
 import '../l10n.dart';
 import '../mic_watch.dart';
+import '../night_light.dart';
 import '../panels/mac_kit.dart';
 import '../panels/popovers.dart' show outputDeviceIcon;
 import 'island_cards.dart';
@@ -41,6 +48,52 @@ import 'island_timer.dart';
 
 /// How far below the bar the island may grow; the bar's surface reserves it.
 const double islandReach = 240;
+
+/// Customizable quick-action ids for the resting Island home card.
+const List<String> defaultIslandHomeActions = <String>[
+  'dnd',
+  'cc',
+  'nc',
+  'search',
+];
+
+const List<(String, String)> islandHomeActionCatalog = <(String, String)>[
+  ('dnd', 'Focus'),
+  ('cc', 'Control Centre'),
+  ('nc', 'Notifications'),
+  ('search', 'Search'),
+  ('screenshot', 'Screenshot'),
+  ('recording', 'Screen Recording'),
+  ('night', 'Night Light'),
+  ('dark', 'Dark Mode'),
+  ('lock', 'Lock Screen'),
+];
+
+/// Persisted list of quick-action ids shown on [IslandHomeCard].
+final ValueNotifier<List<String>> islandHomeActions =
+    ValueNotifier<List<String>>(defaultIslandHomeActions);
+
+bool _homeActionsLoaded = false;
+
+void ensureIslandHomeActionsLoaded() {
+  if (_homeActionsLoaded) return;
+  _homeActionsLoaded = true;
+  final raw = kitStore.read()['islandHomeActions'];
+  if (raw is List) {
+    final valid = <String>{for (final item in islandHomeActionCatalog) item.$1};
+    final parsed = <String>[
+      for (final id in raw)
+        if (id is String && valid.contains(id)) id,
+    ];
+    if (parsed.isNotEmpty) islandHomeActions.value = parsed;
+  }
+}
+
+void setIslandHomeActions(List<String> ids) {
+  final next = ids.isEmpty ? defaultIslandHomeActions : List<String>.of(ids);
+  islandHomeActions.value = next;
+  kitStore.put('islandHomeActions', next);
+}
 
 abstract final class _I {
   static const double rest = 58;
@@ -60,8 +113,8 @@ abstract final class _I {
   static const Duration lowHold = Duration(seconds: 5);
 
   /// How far the pill leans towards a pointer at its edge.
-  static const double leanX = 3;
-  static const double leanY = 1.5;
+  static const double leanX = 6.5;
+  static const double leanY = 2.8;
   static const Duration trackHold = Duration(seconds: 3);
   static const Duration statusHold = Duration(milliseconds: 2600);
   static const Duration settle = Duration(seconds: 6);
@@ -251,6 +304,9 @@ class _IslandState extends ConsumerState<Island> with TickerProviderStateMixin {
   late final KitSpring _splitLeft = KitSpring(0, IslandFeel.liquid.split);
   late final KitSpring _pop = KitSpring(0, IslandFeel.liquid.pop);
 
+  /// Directional elastic bump when a HUD hits 0% (-1) or 100% (+1).
+  late final KitSpring _hudEdge = KitSpring(0, IslandFeel.liquid.pop);
+
   /// A press being held: the pill gathers itself towards the panel it is
   /// about to open, and is there as the press has lasted long enough.
   late final KitSpring _charge = KitSpring(0, IslandFeel.liquid.press);
@@ -263,6 +319,7 @@ class _IslandState extends ConsumerState<Island> with TickerProviderStateMixin {
     _split,
     _splitLeft,
     _pop,
+    _hudEdge,
     _charge,
   ]);
 
@@ -384,6 +441,7 @@ class _IslandState extends ConsumerState<Island> with TickerProviderStateMixin {
       ..tune(bubbles > 1 ? feel.split : feel.merge)
       ..target = bubbles > 1 ? 1 : 0;
     _pop.tune(feel.pop);
+    _hudEdge.tune(feel.pop);
     if (_engine.arrivals != _arrivals) {
       _arrivals = _engine.arrivals;
       // The breath: the pill draws in, then springs out past its size.
@@ -415,6 +473,7 @@ class _IslandState extends ConsumerState<Island> with TickerProviderStateMixin {
   void initState() {
     super.initState();
     kitOpenPanel.addListener(_onPanel);
+    islandHomeActions.addListener(_onHomeActions);
     _timerSeen = islandTimer.finishedAt;
     islandTimer.addListener(_onTimer);
     micWatch.addListener(_onMic);
@@ -444,6 +503,7 @@ class _IslandState extends ConsumerState<Island> with TickerProviderStateMixin {
   void dispose() {
     _lyrics.dispose();
     kitOpenPanel.removeListener(_onPanel);
+    islandHomeActions.removeListener(_onHomeActions);
     islandTimer.removeListener(_onTimer);
     micWatch.removeListener(_onMic);
     debugCommand.removeListener(_debug);
@@ -470,6 +530,10 @@ class _IslandState extends ConsumerState<Island> with TickerProviderStateMixin {
 
   void _onPanel() {
     if (kitOpenPanel.value != null) _setOpen(false);
+  }
+
+  void _onHomeActions() {
+    if (mounted) setState(() {});
   }
 
   void _debug() {
@@ -579,6 +643,7 @@ class _IslandState extends ConsumerState<Island> with TickerProviderStateMixin {
     if (open) {
       if (kitOpenPanel.value != null || !_engine.canExpand) return;
       if (!_engine.expanded) _openedAt = _now;
+      _pull = Offset.zero;
       _engine.expand(pinned: pinned);
       if (pinned) _takeKeys();
       // An open panel is not faded, and the wait to fade starts over when
@@ -638,12 +703,53 @@ class _IslandState extends ConsumerState<Island> with TickerProviderStateMixin {
     }
     _hudIcon = icon;
     _hudLevel = next;
-    if (next <= 0.001 || next >= 0.999) {
-      // Elastic boundary bounce when volume/brightness hits 0% or 100%.
-      _w.velocity += 95;
+    if (next <= 0.001) {
+      // Elastic left-edge squash/bounce when volume/brightness hits 0% or mute.
+      _hudEdge.velocity -= 18;
+      _w.velocity += 110;
       _kick(_shape);
+      _kick(_feel);
+    } else if (next >= 0.999) {
+      // Elastic right-edge stretch/bounce when hitting 100%.
+      _hudEdge.velocity += 18;
+      _w.velocity += 110;
+      _kick(_shape);
+      _kick(_feel);
     }
     _show(IslandKind.hud, 'level', _I.hudHold);
+  }
+
+  /// Scroll wheel over the collapsed pill adjusts master volume, or display
+  /// brightness while Shift is held.
+  void _onScroll(PointerScrollEvent event) {
+    if (_engine.expanded || _yields || !widget.settings.activityHud) return;
+    final dy = event.scrollDelta.dy;
+    if (dy.abs() < 0.1) return;
+    final step = dy < 0 ? 0.05 : -0.05;
+    if (HardwareKeyboard.instance.isShiftPressed) {
+      final layout = ref.read(displayLayoutProvider);
+      final output = layout?.outputs
+          .where((o) => o.monitorId == widget.monitorId)
+          .firstOrNull;
+      if (output == null) return;
+      final cur =
+          ref.read(displayBrightnessProvider).levels[widget.monitorId];
+      if (cur == null) return;
+      final next = (cur + step).clamp(0.0, 1.0);
+      ref.read(displayBrightnessProvider.notifier).commitLevel(output, next);
+      _hud(BarIcons.sunMaxFill, next);
+    } else {
+      if (!ref.read(_services.volumeAvailable)) return;
+      final cur = ref.read(_services.volume);
+      final next = (cur + step).clamp(0.0, 1.0);
+      _services.commitVolume(next);
+      _hud(
+        next <= 0.001
+            ? BarIcons.speakerSlashFill
+            : (next < 0.5 ? BarIcons.speaker1Fill : BarIcons.speaker3Fill),
+        next,
+      );
+    }
   }
 
   /// A one-line change of state: an icon, what changed, and how.
@@ -876,13 +982,30 @@ class _IslandState extends ConsumerState<Island> with TickerProviderStateMixin {
     ).inflate(slack).contains(global);
   }
 
-  void _enter() {
+  void _enter(PointerEnterEvent event) {
     _leave?.cancel();
     // Coming back into a region the island had given up is not a new visit.
     if (_hovered) return;
     _hovered = true;
     _engine.hold(_now);
     final settings = widget.settings;
+    if (!settings.islandHoverFade && !_engine.expanded) {
+      // Suction bulge: pull the pill briefly toward the side the cursor entered.
+      final w = math.max(widget.height, _w.value);
+      final h = math.max(1.0, widget.height);
+      final dx = (event.localPosition.dx / w * 2 - 1).clamp(-1.0, 1.0);
+      final dy = (event.localPosition.dy / h * 2 - 1).clamp(-1.0, 1.0);
+      _pull = Offset(dx, dy);
+      if (settings.islandCursorAbsorb) {
+        _pullX.velocity += dx * 12;
+        _pullY.velocity += dy * 6;
+        _pop.velocity += 0.95;
+        _w.velocity += 55;
+        _kick(_shape);
+      }
+      _aimPull();
+      _kick(_feel);
+    }
     if (settings.islandHoverFade) {
       if (!_engine.expanded) _armDwell();
     } else if (settings.islandHoverPeek &&
@@ -907,8 +1030,18 @@ class _IslandState extends ConsumerState<Island> with TickerProviderStateMixin {
 
   void _left() {
     if (!_hovered) return;
+    final lastPull = _pull;
     _hovered = false;
     _pull = Offset.zero;
+    if (!widget.settings.islandHoverFade &&
+        widget.settings.islandCursorAbsorb &&
+        !_engine.expanded) {
+      // Elastic release rebound as the cursor emerges from the pill.
+      _pullX.velocity -= lastPull.dx * 14;
+      _pop.velocity -= 0.7;
+      _aimPull();
+      _kick(_feel);
+    }
     _dwelt = false;
     _news = false;
     _dwell?.cancel();
@@ -1082,20 +1215,24 @@ class _IslandState extends ConsumerState<Island> with TickerProviderStateMixin {
     }
     _wasPlugged = plugged;
     // On battery, falling to a fifth and then to a tenth says so once each.
+    // While plugged in, reaching 100% notifies Battery Full once.
     final charge = ref.watch(_services.battery).capacity;
     final before = _wasCharge;
     _wasCharge = charge;
-    if (!plugged &&
-        charge != null &&
-        before != null &&
-        widget.settings.activityCharging) {
-      for (final mark in const <int>[20, 10]) {
-        if (before > mark && charge <= mark) {
-          scheduleMicrotask(() {
-            if (mounted) _show(IslandKind.charging, 'low$mark', _I.lowHold);
-          });
-          break;
+    if (charge != null && before != null && widget.settings.activityCharging) {
+      if (!plugged) {
+        for (final mark in const <int>[20, 10]) {
+          if (before > mark && charge <= mark) {
+            scheduleMicrotask(() {
+              if (mounted) _show(IslandKind.charging, 'low$mark', _I.lowHold);
+            });
+            break;
+          }
         }
+      } else if (before < 100 && charge >= 100) {
+        scheduleMicrotask(() {
+          if (mounted) _show(IslandKind.charging, 'full', _I.chargeHold);
+        });
       }
     }
 
@@ -1381,11 +1518,11 @@ class _IslandState extends ConsumerState<Island> with TickerProviderStateMixin {
                     child: CustomPaint(
                       painter: _CursorSheenPainter(
                         center: Offset(
-                          width * (0.5 + _pull.dx * 0.5),
-                          h * (0.5 + _pull.dy * 0.5),
+                          width * (0.5 + _pullX.value.clamp(-1.1, 1.1) * 0.48),
+                          h * (0.5 + _pullY.value.clamp(-1.1, 1.1) * 0.45),
                         ),
                         color: _skin.ink.withValues(
-                          alpha: 0.14 * hover.clamp(0.0, 1.0),
+                          alpha: 0.13 * hover.clamp(0.0, 1.0),
                         ),
                       ),
                     ),
@@ -1416,7 +1553,7 @@ class _IslandState extends ConsumerState<Island> with TickerProviderStateMixin {
                 : !expanded && _engine.canExpand
                 ? SystemMouseCursors.click
                 : MouseCursor.defer,
-            onEnter: (_) => _enter(),
+            onEnter: _enter,
             onExit: _exit,
             onHover: expanded
                 ? null
@@ -1427,7 +1564,7 @@ class _IslandState extends ConsumerState<Island> with TickerProviderStateMixin {
                       (at.dy / h * 2 - 1).clamp(-1.0, 1.0),
                     );
                     // Small moves are not worth a frame.
-                    if ((pull - _pull).distance < 0.03) return;
+                    if ((pull - _pull).distance < 0.015) return;
                     _pull = pull;
                     _aimPull();
                     _kick(_feel);
@@ -1440,6 +1577,9 @@ class _IslandState extends ConsumerState<Island> with TickerProviderStateMixin {
                 skipTraversal: true,
                 onKeyEvent: _key,
                 child: Listener(
+                  onPointerSignal: (signal) {
+                    if (signal is PointerScrollEvent) _onScroll(signal);
+                  },
                   onPointerDown: (_) {
                     if (!_engine.expanded) return;
                     // A press inside a preview keeps it.
@@ -1555,13 +1695,17 @@ class _IslandState extends ConsumerState<Island> with TickerProviderStateMixin {
         // than it narrows, like something soft; an arrival is one breath.
         // All of it turns about the middle of the pill's own row.
         final lean = Offset(_pullX.value, _pullY.value) * (1 - tc);
+        final hudBump = _hudEdge.value * (1 - tc);
         return Transform.translate(
-          offset: Offset(lean.dx * _I.leanX, lean.dy * _I.leanY),
+          offset: Offset(
+            lean.dx * _I.leanX + hudBump * 5.0,
+            lean.dy * _I.leanY,
+          ),
           child: Transform(
             alignment: Alignment(0, h / height - 1),
             transform: Matrix4.diagonal3Values(
-              1 + 0.05 * hover - 0.03 * press + _pop.value,
-              1 + 0.09 * hover - 0.09 * press + _pop.value,
+              1 + 0.05 * hover - 0.03 * press + _pop.value + hudBump.abs() * 0.035,
+              1 + 0.09 * hover - 0.09 * press + _pop.value - hudBump.abs() * 0.025,
               1,
             ),
             child: veil <= 0.001
@@ -1792,31 +1936,67 @@ class _IslandState extends ConsumerState<Island> with TickerProviderStateMixin {
           ),
         );
       case IslandKind.hud:
+        final isMute = _hudIcon == BarIcons.speakerSlashFill;
+        final isSun = _hudIcon == BarIcons.sunMaxFill;
+        final Widget baseGlyph = IslandSwap(
+          child: BarGlyph(
+            _hudIcon,
+            key: ValueKey<int>(_hudIcon.codePoint),
+            size: 15,
+            color: _skin.ink,
+          ),
+        );
+        final Widget animatedGlyph;
+        if (isMute) {
+          animatedGlyph = TweenAnimationBuilder<double>(
+            key: ValueKey<String>('mute-$_hudStep'),
+            tween: Tween<double>(begin: 0, end: 1),
+            duration: KitMotion.duration(
+              context,
+              const Duration(milliseconds: 300),
+            ),
+            builder: (context, t, child) => Transform.translate(
+              offset: Offset(math.sin(t * math.pi * 4) * (1 - t) * 4.5, 0),
+              child: child,
+            ),
+            child: baseGlyph,
+          );
+        } else if (isSun) {
+          animatedGlyph = Sprung(
+            target: _hudLevel,
+            tuning: IslandFeel.of(KitStyle.of(context)).level,
+            builder: (context, v, child) => Transform.rotate(
+              angle: v * math.pi * 0.75,
+              child: Transform.scale(
+                scale: 0.86 + v.clamp(0.0, 1.0) * 0.24,
+                child: child,
+              ),
+            ),
+            child: baseGlyph,
+          );
+        } else {
+          animatedGlyph = TweenAnimationBuilder<double>(
+            key: ValueKey<int>(_hudStep),
+            tween: Tween<double>(begin: 1.18, end: 1.0),
+            duration: KitMotion.duration(context, KitMotion.tap),
+            curve: Curves.easeOutCubic,
+            builder: (context, scale, child) =>
+                Transform.scale(scale: scale, child: child),
+            child: baseGlyph,
+          );
+        }
         return Padding(
           padding: const EdgeInsets.symmetric(horizontal: 13),
           child: Row(
             children: <Widget>[
-              SizedBox(
-                width: 20,
-                child: TweenAnimationBuilder<double>(
-                  key: ValueKey<int>(_hudStep),
-                  tween: Tween<double>(begin: 1.18, end: 1.0),
-                  duration: KitMotion.duration(context, KitMotion.tap),
-                  curve: Curves.easeOutCubic,
-                  builder: (context, scale, child) =>
-                      Transform.scale(scale: scale, child: child),
-                  child: IslandSwap(
-                    child: BarGlyph(
-                      _hudIcon,
-                      key: ValueKey<int>(_hudIcon.codePoint),
-                      size: 15,
-                      color: _skin.ink,
-                    ),
-                  ),
+              SizedBox(width: 20, child: animatedGlyph),
+              const SizedBox(width: 9),
+              Expanded(
+                child: IslandLevel(
+                  level: _hudLevel,
+                  edgeBump: _hudEdge.value,
                 ),
               ),
-              const SizedBox(width: 9),
-              Expanded(child: IslandLevel(level: _hudLevel)),
               const SizedBox(width: 9),
               // The number rolls the way the level went.
               SizedBox(
@@ -1843,6 +2023,7 @@ class _IslandState extends ConsumerState<Island> with TickerProviderStateMixin {
         );
       case IslandKind.charging:
         final plugged = _wasPlugged ?? false;
+        final full = plugged && (battery.capacity ?? 0) >= 100;
         final low = _low(plugged, battery.capacity);
         final colour = plugged
             ? const Color(0xff30d158)
@@ -1856,7 +2037,9 @@ class _IslandState extends ConsumerState<Island> with TickerProviderStateMixin {
               Expanded(
                 child: Text(
                   context.tr(
-                    plugged
+                    full
+                        ? 'Battery Full'
+                        : plugged
                         ? 'Charging'
                         : low
                         ? 'Low Battery'
@@ -2022,25 +2205,114 @@ class _IslandState extends ConsumerState<Island> with TickerProviderStateMixin {
                   label: context.tr('{}m', minutes),
                   onTap: () => start(minutes),
                 ),
-            IslandHomeAction(
-              icon: notices.doNotDisturb ? BarIcons.moonFill : BarIcons.moon,
-              on: notices.doNotDisturb,
-              onTap: ref
-                  .read(desktopNotificationsProvider.notifier)
-                  .toggleDoNotDisturb,
-            ),
-            IslandHomeAction(
-              icon: BarIcons.sliderHorizontal3,
-              onTap: () => go(widget.onControlCenter),
-            ),
-            IslandHomeAction(
-              icon: BarIcons.bell,
-              onTap: () => go(widget.onNotifications),
-            ),
-            IslandHomeAction(
-              icon: BarIcons.search,
-              onTap: () => go(_services.toggleLauncher),
-            ),
+            ...() {
+              ensureIslandHomeActionsLoaded();
+              final recording = ref.watch(
+                screenRecordingProvider.select((s) => s.recording),
+              );
+              final isDark =
+                  context.shellTheme.brightness == Brightness.dark;
+              final built = <IslandHomeAction>[];
+              for (final id in islandHomeActions.value) {
+                switch (id) {
+                  case 'dnd':
+                    built.add(
+                      IslandHomeAction(
+                        icon: notices.doNotDisturb
+                            ? BarIcons.moonFill
+                            : BarIcons.moon,
+                        on: notices.doNotDisturb,
+                        onTap: ref
+                            .read(desktopNotificationsProvider.notifier)
+                            .toggleDoNotDisturb,
+                      ),
+                    );
+                  case 'cc':
+                    built.add(
+                      IslandHomeAction(
+                        icon: BarIcons.sliderHorizontal3,
+                        onTap: () => go(widget.onControlCenter),
+                      ),
+                    );
+                  case 'nc':
+                    built.add(
+                      IslandHomeAction(
+                        icon: BarIcons.bell,
+                        onTap: () => go(widget.onNotifications),
+                      ),
+                    );
+                  case 'search':
+                    built.add(
+                      IslandHomeAction(
+                        icon: BarIcons.search,
+                        onTap: () => go(_services.toggleLauncher),
+                      ),
+                    );
+                  case 'screenshot':
+                    built.add(
+                      IslandHomeAction(
+                        icon: BarIcons.camera,
+                        onTap: () => go(
+                          () => ref
+                              .read(systemActionsServiceProvider)
+                              .takeScreenshot(),
+                        ),
+                      ),
+                    );
+                  case 'recording':
+                    built.add(
+                      IslandHomeAction(
+                        icon: BarIcons.circleFill,
+                        on: recording,
+                        onTap: () => go(
+                          () => ref
+                              .read(screenRecordingProvider.notifier)
+                              .toggle(),
+                        ),
+                      ),
+                    );
+                  case 'night':
+                    built.add(
+                      IslandHomeAction(
+                        icon: NightLight.enabled.value
+                            ? BarIcons.sunMaxFill
+                            : BarIcons.sunMax,
+                        on: NightLight.enabled.value,
+                        onTap: () {
+                          NightLight.toggle();
+                          setState(() {});
+                        },
+                      ),
+                    );
+                  case 'dark':
+                    built.add(
+                      IslandHomeAction(
+                        icon: BarIcons.circleHalf,
+                        on: isDark,
+                        onTap: () => ref
+                            .read(shellSettingsProvider.notifier)
+                            .setColorSchemePreference(
+                              isDark
+                                  ? DesktopColorSchemePreference.preferLight
+                                  : DesktopColorSchemePreference.preferDark,
+                            ),
+                      ),
+                    );
+                  case 'lock':
+                    built.add(
+                      IslandHomeAction(
+                        icon: BarIcons.lockFill,
+                        onTap: () => go(
+                          () => ref
+                              .read(sessionPowerProvider.notifier)
+                              .request(SessionPowerAction.lock),
+                        ),
+                      ),
+                    );
+                }
+              }
+              return built;
+            }(),
           ],
         );
       case IslandKind.notice:
@@ -2083,11 +2355,14 @@ class _IslandState extends ConsumerState<Island> with TickerProviderStateMixin {
           ),
         );
         final left = plugged ? cell?.timeToFull : cell?.timeToEmpty;
+        final full = plugged && (battery.capacity ?? 0) >= 100;
         return IslandChargeCard(
           percent: battery.capacity ?? 0,
           plugged: plugged,
           label: context.tr(
-            plugged
+            full
+                ? 'Battery Full'
+                : plugged
                 ? 'Charging'
                 : _low(plugged, battery.capacity)
                 ? 'Low Battery'
@@ -2103,11 +2378,11 @@ class _IslandState extends ConsumerState<Island> with TickerProviderStateMixin {
       default:
         final commands = ref.watch(_services.mediaCommands);
         // Where the sound goes, when the shell lists its outputs.
-        final output = ref.watch(
-          audioDevicesProvider.select(
-            (state) => state.devices.where((device) => device.active).firstOrNull,
-          ),
-        );
+        final audioState = ref.watch(audioDevicesProvider);
+        final availableOutputs = audioState.devices
+            .where((d) => d.available || d.active)
+            .toList();
+        final output = availableOutputs.where((d) => d.active).firstOrNull;
         return IslandMediaCard(
           playback: playback,
           onPrevious: () {
@@ -2127,6 +2402,14 @@ class _IslandState extends ConsumerState<Island> with TickerProviderStateMixin {
                     ? output.name
                     : output.description),
           outputIcon: output == null ? null : outputDeviceIcon(output),
+          onSwitchOutput: availableOutputs.length > 1
+              ? () {
+                  final idx = availableOutputs.indexWhere((d) => d.active);
+                  final next =
+                      availableOutputs[(idx + 1) % availableOutputs.length];
+                  ref.read(audioDevicesProvider.notifier).select(next.name);
+                }
+              : null,
           coverSlot: _I.bigCover,
           padding: _I.pad,
           nothing: context.tr('Not Playing'),

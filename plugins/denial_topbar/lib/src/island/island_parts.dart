@@ -183,6 +183,7 @@ class IslandLevel extends StatelessWidget {
     required this.level,
     this.height = 6,
     this.colour,
+    this.edgeBump = 0,
     super.key,
   });
 
@@ -192,30 +193,40 @@ class IslandLevel extends StatelessWidget {
   /// The fill's colour; the skin's ink unless given.
   final Color? colour;
 
+  /// Elastic boundary stretch (-1 at 0%, +1 at 100%).
+  final double edgeBump;
+
   @override
   Widget build(BuildContext context) {
     final skin = IslandSkin.of(context);
     final radius = BorderRadius.circular(skin.corner(height / 2, height));
     final fill = colour ?? skin.ink;
-    return LayoutBuilder(
-      builder: (context, constraints) => Container(
-        height: height,
-        alignment: Alignment.centerLeft,
-        decoration: BoxDecoration(color: skin.faint, borderRadius: radius),
-        // The fill follows its level on a spring, so a level that keeps
-        // changing is one motion and not a run of restarted eases.
-        child: Sprung(
-          target: level.clamp(0.0, 1.0),
-          tuning: IslandFeel.of(skin.style).level,
-          builder: (context, shown, _) => Container(
-            width: math.max(
-              height,
-              constraints.maxWidth * shown.clamp(0.0, 1.0),
-            ),
-            height: height,
-            decoration: BoxDecoration(
-              color: shown <= 0.001 ? const Color(0x00000000) : fill,
-              borderRadius: radius,
+    final stretchX = 1.0 + edgeBump.abs().clamp(0.0, 1.5) * 0.045;
+    final squashY = 1.0 - edgeBump.abs().clamp(0.0, 1.5) * 0.09;
+    final align = edgeBump < 0 ? Alignment.centerRight : Alignment.centerLeft;
+    return Transform(
+      alignment: align,
+      transform: Matrix4.diagonal3Values(stretchX, squashY, 1),
+      child: LayoutBuilder(
+        builder: (context, constraints) => Container(
+          height: height,
+          alignment: Alignment.centerLeft,
+          decoration: BoxDecoration(color: skin.faint, borderRadius: radius),
+          // The fill follows its level on a spring, so a level that keeps
+          // changing is one motion and not a run of restarted eases.
+          child: Sprung(
+            target: level.clamp(0.0, 1.0),
+            tuning: IslandFeel.of(skin.style).level,
+            builder: (context, shown, _) => Container(
+              width: math.max(
+                height,
+                constraints.maxWidth * shown.clamp(0.0, 1.0),
+              ),
+              height: height,
+              decoration: BoxDecoration(
+                color: shown <= 0.001 ? const Color(0x00000000) : fill,
+                borderRadius: radius,
+              ),
             ),
           ),
         ),
@@ -414,6 +425,7 @@ class IslandMediaCard extends StatelessWidget {
     this.subline,
     this.output = '',
     this.outputIcon,
+    this.onSwitchOutput,
     super.key,
   });
 
@@ -436,6 +448,9 @@ class IslandMediaCard extends StatelessWidget {
   /// The output the sound plays on, when the shell knows it.
   final String output;
   final IconData? outputIcon;
+
+  /// Cycles to the next available audio output device when tapped.
+  final VoidCallback? onSwitchOutput;
 
   Widget _second(IslandSkin skin, String artist) {
     Widget line(String text, {bool sung = false}) => Text(
@@ -614,7 +629,23 @@ class IslandMediaCard extends StatelessWidget {
                   alignment: Alignment.centerRight,
                   child: output.isEmpty
                       ? null
-                      : _chip(skin, outputIcon, output),
+                      : onSwitchOutput == null
+                      ? _chip(skin, outputIcon, output)
+                      : Pressable(
+                          onTap: onSwitchOutput,
+                          scale: 0.92,
+                          child: Container(
+                            padding: const EdgeInsets.symmetric(
+                              horizontal: 7,
+                              vertical: 4,
+                            ),
+                            decoration: BoxDecoration(
+                              color: skin.plate,
+                              borderRadius: skin.disc(22),
+                            ),
+                            child: _chip(skin, outputIcon, output),
+                          ),
+                        ),
                 ),
               ),
             ],

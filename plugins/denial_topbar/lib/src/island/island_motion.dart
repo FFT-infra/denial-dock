@@ -66,20 +66,27 @@ class IslandFeel {
   static final Map<KitStyle, IslandFeel> _made = <KitStyle, IslandFeel>{};
 
   /// The feel of [style]. Only a liquid look may pass a target: every other
-  /// look gets the same moves dead-beat, as brisk as the look's own panels.
+  /// look gets the same moves dead-beat, tuned to the look's own [KitPanelEntry]
+  /// and popup spring pace.
   static IslandFeel of(KitStyle style) {
     if (style.liquid) return liquid;
     return _made.putIfAbsent(style, () {
       final pace = islandPace(style.panelGrow.stiffness);
+      final (growBase, shrinkBase, gulpBase) = switch (style.look.entry) {
+        KitPanelEntry.fade => (640.0, 720.0, 0.25),
+        KitPanelEntry.slide => (480.0, 580.0, 0.6),
+        KitPanelEntry.zoom => (380.0, 480.0, 0.9),
+        KitPanelEntry.grow => (440.0, 560.0, 0.7),
+      };
       KitSpringTuning still(double stiffness) => KitSpringTuning(
         stiffness * pace,
         islandDamping(0.7, liquid: false),
       );
       return IslandFeel(
-        grow: still(440),
-        shrink: still(560),
-        reshape: still(440),
-        slot: still(440),
+        grow: still(growBase),
+        shrink: still(shrinkBase),
+        reshape: still(growBase),
+        slot: still(growBase),
         content: still(420),
         contentOut: still(1000),
         split: still(400),
@@ -92,7 +99,7 @@ class IslandFeel {
           style.pressTuning.stiffness,
           islandDamping(style.pressTuning.dampingRatio, liquid: false),
         ),
-        gulp: 0.7,
+        gulp: gulpBase,
         swap: islandDamping(liquid.swap, liquid: false),
       );
     });
