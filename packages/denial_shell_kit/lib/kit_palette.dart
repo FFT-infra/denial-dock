@@ -508,30 +508,59 @@ class KitPalette {
     ),
   );
 
-  /// Crisp frosted neutrals with sky blue, after Cutefish OS.
+  /// Crisp frosted neutrals with sky blue, after Cutefish OS (`cutefish-fishui/src/ui/theme.cpp`).
   static const KitPalette cutefish = KitPalette(
     id: 'cutefish',
     label: 'Cutefish',
     dark: KitTones(
-      background: 0x1a1a1c,
-      surface: 0x242426,
-      raised: 0x333336,
-      text: 0xf4f4f6,
-      subtext: 0xbabac0,
-      faint: 0x828288,
-      outline: 0x424247,
-      accent: 0x3b8bff,
-      onAccent: 0x08162b,
+      background: 0x1c1c1d,
+      surface: 0x2c2c2d,
+      raised: 0x3c3c3d,
+      text: 0xffffff,
+      subtext: 0xc2c2c6,
+      faint: 0x888888,
+      outline: 0x46464a,
+      accent: 0x3385ff,
+      onAccent: 0xffffff,
     ),
     light: KitTones(
-      background: 0xf2f4f7,
-      surface: 0xfafbfc,
-      raised: 0xeaeef5,
-      text: 0x1c1e21,
-      subtext: 0x5c6068,
-      faint: 0x8b9099,
-      outline: 0xd5dae2,
-      accent: 0x2277ff,
+      background: 0xf5f6fa,
+      surface: 0xffffff,
+      raised: 0xf2f4f5,
+      text: 0x323238,
+      subtext: 0x64646e,
+      faint: 0x8e8e98,
+      outline: 0xd8dce4,
+      accent: 0x3385ff,
+      onAccent: 0xffffff,
+    ),
+  );
+
+  /// Caelestia: official `services/Colours.qml` Material 3 plum-rose dark
+  /// palette with matching rose-mist light counterpart.
+  static const KitPalette caelestia = KitPalette(
+    id: 'caelestia',
+    label: 'Caelestia',
+    dark: KitTones(
+      background: 0x130c0e,
+      surface: 0x191114,
+      raised: 0x261d20,
+      text: 0xefdfe2,
+      subtext: 0xd5c2c6,
+      faint: 0x9e8c91,
+      outline: 0x514347,
+      accent: 0xffb0ca,
+      onAccent: 0x541d34,
+    ),
+    light: KitTones(
+      background: 0xfff8f9,
+      surface: 0xf6ecef,
+      raised: 0xebe0e3,
+      text: 0x22191c,
+      subtext: 0x514347,
+      faint: 0x837377,
+      outline: 0xd5c2c6,
+      accent: 0x90445e,
       onAccent: 0xffffff,
     ),
   );
@@ -551,5 +580,6 @@ class KitPalette {
     fluent,
     slate,
     cutefish,
+    caelestia,
   ];
 }

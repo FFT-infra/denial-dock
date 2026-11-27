@@ -17,6 +17,7 @@ import 'package:denial_shell_kit/kit_control_math.dart';
 import 'package:denial_shell_kit/kit_layer.dart'
     show kitOpenPanel, kitPressTargets;
 import 'package:denial_shell_kit/kit_motion.dart';
+import 'package:denial_shell_kit/kit_requests.dart';
 import 'package:denial_shell_kit/kit_springs.dart';
 import 'package:denial_shell_kit/kit_store.dart';
 import 'package:denial_shell_kit/kit_style.dart';
@@ -2260,7 +2261,12 @@ class _IslandState extends ConsumerState<Island> with TickerProviderStateMixin {
                     built.add(
                       IslandHomeAction(
                         icon: BarIcons.search,
-                        onTap: () => go(_services.toggleLauncher),
+                        onTap: () => go(
+                          () => KitRequests.triggerSearch(
+                            fallback: _services.toggleLauncher,
+                            monitorId: widget.monitorId,
+                          ),
+                        ),
                       ),
                     );
                   case 'screenshot':

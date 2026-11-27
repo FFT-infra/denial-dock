@@ -14,6 +14,7 @@ import 'package:denial_shell_kit/kit_layer.dart' show KitLayer;
 import 'package:denial_shell_kit/kit_material.dart';
 import 'package:denial_shell_kit/kit_morph.dart';
 import 'package:denial_shell_kit/kit_motion.dart';
+import 'package:denial_shell_kit/kit_requests.dart';
 import 'package:denial_shell_kit/kit_springs.dart';
 import 'package:denial_shell_kit/kit_style.dart';
 import 'package:flutter/material.dart' show Tooltip;
@@ -33,11 +34,24 @@ import '../l10n.dart';
 import '../media_art.dart';
 import '../night_light.dart';
 import '../tray_names.dart';
+import 'control_center_shells.dart';
 import 'mac_kit.dart';
 import 'popovers.dart';
 import 'tile_grid.dart';
 
 const double controlCenterWidth = 320;
+
+/// Control Centre width tailored to the active shell archetype.
+double controlCenterWidthFor(KitShellArchetype archetype) => switch (archetype) {
+  KitShellArchetype.gnome ||
+  KitShellArchetype.windows ||
+  KitShellArchetype.material ||
+  KitShellArchetype.hyprpanel => 360,
+  KitShellArchetype.noctalia ||
+  KitShellArchetype.caelestia ||
+  KitShellArchetype.axshell => 344,
+  _ => controlCenterWidth,
+};
 
 abstract final class _C {
   static const double inset = 14;
@@ -300,7 +314,14 @@ class _ControlCenterPanelState extends ConsumerState<ControlCenterPanel>
   Widget build(BuildContext context) {
     final theme = context.shellTheme;
     final style = KitStyle.of(context);
-    final floating = style.panelStyle == KitPanelStyle.floating;
+    final archetype = style.archetype;
+    final useCustomShell =
+        archetype != KitShellArchetype.macos &&
+        archetype != KitShellArchetype.denial &&
+        archetype != KitShellArchetype.cutefish;
+    final floating =
+        !useCustomShell && style.panelStyle == KitPanelStyle.floating;
+    final width = controlCenterWidthFor(archetype);
     final ink = theme.colors.textPrimary;
     final Widget? rawDetail = switch (_shown) {
       'wifi' => WifiPopover(
@@ -342,7 +363,19 @@ class _ControlCenterPanelState extends ConsumerState<ControlCenterPanel>
       key: const ValueKey<String>('home'),
       child: ExcludeFocus(
         excluding: _page.isNotEmpty,
-        child: KitEntrance(child: _grid(context)),
+        child: KitEntrance(
+          child: useCustomShell
+              ? ShellControlCenterView(
+                  archetype: archetype,
+                  services: services,
+                  output: widget.output,
+                  onOpenPage: _go,
+                  onSettings: widget.onSettings,
+                  onConfirmPower: widget.onConfirmPower,
+                  onClose: widget.onClose,
+                )
+              : _grid(context),
+        ),
       ),
     );
     final page = detail == null
@@ -354,7 +387,7 @@ class _ControlCenterPanelState extends ConsumerState<ControlCenterPanel>
             child: detail,
           );
     Widget content = SizedBox(
-      width: controlCenterWidth,
+      width: width,
       child: FocusScope(
         node: _root,
         onKeyEvent: _onKey,
@@ -857,7 +890,12 @@ class _ControlCenterPanelState extends ConsumerState<ControlCenterPanel>
             icon: BarIcons.search,
             on: false,
             stateless: true,
-            onTap: () => act(services.toggleLauncher),
+            onTap: () => act(
+              () => KitRequests.triggerSearch(
+                fallback: services.toggleLauncher,
+                monitorId: widget.output.monitorId,
+              ),
+            ),
           ),
         );
       case 'settings':

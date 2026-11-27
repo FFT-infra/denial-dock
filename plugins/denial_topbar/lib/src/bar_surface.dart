@@ -20,6 +20,7 @@ import 'package:denial_shell_kit/kit_style.dart'
     show
         KitPanelStyle,
         KitScaleScope,
+        KitShellArchetype,
         KitStyle,
         kitDockEnabled,
         kitShellScale,
@@ -535,8 +536,8 @@ class _TopBarSurfaceState extends ConsumerState<TopBarSurface>
           ];
 
     final axis = _horizontal ? Axis.horizontal : Axis.vertical;
-    // Points are cut along a horizontal bar; a side bar keeps its corners.
-    final arrow = settings.cap == BarCap.arrow && _horizontal && !attached;
+    // Pointed caps work on both horizontal and vertical non-strip bars.
+    final arrow = settings.cap == BarCap.arrow && !attached;
     final radius = attached || settings.cap == BarCap.square
         ? BorderRadius.zero
         : BorderRadius.circular(settings.cornerRadius);
@@ -606,9 +607,10 @@ class _TopBarSurfaceState extends ConsumerState<TopBarSurface>
           if (runs.isEmpty) return null;
           final edges = barZoneEdges(zone, runs.length);
           final depth = barArrowDepth(bodyHeight);
-          plate = Row(
+          plate = Flex(
+            direction: axis,
             mainAxisSize: MainAxisSize.min,
-            // Every segment is as tall as the bar, so the points meet.
+            // Every segment spans the bar cross-extent, so the points meet.
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: <Widget>[
               for (var index = 0; index < runs.length; index++)
@@ -617,13 +619,15 @@ class _TopBarSurfaceState extends ConsumerState<TopBarSurface>
                   borderRadius: BorderRadius.zero,
                   backdrop: wallpaper,
                   edges: edges[index],
+                  side: _side,
                   fill: index.isOdd ? alternate : null,
                   child: Padding(
-                    padding: EdgeInsets.only(
-                      left: pad + barEdgeInset(edges[index].left, depth),
-                      right: pad + barEdgeInset(edges[index].right, depth),
+                    padding: along(
+                      pad + barEdgeInset(edges[index].left, depth),
+                      pad + barEdgeInset(edges[index].right, depth),
                     ),
-                    child: Row(
+                    child: Flex(
+                      direction: axis,
                       mainAxisSize: MainAxisSize.min,
                       children: row(
                         runs[index],

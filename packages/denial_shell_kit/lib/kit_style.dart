@@ -19,8 +19,9 @@ export 'kit_look.dart'
         KitLook,
         KitPanelEntry;
 export 'kit_look_motion.dart' show KitLookMotion, KitSpringTuning;
-export 'kit_material.dart' show KitSurfaceMode;
-export 'kit_panel_style.dart' show KitPanelStyle, KitWidgetStyle;
+export 'kit_material.dart' show KitGlassPreset, KitSurfaceMode;
+export 'kit_panel_style.dart'
+    show KitPanelStyle, KitShellArchetype, KitWidgetStyle;
 export 'kit_store.dart' show resolveKitScale;
 
 /// One look for the dock and the top bar: where colour, type and corners come
@@ -94,6 +95,12 @@ class KitStyle {
   /// Effective panel layout archetype (user override wins over look default).
   KitPanelStyle get panelStyle =>
       kitPanelStyle.value ?? look.effectivePanelStyle;
+
+  /// Shell-wide archetype for Control Centre, Notification Centre, and popovers.
+  KitShellArchetype get archetype => look.archetype;
+
+  /// Active Liquid Glass optical preset (`system`, `clear`, `tinted`, `custom`).
+  KitGlassPreset get glassPreset => kitGlassPreset.value;
 
   /// Active Notification Centre widget card style (`glass` or `color`).
   KitWidgetStyle get widgetStyle => kitWidgetStyle.value;
@@ -688,6 +695,76 @@ class KitWidgetStyleNotifier extends ValueNotifier<KitWidgetStyle> {
     super.value = next;
     _rebuildEverything();
     kitStore.put('widgetStyle', next.name);
+  }
+}
+
+/// Active Liquid Glass preset (`system` follows Denial `theme.glass`, `clear`
+/// / `tinted` mirror macOS 26 Tahoe Clear/Tinted glass, `custom` applies user
+/// opacity and refraction multipliers).
+final KitGlassPresetNotifier kitGlassPreset = KitGlassPresetNotifier._();
+
+class KitGlassPresetNotifier extends ValueNotifier<KitGlassPreset> {
+  KitGlassPresetNotifier._()
+    : super(
+        KitGlassPreset.tryParse(kitStore.read()['glassPreset']) ??
+            KitGlassPreset.system,
+      );
+
+  @override
+  set value(KitGlassPreset next) {
+    if (super.value == next) return;
+    super.value = next;
+    _rebuildEverything();
+    kitStore.put('glassPreset', next.name);
+  }
+}
+
+/// Custom Liquid Glass fill opacity (0.10..0.90) when [kitGlassPreset] is
+/// [KitGlassPreset.custom].
+final KitGlassOpacityNotifier kitGlassOpacity = KitGlassOpacityNotifier._();
+
+class KitGlassOpacityNotifier extends ValueNotifier<double> {
+  KitGlassOpacityNotifier._() : super(_read());
+
+  static double _read() {
+    final raw = kitStore.read()['glassOpacity'];
+    return raw is num && raw.isFinite
+        ? raw.toDouble().clamp(0.10, 0.90).toDouble()
+        : 0.42;
+  }
+
+  @override
+  set value(double next) {
+    final clamped = next.clamp(0.10, 0.90).toDouble();
+    if ((super.value - clamped).abs() < 1e-4) return;
+    super.value = clamped;
+    _rebuildEverything();
+    kitStore.put('glassOpacity', clamped);
+  }
+}
+
+/// Custom Liquid Glass refraction strength multiplier (0.0..1.5) when
+/// [kitGlassPreset] is [KitGlassPreset.custom].
+final KitGlassRefractionNotifier kitGlassRefraction =
+    KitGlassRefractionNotifier._();
+
+class KitGlassRefractionNotifier extends ValueNotifier<double> {
+  KitGlassRefractionNotifier._() : super(_read());
+
+  static double _read() {
+    final raw = kitStore.read()['glassRefraction'];
+    return raw is num && raw.isFinite
+        ? raw.toDouble().clamp(0.0, 1.5).toDouble()
+        : 1.0;
+  }
+
+  @override
+  set value(double next) {
+    final clamped = next.clamp(0.0, 1.5).toDouble();
+    if ((super.value - clamped).abs() < 1e-4) return;
+    super.value = clamped;
+    _rebuildEverything();
+    kitStore.put('glassRefraction', clamped);
   }
 }
 

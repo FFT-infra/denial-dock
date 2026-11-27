@@ -43,3 +43,45 @@ enum KitWidgetStyle {
     return null;
   }
 }
+
+/// Shell-wide Control Centre, Notification Centre, and popover layout archetype.
+enum KitShellArchetype {
+  denial,
+  macos,
+  cutefish,
+  gnome,
+  windows,
+  plasma,
+  material,
+  noctalia,
+  hyprpanel,
+  caelestia,
+  axshell,
+  omarchy,
+  cosmic;
+
+  static KitShellArchetype? tryParse(Object? value) {
+    if (value is! String) return null;
+    for (final item in values) {
+      if (item.name == value) return item;
+    }
+    return null;
+  }
+
+  /// Resolves the default archetype for a look [id] (or its [base] look id).
+  static KitShellArchetype forLookId(String id) => switch (id) {
+    'mac' || 'macos' => KitShellArchetype.macos,
+    'cutefish' => KitShellArchetype.cutefish,
+    'gnome' => KitShellArchetype.gnome,
+    'windows' => KitShellArchetype.windows,
+    'plasma' => KitShellArchetype.plasma,
+    'material' => KitShellArchetype.material,
+    'noctalia' => KitShellArchetype.noctalia,
+    'hyprpanel' => KitShellArchetype.hyprpanel,
+    'caelestia' => KitShellArchetype.caelestia,
+    'axshell' => KitShellArchetype.axshell,
+    'omarchy' || 'terminal' => KitShellArchetype.omarchy,
+    'cosmic' => KitShellArchetype.cosmic,
+    _ => KitShellArchetype.denial,
+  };
+}

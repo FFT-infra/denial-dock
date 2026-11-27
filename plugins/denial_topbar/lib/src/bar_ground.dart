@@ -172,18 +172,20 @@ class BarGroundLayer extends StatelessWidget {
 
     final edges = this.edges;
     if (edges != null) {
+      final horizontal = side.isHorizontal;
       final Widget plate = CustomPaint(
         painter: _SegmentPainter(
           edges: edges,
           fill: colour,
           line: line,
           lineWidth: settings.borderWidth,
+          horizontal: horizontal,
         ),
         child: child,
       );
       if (ground != BarGround.glass) return plate;
       return ClipPath(
-        clipper: _SegmentClipper(edges),
+        clipper: _SegmentClipper(edges, horizontal: horizontal),
         child: _wrapGlass(context, child: plate),
       );
     }
@@ -316,13 +318,15 @@ class _ConcaveEarsPainter extends CustomPainter {
       old.color != color || old.side != side;
 }
 
-Path _segmentPath(Size size, BarSegmentEdges edges) {
+Path _segmentPath(Size size, BarSegmentEdges edges, {bool horizontal = true}) {
+  final cross = horizontal ? size.height : size.width;
   final points = barSegmentOutline(
     width: size.width,
     height: size.height,
-    depth: barArrowDepth(size.height),
+    depth: barArrowDepth(cross),
     left: edges.left,
     right: edges.right,
+    horizontal: horizontal,
   );
   final path = Path()..moveTo(points.first.x, points.first.y);
   for (final point in points.skip(1)) {
@@ -337,16 +341,18 @@ class _SegmentPainter extends CustomPainter {
     required this.fill,
     required this.line,
     required this.lineWidth,
+    this.horizontal = true,
   });
 
   final BarSegmentEdges edges;
   final Color fill;
   final Color line;
   final double lineWidth;
+  final bool horizontal;
 
   @override
   void paint(Canvas canvas, Size size) {
-    final path = _segmentPath(size, edges);
+    final path = _segmentPath(size, edges, horizontal: horizontal);
     canvas.drawPath(path, Paint()..color = fill);
     if (lineWidth <= 0) return;
     canvas.drawPath(
@@ -364,19 +370,22 @@ class _SegmentPainter extends CustomPainter {
       old.edges != edges ||
       old.fill != fill ||
       old.line != line ||
-      old.lineWidth != lineWidth;
+      old.lineWidth != lineWidth ||
+      old.horizontal != horizontal;
 }
 
 class _SegmentClipper extends CustomClipper<Path> {
-  const _SegmentClipper(this.edges);
+  const _SegmentClipper(this.edges, {this.horizontal = true});
 
   final BarSegmentEdges edges;
+  final bool horizontal;
 
   @override
-  Path getClip(Size size) => _segmentPath(size, edges);
+  Path getClip(Size size) => _segmentPath(size, edges, horizontal: horizontal);
 
   @override
-  bool shouldReclip(_SegmentClipper oldClipper) => oldClipper.edges != edges;
+  bool shouldReclip(_SegmentClipper oldClipper) =>
+      oldClipper.edges != edges || oldClipper.horizontal != horizontal;
 }
 
 /// The soft fade shell27 paints when the bar is completely clear.

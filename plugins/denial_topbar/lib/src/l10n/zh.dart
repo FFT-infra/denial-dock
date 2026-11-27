@@ -630,4 +630,6 @@ const Map<String, String> zh = <String, String>{
   'Home card shortcuts': '主卡片快捷按钮',
   'Pick up to 5': '最多选 5 项',
   'Turn on the home card first.': '请先开启「点击静态灵动岛展开主卡片」。',
+  'Balanced': '平衡',
+  'Caelestia style': 'Caelestia 风格',
 };

@@ -43,18 +43,32 @@ double barEdgeInset(BarEdge edge, double depth) => switch (edge) {
   BarEdge.point => depth * 0.6,
 };
 
-/// The outline of one segment in its own box, clockwise from the top left:
-/// top left, top right, right middle, bottom right, bottom left, left
-/// middle.
+/// The outline of one segment in its own box.
+///
+/// When [horizontal] is true (default), cuts run along left/right edges
+/// clockwise from top-left. When [horizontal] is false (vertical bar), [left]
+/// cuts the top edge and [right] cuts the bottom edge clockwise from top-left.
 List<BarPoint> barSegmentOutline({
   required double width,
   required double height,
   required double depth,
   required BarEdge left,
   required BarEdge right,
+  bool horizontal = true,
 }) {
   final l = barEdgeOffsets(left, depth);
   final r = barEdgeOffsets(right, depth);
+  if (!horizontal) {
+    final middle = width / 2;
+    return <BarPoint>[
+      (x: 0, y: -l.corner),
+      (x: middle, y: -l.middle),
+      (x: width, y: -l.corner),
+      (x: width, y: height + r.corner),
+      (x: middle, y: height + r.middle),
+      (x: 0, y: height + r.corner),
+    ];
+  }
   final middle = height / 2;
   return <BarPoint>[
     (x: -l.corner, y: 0),

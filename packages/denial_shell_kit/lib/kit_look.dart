@@ -16,7 +16,8 @@ import 'kit_palette.dart';
 import 'kit_panel_style.dart';
 
 export 'kit_look_motion.dart' show KitSpringTuning;
-export 'kit_panel_style.dart' show KitPanelStyle, KitWidgetStyle;
+export 'kit_panel_style.dart'
+    show KitPanelStyle, KitShellArchetype, KitWidgetStyle;
 
 /// Where a look's accent comes from.
 enum KitAccentSource {
@@ -473,6 +474,7 @@ class KitLook {
     borderWidth: 0,
     opaque: true,
     panelStyle: KitPanelStyle.anchored,
+    materials: KitMaterials.omarchy,
     shadow: 0,
     accentMenuRows: true,
     panelGrow: KitSpringTuning(1100, 1),
@@ -608,6 +610,9 @@ class KitLook {
 
   /// Effective default panel archetype before user overrides.
   KitPanelStyle get effectivePanelStyle => panelStyle ?? KitPanelStyle.framed;
+
+  /// Shell-wide Control Centre / Notification Centre / popover archetype.
+  KitShellArchetype get archetype => KitShellArchetype.forLookId(base ?? id);
 
   /// How much of the usual shadow a panel casts, 0 to 1.
   final double shadow;

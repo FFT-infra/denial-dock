@@ -36,6 +36,29 @@ enum KitSurfaceMode {
   }
 }
 
+/// Liquid Glass tint & optical tuning preset (macOS 26 Clear / Tinted / Custom).
+enum KitGlassPreset {
+  /// Follows Denial's native system `theme.glass` parameters live.
+  system,
+
+  /// Authentic macOS 26 Tahoe Clear Liquid Glass: lighter tint, crisp refraction.
+  clear,
+
+  /// Authentic macOS 26 Tahoe Tinted Liquid Glass: denser frosted legibility.
+  tinted,
+
+  /// User-defined opacity and refraction strength multipliers.
+  custom;
+
+  static KitGlassPreset? tryParse(Object? value) {
+    if (value is! String) return null;
+    for (final preset in values) {
+      if (preset.name == value) return preset;
+    }
+    return null;
+  }
+}
+
 /// What a surface is for. Each has its own material in every look.
 enum KitTier { dock, popover, menu, card }
 
@@ -440,8 +463,952 @@ class KitMaterials {
     ),
   );
 
+  /// GNOME Adwaita: crisp rounded opaque popovers with subtle border & shadow.
+  static const KitMaterials gnome = KitMaterials(
+    dock: KitMaterialPair(
+      dark: KitMaterial(
+        fill: KitTone.of(KitRole.surface),
+        radius: 22,
+        continuous: false,
+        inner: KitLine(KitTone.of(KitRole.border, alpha: 0.58), width: 1),
+      ),
+      light: KitMaterial(
+        fill: KitTone.of(KitRole.surface),
+        radius: 22,
+        continuous: false,
+        inner: KitLine(KitTone.of(KitRole.border, alpha: 0.52), width: 1),
+      ),
+    ),
+    popover: KitMaterialPair(
+      dark: KitMaterial(
+        fill: KitTone.of(KitRole.panel),
+        radius: 18,
+        continuous: false,
+        inner: KitLine(KitTone.of(KitRole.border, alpha: 0.72), width: 1),
+        shadow: KitShadow(
+          KitTone.of(KitRole.shadow, alpha: 0.28),
+          blur: 28,
+          dy: 8,
+          byLook: true,
+        ),
+        solid: 0.98,
+      ),
+      light: KitMaterial(
+        fill: KitTone.of(KitRole.panel),
+        radius: 18,
+        continuous: false,
+        inner: KitLine(KitTone.of(KitRole.border, alpha: 0.65), width: 1),
+        shadow: KitShadow(
+          KitTone.of(KitRole.shadow, alpha: 0.15),
+          blur: 28,
+          dy: 8,
+          byLook: true,
+        ),
+        solid: 0.98,
+      ),
+    ),
+    menu: KitMaterialPair(
+      dark: KitMaterial(
+        fill: KitTone.of(KitRole.panel),
+        radius: 12,
+        continuous: false,
+        inner: KitLine(KitTone.of(KitRole.border, alpha: 0.72), width: 1),
+        shadow: KitShadow(
+          KitTone.of(KitRole.shadow, alpha: 0.26),
+          blur: 22,
+          dy: 6,
+          byLook: true,
+        ),
+        solid: 0.98,
+      ),
+      light: KitMaterial(
+        fill: KitTone.of(KitRole.panel),
+        radius: 12,
+        continuous: false,
+        inner: KitLine(KitTone.of(KitRole.border, alpha: 0.65), width: 1),
+        shadow: KitShadow(
+          KitTone.of(KitRole.shadow, alpha: 0.14),
+          blur: 22,
+          dy: 6,
+          byLook: true,
+        ),
+        solid: 0.98,
+      ),
+    ),
+    card: KitMaterialPair(
+      dark: KitMaterial(
+        fill: KitTone.of(KitRole.panel),
+        radius: 16,
+        continuous: false,
+        inner: KitLine(KitTone.of(KitRole.border, alpha: 0.70), width: 1),
+        shadow: KitShadow(
+          KitTone.of(KitRole.shadow, alpha: 0.22),
+          blur: 18,
+          dy: 4,
+          byLook: true,
+        ),
+        solid: 0.98,
+      ),
+      light: KitMaterial(
+        fill: KitTone.of(KitRole.panel),
+        radius: 16,
+        continuous: false,
+        inner: KitLine(KitTone.of(KitRole.border, alpha: 0.62), width: 1),
+        shadow: KitShadow(
+          KitTone.of(KitRole.shadow, alpha: 0.12),
+          blur: 18,
+          dy: 4,
+          byLook: true,
+        ),
+        solid: 0.98,
+      ),
+    ),
+    cardLayout: KitCardLayout(
+      width: 368,
+      gap: 8,
+      edge: 12,
+      peek: 6,
+      inset: 10,
+      dim: 0.12,
+      dimReach: 140,
+    ),
+  );
+
+  /// Windows 11 Fluent Acrylic: translucent blurred 8 px rounded flyouts.
+  static const KitMaterials windows = KitMaterials(
+    dock: KitMaterialPair(
+      dark: KitMaterial(
+        fill: KitTone.of(KitRole.surface),
+        sigma: 12,
+        radius: 0,
+        continuous: false,
+        inner: KitLine(KitTone.of(KitRole.border, alpha: 0.58), width: 1),
+      ),
+      light: KitMaterial(
+        fill: KitTone.of(KitRole.surface),
+        sigma: 12,
+        radius: 0,
+        continuous: false,
+        inner: KitLine(KitTone.of(KitRole.border, alpha: 0.52), width: 1),
+      ),
+    ),
+    popover: KitMaterialPair(
+      dark: KitMaterial(
+        fill: KitTone.of(KitRole.panel),
+        sigma: 16,
+        radius: 8,
+        continuous: false,
+        inner: KitLine(KitTone.of(KitRole.border, alpha: 0.72), width: 1),
+        shadow: KitShadow(
+          KitTone.of(KitRole.shadow, alpha: 0.30),
+          blur: 32,
+          dy: 10,
+          byLook: true,
+        ),
+        solid: 0.96,
+      ),
+      light: KitMaterial(
+        fill: KitTone.of(KitRole.panel),
+        sigma: 16,
+        radius: 8,
+        continuous: false,
+        inner: KitLine(KitTone.of(KitRole.border, alpha: 0.65), width: 1),
+        shadow: KitShadow(
+          KitTone.of(KitRole.shadow, alpha: 0.16),
+          blur: 32,
+          dy: 10,
+          byLook: true,
+        ),
+        solid: 0.96,
+      ),
+    ),
+    menu: KitMaterialPair(
+      dark: KitMaterial(
+        fill: KitTone.of(KitRole.panel),
+        sigma: 16,
+        radius: 8,
+        continuous: false,
+        inner: KitLine(KitTone.of(KitRole.border, alpha: 0.72), width: 1),
+        shadow: KitShadow(
+          KitTone.of(KitRole.shadow, alpha: 0.28),
+          blur: 24,
+          dy: 8,
+          byLook: true,
+        ),
+        solid: 0.96,
+      ),
+      light: KitMaterial(
+        fill: KitTone.of(KitRole.panel),
+        sigma: 16,
+        radius: 8,
+        continuous: false,
+        inner: KitLine(KitTone.of(KitRole.border, alpha: 0.65), width: 1),
+        shadow: KitShadow(
+          KitTone.of(KitRole.shadow, alpha: 0.15),
+          blur: 24,
+          dy: 8,
+          byLook: true,
+        ),
+        solid: 0.96,
+      ),
+    ),
+    card: KitMaterialPair(
+      dark: KitMaterial(
+        fill: KitTone.of(KitRole.panel),
+        sigma: 16,
+        radius: 8,
+        continuous: false,
+        inner: KitLine(KitTone.of(KitRole.border, alpha: 0.70), width: 1),
+        shadow: KitShadow(
+          KitTone.of(KitRole.shadow, alpha: 0.24),
+          blur: 20,
+          dy: 6,
+          byLook: true,
+        ),
+        solid: 0.96,
+      ),
+      light: KitMaterial(
+        fill: KitTone.of(KitRole.panel),
+        sigma: 16,
+        radius: 8,
+        continuous: false,
+        inner: KitLine(KitTone.of(KitRole.border, alpha: 0.62), width: 1),
+        shadow: KitShadow(
+          KitTone.of(KitRole.shadow, alpha: 0.14),
+          blur: 20,
+          dy: 6,
+          byLook: true,
+        ),
+        solid: 0.96,
+      ),
+    ),
+    cardLayout: KitCardLayout(
+      width: 360,
+      gap: 8,
+      edge: 12,
+      peek: 6,
+      inset: 10,
+      dim: 0.08,
+      dimReach: 120,
+    ),
+  );
+
+  /// KDE Plasma Breeze: translucent blurred 6 px panels with crisp Breeze rim.
+  static const KitMaterials plasma = KitMaterials(
+    dock: KitMaterialPair(
+      dark: KitMaterial(
+        fill: KitTone.of(KitRole.surface),
+        sigma: 10,
+        radius: 8,
+        continuous: false,
+        inner: KitLine(KitTone.of(KitRole.border, alpha: 0.60), width: 1),
+      ),
+      light: KitMaterial(
+        fill: KitTone.of(KitRole.surface),
+        sigma: 10,
+        radius: 8,
+        continuous: false,
+        inner: KitLine(KitTone.of(KitRole.border, alpha: 0.54), width: 1),
+      ),
+    ),
+    popover: KitMaterialPair(
+      dark: KitMaterial(
+        fill: KitTone.of(KitRole.panel),
+        sigma: 12,
+        radius: 6,
+        continuous: false,
+        inner: KitLine(KitTone.of(KitRole.border, alpha: 0.72), width: 1),
+        shadow: KitShadow(
+          KitTone.of(KitRole.shadow, alpha: 0.24),
+          blur: 22,
+          dy: 6,
+          byLook: true,
+        ),
+        solid: 0.96,
+      ),
+      light: KitMaterial(
+        fill: KitTone.of(KitRole.panel),
+        sigma: 12,
+        radius: 6,
+        continuous: false,
+        inner: KitLine(KitTone.of(KitRole.border, alpha: 0.65), width: 1),
+        shadow: KitShadow(
+          KitTone.of(KitRole.shadow, alpha: 0.14),
+          blur: 22,
+          dy: 6,
+          byLook: true,
+        ),
+        solid: 0.96,
+      ),
+    ),
+    menu: KitMaterialPair(
+      dark: KitMaterial(
+        fill: KitTone.of(KitRole.panel),
+        sigma: 12,
+        radius: 6,
+        continuous: false,
+        inner: KitLine(KitTone.of(KitRole.border, alpha: 0.72), width: 1),
+        shadow: KitShadow(
+          KitTone.of(KitRole.shadow, alpha: 0.22),
+          blur: 18,
+          dy: 4,
+          byLook: true,
+        ),
+        solid: 0.96,
+      ),
+      light: KitMaterial(
+        fill: KitTone.of(KitRole.panel),
+        sigma: 12,
+        radius: 6,
+        continuous: false,
+        inner: KitLine(KitTone.of(KitRole.border, alpha: 0.65), width: 1),
+        shadow: KitShadow(
+          KitTone.of(KitRole.shadow, alpha: 0.12),
+          blur: 18,
+          dy: 4,
+          byLook: true,
+        ),
+        solid: 0.96,
+      ),
+    ),
+    card: KitMaterialPair(
+      dark: KitMaterial(
+        fill: KitTone.of(KitRole.panel),
+        sigma: 12,
+        radius: 6,
+        continuous: false,
+        inner: KitLine(KitTone.of(KitRole.border, alpha: 0.70), width: 1),
+        shadow: KitShadow(
+          KitTone.of(KitRole.shadow, alpha: 0.20),
+          blur: 16,
+          dy: 4,
+          byLook: true,
+        ),
+        solid: 0.96,
+      ),
+      light: KitMaterial(
+        fill: KitTone.of(KitRole.panel),
+        sigma: 12,
+        radius: 6,
+        continuous: false,
+        inner: KitLine(KitTone.of(KitRole.border, alpha: 0.62), width: 1),
+        shadow: KitShadow(
+          KitTone.of(KitRole.shadow, alpha: 0.12),
+          blur: 16,
+          dy: 4,
+          byLook: true,
+        ),
+        solid: 0.96,
+      ),
+    ),
+    cardLayout: KitCardLayout(
+      width: 356,
+      gap: 8,
+      edge: 12,
+      peek: 6,
+      inset: 10,
+      dim: 0.10,
+      dimReach: 120,
+    ),
+  );
+
+  /// Material 3 (DMS / Dux): generous rounded containers, borderless elevation.
+  static const KitMaterials material = KitMaterials(
+    dock: KitMaterialPair(
+      dark: KitMaterial(
+        fill: KitTone.of(KitRole.surface),
+        radius: 16,
+        continuous: true,
+      ),
+      light: KitMaterial(
+        fill: KitTone.of(KitRole.surface),
+        radius: 16,
+        continuous: true,
+      ),
+    ),
+    popover: KitMaterialPair(
+      dark: KitMaterial(
+        fill: KitTone.of(KitRole.panel),
+        radius: 24,
+        continuous: true,
+        shadow: KitShadow(
+          KitTone.of(KitRole.shadow, alpha: 0.26),
+          blur: 28,
+          dy: 8,
+          byLook: true,
+        ),
+        solid: 0.98,
+      ),
+      light: KitMaterial(
+        fill: KitTone.of(KitRole.panel),
+        radius: 24,
+        continuous: true,
+        shadow: KitShadow(
+          KitTone.of(KitRole.shadow, alpha: 0.14),
+          blur: 28,
+          dy: 8,
+          byLook: true,
+        ),
+        solid: 0.98,
+      ),
+    ),
+    menu: KitMaterialPair(
+      dark: KitMaterial(
+        fill: KitTone.of(KitRole.panel),
+        radius: 16,
+        continuous: true,
+        shadow: KitShadow(
+          KitTone.of(KitRole.shadow, alpha: 0.24),
+          blur: 20,
+          dy: 6,
+          byLook: true,
+        ),
+        solid: 0.98,
+      ),
+      light: KitMaterial(
+        fill: KitTone.of(KitRole.panel),
+        radius: 16,
+        continuous: true,
+        shadow: KitShadow(
+          KitTone.of(KitRole.shadow, alpha: 0.12),
+          blur: 20,
+          dy: 6,
+          byLook: true,
+        ),
+        solid: 0.98,
+      ),
+    ),
+    card: KitMaterialPair(
+      dark: KitMaterial(
+        fill: KitTone.of(KitRole.panel),
+        radius: 22,
+        continuous: true,
+        shadow: KitShadow(
+          KitTone.of(KitRole.shadow, alpha: 0.20),
+          blur: 18,
+          dy: 4,
+          byLook: true,
+        ),
+        solid: 0.98,
+      ),
+      light: KitMaterial(
+        fill: KitTone.of(KitRole.panel),
+        radius: 22,
+        continuous: true,
+        shadow: KitShadow(
+          KitTone.of(KitRole.shadow, alpha: 0.12),
+          blur: 18,
+          dy: 4,
+          byLook: true,
+        ),
+        solid: 0.98,
+      ),
+    ),
+    cardLayout: KitCardLayout(
+      width: 368,
+      gap: 8,
+      edge: 12,
+      peek: 6,
+      inset: 10,
+      dim: 0.16,
+      dimReach: 140,
+    ),
+  );
+
+  /// Noctalia Midnight: softly rounded edge-attached indigo/ivory panels.
+  static const KitMaterials noctalia = KitMaterials(
+    dock: KitMaterialPair(
+      dark: KitMaterial(
+        fill: KitTone.of(KitRole.surface),
+        radius: 16,
+        continuous: false,
+        inner: KitLine(KitTone.of(KitRole.border, alpha: 0.55), width: 1),
+      ),
+      light: KitMaterial(
+        fill: KitTone.of(KitRole.surface),
+        radius: 16,
+        continuous: false,
+        inner: KitLine(KitTone.of(KitRole.border, alpha: 0.50), width: 1),
+      ),
+    ),
+    popover: KitMaterialPair(
+      dark: KitMaterial(
+        fill: KitTone.of(KitRole.panel),
+        radius: 14,
+        continuous: false,
+        inner: KitLine(KitTone.of(KitRole.border, alpha: 0.70), width: 1),
+        shadow: KitShadow(
+          KitTone.of(KitRole.shadow, alpha: 0.22),
+          blur: 18,
+          dy: 6,
+          byLook: true,
+        ),
+        solid: 0.96,
+      ),
+      light: KitMaterial(
+        fill: KitTone.of(KitRole.panel),
+        radius: 14,
+        continuous: false,
+        inner: KitLine(KitTone.of(KitRole.border, alpha: 0.62), width: 1),
+        shadow: KitShadow(
+          KitTone.of(KitRole.shadow, alpha: 0.12),
+          blur: 18,
+          dy: 6,
+          byLook: true,
+        ),
+        solid: 0.96,
+      ),
+    ),
+    menu: KitMaterialPair.same(
+      KitMaterial(
+        fill: KitTone.of(KitRole.panel),
+        radius: 12,
+        continuous: false,
+        inner: KitLine(KitTone.of(KitRole.border, alpha: 0.68), width: 1),
+        shadow: KitShadow(
+          KitTone.of(KitRole.shadow, alpha: 0.20),
+          blur: 14,
+          dy: 4,
+          byLook: true,
+        ),
+        solid: 0.96,
+      ),
+    ),
+    card: KitMaterialPair.same(
+      KitMaterial(
+        fill: KitTone.of(KitRole.panel),
+        radius: 14,
+        continuous: false,
+        inner: KitLine(KitTone.of(KitRole.border, alpha: 0.68), width: 1),
+        shadow: KitShadow(
+          KitTone.of(KitRole.shadow, alpha: 0.16),
+          blur: 14,
+          dy: 4,
+          byLook: true,
+        ),
+        solid: 0.96,
+      ),
+    ),
+    cardLayout: KitCardLayout(
+      width: 356,
+      gap: 8,
+      edge: 12,
+      peek: 6,
+      inset: 10,
+      dim: 0.14,
+      dimReach: 130,
+    ),
+  );
+
+  /// HyprPanel Catppuccin: compact 10 px flat dark/light module cards.
+  static const KitMaterials hyprpanel = KitMaterials(
+    dock: KitMaterialPair.same(
+      KitMaterial(
+        fill: KitTone.of(KitRole.surface),
+        radius: 12,
+        continuous: false,
+        inner: KitLine(KitTone.of(KitRole.border, alpha: 0.65), width: 1),
+      ),
+    ),
+    popover: KitMaterialPair.same(
+      KitMaterial(
+        fill: KitTone.of(KitRole.panel),
+        radius: 10,
+        continuous: false,
+        inner: KitLine(KitTone.of(KitRole.border, alpha: 0.72), width: 1),
+        shadow: KitShadow(
+          KitTone.of(KitRole.shadow, alpha: 0.16),
+          blur: 14,
+          dy: 4,
+          byLook: true,
+        ),
+        solid: 0.97,
+      ),
+    ),
+    menu: KitMaterialPair.same(
+      KitMaterial(
+        fill: KitTone.of(KitRole.panel),
+        radius: 10,
+        continuous: false,
+        inner: KitLine(KitTone.of(KitRole.border, alpha: 0.72), width: 1),
+        solid: 0.97,
+      ),
+    ),
+    card: KitMaterialPair.same(
+      KitMaterial(
+        fill: KitTone.of(KitRole.panel),
+        radius: 10,
+        continuous: false,
+        inner: KitLine(KitTone.of(KitRole.border, alpha: 0.72), width: 1),
+        solid: 0.97,
+      ),
+    ),
+    cardLayout: KitCardLayout(
+      width: 356,
+      gap: 8,
+      edge: 10,
+      peek: 6,
+      inset: 10,
+      dim: 0.12,
+      dimReach: 120,
+    ),
+  );
+
+  /// Caelestia: minimal fused rounded Material-tinted surfaces.
+  static const KitMaterials caelestia = KitMaterials(
+    dock: KitMaterialPair.same(
+      KitMaterial(
+        fill: KitTone.of(KitRole.surface),
+        radius: 18,
+        continuous: true,
+        inner: KitLine(KitTone.of(KitRole.border, alpha: 0.55), width: 1),
+      ),
+    ),
+    popover: KitMaterialPair(
+      dark: KitMaterial(
+        fill: KitTone.of(KitRole.panel),
+        radius: 18,
+        continuous: true,
+        inner: KitLine(KitTone.of(KitRole.border, alpha: 0.65), width: 1),
+        shadow: KitShadow(
+          KitTone.of(KitRole.shadow, alpha: 0.22),
+          blur: 20,
+          dy: 6,
+          byLook: true,
+        ),
+        solid: 0.96,
+      ),
+      light: KitMaterial(
+        fill: KitTone.of(KitRole.panel),
+        radius: 18,
+        continuous: true,
+        inner: KitLine(KitTone.of(KitRole.border, alpha: 0.58), width: 1),
+        shadow: KitShadow(
+          KitTone.of(KitRole.shadow, alpha: 0.12),
+          blur: 20,
+          dy: 6,
+          byLook: true,
+        ),
+        solid: 0.96,
+      ),
+    ),
+    menu: KitMaterialPair.same(
+      KitMaterial(
+        fill: KitTone.of(KitRole.panel),
+        radius: 14,
+        continuous: true,
+        inner: KitLine(KitTone.of(KitRole.border, alpha: 0.62), width: 1),
+        solid: 0.96,
+      ),
+    ),
+    card: KitMaterialPair.same(
+      KitMaterial(
+        fill: KitTone.of(KitRole.panel),
+        radius: 16,
+        continuous: true,
+        inner: KitLine(KitTone.of(KitRole.border, alpha: 0.62), width: 1),
+        shadow: KitShadow(
+          KitTone.of(KitRole.shadow, alpha: 0.16),
+          blur: 14,
+          dy: 4,
+          byLook: true,
+        ),
+        solid: 0.96,
+      ),
+    ),
+    cardLayout: KitCardLayout(
+      width: 360,
+      gap: 8,
+      edge: 12,
+      peek: 6,
+      inset: 10,
+      dim: 0.14,
+      dimReach: 130,
+    ),
+  );
+
+  /// Ax-Shell: borderless pill-rounded dark/light notch-attached panels.
+  static const KitMaterials axshell = KitMaterials(
+    dock: KitMaterialPair.same(
+      KitMaterial(
+        fill: KitTone.of(KitRole.surface),
+        radius: 18,
+        continuous: true,
+      ),
+    ),
+    popover: KitMaterialPair.same(
+      KitMaterial(
+        fill: KitTone.of(KitRole.panel),
+        radius: 18,
+        continuous: true,
+        shadow: KitShadow(
+          KitTone.of(KitRole.shadow, alpha: 0.22),
+          blur: 22,
+          dy: 6,
+          byLook: true,
+        ),
+        solid: 0.96,
+      ),
+    ),
+    menu: KitMaterialPair.same(
+      KitMaterial(
+        fill: KitTone.of(KitRole.panel),
+        radius: 14,
+        continuous: true,
+        solid: 0.96,
+      ),
+    ),
+    card: KitMaterialPair.same(
+      KitMaterial(
+        fill: KitTone.of(KitRole.panel),
+        radius: 16,
+        continuous: true,
+        solid: 0.96,
+      ),
+    ),
+    cardLayout: KitCardLayout(
+      width: 356,
+      gap: 8,
+      edge: 12,
+      peek: 6,
+      inset: 10,
+      dim: 0.14,
+      dimReach: 130,
+    ),
+  );
+
+  /// Omarchy: zero-radius flat Tokyo Night / Day surfaces with zero shadow.
+  static const KitMaterials omarchy = KitMaterials(
+    dock: KitMaterialPair.same(
+      KitMaterial(
+        fill: KitTone.of(KitRole.surface),
+        radius: 0,
+        continuous: false,
+      ),
+    ),
+    popover: KitMaterialPair.same(
+      KitMaterial(
+        fill: KitTone.of(KitRole.panel),
+        radius: 0,
+        continuous: false,
+        inner: KitLine(KitTone.of(KitRole.border, alpha: 0.85), width: 1),
+        solid: 0.99,
+      ),
+    ),
+    menu: KitMaterialPair.same(
+      KitMaterial(
+        fill: KitTone.of(KitRole.panel),
+        radius: 0,
+        continuous: false,
+        inner: KitLine(KitTone.of(KitRole.border, alpha: 0.85), width: 1),
+        solid: 0.99,
+      ),
+    ),
+    card: KitMaterialPair.same(
+      KitMaterial(
+        fill: KitTone.of(KitRole.panel),
+        radius: 0,
+        continuous: false,
+        inner: KitLine(KitTone.of(KitRole.border, alpha: 0.85), width: 1),
+        solid: 0.99,
+      ),
+    ),
+    cardLayout: KitCardLayout(
+      width: 348,
+      gap: 6,
+      edge: 10,
+      peek: 4,
+      inset: 8,
+      dim: 0.05,
+      dimReach: 40,
+    ),
+  );
+
+  /// COSMIC: slightly-rounded 8 px flat charcoal/light slate surfaces.
+  static const KitMaterials cosmic = KitMaterials(
+    dock: KitMaterialPair.same(
+      KitMaterial(
+        fill: KitTone.of(KitRole.surface),
+        radius: 16,
+        continuous: false,
+        inner: KitLine(KitTone.of(KitRole.border, alpha: 0.60), width: 1),
+      ),
+    ),
+    popover: KitMaterialPair.same(
+      KitMaterial(
+        fill: KitTone.of(KitRole.panel),
+        radius: 8,
+        continuous: false,
+        inner: KitLine(KitTone.of(KitRole.border, alpha: 0.72), width: 1),
+        shadow: KitShadow(
+          KitTone.of(KitRole.shadow, alpha: 0.18),
+          blur: 16,
+          dy: 4,
+          byLook: true,
+        ),
+        solid: 0.98,
+      ),
+    ),
+    menu: KitMaterialPair.same(
+      KitMaterial(
+        fill: KitTone.of(KitRole.panel),
+        radius: 8,
+        continuous: false,
+        inner: KitLine(KitTone.of(KitRole.border, alpha: 0.72), width: 1),
+        solid: 0.98,
+      ),
+    ),
+    card: KitMaterialPair.same(
+      KitMaterial(
+        fill: KitTone.of(KitRole.panel),
+        radius: 8,
+        continuous: false,
+        inner: KitLine(KitTone.of(KitRole.border, alpha: 0.72), width: 1),
+        solid: 0.98,
+      ),
+    ),
+    cardLayout: KitCardLayout(
+      width: 352,
+      gap: 8,
+      edge: 10,
+      peek: 6,
+      inset: 10,
+      dim: 0.08,
+      dimReach: 100,
+    ),
+  );
+
+  /// Cutefish OS: clean light frosted glass with crisp sky-blue accents.
+  static const KitMaterials cutefish = KitMaterials(
+    dock: KitMaterialPair(
+      dark: KitMaterial(
+        fill: KitTone.of(KitRole.surface),
+        sigma: 12,
+        saturation: 1.4,
+        radius: 18,
+        continuous: true,
+        inner: KitLine(KitTone(KitTone.white, 0.14), width: 1),
+      ),
+      light: KitMaterial(
+        fill: KitTone.of(KitRole.surface),
+        sigma: 12,
+        saturation: 1.3,
+        radius: 18,
+        continuous: true,
+        inner: KitLine(KitTone(KitTone.white, 0.55), width: 1),
+      ),
+    ),
+    popover: KitMaterialPair(
+      dark: KitMaterial(
+        fill: KitTone.of(KitRole.panel),
+        sigma: 14,
+        saturation: 1.4,
+        radius: 16,
+        continuous: true,
+        inner: KitLine(KitTone(KitTone.white, 0.14), width: 1),
+        shadow: KitShadow(
+          KitTone.of(KitRole.shadow, alpha: 0.24),
+          blur: 28,
+          dy: 8,
+          byLook: true,
+        ),
+        solid: 0.96,
+      ),
+      light: KitMaterial(
+        fill: KitTone.of(KitRole.panel),
+        sigma: 14,
+        saturation: 1.3,
+        radius: 16,
+        continuous: true,
+        inner: KitLine(KitTone(KitTone.white, 0.62), width: 1),
+        shadow: KitShadow(
+          KitTone.of(KitRole.shadow, alpha: 0.12),
+          blur: 28,
+          dy: 8,
+          byLook: true,
+        ),
+        solid: 0.96,
+      ),
+    ),
+    menu: KitMaterialPair(
+      dark: KitMaterial(
+        fill: KitTone.of(KitRole.panel),
+        sigma: 14,
+        saturation: 1.4,
+        radius: 12,
+        continuous: true,
+        inner: KitLine(KitTone(KitTone.white, 0.14), width: 1),
+        solid: 0.96,
+      ),
+      light: KitMaterial(
+        fill: KitTone.of(KitRole.panel),
+        sigma: 14,
+        saturation: 1.3,
+        radius: 12,
+        continuous: true,
+        inner: KitLine(KitTone(KitTone.white, 0.62), width: 1),
+        solid: 0.96,
+      ),
+    ),
+    card: KitMaterialPair(
+      dark: KitMaterial(
+        fill: KitTone.of(KitRole.panel),
+        sigma: 14,
+        saturation: 1.4,
+        radius: 16,
+        continuous: true,
+        inner: KitLine(KitTone(KitTone.white, 0.14), width: 1),
+        shadow: KitShadow(
+          KitTone.of(KitRole.shadow, alpha: 0.16),
+          blur: 18,
+          dy: 4,
+          byLook: true,
+        ),
+        solid: 0.96,
+      ),
+      light: KitMaterial(
+        fill: KitTone.of(KitRole.panel),
+        sigma: 14,
+        saturation: 1.3,
+        radius: 16,
+        continuous: true,
+        inner: KitLine(KitTone(KitTone.white, 0.62), width: 1),
+        shadow: KitShadow(
+          KitTone.of(KitRole.shadow, alpha: 0.10),
+          blur: 18,
+          dy: 4,
+          byLook: true,
+        ),
+        solid: 0.96,
+      ),
+    ),
+    cardLayout: KitCardLayout(
+      width: 356,
+      gap: 8,
+      edge: 12,
+      peek: 6,
+      inset: 10,
+      dim: 0.16,
+      dimReach: 130,
+    ),
+  );
+
   /// Every table, for a test to walk.
-  static const List<KitMaterials> all = <KitMaterials>[shell, mac];
+  static const List<KitMaterials> all = <KitMaterials>[
+    shell,
+    mac,
+    gnome,
+    windows,
+    plasma,
+    material,
+    noctalia,
+    hyprpanel,
+    caelestia,
+    axshell,
+    omarchy,
+    cosmic,
+    cutefish,
+  ];
 }
 
 /// How a material's blur is carried out under the shell's settings.

@@ -20,6 +20,7 @@ import 'package:flutter/services.dart';
 import 'package:flutter/widgets.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../bar_icons.dart';
 import '../bar_panel.dart';
 import '../bar_preferences.dart';
 import '../bar_settings.dart';
@@ -40,9 +41,11 @@ double get notificationCenterWidth => NcLook.layout.width;
 /// is no slab under it: every card and every widget is a piece of its own on
 /// the wallpaper, which is dimmed behind the column so the text reads.
 ///
-/// A look with solid panels shows the same content another way: a framed
-/// panel hanging under [anchor], the bar item that opened it, as wide as the
-/// column and scrolling once it is taller than its share of the screen.
+/// Non-macOS shell archetypes open their native Notification Centre layout:
+/// - GNOME: centered-clock dual-pane Notifications (left + DND) & Calendar (right)
+/// - Windows 11: bottom-right Fluent Notifications + collapsible Calendar card
+/// - Omarchy / COSMIC / HyprPanel / Material / Noctalia / Caelestia / Plasma / Ax-Shell:
+///   framed anchored panel matching the active look's chrome & palette.
 void showNotificationCenter({
   required WidgetRef ref,
   required ShellServices services,
@@ -57,8 +60,13 @@ void showNotificationCenter({
     closeKitPanel();
     return;
   }
-  if (anchor != null &&
-      NcMotion.hangs(square: kitStyle.value.square, anchored: true)) {
+  final style = kitStyle.value;
+  final arch = style.archetype;
+  final sceneWidth =
+      MediaQuery.maybeSizeOf(ref.context)?.width ?? double.infinity;
+
+  if (anchor != null && arch == KitShellArchetype.gnome) {
+    final dualWidth = math.min(640.0, sceneWidth - 24);
     showBarPanel(
       ref: ref,
       panelId: panelId,
@@ -66,11 +74,64 @@ void showNotificationCenter({
       side: side,
       barHeight: barHeight,
       placement: BarPanelAnchor.centred,
+      width: dualWidth,
+      builder: (context, close) => _GnomeDateMenu(
+        services: services,
+        side: side,
+        barHeight: barHeight,
+        onClose: close,
+      ),
+    );
+    return;
+  }
+
+  if (anchor != null && arch == KitShellArchetype.windows) {
+    showBarPanel(
+      ref: ref,
+      panelId: panelId,
+      anchor: anchor,
+      side: side,
+      barHeight: barHeight,
+      placement: BarPanelAnchor.clock,
+      width: math.min(368.0, sceneWidth - 16),
+      builder: (context, close) => _WindowsNotificationCenter(
+        services: services,
+        side: side,
+        barHeight: barHeight,
+        onClose: close,
+      ),
+    );
+    return;
+  }
+
+  final framedArchetype =
+      arch != KitShellArchetype.macos &&
+      arch != KitShellArchetype.denial &&
+      arch != KitShellArchetype.cutefish;
+  if (anchor != null &&
+      (NcMotion.hangs(square: style.square, anchored: true) ||
+          framedArchetype)) {
+    final showDnd =
+        arch == KitShellArchetype.hyprpanel ||
+        arch == KitShellArchetype.material ||
+        arch == KitShellArchetype.noctalia ||
+        arch == KitShellArchetype.caelestia;
+    final placement =
+        arch == KitShellArchetype.plasma || arch == KitShellArchetype.axshell
+        ? BarPanelAnchor.clock
+        : BarPanelAnchor.centred;
+    showBarPanel(
+      ref: ref,
+      panelId: panelId,
+      anchor: anchor,
+      side: side,
+      barHeight: barHeight,
+      gap: style.panelStyle == KitPanelStyle.attached ? 0 : null,
+      placement: placement,
       width: NcMotion.hangWidth(
         plate: NcLook.layout.width,
         reach: NcCard.reach,
-        sceneWidth:
-            MediaQuery.maybeSizeOf(ref.context)?.width ?? double.infinity,
+        sceneWidth: sceneWidth,
       ),
       builder: (context, close) => _Column(
         services: services,
@@ -79,6 +140,7 @@ void showNotificationCenter({
         notifications: notifications,
         widgets: widgets,
         framed: true,
+        showDndToggle: showDnd,
         onClose: close,
       ),
     );
@@ -117,10 +179,15 @@ class _Column extends ConsumerStatefulWidget {
     required this.widgets,
     required this.onClose,
     this.framed = false,
+    this.showDndToggle = false,
   });
 
   /// Hung in a framed panel under a bar item; see [NcHost.framed].
   final bool framed;
+
+  /// Only shown for shell archetypes that natively place a DND switch in NC
+  /// (e.g. HyprPanel / Material / Noctalia / Caelestia); never on macOS/Denial.
+  final bool showDndToggle;
   final ShellServices services;
   final PanelEdge side;
   final double barHeight;
@@ -773,6 +840,13 @@ class _ColumnState extends ConsumerState<_Column>
   /// The heading, written straight on the wallpaper, and the round button
   /// that clears the list. The button says what it does under the pointer.
   Widget _title(BuildContext context, bool canClear) {
+    final dnd = widget.showDndToggle
+        ? ref.watch(
+            desktopNotificationsProvider.select((s) => s.doNotDisturb),
+          )
+        : false;
+    final theme = context.shellTheme;
+    final style = KitStyle.of(context);
     return Padding(
       padding: const EdgeInsets.fromLTRB(
         NcCard.reach + 8,
@@ -790,13 +864,55 @@ class _ColumnState extends ConsumerState<_Column>
                 maxLines: 1,
                 overflow: TextOverflow.ellipsis,
                 style: BarType.title.copyWith(
-                  fontSize: 22,
+                  fontSize: framed ? 16 : 22,
                   fontWeight: FontWeight.w700,
                   color: ncGroundInk(context, framed: framed),
                   shadows: ncGroundShadow(context),
                 ),
               ),
             ),
+            if (widget.showDndToggle) ...<Widget>[
+              Pressable(
+                onTap: () => ref
+                    .read(desktopNotificationsProvider.notifier)
+                    .toggleDoNotDisturb(),
+                shape: BorderRadius.circular(style.corner(12)),
+                child: Container(
+                  height: 26,
+                  padding: const EdgeInsets.symmetric(horizontal: 8),
+                  decoration: BoxDecoration(
+                    color: dnd
+                        ? style.accent(theme)
+                        : theme.colors.surfaceContainerHigh,
+                    borderRadius: BorderRadius.circular(style.corner(12)),
+                  ),
+                  child: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: <Widget>[
+                      BarGlyph(
+                        BarIcons.moonFill,
+                        size: 12,
+                        color: dnd
+                            ? style.onAccent(theme)
+                            : theme.colors.textSecondary,
+                      ),
+                      const SizedBox(width: 4),
+                      Text(
+                        context.tr('Focus'),
+                        style: BarType.caption.copyWith(
+                          fontSize: 11,
+                          fontWeight: FontWeight.w600,
+                          color: dnd
+                              ? style.onAccent(theme)
+                              : theme.colors.textSecondary,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+              const SizedBox(width: 6),
+            ],
             IgnorePointer(
               ignoring: !canClear,
               child: AnimatedOpacity(
@@ -1524,6 +1640,399 @@ class _GroupStackState extends State<_GroupStack>
               ),
             ),
           ),
+      ],
+    );
+  }
+}
+
+/// GNOME Shell centered-clock dual-pane popover: left notification list with
+/// Do Not Disturb switch and Clear button; right date heading and interactive
+/// month calendar.
+class _GnomeDateMenu extends ConsumerWidget {
+  const _GnomeDateMenu({
+    required this.services,
+    required this.side,
+    required this.barHeight,
+    required this.onClose,
+  });
+
+  final ShellServices services;
+  final PanelEdge side;
+  final double barHeight;
+  final VoidCallback onClose;
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final theme = context.shellTheme;
+    final dnd = ref.watch(
+      desktopNotificationsProvider.select((s) => s.doNotDisturb),
+    );
+    final hasAny = ref.watch(
+      desktopNotificationsProvider.select((s) => s.groups.isNotEmpty),
+    );
+    return SizedBox(
+      height: 416,
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: <Widget>[
+          Expanded(
+            flex: 11,
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: <Widget>[
+                Expanded(
+                  child: _Column(
+                    services: services,
+                    side: side,
+                    barHeight: barHeight,
+                    notifications: true,
+                    widgets: false,
+                    framed: true,
+                    onClose: onClose,
+                  ),
+                ),
+                Container(
+                  height: 46,
+                  padding: const EdgeInsets.symmetric(horizontal: 14),
+                  decoration: BoxDecoration(
+                    border: Border(
+                      top: BorderSide(color: theme.colors.hairline, width: 0.8),
+                    ),
+                  ),
+                  child: Row(
+                    children: <Widget>[
+                      Text(
+                        context.tr('Focus'),
+                        style: BarType.menuRow.copyWith(
+                          color: theme.colors.textPrimary,
+                        ),
+                      ),
+                      const SizedBox(width: 10),
+                      MacSwitch(
+                        value: dnd,
+                        onChanged: (_) => ref
+                            .read(desktopNotificationsProvider.notifier)
+                            .toggleDoNotDisturb(),
+                      ),
+                      const Spacer(),
+                      Pressable(
+                        onTap: hasAny
+                            ? () => ref
+                                  .read(desktopNotificationsProvider.notifier)
+                                  .clearAll()
+                            : null,
+                        shape: BorderRadius.circular(14),
+                        child: Container(
+                          height: 28,
+                          padding: const EdgeInsets.symmetric(horizontal: 12),
+                          alignment: Alignment.center,
+                          decoration: BoxDecoration(
+                            color: theme.colors.surfaceContainerHigh,
+                            borderRadius: BorderRadius.circular(14),
+                          ),
+                          child: Text(
+                            context.tr('Clear'),
+                            style: BarType.caption.copyWith(
+                              fontSize: 12,
+                              color: hasAny
+                                  ? theme.colors.textPrimary
+                                  : theme.colors.textTertiary,
+                            ),
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ],
+            ),
+          ),
+          Container(width: 1, color: theme.colors.hairline),
+          const SizedBox(
+            width: 268,
+            child: Padding(
+              padding: EdgeInsets.all(14),
+              child: _CompactMonthCalendar(),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+/// Windows 11 Fluent Notification Centre: stacked notifications with DND and
+/// Clear All controls above a collapsible month calendar card.
+class _WindowsNotificationCenter extends ConsumerStatefulWidget {
+  const _WindowsNotificationCenter({
+    required this.services,
+    required this.side,
+    required this.barHeight,
+    required this.onClose,
+  });
+
+  final ShellServices services;
+  final PanelEdge side;
+  final double barHeight;
+  final VoidCallback onClose;
+
+  @override
+  ConsumerState<_WindowsNotificationCenter> createState() =>
+      _WindowsNotificationCenterState();
+}
+
+class _WindowsNotificationCenterState
+    extends ConsumerState<_WindowsNotificationCenter> {
+  bool _calendarOpen = true;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = context.shellTheme;
+    final now = DateTime.now();
+    final zh = Localizations.maybeLocaleOf(context)?.languageCode == 'zh';
+    final dateTitle = zh
+        ? '${now.month}月${now.day}日'
+        : '${_enMonths[now.month - 1]} ${now.day}';
+    return Column(
+      mainAxisSize: MainAxisSize.min,
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: <Widget>[
+        ConstrainedBox(
+          constraints: const BoxConstraints(maxHeight: 320),
+          child: _Column(
+            services: widget.services,
+            side: widget.side,
+            barHeight: widget.barHeight,
+            notifications: true,
+            widgets: false,
+            framed: true,
+            showDndToggle: true,
+            onClose: widget.onClose,
+          ),
+        ),
+        Container(height: 1, color: theme.colors.hairline),
+        Padding(
+          padding: const EdgeInsets.fromLTRB(14, 10, 10, 8),
+          child: Row(
+            children: <Widget>[
+              Expanded(
+                child: Text(
+                  dateTitle,
+                  style: BarType.title.copyWith(
+                    fontSize: 13.5,
+                    color: theme.colors.textPrimary,
+                  ),
+                ),
+              ),
+              Pressable(
+                onTap: () => setState(() => _calendarOpen = !_calendarOpen),
+                shape: BorderRadius.circular(5),
+                child: Container(
+                  width: 26,
+                  height: 26,
+                  alignment: Alignment.center,
+                  decoration: BoxDecoration(
+                    color: theme.colors.surfaceContainerHigh,
+                    borderRadius: BorderRadius.circular(5),
+                    border: Border.all(color: theme.colors.hairline, width: 0.8),
+                  ),
+                  child: AnimatedRotation(
+                    turns: _calendarOpen ? 0 : 0.5,
+                    duration: KitMotion.duration(context, KitMotion.enter),
+                    child: BarGlyph(
+                      BarIcons.chevronDown,
+                      size: 11,
+                      color: theme.colors.textPrimary,
+                    ),
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ),
+        if (_calendarOpen)
+          const Padding(
+            padding: EdgeInsets.fromLTRB(14, 0, 14, 14),
+            child: _CompactMonthCalendar(showHeader: false),
+          ),
+      ],
+    );
+  }
+}
+
+const List<String> _enMonths = <String>[
+  'January',
+  'February',
+  'March',
+  'April',
+  'May',
+  'June',
+  'July',
+  'August',
+  'September',
+  'October',
+  'November',
+  'December',
+];
+
+class _CompactMonthCalendar extends StatefulWidget {
+  const _CompactMonthCalendar({this.showHeader = true});
+
+  final bool showHeader;
+
+  @override
+  State<_CompactMonthCalendar> createState() => _CompactMonthCalendarState();
+}
+
+class _CompactMonthCalendarState extends State<_CompactMonthCalendar> {
+  late DateTime _month = DateTime(DateTime.now().year, DateTime.now().month);
+
+  void _step(int delta) =>
+      setState(() => _month = DateTime(_month.year, _month.month + delta));
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = context.shellTheme;
+    final style = KitStyle.of(context);
+    final today = DateTime.now();
+    final zh = Localizations.maybeLocaleOf(context)?.languageCode == 'zh';
+    final first = DateTime(_month.year, _month.month, 1);
+    final daysInMonth = DateTime(_month.year, _month.month + 1, 0).day;
+    final leadBlanks = first.weekday % 7; // Sun = 0 .. Sat = 6
+    final monthTitle = zh
+        ? '${_month.year}年${_month.month}月'
+        : '${_enMonths[_month.month - 1]} ${_month.year}';
+    final weekdays = zh
+        ? const <String>['日', '一', '二', '三', '四', '五', '六']
+        : const <String>['S', 'M', 'T', 'W', 'T', 'F', 'S'];
+    final accent = style.accent(theme);
+    final onAccent = style.onAccent(theme);
+
+    return Column(
+      mainAxisSize: MainAxisSize.min,
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: <Widget>[
+        if (widget.showHeader) ...<Widget>[
+          Text(
+            zh ? '${today.month}月${today.day}日' : '${_enMonths[today.month - 1]} ${today.day}',
+            style: BarType.title.copyWith(
+              fontSize: 20,
+              fontWeight: FontWeight.w700,
+              color: theme.colors.textPrimary,
+            ),
+          ),
+          const SizedBox(height: 10),
+        ],
+        Row(
+          children: <Widget>[
+            Expanded(
+              child: Text(
+                monthTitle,
+                style: BarType.title.copyWith(
+                  fontSize: 12.5,
+                  color: theme.colors.textPrimary,
+                ),
+              ),
+            ),
+            Pressable(
+              onTap: () => _step(-1),
+              shape: BorderRadius.circular(12),
+              wash: true,
+              child: Padding(
+                padding: const EdgeInsets.all(5),
+                child: BarGlyph(
+                  BarIcons.chevronLeft,
+                  size: 11,
+                  color: theme.colors.textSecondary,
+                ),
+              ),
+            ),
+            Pressable(
+              onTap: () => _step(1),
+              shape: BorderRadius.circular(12),
+              wash: true,
+              child: Padding(
+                padding: const EdgeInsets.all(5),
+                child: BarGlyph(
+                  BarIcons.chevronRight,
+                  size: 11,
+                  color: theme.colors.textSecondary,
+                ),
+              ),
+            ),
+          ],
+        ),
+        const SizedBox(height: 8),
+        Row(
+          children: <Widget>[
+            for (final wd in weekdays)
+              Expanded(
+                child: Center(
+                  child: Text(
+                    wd,
+                    style: BarType.caption.copyWith(
+                      fontSize: 10.5,
+                      fontWeight: FontWeight.w600,
+                      color: theme.colors.textTertiary,
+                    ),
+                  ),
+                ),
+              ),
+          ],
+        ),
+        const SizedBox(height: 6),
+        for (var row = 0; row < 6; row++)
+          if (row * 7 - leadBlanks < daysInMonth)
+            Padding(
+              padding: const EdgeInsets.only(bottom: 3),
+              child: Row(
+                children: <Widget>[
+                  for (var col = 0; col < 7; col++)
+                    Expanded(
+                      child: Builder(
+                        builder: (context) {
+                          final day = row * 7 + col - leadBlanks + 1;
+                          if (day < 1 || day > daysInMonth) {
+                            return const SizedBox(height: 26);
+                          }
+                          final isToday =
+                              _month.year == today.year &&
+                              _month.month == today.month &&
+                              day == today.day;
+                          return Center(
+                            child: Container(
+                              width: 26,
+                              height: 26,
+                              alignment: Alignment.center,
+                              decoration: isToday
+                                  ? BoxDecoration(
+                                      color: accent,
+                                      borderRadius: style.disc(26),
+                                    )
+                                  : null,
+                              child: Text(
+                                '$day',
+                                style: BarType.caption.copyWith(
+                                  fontSize: 11.5,
+                                  fontWeight: isToday
+                                      ? FontWeight.w700
+                                      : FontWeight.w400,
+                                  color: isToday
+                                      ? onAccent
+                                      : theme.colors.textPrimary,
+                                  fontFeatures: const <FontFeature>[
+                                    FontFeature.tabularFigures(),
+                                  ],
+                                ),
+                              ),
+                            ),
+                          );
+                        },
+                      ),
+                    ),
+                ],
+              ),
+            ),
       ],
     );
   }

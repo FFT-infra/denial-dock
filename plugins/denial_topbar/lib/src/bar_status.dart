@@ -6,6 +6,7 @@ import 'package:denial_flutter_sdk/state.dart';
 import 'package:denial_flutter_sdk/theme.dart';
 import 'package:denial_shell_kit/kit_motion.dart';
 import 'package:denial_shell_kit/kit_style.dart';
+import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
@@ -342,51 +343,69 @@ class BarStatusCluster extends ConsumerWidget {
           ),
         ),
       if (settings.showVolume)
-        'volume': BarStatusCell(
-          key: volumeKey,
-          ink: ink,
-          width: span(BarTokens.statusCellWidth),
-          onTap: onVolume,
-          tooltip: audible
-              ? '${context.tr('Sound')} ${(volume * 100).round()}%'
-              : '${context.tr('Sound')} · ${context.tr('Unavailable')}',
-          open: openPanel == 'volume',
-          child: BarGlyph(
-            headphones
-                ? BarIcons.headphones
-                : volume <= 0.001
-                ? BarIcons.speakerSlashFill
-                : (volume < 0.34 ? BarIcons.volumeDown : BarIcons.volumeUp),
-            size: BarTokens.statusIconSize,
-            // Dim until an audio service has reported a level.
-            color: audible ? ink : ink.withValues(alpha: 0.45),
+        'volume': Listener(
+          onPointerSignal: (event) {
+            if (event is! PointerScrollEvent || !audible) return;
+            final dy = event.scrollDelta.dy;
+            if (dy == 0) return;
+            final delta = dy < 0 ? 0.05 : -0.05;
+            final next = (volume + delta).clamp(0.0, 1.0).toDouble();
+            services.setVolume(next);
+          },
+          child: BarStatusCell(
+            key: volumeKey,
+            ink: ink,
+            width: span(BarTokens.statusCellWidth),
+            onTap: onVolume,
+            tooltip: audible
+                ? '${context.tr('Sound')} ${(volume * 100).round()}%'
+                : '${context.tr('Sound')} · ${context.tr('Unavailable')}',
+            open: openPanel == 'volume',
+            child: BarGlyph(
+              headphones
+                  ? BarIcons.headphones
+                  : volume <= 0.001
+                  ? BarIcons.speakerSlashFill
+                  : (volume < 0.34 ? BarIcons.volumeDown : BarIcons.volumeUp),
+              size: BarTokens.statusIconSize,
+              // Dim until an audio service has reported a level.
+              color: audible ? ink : ink.withValues(alpha: 0.45),
+            ),
           ),
         ),
       if (settings.showBattery && battery.capacity != null)
-        'battery': BarStatusCell(
-          key: batteryKey,
-          ink: ink,
-          width: span(percent ? 63 : 39),
-          onTap: onBattery,
-          tooltip: '${context.tr('Battery')} ${battery.capacity}%',
-          open: openPanel == 'battery',
-          child: Row(
-            mainAxisSize: MainAxisSize.min,
-            children: <Widget>[
-              if (percent)
-                Padding(
-                  padding: const EdgeInsets.only(right: 5),
-                  child: Text(
-                    '${battery.capacity}%',
-                    style: BarType.batteryPercent.copyWith(color: ink),
+        'battery': Listener(
+          onPointerSignal: (event) {
+            if (event is! PointerScrollEvent) return;
+            final dy = event.scrollDelta.dy;
+            if (dy == 0) return;
+            _stepPrimaryBrightness(ref, dy < 0 ? 0.05 : -0.05);
+          },
+          child: BarStatusCell(
+            key: batteryKey,
+            ink: ink,
+            width: span(percent ? 63 : 39),
+            onTap: onBattery,
+            tooltip: '${context.tr('Battery')} ${battery.capacity}%',
+            open: openPanel == 'battery',
+            child: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: <Widget>[
+                if (percent)
+                  Padding(
+                    padding: const EdgeInsets.only(right: 5),
+                    child: Text(
+                      '${battery.capacity}%',
+                      style: BarType.batteryPercent.copyWith(color: ink),
+                    ),
                   ),
+                BatteryGlyph(
+                  level: (battery.capacity ?? 0) / 100,
+                  colour: ink,
+                  charging: battery.charging || plugged,
                 ),
-              BatteryGlyph(
-                level: (battery.capacity ?? 0) / 100,
-                colour: ink,
-                charging: battery.charging || plugged,
-              ),
-            ],
+              ],
+            ),
           ),
         ),
       if (showKeyboardCell && activeLayout != null)
@@ -472,20 +491,28 @@ class BarStatusCluster extends ConsumerWidget {
           ),
         ),
       if (settings.showControlCenter)
-        'controlcenter': BarStatusCell(
-          key: controlCenterKey,
-          ink: ink,
-          width: span(BarTokens.controlCentreWidth),
-          onTap: onControlCenter,
-          tooltip: context.tr('Control Centre'),
-          open: openPanel == 'controlcenter',
-          child: Align(
-            alignment: horizontal ? Alignment.centerLeft : Alignment.center,
-            child: Padding(
-              padding: EdgeInsets.only(left: horizontal ? 10 : 0),
-              child: ControlCentreGlyph(
-                size: BarTokens.statusGlyphSize,
-                color: ink,
+        'controlcenter': Listener(
+          onPointerSignal: (event) {
+            if (event is! PointerScrollEvent) return;
+            final dy = event.scrollDelta.dy;
+            if (dy == 0) return;
+            _stepPrimaryBrightness(ref, dy < 0 ? 0.05 : -0.05);
+          },
+          child: BarStatusCell(
+            key: controlCenterKey,
+            ink: ink,
+            width: span(BarTokens.controlCentreWidth),
+            onTap: onControlCenter,
+            tooltip: context.tr('Control Centre'),
+            open: openPanel == 'controlcenter',
+            child: Align(
+              alignment: horizontal ? Alignment.centerLeft : Alignment.center,
+              child: Padding(
+                padding: EdgeInsets.only(left: horizontal ? 10 : 0),
+                child: ControlCentreGlyph(
+                  size: BarTokens.statusGlyphSize,
+                  color: ink,
+                ),
               ),
             ),
           ),
@@ -605,6 +632,18 @@ class BarStatusCluster extends ConsumerWidget {
         ],
       ],
     );
+  }
+
+  static void _stepPrimaryBrightness(WidgetRef ref, double delta) {
+    final output = ref.read(displayLayoutProvider)?.mainOutput;
+    if (output == null) return;
+    final state = ref.read(displayBrightnessProvider);
+    final current = state.levels[output.monitorId];
+    if (current == null) return;
+    final next = (current + delta).clamp(0.05, 1.0).toDouble();
+    final controller = ref.read(displayBrightnessProvider.notifier);
+    controller.setLevel(output, next);
+    controller.commitLevel(output, next);
   }
 
   static Widget _wrapCell({

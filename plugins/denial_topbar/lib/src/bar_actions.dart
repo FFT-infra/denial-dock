@@ -352,7 +352,10 @@ mixin _BarActions<T extends ConsumerStatefulWidget> on ConsumerState<T> {
         width: popoverWidth,
         placement: BarPanelAnchor.centred,
       ),
-      onSearch: _services.toggleLauncher,
+      onSearch: () => KitRequests.triggerSearch(
+        fallback: _services.toggleLauncher,
+        monitorId: _environment.output.monitorId,
+      ),
       clipboardKey: _clipboardKey,
       onClipboard: () => _openPanel(
         'clipboard',
@@ -364,19 +367,27 @@ mixin _BarActions<T extends ConsumerStatefulWidget> on ConsumerState<T> {
       onNotifications: () =>
           _openNotificationCenter('notifications', merged: false),
       onControlCenter: () {
-        final panelStyle = kitStyle.value.panelStyle;
-        final floating = panelStyle == KitPanelStyle.floating;
+        final style = kitStyle.value;
+        final archetype = style.archetype;
+        final useCustomShell =
+            archetype != KitShellArchetype.macos &&
+            archetype != KitShellArchetype.denial &&
+            archetype != KitShellArchetype.cutefish;
+        final panelStyle = style.panelStyle;
+        final floating =
+            !useCustomShell && panelStyle == KitPanelStyle.floating;
         final attached = panelStyle == KitPanelStyle.attached;
         _openPanel(
           'controlcenter',
           _controlCenterKey,
           (_, close) => _controlCenterBody(close),
-          width: controlCenterWidth,
+          width: controlCenterWidthFor(archetype),
           frameless: floating,
           gap: attached ? 0 : null,
           // The sheet keeps its place at the screen's trailing side while its
           // item is on that side, and hangs under the item anywhere else.
-          placement: panelStyle == KitPanelStyle.anchored
+          placement: panelStyle == KitPanelStyle.anchored &&
+                  archetype != KitShellArchetype.windows
               ? BarPanelAnchor.centred
               : _nearTrailingSide(_controlCenterKey)
               ? BarPanelAnchor.trailing

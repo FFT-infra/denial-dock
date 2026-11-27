@@ -317,8 +317,11 @@ class MacDisc extends StatelessWidget {
   Widget build(BuildContext context) {
     final theme = context.shellTheme;
     final style = KitStyle.of(context);
+    final dark = theme.brightness == Brightness.dark;
+    final arch = style.archetype;
     // macOS 26 Tahoe active round discs use a crisp white disc with the
-    // control's own vibrant colour for the glyph.
+    // control's own vibrant colour for the glyph (with subtle elevation in
+    // light mode so the disc separates cleanly from frosted light glass).
     final macWhiteDisc =
         on && style.id == 'mac' && style.panelStyle == KitPanelStyle.floating;
     final fillColor = macWhiteDisc
@@ -329,15 +332,38 @@ class MacDisc extends StatelessWidget {
         : macWhiteDisc
         ? colour
         : style.onPlate(theme, meaning: meaning);
+    final BorderRadius shape = switch (arch) {
+      KitShellArchetype.omarchy => BorderRadius.zero,
+      KitShellArchetype.windows ||
+      KitShellArchetype.cosmic ||
+      KitShellArchetype.plasma ||
+      KitShellArchetype.hyprpanel => BorderRadius.circular(style.corner(6)),
+      _ => style.disc(size),
+    };
     return Container(
       width: size,
       height: size,
-      foregroundDecoration: BoxDecoration(border: style.controlLine(theme)),
+      decoration: macWhiteDisc && !dark
+          ? BoxDecoration(
+              borderRadius: shape,
+              boxShadow: const <BoxShadow>[
+                BoxShadow(
+                  color: Color(0x1f000000),
+                  blurRadius: 6,
+                  offset: Offset(0, 1.5),
+                ),
+              ],
+            )
+          : null,
+      foregroundDecoration: BoxDecoration(
+        borderRadius: shape,
+        border: style.controlLine(theme),
+      ),
       child: LiquidFill(
         level: on ? 1 : 0,
         color: fillColor,
-        base: theme.colors.textPrimary.withValues(alpha: 0.14),
-        radius: style.disc(size),
+        base: theme.colors.textPrimary.withValues(alpha: dark ? 0.14 : 0.09),
+        radius: shape,
         child: Center(
           child:
               child ??

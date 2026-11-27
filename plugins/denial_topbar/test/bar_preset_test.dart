@@ -102,8 +102,8 @@ void main() {
     segments.shape == BarShape.islands &&
         segments.cap == BarCap.arrow &&
         BarZones.segments(segments.zones.center).length == 3 &&
-        segments.zones.end.single == 'status',
-    'Segments is three runs of pointed segments',
+        BarZones.segments(segments.zones.end).length == 4,
+    'Segments is three runs of pointed segments with split end zone',
   );
   final compact = defaults.withLayout(ShellPreset.compact.bar);
   _expect(

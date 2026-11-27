@@ -20,6 +20,31 @@ abstract final class KitRequests {
   static const String notificationCentre = 'notificationCentre';
   static const String settings = 'settings';
 
+  /// Cross-plugin search/launcher entry point. Spotlight or another launcher
+  /// plugin may register a handler via [registerSearchHandler]; when none is
+  /// registered, [triggerSearch] falls back to the host launcher callback.
+  static const String search = 'search';
+
+  static bool Function(int? monitorId)? _searchHandler;
+
+  /// Registers a handler that intercepts shell search requests (returning true
+  /// if handled). Pass `null` to unregister.
+  static void registerSearchHandler(bool Function(int? monitorId)? handler) {
+    _searchHandler = handler;
+  }
+
+  /// Dispatches a search request to a registered Spotlight/launcher plugin,
+  /// broadcasting [search] on [stream] and invoking [fallback] if unhandled.
+  static void triggerSearch({
+    required void Function() fallback,
+    int? monitorId,
+  }) {
+    final handler = _searchHandler;
+    if (handler != null && handler(monitorId)) return;
+    send(search, monitorId: monitorId);
+    fallback();
+  }
+
   static KitRequest? _taken;
 
   /// Whether the caller is the one to answer [request]: the first to ask

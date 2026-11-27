@@ -157,7 +157,18 @@ class ShellPreset {
       'workspacePlacement': 'leading',
       'start': <String>['workspaces'],
       'center': <String>['system', 'separator', 'app', 'separator', 'clock'],
-      'end': <String>['status'],
+      'end': <String>[
+        'status.tray',
+        'separator',
+        'status.wifi',
+        'status.bluetooth',
+        'separator',
+        'status.volume',
+        'status.battery',
+        'separator',
+        'status.controlcenter',
+        'status',
+      ],
     }),
   );
 
@@ -329,6 +340,28 @@ class ShellPreset {
     },
   );
 
+  /// After Caelestia Shell: minimal rounded fused bar with concave corners,
+  /// pill modules, and attached drawer panels.
+  static final ShellPreset caelestia = _reference(
+    'caelestia',
+    'Caelestia style',
+    dockVisible: false,
+    bar: <String, Object?>{
+      ..._solidStrip,
+      'barHeight': 34,
+      'endInset': 8,
+      'contentPadding': 6,
+      'partGap': 5,
+      'partPill': 'uniform',
+      'concaveEdge': true,
+      'cornerRadius': 16,
+      'workspaceStyle': 'dots',
+      'start': <String>['system', 'workspaces'],
+      'center': <String>['clock'],
+      'end': <String>['status'],
+    },
+  );
+
   /// After Ax-Shell's default bar: floating pills at the two ends and the
   /// flared top-edge notch between them.
   /// Not reproduced: Ax-Shell's optional vertical bar layout.
@@ -466,6 +499,7 @@ class ShellPreset {
     noctalia,
     material,
     hyprpanel,
+    caelestia,
     axShell,
     plasma,
     gnome,

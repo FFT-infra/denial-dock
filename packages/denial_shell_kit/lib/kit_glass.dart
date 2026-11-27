@@ -135,7 +135,23 @@ class KitGlass extends StatelessWidget {
     double strength = 1.0,
   }) {
     final g = theme.glass;
-    final s = strength.clamp(0.0, 1.0).toDouble();
+    final preset = kitGlassPreset.value;
+    final refractionScale = switch (preset) {
+      KitGlassPreset.system => 1.0,
+      KitGlassPreset.clear => 1.15,
+      KitGlassPreset.tinted => 0.88,
+      KitGlassPreset.custom => kitGlassRefraction.value,
+    };
+    final s = (strength * refractionScale).clamp(0.0, 1.4).toDouble();
+    final dark = theme.brightness == Brightness.dark;
+    final tintColor = preset == KitGlassPreset.clear
+        ? (dark ? const Color(0xff1e1e24) : const Color(0xffffffff))
+        : theme.kitAccent;
+    final tintBoost = switch (preset) {
+      KitGlassPreset.clear => 0.35,
+      KitGlassPreset.tinted => 1.25,
+      _ => 1.0,
+    };
     final corner = cornerRadius > 0
         ? Radius.circular(cornerRadius)
         : Radius.zero;
@@ -150,13 +166,15 @@ class KitGlass extends StatelessWidget {
       thickness: g.thickness,
       refraction: g.refraction * s,
       dispersion: g.dispersion,
-      saturation: kitSaturate.value ? 1 + (g.saturation - 1) * s : 1,
-      tint: theme.kitAccent,
-      tintStrength: g.tintStrength * s,
-      brightness: g.brightness * s,
+      saturation: kitSaturate.value ? 1 + (g.saturation - 1) * strength : 1,
+      tint: tintColor,
+      tintStrength: (g.tintStrength * strength * tintBoost).clamp(0.0, 1.0),
+      brightness: g.brightness * strength,
       lightAngle: g.lightAngle * math.pi / 180,
-      lightIntensity: g.lightIntensity * s,
-      edgeStrength: g.edgeStrength * s,
+      lightIntensity:
+          (g.lightIntensity * strength * (preset == KitGlassPreset.clear ? 1.12 : 1.0))
+              .clamp(0.0, 2.0),
+      edgeStrength: g.edgeStrength * strength,
       bevelWidthScale: g.bevelWidthScale,
       refractionDepthScale: g.refractionDepthScale,
       rimWidth: g.rimWidth,
@@ -238,10 +256,22 @@ class KitGlass extends StatelessWidget {
       if (tone.a < minOpacity) tone = tone.withValues(alpha: minOpacity);
     }
     // Under liquidGlass, keep a clean translucent tint that never washes out
-    // text on busy wallpapers while letting Denial's glass shader shine through.
-    if (plan.mode == KitSurfaceMode.liquidGlass && blur) {
-      final cap = math.max(minOpacity, tier == KitTier.dock ? 0.24 : 0.48);
-      if (tone.a > cap && minOpacity < 0.85) {
+    // text on busy wallpapers while honouring Clear / Tinted / Custom presets.
+    if (plan.mode == KitSurfaceMode.liquidGlass && blur && minOpacity < 0.85) {
+      final preset = kitGlassPreset.value;
+      final dark = theme.brightness == Brightness.dark;
+      final dock = tier == KitTier.dock;
+      final double targetCap = switch (preset) {
+        KitGlassPreset.system => dock ? 0.26 : 0.48,
+        KitGlassPreset.clear => dock ? 0.18 : (dark ? 0.32 : 0.28),
+        KitGlassPreset.tinted => dock ? 0.40 : (dark ? 0.62 : 0.60),
+        KitGlassPreset.custom =>
+          dock ? (kitGlassOpacity.value * 0.65).clamp(0.08, 0.80) : kitGlassOpacity.value,
+      };
+      final cap = math.max(minOpacity, targetCap);
+      if (preset == KitGlassPreset.custom || preset == KitGlassPreset.tinted) {
+        tone = tone.withValues(alpha: cap);
+      } else if (tone.a > cap) {
         tone = tone.withValues(alpha: cap);
       }
     }
