@@ -450,8 +450,47 @@ class KitLook {
     dockKin: 'terminal',
   );
 
+  /// Omarchy: Tokyo Night dark & Latte-day crisp strip, fixed-width font,
+  /// square geometry without borders or drop shadows.
+  static const KitLook omarchy = KitLook(
+    id: 'omarchy',
+    label: 'Omarchy style',
+    palette: KitPalette.tokyoNight,
+    accentSource: KitAccentSource.palette,
+    fontFamily: 'JetBrainsMono',
+    fontPackage: 'denial_flutter_sdk',
+    fontScale: 0.93,
+    scaleCorners: false,
+    cornerScale: 0,
+    borderWidth: 0,
+    opaque: true,
+    shadow: 0,
+    accentMenuRows: true,
+    panelGrow: KitSpringTuning(1100, 1),
+    panelShrink: KitSpringTuning(1400, 1),
+    pressTuning: KitSpringTuning(1000, 1),
+    switchTuning: KitSpringTuning(1000, 1),
+    pace: 1.5,
+    dockKin: 'terminal',
+    dock: <String, Object?>{
+      'radius': 0,
+      'indicator': 'none',
+      'iconSize': 36,
+      'magnify': true,
+      'magnifyAmount': 0.15,
+      'opacity': 0,
+      'border': false,
+    },
+  );
+
   /// The looks the shell has always had.
-  static const List<KitLook> core = <KitLook>[denial, mac, soft, terminal];
+  static const List<KitLook> core = <KitLook>[
+    denial,
+    mac,
+    soft,
+    terminal,
+    omarchy,
+  ];
 
   /// Every look that ships: the shell's own, then the ones made after
   /// other shells.

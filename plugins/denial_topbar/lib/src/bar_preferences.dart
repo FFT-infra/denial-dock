@@ -67,6 +67,7 @@ void applyShellPreset(WidgetRef ref, ShellPreset preset, {bool fresh = false}) {
     memory[leaving.id] = leaving.remember(
       look: kitStyle.chosen,
       barMode: kitBarMode.value.key,
+      dockVisible: kitDockEnabled.value,
       bar: settings.layoutJson(),
       dock: kitDock.layout,
       before: memory[leaving.id],
@@ -77,7 +78,14 @@ void applyShellPreset(WidgetRef ref, ShellPreset preset, {bool fresh = false}) {
   final next = preset.recall(memory[preset.id]);
   kitStyle.choose(KitStyle.byId(next.look));
   kitPreset.value = preset.id;
-  kitBarMode.value = KitBarMode.parse(next.barMode);
+  var nextMode = KitBarMode.parse(next.barMode);
+  if (next.dockVisible != null) {
+    kitDockEnabled.value = next.dockVisible!;
+    if (nextMode != KitBarMode.shown && !kitDockEnabled.value) {
+      nextMode = KitBarMode.shown;
+    }
+  }
+  kitBarMode.value = nextMode;
   kitDock.apply(next.dock);
   ref
       .read(barSettingsProvider.notifier)
@@ -95,6 +103,7 @@ bool shellPresetModified(ShellPreset preset, BarSettings settings) =>
       bar: settings.layoutJson(),
       dock: kitDock.layout,
       barMode: kitBarMode.value.key,
+      dockVisible: kitDockEnabled.value,
     );
 
 /// The shell as it stands as a preset of the user's: the look in force, how

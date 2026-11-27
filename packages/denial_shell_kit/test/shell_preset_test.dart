@@ -109,18 +109,18 @@ void main() {
   // Matching: the look and the preset's own keys decide, by value.
   final preset = ShellPreset.omarchy;
   final bar = Map<String, Object?>.of(preset.bar);
-  _expect(preset.matches(look: 'terminal', bar: bar), 'own data matches');
+  _expect(preset.matches(look: 'omarchy', bar: bar), 'own data matches');
   _expect(!preset.matches(look: 'denial', bar: bar), 'another look differs');
   _expect(
     preset.matches(
-      look: 'terminal',
+      look: 'omarchy',
       bar: <String, Object?>{...bar, 'showWifi': false, 'groundOpacity': 1.0},
     ),
     'other keys do not count, and 1 is 1.0',
   );
   _expect(
     preset.matches(
-      look: 'terminal',
+      look: 'omarchy',
       bar: <String, Object?>{
         ...bar,
         'start': List<Object?>.of(bar['start']! as List),
@@ -130,7 +130,7 @@ void main() {
   );
   _expect(
     !preset.matches(
-      look: 'terminal',
+      look: 'omarchy',
       bar: <String, Object?>{
         ...bar,
         'end': <String>['status', 'clock'],
@@ -140,13 +140,13 @@ void main() {
   );
   _expect(
     !preset.matches(
-      look: 'terminal',
+      look: 'omarchy',
       bar: <String, Object?>{...bar, 'contentPadding': 9},
     ),
     'a changed measure differs',
   );
   _expect(
-    !preset.matches(look: 'terminal', bar: bar..remove('shape')),
+    !preset.matches(look: 'omarchy', bar: bar..remove('shape')),
     'a missing key differs',
   );
   _expect(

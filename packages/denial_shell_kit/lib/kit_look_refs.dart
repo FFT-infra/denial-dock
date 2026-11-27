@@ -23,6 +23,7 @@ const KitLook _noctalia = KitLook(
   label: 'Noctalia style',
   palette: KitPalette.midnight,
   accentSource: KitAccentSource.palette,
+  scaleCorners: false,
   opaque: true,
   shadow: 0.45,
   cornerScale: 0.85,
@@ -47,6 +48,7 @@ const KitLook _material = KitLook(
   label: 'Material style',
   palette: KitPalette.material,
   accentSource: KitAccentSource.palette,
+  scaleCorners: false,
   opaque: true,
   shadow: 0.7,
   cornerScale: 1.35,
@@ -64,16 +66,14 @@ const KitLook _material = KitLook(
   dock: <String, Object?>{'radius': 24, 'indicator': 'pill', 'magnify': false},
 );
 
-/// After HyprPanel's default: Catppuccin Mocha, always dark, flat and
-/// solid, heavier type, panels that fade in.
-///
-/// Not reproduced: each bar module being a pill tinted in its own colour.
+/// After HyprPanel's default: Catppuccin Mocha / Latte following system
+/// appearance, flat and solid, heavier type, panels that fade in.
 const KitLook _hyprpanel = KitLook(
   id: 'hyprpanel',
   label: 'HyprPanel style',
   palette: KitPalette.catppuccin,
   accentSource: KitAccentSource.palette,
-  appearance: KitAppearance.dark,
+  scaleCorners: false,
   opaque: true,
   shadow: 0.3,
   cornerScale: 0.6,
@@ -86,16 +86,13 @@ const KitLook _hyprpanel = KitLook(
   dock: <String, Object?>{'radius': 12, 'indicator': 'line', 'magnify': false},
 );
 
-/// After Ax-Shell's default: solid dark pills coloured from the wallpaper,
+/// After Ax-Shell's default: solid pills coloured from the wallpaper,
 /// round corners, panels that slide out with an overshoot.
-///
-/// Not reproduced: its vertical bar option and the screen's rounded
-/// corners; the notch is this shell's island.
 const KitLook _axShell = KitLook(
   id: 'axshell',
   label: 'Ax-Shell style',
   palette: KitPalette.graphite,
-  appearance: KitAppearance.dark,
+  scaleCorners: false,
   opaque: true,
   shadow: 0.5,
   cornerScale: 1.15,
@@ -112,14 +109,12 @@ const KitLook _axShell = KitLook(
 /// After KDE Plasma's default panel: Breeze greys and blue, translucent
 /// and blurred, small corners, a hairline around every surface, panels
 /// that slide out of the panel.
-///
-/// Not reproduced: Plasma's task buttons with window titles and its own
-/// icon theme.
 const KitLook _plasma = KitLook(
   id: 'plasma',
   label: 'Plasma style',
   palette: KitPalette.breeze,
   accentSource: KitAccentSource.palette,
+  scaleCorners: false,
   shadow: 0.7,
   cornerScale: 0.45,
   accentMenuRows: true,
@@ -137,17 +132,14 @@ const KitLook _plasma = KitLook(
   },
 );
 
-/// After GNOME Shell's default: Adwaita, always dark, solid rounded
-/// popovers that scale in, a rounded dash.
-///
-/// Not reproduced: the dash living in the overview only, and the
-/// quick-settings pills.
+/// After GNOME Shell's default: Adwaita, following system light/dark, solid
+/// rounded popovers that scale in, a rounded dash.
 const KitLook _gnome = KitLook(
   id: 'gnome',
   label: 'GNOME style',
   palette: KitPalette.adwaita,
   accentSource: KitAccentSource.palette,
-  appearance: KitAppearance.dark,
+  scaleCorners: false,
   opaque: true,
   shadow: 0.6,
   cornerScale: 0.95,
@@ -165,14 +157,12 @@ const KitLook _gnome = KitLook(
 /// After the Windows 11 taskbar: Fluent greys and blue, translucent and
 /// blurred, 8 px corners, a hairline, flyouts that slide up, a short
 /// underline under a running application.
-///
-/// Not reproduced: Mica's wallpaper tint, the Start menu and the
-/// taskbar's centred search box.
 const KitLook _windows = KitLook(
   id: 'windows',
   label: 'Windows 11 style',
   palette: KitPalette.fluent,
   accentSource: KitAccentSource.palette,
+  scaleCorners: false,
   shadow: 0.8,
   cornerScale: 0.55,
   panelGrow: KitSpringTuning(600, 1),
@@ -192,13 +182,12 @@ const KitLook _windows = KitLook(
 
 /// After COSMIC's default: a flat charcoal with a teal accent, solid, the
 /// "slightly round" corners, little shadow, panels that fade in.
-///
-/// Not reproduced: its applets' own popup arrows and its tiling hints.
 const KitLook _cosmic = KitLook(
   id: 'cosmic',
   label: 'COSMIC style',
   palette: KitPalette.slate,
   accentSource: KitAccentSource.palette,
+  scaleCorners: false,
   opaque: true,
   shadow: 0.4,
   cornerScale: 0.55,
@@ -217,6 +206,7 @@ const KitLook _cutefish = KitLook(
   label: 'Cutefish style',
   palette: KitPalette.cutefish,
   accentSource: KitAccentSource.palette,
+  scaleCorners: false,
   shadow: 0.75,
   cornerScale: 0.85,
   accentMenuRows: true,

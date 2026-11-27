@@ -484,6 +484,7 @@ const Map<String, String> zh = <String, String>{
   'Windows 11 style': 'Windows 11 风格',
   'COSMIC style': 'COSMIC 风格',
   'Cutefish style': 'Cutefish 风格',
+  'Omarchy style': 'Omarchy 风格',
   'Collection style': '收纳方式',
   'Arrow': '箭头',
   'Hover': '悬停',

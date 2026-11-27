@@ -114,7 +114,7 @@ void main() {
 
   // Any change afterwards shows.
   bool modified(BarSettings settings) =>
-      !ShellPreset.omarchy.matches(look: 'terminal', bar: settings.layoutJson());
+      !ShellPreset.omarchy.matches(look: 'omarchy', bar: settings.layoutJson());
   _expect(!modified(omarchy), 'fresh');
   _expect(!modified(omarchy.copyWith(showWifi: false)), 'own settings do not');
   _expect(modified(omarchy.copyWith(partGap: 9)), 'a measure does');

@@ -35,6 +35,7 @@ class ShellPreset {
     required this.bar,
     this.dock = _dock,
     this.barMode = 'shown',
+    this.dockVisible,
     this.group = ShellPresetGroup.builtin,
   });
 
@@ -53,6 +54,10 @@ class ShellPreset {
 
   /// How much of itself the bar draws: `shown`, `islandOnly` or `hidden`.
   final String barMode;
+
+  /// Whether applying this preset enables (`true`) or hides (`false`) the
+  /// dock, or leaves the user's dock switch untouched (`null`).
+  final bool? dockVisible;
 
   /// The dock as it has always been: a floating capsule with the launcher
   /// before the applications and the stacks and the trash after them.
@@ -104,6 +109,7 @@ class ShellPreset {
     label: 'macOS',
     look: 'mac',
     bar: _bar,
+    dockVisible: true,
   );
 
   /// A solid strip from edge to edge in fixed-width type: numbered
@@ -111,7 +117,8 @@ class ShellPreset {
   static final ShellPreset omarchy = ShellPreset(
     id: 'omarchy',
     label: 'Omarchy',
-    look: 'terminal',
+    look: 'omarchy',
+    dockVisible: true,
     bar: _barWith(const <String, Object?>{
       'ground': 'plate',
       'groundOpacity': 1,
@@ -180,6 +187,7 @@ class ShellPreset {
     look: 'soft',
     bar: _bar,
     barMode: 'hidden',
+    dockVisible: true,
     dock: <String, Object?>{
       'leading': <String>['dock.launcher', 'workspaces'],
       'trailing': <String>['status.tray', 'status', 'clock'],
@@ -197,6 +205,7 @@ class ShellPreset {
     look: 'mac',
     bar: _bar,
     barMode: 'islandOnly',
+    dockVisible: true,
     dock: <String, Object?>{
       'leading': <String>['clock', 'dock.divider', 'dock.launcher'],
       'trailing': <String>[
@@ -217,6 +226,7 @@ class ShellPreset {
     Map<String, Object?> bar = const <String, Object?>{},
     Map<String, Object?> dock = _dock,
     String barMode = 'shown',
+    bool? dockVisible = true,
   }) => ShellPreset(
     id: id,
     label: label,
@@ -224,6 +234,7 @@ class ShellPreset {
     bar: _barWith(bar),
     dock: dock,
     barMode: barMode,
+    dockVisible: dockVisible,
     group: ShellPresetGroup.reference,
   );
 
@@ -528,6 +539,7 @@ class ShellPreset {
     'label': label,
     'look': look,
     'barMode': barMode,
+    'dockVisible': ?dockVisible,
     'bar': bar,
     'dock': dock,
   };
@@ -542,6 +554,7 @@ class ShellPreset {
     final label = json['label'];
     final look = json['look'];
     final mode = json['barMode'];
+    final dockShown = json['dockVisible'];
     final name = label is String ? label.trim() : '';
     return ShellPreset(
       id: id ?? (ownId is String && ownId.isNotEmpty ? ownId : 'preset'),
@@ -552,6 +565,7 @@ class ShellPreset {
           : name,
       look: look is String && look.isNotEmpty ? look : 'denial',
       barMode: barModes.contains(mode) ? mode as String : 'shown',
+      dockVisible: dockShown is bool ? dockShown : null,
       bar: Map<String, Object?>.unmodifiable(
         _sound(_bar, json['bar'], ranges: _barRanges),
       ),
@@ -584,6 +598,7 @@ class ShellPreset {
         bar: bar,
         dock: dock,
         barMode: barMode,
+        dockVisible: dockVisible,
         group: group,
       );
 
@@ -598,10 +613,14 @@ class ShellPreset {
     required Map<String, Object?> bar,
     Map<String, Object?>? dock,
     String? barMode,
+    bool? dockVisible,
   }) =>
       look == this.look &&
       this.bar.entries.every((entry) => _same(entry.value, bar[entry.key])) &&
       (barMode == null || barMode == this.barMode) &&
+      (dockVisible == null ||
+          this.dockVisible == null ||
+          dockVisible == this.dockVisible) &&
       (dock == null ||
           this.dock.entries.every(
             (entry) => _same(entry.value, dock[entry.key]),
@@ -628,10 +647,12 @@ class ShellPreset {
     required String barMode,
     required Map<String, Object?> bar,
     Map<String, Object?>? dock,
+    bool? dockVisible,
     Object? before,
   }) => <String, Object?>{
     'look': look,
     'barMode': barMode,
+    'dockVisible': ?dockVisible,
     'bar': <String, Object?>{
       for (final key in this.bar.keys) key: bar[key],
     },
@@ -648,7 +669,13 @@ class ShellPreset {
   /// ships with, key by key, so a memory written by an older build that
   /// lacks a key, or holds one of the wrong kind, still gives a whole
   /// preset. Null or anything that is no map gives the preset as shipped.
-  ({String look, String barMode, Map<String, Object?> bar, Map<String, Object?> dock})
+  ({
+    String look,
+    String barMode,
+    bool? dockVisible,
+    Map<String, Object?> bar,
+    Map<String, Object?> dock,
+  })
   recall(Object? memory) {
     Map<String, Object?> over(Map<String, Object?> base, Object? saved) =>
         <String, Object?>{
@@ -663,9 +690,11 @@ class ShellPreset {
     final map = memory is Map ? memory : const <Object?, Object?>{};
     final look = map['look'];
     final mode = map['barMode'];
+    final dockShown = map['dockVisible'];
     return (
       look: look is String ? look : this.look,
       barMode: mode is String ? mode : barMode,
+      dockVisible: dockShown is bool ? dockShown : dockVisible,
       bar: over(bar, map['bar']),
       dock: over(dock, map['dock']),
     );
