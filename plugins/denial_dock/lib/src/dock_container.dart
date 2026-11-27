@@ -2361,6 +2361,7 @@ class _DockContainerState extends ConsumerState<DockContainer>
         blurScale: look.blurSigma == null ? look.blur : 1,
         separate: true,
         fade: fade,
+        tier: KitTier.dock,
       ),
     );
     if (look.shadow <= 0) return plate;

@@ -19,6 +19,7 @@ export 'kit_look.dart'
         KitLook,
         KitPanelEntry;
 export 'kit_look_motion.dart' show KitLookMotion, KitSpringTuning;
+export 'kit_material.dart' show KitSurfaceMode;
 export 'kit_store.dart' show resolveKitScale;
 
 /// One look for the dock and the top bar: where colour, type and corners come
@@ -85,8 +86,12 @@ class KitStyle {
   /// Whether that line takes the accent, or stays a hairline.
   bool get borderFromAccent => look.borderTone == KitBorderTone.accent;
 
+  /// Effective surface material mode (user override wins over look default).
+  KitSurfaceMode get surfaceMode =>
+      kitSurfaceMode.value ?? look.effectiveSurfaceMode;
+
   /// Whether panels are filled solid, which also leaves nothing to blur.
-  bool get opaque => look.opaque;
+  bool get opaque => surfaceMode == KitSurfaceMode.solid;
 
   /// How much of the usual shadow a panel casts, 0 to 1.
   double get shadow => look.shadow;
@@ -171,6 +176,7 @@ class KitStyle {
 
   static ShellThemeData? _themedFrom;
   static KitLook? _themedLook;
+  static KitSurfaceMode? _themedMode;
   static ShellThemeData? _themed;
 
   /// [theme] as this look colours it: the palette's tones in place of the
@@ -181,7 +187,10 @@ class KitStyle {
     if (look.palette == null && look.appearance == KitAppearance.system) {
       return theme;
     }
-    if (identical(theme, _themedFrom) && identical(look, _themedLook)) {
+    final activeMode = surfaceMode;
+    if (identical(theme, _themedFrom) &&
+        identical(look, _themedLook) &&
+        activeMode == _themedMode) {
       return _themed!;
     }
     final dark = this.dark(theme);
@@ -192,27 +201,23 @@ class KitStyle {
         : ShellColorScheme.light;
     final tones = this.tones(theme);
     final own = tones == null ? null : _own(theme);
-    // Under the shell's glass every panel takes the glass's own backing and
-    // ignores the colour it is asked for, so a palette would colour the text
-    // and leave the surface white or black behind it. A look with a palette
-    // therefore draws its panels itself: solid where it is opaque, blurred
-    // and tinted where it is not. A look that only insists on an appearance
-    // keeps the glass and turns it the same way.
     final glass = theme.transparencyMode == ShellTransparencyMode.glass;
+    final solidSurface = activeMode == KitSurfaceMode.solid;
+    final keepGlass = activeMode == KitSurfaceMode.liquidGlass;
     final next = theme.copyWith(
       colors: tones == null ? base : _scheme(tones, base),
       accent: own,
-      transparencyMode: !glass || tones == null
+      transparencyMode: !glass || tones == null || keepGlass
           ? null
-          : look.opaque
+          : solidSurface
           ? ShellTransparencyMode.off
           : ShellTransparencyMode.blur,
-      panelOpacity: !glass || tones == null
+      panelOpacity: !glass || tones == null || keepGlass
           ? null
-          : look.opaque
+          : solidSurface
           ? 1
           : theme.glass.opacity.clamp(0.72, 1.0).toDouble(),
-      cardOpacity: glass && tones != null && look.opaque ? 1 : null,
+      cardOpacity: glass && tones != null && solidSurface ? 1 : null,
       glass: theme.glass.copyWith(
         appearance: dark
             ? ShellGlassAppearance.dark
@@ -221,6 +226,7 @@ class KitStyle {
     );
     _themedFrom = theme;
     _themedLook = look;
+    _themedMode = activeMode;
     return _themed = next;
   }
 
@@ -623,6 +629,23 @@ class KitSaturateNotifier extends ValueNotifier<bool> {
 /// Whether the dock shows at all. The dock reads it when the shell places
 /// its surfaces, so a change rebuilds everything to have them placed again.
 final KitDockNotifier kitDockEnabled = KitDockNotifier._();
+
+/// Optional user surface material override (`null` follows the active look's
+/// default [KitLook.effectiveSurfaceMode]).
+final KitSurfaceModeNotifier kitSurfaceMode = KitSurfaceModeNotifier._();
+
+class KitSurfaceModeNotifier extends ValueNotifier<KitSurfaceMode?> {
+  KitSurfaceModeNotifier._()
+    : super(KitSurfaceMode.tryParse(kitStore.read()['surfaceMode']));
+
+  @override
+  set value(KitSurfaceMode? next) {
+    if (super.value == next) return;
+    super.value = next;
+    _rebuildEverything();
+    kitStore.put('surfaceMode', next?.name);
+  }
+}
 
 /// Optional shell UI scale override (`null` follows the system display scale).
 final KitShellScaleNotifier kitShellScale = KitShellScaleNotifier._();

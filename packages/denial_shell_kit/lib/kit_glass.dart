@@ -79,6 +79,8 @@ class KitGlass extends StatelessWidget {
     this.grouped = false,
     this.fade,
     this.separate,
+    this.tier = KitTier.popover,
+    this.surfaceMode,
     super.key,
   });
 
@@ -117,7 +119,53 @@ class KitGlass extends StatelessWidget {
   /// fading one carries them through the fade inside it.
   final bool? separate;
 
-  /// The filter for a blur the kit carries out itself.
+  /// Surface tier used to scale [KitSurfaceMode.liquidGlass] thickness/blur.
+  final KitTier tier;
+
+  /// Optional per-surface override; null reads the active [KitStyle.surfaceMode].
+  final KitSurfaceMode? surfaceMode;
+
+  /// The filter for a Liquid Glass surface driven by Denial's `theme.glass`,
+  /// mirroring SDK `_glassConfig` so system refraction/thickness/lighting/quality
+  /// changes take effect live with zero Stagecraft fallbacks.
+  static ImageFilterConfig liquidGlassFilterFor(
+    ShellThemeData theme, {
+    required double sigma,
+    required double cornerRadius,
+    double strength = 1.0,
+  }) {
+    final g = theme.glass;
+    final s = strength.clamp(0.0, 1.0).toDouble();
+    final corner = cornerRadius > 0
+        ? Radius.circular(cornerRadius)
+        : Radius.zero;
+    return ImageFilterConfig.glass(
+      sigmaX: sigma,
+      sigmaY: sigma,
+      topLeft: corner,
+      topRight: corner,
+      bottomRight: corner,
+      bottomLeft: corner,
+      downsampleScale: g.quality,
+      thickness: g.thickness,
+      refraction: g.refraction * s,
+      dispersion: g.dispersion,
+      saturation: kitSaturate.value ? 1 + (g.saturation - 1) * s : 1,
+      tint: theme.kitAccent,
+      tintStrength: g.tintStrength * s,
+      brightness: g.brightness * s,
+      lightAngle: g.lightAngle * math.pi / 180,
+      lightIntensity: g.lightIntensity * s,
+      edgeStrength: g.edgeStrength * s,
+      bevelWidthScale: g.bevelWidthScale,
+      refractionDepthScale: g.refractionDepthScale,
+      rimWidth: g.rimWidth,
+      rimFalloff: g.rimFalloff,
+      oppositeLightStrength: g.oppositeLightStrength,
+    );
+  }
+
+  /// The filter for a blur or measured glass the kit carries out itself.
   static ImageFilterConfig filterFor(
     ShellThemeData theme, {
     required double sigma,
@@ -169,22 +217,41 @@ class KitGlass extends StatelessWidget {
     final fade = this.fade;
     final separate = this.separate ?? fade == null;
     final glassMode = theme.transparencyMode == ShellTransparencyMode.glass;
+    final requestedMode = surfaceMode ?? style.surfaceMode;
+    final systemEnabled =
+        theme.backdropBlurEnabled &&
+        theme.transparencyMode != ShellTransparencyMode.off;
     final plan = KitBlurMath.plan(
       material,
-      enabled: theme.backdropBlurEnabled,
+      enabled: systemEnabled,
       glass: glassMode,
-      base: glassMode ? theme.glass.blurSigma : theme.backdropBlurSigma,
+      base: requestedMode == KitSurfaceMode.liquidGlass || glassMode
+          ? theme.glass.blurSigma
+          : theme.backdropBlurSigma,
       scale: blurScale,
+      mode: requestedMode,
+      tier: tier,
     );
     var tone = fill;
     if (tone == null) {
       tone = kitToneColor(material.fill, theme, style);
       if (tone.a < minOpacity) tone = tone.withValues(alpha: minOpacity);
     }
-    // A look with solid panels never blurs, whatever fill a caller passes.
-    final filtered = blur && plan.blurs && tone.a < 1 && style.glassy;
-    // A fill measured over a blurred backdrop is too thin over a sharp one.
-    if (!filtered &&
+    // Under liquidGlass, keep a clean translucent tint that never washes out
+    // text on busy wallpapers while letting Denial's glass shader shine through.
+    if (plan.mode == KitSurfaceMode.liquidGlass && blur) {
+      final cap = math.max(minOpacity, tier == KitTier.dock ? 0.24 : 0.48);
+      if (tone.a > cap && minOpacity < 0.85) {
+        tone = tone.withValues(alpha: cap);
+      }
+    }
+    final filtered =
+        blur && plan.blurs && tone.a < 1 && plan.mode != KitSurfaceMode.solid;
+    // Solid mode is fully opaque so sharp text behind the surface never bleeds
+    // through; a moving/unblurred glass surface still raises fill to solid floor.
+    if (plan.mode == KitSurfaceMode.solid) {
+      tone = tone.withValues(alpha: 1);
+    } else if (!filtered &&
         (!blur || (fill == null && material.fill.fixed)) &&
         tone.a < material.solid) {
       tone = tone.withValues(alpha: material.solid);
@@ -202,7 +269,23 @@ class KitGlass extends StatelessWidget {
           offset: Offset(0, cast.dy * lift),
         ),
     ];
-    final outer = _lineOf(material.outer, theme, style);
+    // Liquid Glass draws its own refractive specular rim in the shader, so
+    // suppress custom outer/inner lines to prevent double strokes. Pure blur
+    // replaces specular glow lines with a crisp hairline.
+    final suppressRims = filtered && plan.mode == KitSurfaceMode.liquidGlass;
+    final pureBlur = filtered && plan.mode == KitSurfaceMode.blur;
+    final outer = suppressRims || pureBlur
+        ? null
+        : _lineOf(material.outer, theme, style);
+    final inner = suppressRims
+        ? null
+        : pureBlur
+        ? _lineOf(
+            const KitLine(KitTone.of(KitRole.hairline), width: 1),
+            theme,
+            style,
+          )
+        : _lineOf(material.inner, theme, style);
     Widget under = DecoratedBox(
       decoration: ShapeDecoration(
         shape: material.continuous
@@ -229,7 +312,7 @@ class KitGlass extends StatelessWidget {
         radius: radius,
         continuous: material.continuous,
         fill: tone,
-        line: _lineOf(material.inner, theme, style),
+        line: inner,
       ),
       child: child ?? const SizedBox.expand(),
     );
@@ -237,15 +320,28 @@ class KitGlass extends StatelessWidget {
     Widget plate;
     if (filtered && plan.direct) {
       final effectiveScale = KitScaleScope.effectiveOf(context);
-      final sigma = material.sigma != null && effectiveScale > 1e-3
+      final sigma = plan.mode == KitSurfaceMode.glass &&
+              material.sigma != null &&
+              effectiveScale > 1e-3
           ? plan.sigma / effectiveScale
           : plan.sigma;
-      final config = filterFor(
-        theme,
-        sigma: sigma,
-        saturation: material.saturation,
-        cornerRadius: radius,
-      );
+      final ImageFilterConfig config;
+      if (plan.mode == KitSurfaceMode.liquidGlass) {
+        config = liquidGlassFilterFor(
+          theme,
+          sigma: sigma,
+          cornerRadius: radius,
+          strength: plan.strength,
+        );
+      } else {
+        config = filterFor(
+          theme,
+          sigma: sigma,
+          saturation:
+              plan.mode == KitSurfaceMode.blur ? 1.0 : material.saturation,
+          cornerRadius: radius,
+        );
+      }
       // Laid out as the shell's own backdrop is: a steady one replaces what
       // is behind it, a fading one blends over it.
       final inside = separate ? const SizedBox.expand() : surface;

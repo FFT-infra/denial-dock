@@ -67,7 +67,7 @@ class IslandSkin {
     final Color ink;
     final Color edge;
     final double edgeWidth;
-    if (style.opaque) {
+    if (style.look.opaque) {
       // A panel of this look, as its table of materials fills and lines it.
       final panel = style.materials.tier(KitTier.popover).of(dark: dark);
       fill = kitToneColor(panel.fill, theme, style).withValues(alpha: 1);

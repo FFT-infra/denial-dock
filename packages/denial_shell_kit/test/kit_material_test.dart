@@ -220,4 +220,76 @@ void main() {
         bare.saturation == 2.0,
     'copyWith',
   );
+
+  // Five-mode surface material resolution.
+  final sysPlan = KitBlurMath.plan(
+    mac.popover.dark,
+    enabled: true,
+    glass: true,
+    base: 10,
+    mode: KitSurfaceMode.system,
+  );
+  _expect(
+    !sysPlan.direct && sysPlan.mode == KitSurfaceMode.system && sysPlan.blurs,
+    'system mode delegates to ShellBackdropBlur even for sigma materials',
+  );
+  final lgDock = KitBlurMath.plan(
+    mac.dock.dark,
+    enabled: true,
+    glass: true,
+    base: 10,
+    mode: KitSurfaceMode.liquidGlass,
+    tier: KitTier.dock,
+  );
+  final lgPop = KitBlurMath.plan(
+    mac.popover.dark,
+    enabled: true,
+    glass: true,
+    base: 10,
+    mode: KitSurfaceMode.liquidGlass,
+    tier: KitTier.popover,
+  );
+  _expect(
+    lgDock.direct &&
+        lgDock.mode == KitSurfaceMode.liquidGlass &&
+        lgDock.blurs &&
+        lgDock.sigma < lgPop.sigma &&
+        lgDock.strength < lgPop.strength,
+    'liquidGlass scales blur and refraction strength by tier',
+  );
+  final blurPlan = KitBlurMath.plan(
+    shell,
+    enabled: true,
+    glass: false,
+    base: 12,
+    mode: KitSurfaceMode.blur,
+  );
+  _expect(
+    blurPlan.direct &&
+        blurPlan.mode == KitSurfaceMode.blur &&
+        blurPlan.sigma == 12,
+    'pure blur mode builds direct blur filter',
+  );
+  final solidPlan = KitBlurMath.plan(
+    mac.popover.dark,
+    enabled: true,
+    glass: true,
+    base: 10,
+    mode: KitSurfaceMode.solid,
+  );
+  _expect(
+    !solidPlan.blurs && solidPlan.mode == KitSurfaceMode.solid,
+    'solid mode builds no filter',
+  );
+  final sysOffLg = KitBlurMath.plan(
+    mac.popover.dark,
+    enabled: false,
+    glass: true,
+    base: 10,
+    mode: KitSurfaceMode.liquidGlass,
+  );
+  _expect(
+    !sysOffLg.blurs && sysOffLg.mode == KitSurfaceMode.solid,
+    'system transparency off forces solid even under liquidGlass',
+  );
 }

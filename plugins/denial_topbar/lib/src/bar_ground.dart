@@ -1,6 +1,8 @@
 import 'package:denial_flutter_sdk/effects.dart';
 import 'package:denial_flutter_sdk/models.dart' show PanelEdge;
 import 'package:denial_flutter_sdk/theme.dart';
+import 'package:denial_shell_kit/kit_glass.dart';
+import 'package:denial_shell_kit/kit_material.dart';
 import 'package:denial_shell_kit/kit_style.dart';
 import 'package:flutter/widgets.dart';
 
@@ -97,13 +99,71 @@ class BarGroundLayer extends StatelessWidget {
         : baseFor(backdrop, settings, theme),
   );
 
+  Widget _wrapGlass(
+    BuildContext context, {
+    required Widget child,
+    BorderRadius? borderRadius,
+  }) {
+    final theme = context.shellTheme;
+    final style = KitStyle.of(context);
+    final mode = style.surfaceMode;
+    final sysEnabled =
+        theme.backdropBlurEnabled &&
+        theme.transparencyMode != ShellTransparencyMode.off;
+    if (!sysEnabled || mode == KitSurfaceMode.solid) return child;
+    final radius = borderRadius?.topLeft.x ?? 0.0;
+    if (mode == KitSurfaceMode.system) {
+      return ShellBackdropBlur(
+        borderRadius: borderRadius,
+        blendMode: BlendMode.srcOver,
+        child: child,
+      );
+    }
+    final sigma = mode == KitSurfaceMode.liquidGlass
+        ? (theme.glass.blurSigma > 0 ? theme.glass.blurSigma : 10.0) * 0.55
+        : (theme.backdropBlurSigma > 0 ? theme.backdropBlurSigma : 10.0);
+    final config = switch (mode) {
+      KitSurfaceMode.liquidGlass => KitGlass.liquidGlassFilterFor(
+        theme,
+        sigma: sigma,
+        cornerRadius: radius,
+        strength: 0.72,
+      ),
+      KitSurfaceMode.blur => KitGlass.filterFor(
+        theme,
+        sigma: sigma,
+        saturation: 1,
+        cornerRadius: radius,
+      ),
+      _ => KitGlass.filterFor(
+        theme,
+        sigma: sigma,
+        saturation: 1.5,
+        cornerRadius: radius,
+      ),
+    };
+    final blurWidget = BackdropFilter(
+      filterConfig: config,
+      blendMode: BlendMode.srcOver,
+      child: child,
+    );
+    return borderRadius != null && borderRadius != BorderRadius.zero
+        ? ClipRRect(borderRadius: borderRadius, child: blurWidget)
+        : ClipRect(child: blurWidget);
+  }
+
   @override
   Widget build(BuildContext context) {
     final ground = settings.ground;
     if (ground == BarGround.none) return child;
     final theme = context.shellTheme;
+    final style = KitStyle.of(context);
     final base = fill ?? baseFor(backdrop, settings, theme);
-    final colour = base.withValues(alpha: settings.groundOpacity);
+    final effectiveOpacity =
+        ground == BarGround.glass && style.surfaceMode == KitSurfaceMode.solid
+        ? 1.0
+        : settings.groundOpacity;
+    final colour = base.withValues(alpha: effectiveOpacity);
     final dark = isDark(base);
     final line = settings.borderColour == BarBorderColour.accent
         ? theme.kitAccent
@@ -125,7 +185,7 @@ class BarGroundLayer extends StatelessWidget {
       if (ground != BarGround.glass) return plate;
       return ClipPath(
         clipper: _SegmentClipper(edges),
-        child: ShellBackdropBlur(blendMode: BlendMode.srcOver, child: plate),
+        child: _wrapGlass(context, child: plate),
       );
     }
 
@@ -141,11 +201,7 @@ class BarGroundLayer extends StatelessWidget {
     );
     final Widget backed = ground != BarGround.glass
         ? plate
-        : ShellBackdropBlur(
-            borderRadius: borderRadius,
-            blendMode: BlendMode.srcOver,
-            child: plate,
-          );
+        : _wrapGlass(context, borderRadius: borderRadius, child: plate);
     if (!concaveEdge) return backed;
     const ear = 12.0;
     final Positioned ears = switch (side) {

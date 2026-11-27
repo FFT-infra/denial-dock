@@ -72,6 +72,7 @@ class GlassCard extends StatelessWidget {
       blurScale: blurStrength,
       grouped: grouped,
       fade: fade,
+      tier: tier,
       child: child,
     );
   }

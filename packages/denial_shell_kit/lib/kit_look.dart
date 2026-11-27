@@ -358,6 +358,7 @@ class KitLook {
     this.borderWidth = 1,
     this.borderTone = KitBorderTone.hairline,
     this.opaque = false,
+    this.surfaceMode,
     this.shadow = 1,
     this.materials = KitMaterials.shell,
     this.liquid = false,
@@ -383,6 +384,7 @@ class KitLook {
   static const KitLook denial = KitLook(
     id: 'denial',
     label: 'Denial',
+    surfaceMode: KitSurfaceMode.system,
     liquid: true,
     panelGrow: KitSpringTuning(230, 0.6),
     panelShrink: KitSpringTuning(420, 1),
@@ -391,8 +393,9 @@ class KitLook {
     pressTuning: KitSpringTuning(520, 0.42),
   );
 
-  /// macOS: the system blue, Inter, fixed corners, and a short settle with
-  /// no overshoot.
+  /// macOS: the system blue, Inter, fixed corners, Liquid Glass by default
+  /// (switchable to frosted glass or blur), and a short settle with no
+  /// overshoot.
   static const KitLook mac = KitLook(
     id: 'mac',
     label: 'macOS',
@@ -401,6 +404,7 @@ class KitLook {
     fontFamily: 'Inter',
     fontPackage: 'denial_topbar',
     scaleCorners: false,
+    surfaceMode: KitSurfaceMode.liquidGlass,
     panelGrow: KitSpringTuning(620, 1),
     panelShrink: KitSpringTuning(900, 1),
     beadWidth: 0.96,
@@ -586,6 +590,14 @@ class KitLook {
   /// Whether panels are filled solid, which also leaves nothing to blur.
   final bool opaque;
 
+  /// Default surface material pipeline for this look (null derives from
+  /// [opaque]).
+  final KitSurfaceMode? surfaceMode;
+
+  /// Effective default surface mode for this look before user overrides.
+  KitSurfaceMode get effectiveSurfaceMode =>
+      surfaceMode ?? (opaque ? KitSurfaceMode.solid : KitSurfaceMode.system);
+
   /// How much of the usual shadow a panel casts, 0 to 1.
   final double shadow;
 
@@ -671,6 +683,7 @@ class KitLook {
       'tone': borderTone.name,
     },
     'opaque': opaque,
+    'surfaceMode': effectiveSurfaceMode.name,
     'shadow': shadow,
     'materials': KitMaterialJson.table(materials),
     'motion': <String, Object?>{
@@ -718,6 +731,17 @@ class KitLook {
     final menuRows = json['accentMenuRows'];
     final follow = corners['followShell'];
     final opaque = json['opaque'];
+    final glassy = json['glassy'];
+    final parsedMode = KitSurfaceMode.tryParse(json['surfaceMode']);
+    final resolvedOpaque = opaque is bool
+        ? opaque
+        : (glassy is bool ? !glassy : base.opaque);
+    final resolvedSurfaceMode = parsedMode ??
+        (glassy == false || opaque == true
+            ? KitSurfaceMode.solid
+            : (opaque == false && base.effectiveSurfaceMode == KitSurfaceMode.solid
+                ? KitSurfaceMode.system
+                : base.surfaceMode));
     final liquid = motion['liquid'];
 
     String? text(Map<dynamic, dynamic> map, String key, String? fallback) {
@@ -763,7 +787,8 @@ class KitLook {
         KitBorderTone.values,
         base.borderTone,
       ),
-      opaque: opaque is bool ? opaque : base.opaque,
+      opaque: resolvedOpaque,
+      surfaceMode: resolvedSurfaceMode,
       shadow: _number(json['shadow'], 0, 1, base.shadow),
       materials: KitMaterialJson.parseTable(json['materials'], base.materials),
       liquid: liquid is bool ? liquid : base.liquid,

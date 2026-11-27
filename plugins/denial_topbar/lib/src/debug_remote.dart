@@ -31,6 +31,11 @@ void startDebugRemote() {
           ? null
           : double.tryParse(words[1]);
       return;
+    } else if (words.length > 1 && words.first == 'surface') {
+      kitSurfaceMode.value = words[1] == 'auto'
+          ? null
+          : KitSurfaceMode.tryParse(words[1]);
+      return;
     }
     debugCommand.value = '${words.join(' ')} #${count++}';
   });

@@ -11,6 +11,7 @@
 library;
 
 import 'kit_look.dart';
+import 'kit_material.dart';
 import 'kit_palette.dart';
 
 /// After Noctalia's default: solid, softly rounded surfaces in a deep
@@ -126,6 +127,7 @@ const KitLook _plasma = KitLook(
   palette: KitPalette.breeze,
   accentSource: KitAccentSource.palette,
   scaleCorners: false,
+  surfaceMode: KitSurfaceMode.blur,
   shadow: 0.7,
   cornerScale: 0.45,
   accentMenuRows: true,
@@ -176,6 +178,7 @@ const KitLook _windows = KitLook(
   palette: KitPalette.fluent,
   accentSource: KitAccentSource.palette,
   scaleCorners: false,
+  surfaceMode: KitSurfaceMode.blur,
   shadow: 0.8,
   cornerScale: 0.55,
   panelGrow: KitSpringTuning(600, 1),
@@ -228,6 +231,7 @@ const KitLook _cutefish = KitLook(
   palette: KitPalette.cutefish,
   accentSource: KitAccentSource.palette,
   scaleCorners: false,
+  surfaceMode: KitSurfaceMode.glass,
   shadow: 0.75,
   cornerScale: 0.85,
   accentMenuRows: true,

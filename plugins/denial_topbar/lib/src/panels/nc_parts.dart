@@ -503,16 +503,30 @@ class NcPlate extends StatelessWidget {
         ? kitToneColor(material.fill, theme, style)
         : style.panelFill(GlassCard.fillOf(theme));
     final fill = framed ? NcLook.framedFill(theme, panel) : panel;
-    final solid = fill.a < material.solid
-        ? fill.withValues(alpha: material.solid)
-        : fill;
     final glassMode = theme.transparencyMode == ShellTransparencyMode.glass;
+    final requestedMode = style.surfaceMode;
+    final systemEnabled =
+        theme.backdropBlurEnabled &&
+        theme.transparencyMode != ShellTransparencyMode.off;
     final plan = KitBlurMath.plan(
       material,
-      enabled: theme.backdropBlurEnabled,
+      enabled: systemEnabled,
       glass: glassMode,
-      base: glassMode ? theme.glass.blurSigma : theme.backdropBlurSigma,
+      base: requestedMode == KitSurfaceMode.liquidGlass || glassMode
+          ? theme.glass.blurSigma
+          : theme.backdropBlurSigma,
+      mode: requestedMode,
+      tier: KitTier.card,
     );
+    final solid = plan.mode == KitSurfaceMode.solid
+        ? fill.withValues(alpha: 1)
+        : fill.a < material.solid
+        ? fill.withValues(alpha: material.solid)
+        : fill;
+    final blurs =
+        blur && fill.a < 1 && plan.blurs && plan.mode != KitSurfaceMode.solid;
+    final suppressLine =
+        blurs && plan.mode == KitSurfaceMode.liquidGlass && !framed;
     final repaint = Listenable.merge(<Listenable>[unfold, glass]);
     _PlatePainter layer(bool under) => _PlatePainter(
       under: under,
@@ -522,36 +536,56 @@ class NcPlate extends StatelessWidget {
       lift: lift,
       peeks: peeks,
       radius: radius,
-      fill: fill,
+      fill: blurs ? fill : solid,
       solid: solid,
       // On the wallpaper a card is a panel of its own and takes the look's
       // line; in a framed panel the frame has that, and a card a hairline.
       line: framed ? theme.colors.hairline : style.border(theme),
-      lineWidth: framed ? 1 : style.borderWidth,
+      lineWidth: suppressLine
+          ? 0
+          : framed
+          ? 1
+          : style.borderWidth,
       shadow: theme.colors.shadow.withValues(
         alpha: framed ? 0 : NcLook.shadow * style.shadow,
       ),
       ring: ring ? style.accent(theme) : null,
       repaint: repaint,
     );
+    final ImageFilterConfig? directConfig = !blurs || !plan.direct
+        ? null
+        : switch (plan.mode) {
+            KitSurfaceMode.liquidGlass => KitGlass.liquidGlassFilterFor(
+              theme,
+              sigma: plan.sigma,
+              cornerRadius: radius,
+              strength: plan.strength,
+            ),
+            KitSurfaceMode.blur => KitGlass.filterFor(
+              theme,
+              sigma: plan.sigma,
+              saturation: 1,
+              cornerRadius: radius,
+            ),
+            _ => KitGlass.filterFor(
+              theme,
+              sigma: plan.sigma,
+              saturation: material.saturation,
+              cornerRadius: radius,
+            ),
+          };
     return CustomPaint(
       painter: layer(true),
       foregroundPainter: layer(false),
-      child: !blur || fill.a >= 1 || !plan.blurs || !style.glassy
+      child: !blurs
           ? null
-          : plan.direct
-          // A sigma of the material's own, with its saturation.
+          : directConfig != null
           ? FadeTransition(
               opacity: glass,
               child: ClipPath(
                 clipper: _PlateClip(radius),
                 child: BackdropFilter.grouped(
-                  filterConfig: KitGlass.filterFor(
-                    theme,
-                    sigma: plan.sigma,
-                    saturation: material.saturation,
-                    cornerRadius: radius,
-                  ),
+                  filterConfig: directConfig,
                   blendMode: BlendMode.srcOver,
                   child: const SizedBox.expand(),
                 ),

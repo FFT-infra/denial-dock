@@ -247,12 +247,14 @@ class _BarSettingsPanelState extends ConsumerState<BarSettingsPanel> {
     super.initState();
     trayNames.addListener(_namesChanged);
     kitShellScale.addListener(_namesChanged);
+    kitSurfaceMode.addListener(_namesChanged);
   }
 
   @override
   void dispose() {
     trayNames.removeListener(_namesChanged);
     kitShellScale.removeListener(_namesChanged);
+    kitSurfaceMode.removeListener(_namesChanged);
     super.dispose();
   }
 
@@ -379,6 +381,55 @@ class _BarSettingsPanelState extends ConsumerState<BarSettingsPanel> {
                 ),
               ],
             ),
+          ),
+          Builder(
+            builder: (context) {
+              final override = kitSurfaceMode.value;
+              final activeMode = activeStyle.surfaceMode;
+              final sysOff =
+                  theme.transparencyMode == ShellTransparencyMode.off;
+              final note = sysOff
+                  ? context.tr(
+                      'Denial system transparency is off, so all surfaces stay solid.',
+                    )
+                  : context.tr(
+                      'Follow System mirrors Denial; Liquid Glass reads Denial refraction, thickness & quality live. Turning off Denial transparency always falls back to Solid.',
+                    );
+              return _Row(
+                label: context.tr('Surface material'),
+                note: note,
+                trailing: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: <Widget>[
+                    if (override != null)
+                      Padding(
+                        padding: const EdgeInsets.only(right: 8),
+                        child: Pressable(
+                          onTap: () => kitSurfaceMode.value = null,
+                          scale: 0.96,
+                          child: Text(
+                            context.tr('As look'),
+                            style: BarType.caption.copyWith(
+                              color: activeStyle.accent(theme),
+                            ),
+                          ),
+                        ),
+                      ),
+                    _Segments<KitSurfaceMode>(
+                      value: activeMode,
+                      options: <(KitSurfaceMode, String)>[
+                        (KitSurfaceMode.system, context.tr('Follow system')),
+                        (KitSurfaceMode.liquidGlass, context.tr('Liquid Glass')),
+                        (KitSurfaceMode.glass, context.tr('Glass')),
+                        (KitSurfaceMode.blur, context.tr('Blur')),
+                        (KitSurfaceMode.solid, context.tr('Solid')),
+                      ],
+                      onChanged: (mode) => kitSurfaceMode.value = mode,
+                    ),
+                  ],
+                ),
+              );
+            },
           ),
           Builder(
             builder: (context) {

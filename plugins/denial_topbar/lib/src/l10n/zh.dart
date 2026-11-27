@@ -553,4 +553,13 @@ const Map<String, String> zh = <String, String>{
   'Disabled while the island fades under the pointer.':
       '指针悬停淡出开启时不可用。',
   'Auto': '自动',
+  'Surface material': '表面材质',
+  'As look': '随外观',
+  'Liquid Glass': '液态玻璃',
+  'Blur': '单纯模糊',
+  'Solid': '实底',
+  'Denial system transparency is off, so all surfaces stay solid.':
+      'Denial 系统透明总开关已关闭，所有表面保持实底。',
+  'Follow System mirrors Denial; Liquid Glass reads Denial refraction, thickness & quality live. Turning off Denial transparency always falls back to Solid.':
+      '「跟随系统」完全同步 Denial；「液态玻璃」实时读取 Denial 折射、厚度与质量；关闭系统透明总开关时一律回退实底。',
 };

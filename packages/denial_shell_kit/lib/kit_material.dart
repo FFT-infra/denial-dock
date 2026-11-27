@@ -7,8 +7,46 @@
 /// Dart test. `kit_glass.dart` turns a material into paint.
 library;
 
+/// Which material rendering pipeline draws a surface's backdrop and rims.
+///
+/// Named [KitSurfaceMode] (avoiding collision with [KitLook.liquid] motion).
+enum KitSurfaceMode {
+  /// Follow Denial's system transparency mode (`ShellBackdropBlur`) & opacity.
+  system,
+
+  /// Liquid Glass via `ImageFilterConfig.glass`, reading refraction, thickness,
+  /// lighting, and quality live from Denial's `theme.glass` scaled by [KitTier].
+  liquidGlass,
+
+  /// Measured frosted glass: fixed sigma + Rec.709 saturation + specular rims.
+  glass,
+
+  /// Pure Gaussian blur (`ImageFilterConfig.blur`, saturation 1.0) + hairline.
+  blur,
+
+  /// Solid opaque surface with no backdrop filter.
+  solid;
+
+  static KitSurfaceMode? tryParse(Object? value) {
+    if (value is! String) return null;
+    for (final mode in values) {
+      if (mode.name == value) return mode;
+    }
+    return null;
+  }
+}
+
 /// What a surface is for. Each has its own material in every look.
 enum KitTier { dock, popover, menu, card }
+
+/// Per-tier blur & refraction multipliers when rendering [KitSurfaceMode.liquidGlass].
+({double blurScale, double glassStrength}) kitLiquidGlassTierScale(KitTier tier) =>
+    switch (tier) {
+      KitTier.dock => (blurScale: 0.42, glassStrength: 0.78),
+      KitTier.popover => (blurScale: 0.95, glassStrength: 0.95),
+      KitTier.menu => (blurScale: 1.0, glassStrength: 0.90),
+      KitTier.card => (blurScale: 0.90, glassStrength: 0.92),
+    };
 
 /// A colour the theme or the look decides when the material is drawn.
 enum KitRole {
@@ -412,6 +450,7 @@ class KitBlurPlan {
     required this.direct,
     required this.strength,
     required this.sigma,
+    this.mode = KitSurfaceMode.system,
     this.capped = false,
   });
 
@@ -419,6 +458,7 @@ class KitBlurPlan {
     direct: false,
     strength: 0,
     sigma: 0,
+    mode: KitSurfaceMode.solid,
   );
 
   /// Whether the filter is built here at [sigma], or left to the shell's own
@@ -429,11 +469,18 @@ class KitBlurPlan {
   /// The sigma that reaches the screen.
   final double sigma;
 
+  /// The effective surface mode resolved against system transparency.
+  final KitSurfaceMode mode;
+
   /// The shell could not blur as far as the material asked.
   final bool capped;
 
   /// A glass with no frost of its own still bends and lights the backdrop.
-  bool get blurs => direct ? sigma > 0 : strength > 0;
+  bool get blurs => switch (mode) {
+    KitSurfaceMode.solid => false,
+    KitSurfaceMode.liquidGlass => strength > 0,
+    _ => direct ? sigma > 0 : strength > 0,
+  };
 }
 
 /// The arithmetic between a sigma in pixels and the shell's blur.
@@ -466,33 +513,64 @@ abstract final class KitBlurMath {
   /// [enabled] is false when the user turned transparency off; [glass] is
   /// the shell's glass mode; [base] is the sigma of the shell's own blur in
   /// the mode in force. [scale] is a caller's share of the material's blur.
+  /// [mode] selects which rendering path to resolve; when omitted, a material
+  /// naming [KitMaterial.sigma] uses [KitSurfaceMode.glass] and otherwise
+  /// [KitSurfaceMode.system].
   static KitBlurPlan plan(
     KitMaterial material, {
     required bool enabled,
     required bool glass,
     required double base,
     double scale = 1,
+    KitSurfaceMode? mode,
+    KitTier tier = KitTier.popover,
   }) {
-    if (!enabled || scale <= 0 || (base <= 0 && !glass)) {
+    final requested =
+        mode ??
+        (material.sigma != null ? KitSurfaceMode.glass : KitSurfaceMode.system);
+    if (!enabled || requested == KitSurfaceMode.solid || scale <= 0) {
       return KitBlurPlan.none;
     }
-    final target = material.sigma;
-    if (target == null) {
-      final strength = (material.strength * scale).clamp(0.0, 1.0).toDouble();
-      return strength <= 0
-          ? KitBlurPlan.none
-          : KitBlurPlan(
-              direct: false,
-              strength: strength,
-              sigma: sigmaAt(strength, base),
-            );
+    switch (requested) {
+      case KitSurfaceMode.solid:
+        return KitBlurPlan.none;
+      case KitSurfaceMode.system:
+        if (base <= 0 && !glass) return KitBlurPlan.none;
+        final strength = (material.strength * scale).clamp(0.0, 1.0).toDouble();
+        return strength <= 0
+            ? KitBlurPlan.none
+            : KitBlurPlan(
+                direct: false,
+                strength: strength,
+                sigma: sigmaAt(strength, base),
+                mode: KitSurfaceMode.system,
+              );
+      case KitSurfaceMode.liquidGlass:
+        final tierScale = kitLiquidGlassTierScale(tier);
+        final strength = (material.strength * scale * tierScale.glassStrength)
+            .clamp(0.0, 1.0)
+            .toDouble();
+        final sigma = (base > 0 ? base : 10.0) * tierScale.blurScale * scale;
+        return strength <= 0
+            ? KitBlurPlan.none
+            : KitBlurPlan(
+                direct: true,
+                strength: strength,
+                sigma: sigma,
+                mode: KitSurfaceMode.liquidGlass,
+              );
+      case KitSurfaceMode.glass:
+      case KitSurfaceMode.blur:
+        final rawSigma = material.sigma ?? (base > 0 ? base * material.strength : 0.0);
+        final sigma = rawSigma * scale;
+        if (sigma <= 0) return KitBlurPlan.none;
+        return KitBlurPlan(
+          direct: true,
+          strength: 1,
+          sigma: sigma,
+          mode: requested,
+        );
     }
-    final sigma = target * scale;
-    if (sigma <= 0) return KitBlurPlan.none;
-    // A measured material is drawn at its own sigma in either mode: a
-    // share of the glass's frost would cap it and leave its saturation out,
-    // and the look would no longer be the one that was measured.
-    return KitBlurPlan(direct: true, strength: 1, sigma: sigma);
   }
 }
 
