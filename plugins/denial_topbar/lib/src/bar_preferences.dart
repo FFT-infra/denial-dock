@@ -64,20 +64,30 @@ void applyShellPreset(WidgetRef ref, ShellPreset preset, {bool fresh = false}) {
     (one) => one.id == kitPreset.value,
   );
   if (settings != null && known && leaving.id != preset.id) {
-    if (shellPresetModified(leaving, settings)) {
-      memory[leaving.id] = leaving.remember(
-        look: kitStyle.chosen,
-        barMode: kitBarMode.value.key,
-        dockVisible: kitDockEnabled.value,
-        bar: settings.layoutJson(),
-        dock: kitDock.layout,
-        before: memory[leaving.id],
-      );
+    final diff = leaving.remember(
+      look: kitStyle.chosen,
+      barMode: kitBarMode.value.key,
+      dockVisible: kitDockEnabled.value,
+      bar: settings.layoutJson(),
+      dock: kitDock.layout,
+      before: memory[leaving.id],
+    );
+    if (diff.isNotEmpty) {
+      memory[leaving.id] = diff;
     } else {
       memory.remove(leaving.id);
     }
   }
-  if (fresh) memory.remove(preset.id);
+  if (fresh) {
+    memory.remove(preset.id);
+  } else if (memory.containsKey(preset.id)) {
+    final migrated = preset.migrateMemory(memory[preset.id]);
+    if (migrated.isEmpty) {
+      memory.remove(preset.id);
+    } else {
+      memory[preset.id] = migrated;
+    }
+  }
   kitStore.put('presets', memory);
   final next = preset.recall(memory[preset.id]);
   kitStyle.choose(KitStyle.byId(next.look));

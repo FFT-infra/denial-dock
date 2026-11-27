@@ -4,6 +4,7 @@ import 'dart:ui' show PointerDeviceKind;
 import 'package:denial_flutter_sdk/models.dart' show PanelEdge;
 import 'package:denial_flutter_sdk/settings.dart';
 import 'package:denial_flutter_sdk/services.dart';
+import 'package:denial_flutter_sdk/state.dart' show displayLayoutProvider;
 import 'package:denial_flutter_sdk/theme.dart';
 import 'package:denial_shell_kit/kit_dock_link.dart';
 import 'package:denial_shell_kit/kit_host.dart';
@@ -501,19 +502,37 @@ class _BarSettingsPanelState extends ConsumerState<BarSettingsPanel> {
               ],
             ),
           ),
-          _Row(
-            label: context.tr('Shell scale'),
-            trailing: _Segments<double?>(
-              value: kitShellScale.value,
-              options: <(double?, String)>[
-                (null, context.tr('Follow system')),
-                (0.85, '85%'),
-                (1.0, '100%'),
-                (1.10, '110%'),
-                (1.25, '125%'),
-              ],
-              onChanged: (scale) => kitShellScale.value = scale,
-            ),
+          Builder(
+            builder: (context) {
+              final layout = ref.watch(displayLayoutProvider);
+              final mainId = layout?.mainOutput?.monitorId;
+              final hostScale =
+                  mainId == null ? 1.0 : layout!.shellScaleOf(mainId);
+              final hostPct = (hostScale * 100).round();
+              final override = kitShellScale.value;
+              final effective = resolveKitScale(hostScale, override);
+              final note = override == null
+                  ? context.tr('System {}% (follow system)', hostPct)
+                  : context.tr(
+                      'System {}',
+                      '$hostPct% × ${(override / hostScale * 100).round()}% → ${(effective * 100).round()}%',
+                    );
+              return _Row(
+                label: context.tr('Shell scale'),
+                note: note,
+                trailing: _Segments<double?>(
+                  value: override,
+                  options: <(double?, String)>[
+                    (null, context.tr('Follow system')),
+                    (0.85, '85%'),
+                    (1.0, '100%'),
+                    (1.10, '110%'),
+                    (1.25, '125%'),
+                  ],
+                  onChanged: (scale) => kitShellScale.value = scale,
+                ),
+              );
+            },
           ),
           if (kitShellScale.value != null)
             SettingSlider(
@@ -522,6 +541,7 @@ class _BarSettingsPanelState extends ConsumerState<BarSettingsPanel> {
               min: 0.75,
               max: 1.50,
               step: 0.05,
+              commitOnRelease: true,
               text: (v) => '${(v * 100).round()}%',
               onChanged: (v) => kitShellScale.value = v,
             ),

@@ -189,6 +189,23 @@ class _DockStackViewState extends State<DockStackView>
   void initState() {
     super.initState();
     dockThumbsRevision.addListener(_onThumbsReady);
+    _requestStackThumbs();
+  }
+
+  @override
+  void didUpdateWidget(covariant DockStackView oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.entries != widget.entries) {
+      _requestStackThumbs();
+    }
+  }
+
+  void _requestStackThumbs() {
+    final paths = <String>[
+      for (final e in widget.entries)
+        if (!e.isDirectory) e.path,
+    ];
+    if (paths.isNotEmpty) DockStackThumbs.request(paths);
   }
 
   void _onThumbsReady() {
@@ -1591,7 +1608,7 @@ class _StackRowTile extends StatelessWidget {
                       ? Alignment.centerRight
                       : Alignment.centerLeft,
                   child: Text(
-                    row.label,
+                    _fitLabel(row.label, _plateStyle(theme), maxLabelWidth),
                     maxLines: 1,
                     overflow: TextOverflow.ellipsis,
                     style: _plateStyle(theme).copyWith(color: colours.ink),
@@ -1630,12 +1647,43 @@ class _StackRowTile extends StatelessWidget {
     );
   }
 
+  static String _fitLabel(String label, TextStyle style, double maxWidth) {
+    if (label.length < 16) return label;
+    double measure(String s) {
+      final p = TextPainter(
+        text: TextSpan(text: s, style: style),
+        textDirection: TextDirection.ltr,
+        maxLines: 1,
+      )..layout();
+      final w = p.width;
+      p.dispose();
+      return w;
+    }
+
+    if (measure(label) <= maxWidth) return label;
+    final runes = label.runes.length;
+    var lo = 5;
+    var hi = runes;
+    var best = DockStackFan.middleEllipsize(label, 5);
+    while (lo <= hi) {
+      final mid = (lo + hi) >> 1;
+      final candidate = DockStackFan.middleEllipsize(label, mid);
+      if (measure(candidate) <= maxWidth) {
+        best = candidate;
+        lo = mid + 1;
+      } else {
+        hi = mid - 1;
+      }
+    }
+    return best;
+  }
+
   /// The preview card: natural-aspect thumbnail directly without a heavy box
   /// when an image/video/PDF preview exists, else a clean type icon card.
   Widget _previewCard() {
     final thumbPath = row.thumbnail;
     if (thumbPath != null && !(row.entry?.isDirectory ?? false)) {
-      final ratio = DockStackThumbs.aspectRatio(thumbPath) ?? 1.0;
+      final ratio = DockStackThumbs.aspectRatioCached(thumbPath) ?? 1.0;
       final w = ratio >= 1.0
           ? DockStackFan.thumbSize
           : math.max(30.0, DockStackFan.thumbSize * ratio);

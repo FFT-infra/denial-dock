@@ -540,6 +540,8 @@ const Map<String, String> zh = <String, String>{
   'Shell scale': '外壳缩放',
   'Follow system': '跟随系统',
   'Custom shell scale': '自定义外壳缩放',
+  'System {}% (follow system)': '系统 {}%（跟随系统）',
+  'System {}': '系统 {}',
   'Keyboard layout': '输入法与键盘布局',
   'Switch keyboard layout': '切换键盘布局',
   'Part pills': '部件胶囊底色',

@@ -318,9 +318,21 @@ void main() {
     'pill width is the text plus its padding',
   );
   _expect(
-    DockStackFan.maxLabelFor(availableWidth: 420) == 420 &&
+    DockStackFan.maxLabelFor(availableWidth: 920) == 920 &&
         DockStackFan.maxLabelFor(availableWidth: 80) == 160,
-    'dynamic label limit adapts cleanly within [160, 440]',
+    'dynamic label limit expands to available width with 160 floor',
+  );
+  _expect(
+    DockStackFan.middleEllipsize('short.pdf', 20) == 'short.pdf' &&
+        DockStackFan.middleEllipsize(
+          'abcdefghijklmnopqrstuvwxyz0123456789.pdf',
+          20,
+        ).endsWith('.pdf') &&
+        DockStackFan.middleEllipsize(
+          'abcdefghijklmnopqrstuvwxyz0123456789.pdf',
+          20,
+        ).contains('…'),
+    'middleEllipsize preserves extension when truncating',
   );
 }
 

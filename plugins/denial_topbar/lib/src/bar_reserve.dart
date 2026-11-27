@@ -14,25 +14,50 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import 'bar_preferences.dart' show barSettingsProvider;
 
+double _lastHostScale = 1.0;
+double? _lastBarHeight;
+
+/// Records the live host scale and custom bar height so [TopBarWorkArea.reserve]
+/// computes the exact same reservation as [syncBarReservation].
+void rememberBarReserveContext({double? hostScale, double? barHeight}) {
+  if (hostScale != null && hostScale.isFinite && hostScale > 0) {
+    _lastHostScale = hostScale;
+  }
+  _lastBarHeight = barHeight;
+}
+
+/// Computes the current relative scale ratio `(effectiveScale / hostScale)`.
+double currentBarScaleRatio({double? hostScale}) {
+  final base = (hostScale != null && hostScale.isFinite && hostScale > 0)
+      ? hostScale
+      : _lastHostScale;
+  final effective = resolveKitScale(base, kitShellScale.value);
+  return effective / base;
+}
+
 /// The room the shell keeps free of windows, decided between the bar and the
 /// dock. This plugin holds the shell's one work-area provider, so it answers
 /// for both: the bar's strip while the bar draws one, otherwise the edge of
 /// a dock that stays on screen, otherwise nothing.
 ShellWorkAreaReservation? barReservation(
   ShellLayoutSettings settings, {
-  double scaleRatio = 1.0,
+  double? scaleRatio,
   double? barHeight,
+  bool useStoredBarHeight = true,
 }) {
   final side = settings.systemBarSide ?? PanelEdge.top;
+  final effectiveBarHeight =
+      barHeight ?? (useStoredBarHeight ? _lastBarHeight : null);
   final held = kitResolveReservation(
     barEdge: side == PanelEdge.hidden ? null : side.kitEdge,
-    barThickness: barHeight ?? settings.systemBarThickness,
+    barThickness: effectiveBarHeight ?? settings.systemBarThickness,
   );
   // Whoever asked may be in the middle of a build; the dock rebuilds when
   // this changes.
   scheduleMicrotask(() => kitReservation.value = held);
   if (held == null) return null;
-  final ratio = scaleRatio.isFinite && scaleRatio > 0 ? scaleRatio : 1.0;
+  final rawRatio = scaleRatio ?? currentBarScaleRatio();
+  final ratio = rawRatio.isFinite && rawRatio > 0 ? rawRatio : 1.0;
   return ShellWorkAreaReservation(
     edge: switch (held.edge) {
       KitEdge.top => PanelEdge.top,
@@ -55,13 +80,13 @@ void syncBarReservation(WidgetRef ref, ShellLayoutSettings settings) {
   final current = ref.read(displayLayoutProvider);
   final mainId = current?.mainOutput?.monitorId;
   final hostScale = mainId == null ? 1.0 : current!.shellScaleOf(mainId);
-  final effectiveScale = resolveKitScale(hostScale, kitShellScale.value);
-  final scaleRatio = effectiveScale / (hostScale > 0 ? hostScale : 1.0);
   final barHeight = ref.read(barSettingsProvider).value?.barHeight;
+  rememberBarReserveContext(hostScale: hostScale, barHeight: barHeight);
   final reservation = barReservation(
     settings,
-    scaleRatio: scaleRatio,
+    scaleRatio: currentBarScaleRatio(hostScale: hostScale),
     barHeight: barHeight,
+    useStoredBarHeight: false,
   );
   final side = reservation?.edge ?? PanelEdge.hidden;
   final thickness = reservation?.thickness ?? 0.0;

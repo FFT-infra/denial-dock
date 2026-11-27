@@ -110,8 +110,20 @@ abstract final class DockStackFan {
   static const double labelMaxWidth = 260;
 
   /// Dynamic label ceiling based on available horizontal room beside the fan.
+  /// No artificial 440 px cap: long filenames expand up to the screen's free
+  /// width and only ellipsize (in the middle) when even that runs out.
   static double maxLabelFor({required double availableWidth}) =>
-      availableWidth.clamp(160.0, 440.0).toDouble();
+      math.max(160.0, availableWidth);
+
+  /// Middle-truncates [text] so both the start and file extension stay
+  /// visible when [text] exceeds [maxChars].
+  static String middleEllipsize(String text, int maxChars) {
+    final runes = text.runes.toList(growable: false);
+    if (maxChars < 5 || runes.length <= maxChars) return text;
+    final tail = math.min(12, math.max(3, (maxChars - 1) ~/ 3));
+    final head = maxChars - 1 - tail;
+    return '${String.fromCharCodes(runes.take(head))}…${String.fromCharCodes(runes.skip(runes.length - tail))}';
+  }
 
   /// The pill around a label measured [textWidth] wide.
   static double pillWidth(double textWidth) => padX * 2 + textWidth;

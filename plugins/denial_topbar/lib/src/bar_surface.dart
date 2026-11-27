@@ -6,6 +6,7 @@ import 'package:denial_flutter_sdk/input.dart';
 import 'package:denial_flutter_sdk/localization.dart';
 import 'package:denial_flutter_sdk/models.dart';
 import 'package:denial_flutter_sdk/services.dart';
+import 'package:denial_flutter_sdk/shell.dart' show ShellOverlayHost;
 import 'package:denial_flutter_sdk/state.dart';
 import 'package:denial_flutter_sdk/surfaces.dart';
 import 'package:denial_flutter_sdk/system_services.dart' show WifiNetwork;
@@ -868,6 +869,12 @@ class _TopBarSurfaceState extends ConsumerState<TopBarSurface>
     final hostScale = widget.environment.shellScale > 0
         ? widget.environment.shellScale
         : 1.0;
+    if (widget.environment.isMainOutput) {
+      rememberBarReserveContext(
+        hostScale: hostScale,
+        barHeight: settings.barHeight,
+      );
+    }
     final effectiveScale = resolveKitScale(hostScale, kitShellScale.value);
     final relativeScale = effectiveScale / hostScale;
     final scoped = KitScaleScope(
@@ -875,7 +882,10 @@ class _TopBarSurfaceState extends ConsumerState<TopBarSurface>
       child: surfaceStack,
     );
     return (relativeScale - 1.0).abs() > 1e-4
-        ? ShellScaleViewport(scale: relativeScale, child: scoped)
+        ? ShellScaleViewport(
+            scale: relativeScale,
+            child: ShellOverlayHost(child: scoped),
+          )
         : scoped;
   }
 

@@ -1,8 +1,11 @@
 import 'dart:async';
+import 'dart:collection';
 import 'dart:io';
 import 'dart:typed_data';
 
 import 'package:denial_shell_kit/detached_run.dart';
+
+import 'dock_thumbnailer_registry.dart';
 
 /// A thumbnail found for a file: where the image is and what version of the
 /// file it shows.
@@ -16,38 +19,90 @@ class DockThumbnail {
   final DateTime? knownVersion;
 }
 
+/// Lifecycle state of one thumbnail entry keyed by `path|mtime|size`.
+enum DockThumbStatus { ready, pending, failed }
+
+/// Process executor hook for tests (defaults to [runDetached]).
+typedef DockThumbRunner =
+    Future<int> Function(String program, List<String> arguments);
+
 /// Lightweight revision broadcaster when background thumbnailers complete.
 class DockThumbRevision {
   DockThumbRevision._();
 
   int value = 0;
+  bool _scheduled = false;
   final List<void Function()> _listeners = <void Function()>[];
 
   void addListener(void Function() listener) => _listeners.add(listener);
   void removeListener(void Function() listener) => _listeners.remove(listener);
 
   void _bump() {
-    value++;
-    for (final listener in List<void Function()>.of(_listeners)) {
-      listener();
-    }
+    if (_scheduled) return;
+    _scheduled = true;
+    scheduleMicrotask(() {
+      _scheduled = false;
+      value++;
+      for (final listener in List<void Function()>.of(_listeners)) {
+        listener();
+      }
+    });
   }
 }
 
 final DockThumbRevision dockThumbsRevision = DockThumbRevision._();
 
-/// Thumbnails for the files in a folder stack.
+class _ThumbRecord {
+  _ThumbRecord({
+    required this.key,
+    required this.status,
+    this.thumbPath,
+    this.aspectRatio,
+  });
+
+  final String key;
+  DockThumbStatus status;
+  String? thumbPath;
+  double? aspectRatio;
+}
+
+class _PendingJob {
+  _PendingJob({
+    required this.filePath,
+    required this.key,
+    required this.mtime,
+    required this.size,
+  });
+
+  final String filePath;
+  final String key;
+  final DateTime mtime;
+  final int size;
+}
+
+/// Thumbnails for the files in a folder stack and pinned files on the dock.
 ///
-/// Reads the freedesktop cache the file manager and the thumbnailers fill,
-/// matching entries by the `Thumb::URI` text chunk rather than by hashing a
-/// path: the hash is MD5 over the file URI, and reading the chunk needs no
-/// dependency. A video without a cached thumbnail is made one with `ffmpeg`,
-/// which the reference docks also rely on.
+/// Lookup during widget `build()` ([preview], [aspectRatioCached]) is strictly
+/// in-memory: zero `statSync`, zero file IO, zero process forks. All disk
+/// inspection, header aspect-ratio reads, and sandboxed thumbnailer execution
+/// happen asynchronously via [request] / [warm], deduplicated by
+/// `path + mtime + size`, capped at 2 concurrent jobs, and negative-cached in
+/// both memory and `fail/` on disk.
 abstract final class DockStackThumbs {
   static const List<String> _sizes = ['x-large', 'large', 'xx-large', 'normal'];
+  static const int _maxConcurrent = 2;
+  static const int _thumbPixelSize = 320;
 
-  /// Extensions handed to ffmpeg. Images are left alone: the shell draws them
-  /// itself, and a decoded copy would only cost memory.
+  /// Extensions the shell can decode itself directly.
+  static const Set<String> _imageExtensions = {
+    'png',
+    'jpg',
+    'jpeg',
+    'gif',
+    'webp',
+    'bmp',
+  };
+
   static const Set<String> _videoExtensions = {
     'mp4',
     'mov',
@@ -60,47 +115,56 @@ abstract final class DockStackThumbs {
     'mpeg',
   };
 
-  /// Extensions the shell can decode itself, so the file is its own preview.
-  static const Set<String> _imageExtensions = {
-    'png',
-    'jpg',
-    'jpeg',
-    'gif',
-    'webp',
-    'bmp',
-  };
-
   static const Set<String> _pdfExtensions = {'pdf'};
 
   static _ThumbIndex? _index;
   static DateTime? _indexedAt;
   static Future<void>? _warming;
+  static ThumbnailerRegistry? _registry;
+
+  /// Memory table: file path → latest record (keyed internally by mtime+size).
+  static final Map<String, _ThumbRecord> _records = <String, _ThumbRecord>{};
+
+  /// Memory table: preview image path → clamped width/height ratio.
   static final Map<String, double?> _aspectCache = <String, double?>{};
 
-  /// The image to draw for [file]: a cached thumbnail, else the file itself
-  /// when it is an image, else null.
+  /// Active + queued thumbnail jobs deduplicated by `key`.
+  static final Set<String> _inFlightKeys = <String>{};
+  static final Queue<_PendingJob> _queue = Queue<_PendingJob>();
+  static int _activeJobs = 0;
+
+  /// Optional test overrides.
+  static DockThumbRunner? processRunnerOverride;
+  static ThumbnailerRegistry? registryOverride;
+  static String? cacheDirOverride;
+
+  /// Purely in-memory lookup safe to call inside `build()`.
   ///
-  /// Reads the index only, and starts building it in the background on a miss:
-  /// the first scan opens every PNG in the cache, which is not work to do
-  /// while the fan is opening.
+  /// Never performs filesystem IO or forks a process. Call [request] from
+  /// `initState`, `didUpdateWidget`, or folder open to populate misses.
   static String? preview(String file) {
-    final cached = _peek(file);
-    if (cached != null) return cached;
+    final record = _records[file];
+    if (record != null) {
+      return record.status == DockThumbStatus.ready ? record.thumbPath : null;
+    }
     final extension = _extension(file);
     if (_imageExtensions.contains(extension)) return file;
-    if (_videoExtensions.contains(extension)) {
-      final generated = _generated(file);
-      if (generated != null) return generated.path;
-      warm();
-    } else if (_pdfExtensions.contains(extension)) {
-      final generated = _generatedPdf(file);
-      if (generated != null) return generated.path;
+    final index = _index;
+    if (index != null) {
+      final path = index.entries[Uri.file(file).toString()];
+      if (path != null) return path;
     }
     return null;
   }
 
+  /// Purely in-memory aspect ratio lookup safe to call inside `build()`.
+  static double? aspectRatioCached(String path) => _aspectCache[path];
+
   /// Natural width / height aspect ratio of an image file clamped to
-  /// `[0.55, 1.85]`, or null when the header cannot be read cleanly.
+  /// `[0.55, 1.85]`, respecting JPEG EXIF orientation.
+  ///
+  /// Synchronous helper kept for off-frame callers and unit tests; widget
+  /// `build()` methods should call [aspectRatioCached] instead.
   static double? aspectRatio(String path) {
     if (_aspectCache.containsKey(path)) return _aspectCache[path];
     final ratio = _readAspectRatio(path);
@@ -109,6 +173,338 @@ abstract final class DockStackThumbs {
     return ratio;
   }
 
+  /// Schedules background thumbnail resolution (cache check, aspect ratio read,
+  /// and sandboxed `.thumbnailer` generation on miss) for [paths].
+  ///
+  /// Safe to call repeatedly from `initState`, `didUpdateWidget`, or stack
+  /// open; deduplicates in-flight keys and respects failure memory.
+  static Future<void> request(Iterable<String> paths) {
+    final list = paths.toList(growable: false);
+    if (list.isEmpty) return Future<void>.value();
+    return Future<void>(() async {
+      if (stale) await warm();
+      final registry = _ensureRegistry();
+      var changed = false;
+      for (final file in list) {
+        final didChange = _resolveOne(file, registry);
+        if (didChange) changed = true;
+      }
+      if (changed) dockThumbsRevision._bump();
+      _pumpQueue();
+    });
+  }
+
+  /// Requests thumbnails for one file and awaits until its job (if queued)
+  /// finishes — useful in tests.
+  static Future<DockThumbStatus> resolveForTest(String file) async {
+    await request(<String>[file]);
+    while (_activeJobs > 0 || _queue.isNotEmpty) {
+      await Future<void>.delayed(const Duration(milliseconds: 5));
+    }
+    return _records[file]?.status ?? DockThumbStatus.failed;
+  }
+
+  static bool _resolveOne(String file, ThumbnailerRegistry registry) {
+    final stat = _stat(file);
+    if (stat == null || stat.type != FileSystemEntityType.file) return false;
+    final mtimeMs = stat.modified.millisecondsSinceEpoch;
+    final key = '$file|$mtimeMs|${stat.size}';
+    final existing = _records[file];
+    if (existing != null && existing.key == key) {
+      if (existing.status == DockThumbStatus.ready &&
+          existing.thumbPath != null &&
+          !_aspectCache.containsKey(existing.thumbPath)) {
+        _aspectCache[existing.thumbPath!] = _readAspectRatio(existing.thumbPath!);
+        return true;
+      }
+      return false;
+    }
+
+    // 1. Direct decodable images are their own previews.
+    final ext = _extension(file);
+    if (_imageExtensions.contains(ext)) {
+      final ratio = _readAspectRatio(file);
+      _aspectCache[file] = ratio;
+      _records[file] = _ThumbRecord(
+        key: key,
+        status: DockThumbStatus.ready,
+        thumbPath: file,
+        aspectRatio: ratio,
+      );
+      return true;
+    }
+
+    // 2. Shared freedesktop thumbnail cache.
+    final shared = _lookupShared(file, stat.modified);
+    if (shared != null) {
+      final ratio = _readAspectRatio(shared);
+      _aspectCache[shared] = ratio;
+      _records[file] = _ThumbRecord(
+        key: key,
+        status: DockThumbStatus.ready,
+        thumbPath: shared,
+        aspectRatio: ratio,
+      );
+      return true;
+    }
+
+    // 3. Own cache hit.
+    final cacheDir = _ownCacheDir();
+    if (cacheDir == null) return false;
+    final name = _stableName(file);
+    final outFile = File('$cacheDir/$name.png');
+    try {
+      if (outFile.existsSync() && outFile.lengthSync() > 0) {
+        final made = outFile.statSync().modified;
+        if (!made.isBefore(stat.modified)) {
+          final ratio = _readAspectRatio(outFile.path);
+          _aspectCache[outFile.path] = ratio;
+          _records[file] = _ThumbRecord(
+            key: key,
+            status: DockThumbStatus.ready,
+            thumbPath: outFile.path,
+            aspectRatio: ratio,
+          );
+          return true;
+        }
+      }
+    } on FileSystemException {
+      // Ignore and continue to fail check.
+    }
+
+    // 4. Negative (failure) cache on disk keyed by mtime + size.
+    final failFile = File('$cacheDir/fail/$name.fail');
+    final versionStamp = '$mtimeMs|${stat.size}';
+    if (_matchesFailMarker(failFile, versionStamp)) {
+      _records[file] = _ThumbRecord(key: key, status: DockThumbStatus.failed);
+      return false;
+    }
+
+    // 5. Check whether any thumbnailer or fallback supports this file.
+    if (!_hasGeneratorFor(file, ext, registry)) {
+      _records[file] = _ThumbRecord(key: key, status: DockThumbStatus.failed);
+      return false;
+    }
+
+    // 6. Enqueue async generation (deduplicated by key).
+    _records[file] = _ThumbRecord(key: key, status: DockThumbStatus.pending);
+    if (_inFlightKeys.add(key)) {
+      _queue.add(
+        _PendingJob(
+          filePath: file,
+          key: key,
+          mtime: stat.modified,
+          size: stat.size,
+        ),
+      );
+    }
+    return false;
+  }
+
+  static bool _hasGeneratorFor(
+    String file,
+    String ext,
+    ThumbnailerRegistry registry,
+  ) {
+    if (registry.match(file) != null) return true;
+    if (_videoExtensions.contains(ext) || _pdfExtensions.contains(ext)) {
+      return true;
+    }
+    return false;
+  }
+
+  static void _pumpQueue() {
+    while (_activeJobs < _maxConcurrent && _queue.isNotEmpty) {
+      final job = _queue.removeFirst();
+      _activeJobs++;
+      unawaited(
+        _runJob(job).whenComplete(() {
+          _activeJobs--;
+          _inFlightKeys.remove(job.key);
+          _pumpQueue();
+        }),
+      );
+    }
+  }
+
+  static Future<void> _runJob(_PendingJob job) async {
+    final cacheDir = _ownCacheDir();
+    if (cacheDir == null) return;
+    final name = _stableName(job.filePath);
+    final outPath = '$cacheDir/$name.png';
+    final tmpPath = '$cacheDir/$name.${DateTime.now().microsecondsSinceEpoch}.tmp.png';
+    final failPath = '$cacheDir/fail/$name.fail';
+    final stamp = '${job.mtime.millisecondsSinceEpoch}|${job.size}';
+
+    try {
+      Directory(cacheDir).createSync(recursive: true);
+    } on FileSystemException {
+      _markFailed(job, failPath, stamp);
+      return;
+    }
+
+    final registry = _ensureRegistry();
+    final ok = await _generateThumbnail(
+      registry: registry,
+      inputPath: job.filePath,
+      tmpOutputPath: tmpPath,
+      outputDir: cacheDir,
+    );
+
+    if (ok) {
+      try {
+        final tmpFile = File(tmpPath);
+        if (tmpFile.existsSync() && tmpFile.lengthSync() > 0) {
+          tmpFile.renameSync(outPath);
+          try {
+            File(outPath).setLastModifiedSync(job.mtime);
+          } on FileSystemException {
+            // Best-effort mtime sync.
+          }
+          try {
+            final fail = File(failPath);
+            if (fail.existsSync()) fail.deleteSync();
+          } on FileSystemException {
+            // Ignore cleanup failure.
+          }
+          final ratio = _readAspectRatio(outPath);
+          _aspectCache[outPath] = ratio;
+          final current = _records[job.filePath];
+          if (current == null || current.key == job.key) {
+            _records[job.filePath] = _ThumbRecord(
+              key: job.key,
+              status: DockThumbStatus.ready,
+              thumbPath: outPath,
+              aspectRatio: ratio,
+            );
+            dockThumbsRevision._bump();
+          }
+          return;
+        }
+      } on FileSystemException {
+        // Fall through to markFailed.
+      }
+    }
+
+    try {
+      final tmpFile = File(tmpPath);
+      if (tmpFile.existsSync()) tmpFile.deleteSync();
+    } on FileSystemException {
+      // Ignore cleanup failure.
+    }
+    _markFailed(job, failPath, stamp);
+  }
+
+  static void _markFailed(_PendingJob job, String failPath, String stamp) {
+    final current = _records[job.filePath];
+    if (current == null || current.key == job.key) {
+      _records[job.filePath] = _ThumbRecord(
+        key: job.key,
+        status: DockThumbStatus.failed,
+      );
+    }
+    try {
+      final f = File(failPath);
+      f.parent.createSync(recursive: true);
+      f.writeAsStringSync('$stamp\n');
+    } on FileSystemException {
+      // Memory failure record still prevents retries for this session.
+    }
+  }
+
+  static bool _matchesFailMarker(File failFile, String expectedStamp) {
+    try {
+      if (!failFile.existsSync()) return false;
+      return failFile.readAsStringSync().trim() == expectedStamp;
+    } on FileSystemException {
+      return false;
+    }
+  }
+
+  static Future<bool> _generateThumbnail({
+    required ThumbnailerRegistry registry,
+    required String inputPath,
+    required String tmpOutputPath,
+    required String outputDir,
+  }) async {
+    final runner = processRunnerOverride ?? _defaultRunner;
+    // 1. Prefer registered freedesktop `.thumbnailer`. When a matching entry
+    // exists, run it alone (never silently drop the sandbox or run a second
+    // process when the registered thumbnailer fails).
+    final entry = registry.match(inputPath);
+    if (entry != null) {
+      final argv = entry.expand(
+        inputPath: inputPath,
+        outputPath: tmpOutputPath,
+        size: _thumbPixelSize,
+      );
+      if (argv.isEmpty) return false;
+      final cmd = registry.buildCommand(
+        argv,
+        inputPath: inputPath,
+        outputDir: outputDir,
+      );
+      return await runner(cmd.program, cmd.args) == 0;
+    }
+
+    // 2. Explicit fallbacks for video (ffmpeg) and PDF (mutool draw),
+    // still wrapped in bwrap when available.
+    final ext = _extension(inputPath);
+    if (_videoExtensions.contains(ext)) {
+      final cmd = registry.buildCommand(
+        <String>[
+          'ffmpeg',
+          '-nostdin',
+          '-loglevel',
+          'error',
+          '-y',
+          '-ss',
+          '0',
+          '-i',
+          inputPath,
+          '-frames:v',
+          '1',
+          '-vf',
+          'scale=$_thumbPixelSize:-1',
+          tmpOutputPath,
+        ],
+        inputPath: inputPath,
+        outputDir: outputDir,
+      );
+      return await runner(cmd.program, cmd.args) == 0;
+    }
+    if (_pdfExtensions.contains(ext)) {
+      final cmd = registry.buildCommand(
+        <String>[
+          'mutool',
+          'draw',
+          '-o',
+          tmpOutputPath,
+          '-r',
+          '72',
+          '-F',
+          'png',
+          inputPath,
+          '1',
+        ],
+        inputPath: inputPath,
+        outputDir: outputDir,
+      );
+      return await runner(cmd.program, cmd.args) == 0;
+    }
+    return false;
+  }
+
+  static Future<int> _defaultRunner(String program, List<String> args) async {
+    final res = await runDetached(program, args);
+    return res.exitCode;
+  }
+
+  static ThumbnailerRegistry _ensureRegistry() =>
+      registryOverride ?? (_registry ??= ThumbnailerRegistry.loadSystem());
+
+  /// Reads natural width/height ratio clamped to `[0.55, 1.85]`, supporting
+  /// PNG, WebP, and JPEG (including EXIF orientation 5..8 dimension swap).
   static double? _readAspectRatio(String path) {
     RandomAccessFile? file;
     try {
@@ -154,11 +550,12 @@ abstract final class DockStackThumbs {
         }
         return null;
       }
-      // JPEG SOF0..SOF3 / SOF5..SOF7 / SOF9..SOF11 / SOF13..SOF15
+      // JPEG APP1 (EXIF orientation) + SOF0..SOF15
       if (head[0] == 0xFF && head[1] == 0xD8) {
         file.setPositionSync(2);
         var scanned = 2;
-        while (scanned < 65536) {
+        var swapDims = false;
+        while (scanned < 131072) {
           final marker = file.readSync(2);
           if (marker.length < 2) break;
           scanned += 2;
@@ -179,6 +576,15 @@ abstract final class DockStackThumbs {
           scanned += 2;
           final segLen = (lenBytes[0] << 8) | lenBytes[1];
           if (segLen < 2) break;
+          if (code == 0xE1 && segLen >= 14 && segLen <= 65535) {
+            final app1 = file.readSync(segLen - 2);
+            scanned += app1.length;
+            final orient = _parseExifOrientation(app1);
+            if (orient != null && orient >= 5 && orient <= 8) {
+              swapDims = true;
+            }
+            continue;
+          }
           final isSof =
               (code >= 0xC0 && code <= 0xC3) ||
               (code >= 0xC5 && code <= 0xC7) ||
@@ -187,8 +593,13 @@ abstract final class DockStackThumbs {
           if (isSof && segLen >= 7) {
             final sof = file.readSync(5);
             if (sof.length == 5) {
-              final h = (sof[1] << 8) | sof[2];
-              final w = (sof[3] << 8) | sof[4];
+              var h = (sof[1] << 8) | sof[2];
+              var w = (sof[3] << 8) | sof[4];
+              if (swapDims) {
+                final tmp = w;
+                w = h;
+                h = tmp;
+              }
               if (w > 0 && h > 0) return (w / h).clamp(0.55, 1.85);
             }
             return null;
@@ -205,6 +616,39 @@ abstract final class DockStackThumbs {
     return null;
   }
 
+  static int? _parseExifOrientation(Uint8List data) {
+    if (data.length < 14) return null;
+    // "Exif\0\0"
+    if (data[0] != 0x45 ||
+        data[1] != 0x78 ||
+        data[2] != 0x69 ||
+        data[3] != 0x66 ||
+        data[4] != 0x00 ||
+        data[5] != 0x00) {
+      return null;
+    }
+    final tiff = 6;
+    final littleEndian = data[tiff] == 0x49 && data[tiff + 1] == 0x49;
+    final bigEndian = data[tiff] == 0x4D && data[tiff + 1] == 0x4D;
+    if (!littleEndian && !bigEndian) return null;
+    final endian = littleEndian ? Endian.little : Endian.big;
+    final bd = ByteData.sublistView(data);
+    if (bd.getUint16(tiff + 2, endian) != 42) return null;
+    final ifdOffset = bd.getUint32(tiff + 4, endian);
+    final ifdPos = tiff + ifdOffset;
+    if (ifdPos < tiff || ifdPos + 2 > data.length) return null;
+    final count = bd.getUint16(ifdPos, endian);
+    for (var i = 0; i < count; i++) {
+      final entryPos = ifdPos + 2 + i * 12;
+      if (entryPos + 12 > data.length) break;
+      final tag = bd.getUint16(entryPos, endian);
+      if (tag == 0x0112) {
+        return bd.getUint16(entryPos + 8, endian);
+      }
+    }
+    return null;
+  }
+
   /// Whether [warm] would have to scan, so a caller can skip a pointless
   /// rebuild when the index is already there.
   static bool get stale {
@@ -214,64 +658,53 @@ abstract final class DockStackThumbs {
         DateTime.now().difference(_indexedAt!).inSeconds.abs() >= 30;
   }
 
-  /// Builds the thumbnail index now, and resolves once it is there.
-  ///
-  /// The dock calls this when it mounts, so the index is usually ready long
-  /// before a folder is opened; an open fan calls it again to redraw once the
-  /// thumbnails it could not find the first time are known.
+  /// Builds the thumbnail index and loads the system `.thumbnailer` registry.
   static Future<void> warm() {
-    if (!stale) return Future.value();
+    if (!stale) return Future<void>.value();
     return _warming ??= Future(() {
+      _ensureRegistry();
       _loadIndex();
       _warming = null;
     });
   }
 
-  /// The cached thumbnail for [file], answered from the index alone.
-  static String? _peek(String file) {
+  static String? _lookupShared(String file, DateTime mtime) {
     final index = _index;
-    if (index == null) {
-      warm();
-      return null;
-    }
-    final stat = _stat(file);
-    if (stat == null) return null;
+    if (index == null) return null;
     final path = index.entries[Uri.file(file).toString()];
     if (path == null) return null;
     final version = _stamp(path);
-    // A thumbnail older than the file shows the wrong version of it.
-    if (version != null && version.isBefore(stat.modified)) return null;
+    if (version != null && version.isBefore(mtime)) return null;
     return path;
   }
 
-  /// The thumbnail for [file], or null when there is none and none can be
-  /// made. Never blocks for long: a missing thumbnail is generated in the
-  /// background and appears on the next open.
+  /// Synchronous lookup kept for legacy tests; checks freedesktop cache only
+  /// and triggers async generation on miss.
   static DockThumbnail? lookup(String file) {
-    final cached = _cached(file);
-    if (cached != null) return cached;
-    final extension = _extension(file);
-    if (!_videoExtensions.contains(extension)) return null;
-    return _generated(file);
-  }
-
-  /// Drops the cached index, so the next lookup sees thumbnails written since.
-  static void invalidate() {
-    _index = null;
-    _indexedAt = null;
-  }
-
-  static DockThumbnail? _cached(String file) {
     final stat = _stat(file);
     if (stat == null) return null;
     final index = _loadIndex();
     final uri = Uri.file(file).toString();
     final path = index[uri];
-    if (path == null) return null;
-    final version = _stamp(path);
-    // A thumbnail older than the file shows the wrong version of it.
-    if (version != null && version.isBefore(stat.modified)) return null;
-    return DockThumbnail(path, knownVersion: version);
+    if (path != null) {
+      final version = _stamp(path);
+      if (version == null || !version.isBefore(stat.modified)) {
+        return DockThumbnail(path, knownVersion: version);
+      }
+    }
+    unawaited(request(<String>[file]));
+    return null;
+  }
+
+  /// Drops cached tables (used in tests and manual cache refresh).
+  static void invalidate() {
+    _index = null;
+    _indexedAt = null;
+    _records.clear();
+    _aspectCache.clear();
+    _inFlightKeys.clear();
+    _queue.clear();
+    _registry = null;
   }
 
   static Map<String, String> _loadIndex() {
@@ -313,7 +746,6 @@ abstract final class DockStackThumbs {
     return entries;
   }
 
-  /// `Thumb::URI` and `Thumb::MTime` from a freedesktop thumbnail.
   static ({String? uri, DateTime? version}) _readPngMeta(String path) {
     final meta = _readTextChunks(path);
     final mtime = int.tryParse(meta['Thumb::MTime'] ?? '');
@@ -327,8 +759,6 @@ abstract final class DockStackThumbs {
 
   static DateTime? _stamp(String path) => _readPngMeta(path).version;
 
-  /// The `tEXt` chunks of a PNG, keyed by keyword. Stops at the first chunk
-  /// that is not a header, so a thumbnail is not read past its metadata.
   static Map<String, String> _readTextChunks(String path) {
     final out = <String, String>{};
     RandomAccessFile? file;
@@ -362,169 +792,43 @@ abstract final class DockStackThumbs {
     return out;
   }
 
-  static DockThumbnail? _generated(String file) {
-    final cacheDir = _ownCacheDir();
-    if (cacheDir == null) return null;
-    final name = _stableName(file);
-    final out = File('$cacheDir/$name.png');
-    final stat = _stat(file);
-    if (stat == null) return null;
-    try {
-      if (out.existsSync()) {
-        final made = out.statSync().modified;
-        if (!made.isBefore(stat.modified)) {
-          return DockThumbnail(out.path, knownVersion: made);
-        }
-      }
-    } on FileSystemException {
-      return null;
-    }
-    // Generated off the caller's frame: a 4K video takes a moment, and the
-    // dock must not stall for it. The row shows a plain file tile until the
-    // next open picks the result up.
-    Directory(cacheDir).createSync(recursive: true);
-    unawaited(
-      _runFfmpeg(file, out.path).then((ok) {
-        if (!ok) return;
-        try {
-          out.setLastModifiedSync(stat.modified);
-        } on FileSystemException {
-          // A missing stamp only costs one regeneration.
-        }
-        dockThumbsRevision._bump();
-      }),
-    );
-    return null;
-  }
-
-  static DockThumbnail? _generatedPdf(String file) {
-    final cacheDir = _ownCacheDir();
-    if (cacheDir == null) return null;
-    final name = '${_stableName(file)}_pdf';
-    final out = File('$cacheDir/$name.png');
-    final stat = _stat(file);
-    if (stat == null) return null;
-    try {
-      if (out.existsSync()) {
-        final made = out.statSync().modified;
-        if (!made.isBefore(stat.modified)) {
-          return DockThumbnail(out.path, knownVersion: made);
-        }
-      }
-    } on FileSystemException {
-      return null;
-    }
-    Directory(cacheDir).createSync(recursive: true);
-    unawaited(
-      _runPdftoppm(file, '$cacheDir/$name.tmp', out.path).then((ok) {
-        if (!ok) return;
-        try {
-          out.setLastModifiedSync(stat.modified);
-        } on FileSystemException {
-          // Best-effort mtime sync.
-        }
-        dockThumbsRevision._bump();
-      }),
-    );
-    return null;
-  }
-
-  static Future<bool> _runPdftoppm(
-    String input,
-    String tmpPrefix,
-    String output,
-  ) async {
-    try {
-      final process = await runDetached('pdftoppm', [
-        '-png',
-        '-f',
-        '1',
-        '-l',
-        '1',
-        '-scale-to',
-        '320',
-        '-singlefile',
-        input,
-        tmpPrefix,
-      ]);
-      if (process.exitCode != 0) return false;
-      final file = File('$tmpPrefix.png');
-      if (!file.existsSync() || file.lengthSync() == 0) return false;
-      file.renameSync(output);
-      return true;
-    } on FileSystemException {
-      return false;
-    }
-  }
-
-  static Future<bool> _runFfmpeg(String input, String output) async {
-    final temporary = '$output.tmp.png';
-    try {
-      final process = await runDetached('ffmpeg', [
-        '-nostdin',
-        '-loglevel',
-        'error',
-        '-y',
-        '-ss',
-        '0',
-        '-i',
-        input,
-        '-frames:v',
-        '1',
-        '-vf',
-        'scale=256:-1',
-        temporary,
-      ]);
-      if (process.exitCode != 0) return false;
-      final file = File(temporary);
-      if (!file.existsSync() || file.lengthSync() == 0) return false;
-      file.renameSync(output);
-      return true;
-    } on FileSystemException {
-      return false;
-    }
-  }
-
   static String? _ownCacheDir() {
+    if (cacheDirOverride != null) return cacheDirOverride;
     final home = Platform.environment['HOME'];
     if (home == null) return null;
     final cache = Platform.environment['XDG_CACHE_HOME'] ?? '$home/.cache';
     return '$cache/denial_dock/thumbnails';
   }
 
-  /// Deletes generated thumbnails untouched for [maxAge], so a folder the user
-  /// stopped opening does not keep its videos on disk forever.
-  ///
-  /// Runs off the caller's frame: a cache directory is a directory listing,
-  /// and the dock asks for this while it mounts.
+  /// Deletes generated thumbnails untouched for [maxAge].
   static void sweepCache({Duration maxAge = const Duration(days: 60)}) {
     final directory = _ownCacheDir();
     if (directory == null) return;
     unawaited(
       Future(() {
         final cutoff = DateTime.now().subtract(maxAge);
-        final List<FileSystemEntity> files;
-        try {
-          files = Directory(directory).listSync(followLinks: false);
-        } on FileSystemException {
-          return;
-        }
-        for (final entity in files) {
-          if (entity is! File) continue;
+        for (final dirPath in <String>[directory, '$directory/fail']) {
+          final List<FileSystemEntity> files;
           try {
-            if (entity.statSync().modified.isBefore(cutoff)) {
-              entity.deleteSync();
-            }
+            files = Directory(dirPath).listSync(followLinks: false);
           } on FileSystemException {
-            // A file another frame is reading stays; the next sweep retries.
+            continue;
+          }
+          for (final entity in files) {
+            if (entity is! File) continue;
+            try {
+              if (entity.statSync().modified.isBefore(cutoff)) {
+                entity.deleteSync();
+              }
+            } on FileSystemException {
+              // Ignore in-use files.
+            }
           }
         }
       }),
     );
   }
 
-  /// A stable file name for [path]. A path hash keeps the name short and
-  /// collision-free enough for a cache directory.
   static String _stableName(String path) {
     var hash = 0x811c9dc5;
     for (final unit in path.codeUnits) {

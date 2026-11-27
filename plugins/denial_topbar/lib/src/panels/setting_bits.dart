@@ -164,7 +164,11 @@ class SettingSwitch extends StatelessWidget {
 }
 
 /// A slider under its label, with the value written at the label's end.
-class SettingSlider extends StatelessWidget {
+///
+/// When [commitOnRelease] is true, dragging updates only the displayed value
+/// and invokes [onChanged] once the pointer releases, so controls that resize
+/// the window itself (such as shell scale) do not shift under the pointer.
+class SettingSlider extends StatefulWidget {
   const SettingSlider({
     required this.label,
     required this.value,
@@ -174,6 +178,7 @@ class SettingSlider extends StatelessWidget {
     this.step = 1,
     this.text,
     this.enabled = true,
+    this.commitOnRelease = false,
     super.key,
   });
 
@@ -185,19 +190,44 @@ class SettingSlider extends StatelessWidget {
   final ValueChanged<double> onChanged;
   final String Function(double value)? text;
   final bool enabled;
+  final bool commitOnRelease;
 
   static String number(double value) => value == value.roundToDouble()
       ? value.toStringAsFixed(0)
       : value.toStringAsFixed(2).replaceFirst(RegExp(r'0$'), '');
 
   @override
+  State<SettingSlider> createState() => _SettingSliderState();
+}
+
+class _SettingSliderState extends State<SettingSlider> {
+  double? _preview;
+
+  @override
+  void didUpdateWidget(covariant SettingSlider oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (!widget.commitOnRelease || oldWidget.value != widget.value) {
+      _preview = null;
+    }
+  }
+
+  double _snap(double fraction) {
+    final raw = widget.min + fraction * (widget.max - widget.min);
+    final stepped = (raw / widget.step).round() * widget.step;
+    return stepped.clamp(widget.min, widget.max).toDouble();
+  }
+
+  @override
   Widget build(BuildContext context) {
     final theme = context.shellTheme;
+    final shown = _preview ?? widget.value;
+    final span = widget.max - widget.min;
+    final norm = span <= 0 ? 0.0 : ((shown - widget.min) / span).clamp(0.0, 1.0);
     return IgnorePointer(
-      ignoring: !enabled,
+      ignoring: !widget.enabled,
       child: AnimatedOpacity(
         duration: KitMotion.duration(context, KitMotion.fill),
-        opacity: enabled ? 1 : 0.4,
+        opacity: widget.enabled ? 1 : 0.4,
         child: Padding(
           padding: const EdgeInsets.fromLTRB(12, 9, 12, 8),
           child: Column(
@@ -207,7 +237,7 @@ class SettingSlider extends StatelessWidget {
                 children: <Widget>[
                   Expanded(
                     child: Text(
-                      label,
+                      widget.label,
                       maxLines: 1,
                       overflow: TextOverflow.ellipsis,
                       style: BarType.menuRow.copyWith(
@@ -216,7 +246,7 @@ class SettingSlider extends StatelessWidget {
                     ),
                   ),
                   Text(
-                    text?.call(value) ?? number(value),
+                    widget.text?.call(shown) ?? SettingSlider.number(shown),
                     style: BarType.caption.copyWith(
                       color: theme.colors.textTertiary,
                       fontFeatures: const <FontFeature>[
@@ -231,11 +261,22 @@ class SettingSlider extends StatelessWidget {
                 // The page scrolls, so the slider yields the wheel and
                 // vertical drags to it.
                 inList: true,
-                value: ((value - min) / (max - min)).clamp(0.0, 1.0),
+                value: norm,
                 onChanged: (v) {
-                  final next = ((min + v * (max - min)) / step).round() * step;
-                  if (next != value) onChanged(next.clamp(min, max).toDouble());
+                  final next = _snap(v);
+                  if (widget.commitOnRelease) {
+                    if (next != _preview) setState(() => _preview = next);
+                  } else if (next != widget.value) {
+                    widget.onChanged(next);
+                  }
                 },
+                onChangeEnd: widget.commitOnRelease
+                    ? (v) {
+                        final next = _snap(v);
+                        setState(() => _preview = null);
+                        if (next != widget.value) widget.onChanged(next);
+                      }
+                    : null,
               ),
             ],
           ),

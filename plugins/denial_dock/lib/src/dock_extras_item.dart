@@ -602,7 +602,7 @@ class _DockTrashItemState extends State<DockTrashItem> {
 /// A single file pinned to the dock: its own picture or type icon, opening in
 /// whatever the system uses for that kind. macOS keeps a dragged-out file
 /// beside the stacks, so the dock does the same.
-class DockFileItem extends StatelessWidget {
+class DockFileItem extends StatefulWidget {
   const DockFileItem({
     required this.file,
     required this.size,
@@ -633,68 +633,103 @@ class DockFileItem extends StatelessWidget {
   final DockAppearance appearance;
 
   @override
+  State<DockFileItem> createState() => _DockFileItemState();
+}
+
+class _DockFileItemState extends State<DockFileItem> {
+  String? _preview;
+
+  @override
+  void initState() {
+    super.initState();
+    _preview = DockStackThumbs.preview(widget.file.path);
+    dockThumbsRevision.addListener(_onThumbs);
+    unawaited(DockStackThumbs.request(<String>[widget.file.path]));
+  }
+
+  @override
+  void didUpdateWidget(covariant DockFileItem oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.file.path != widget.file.path) {
+      _preview = DockStackThumbs.preview(widget.file.path);
+      unawaited(DockStackThumbs.request(<String>[widget.file.path]));
+    }
+  }
+
+  @override
+  void dispose() {
+    dockThumbsRevision.removeListener(_onThumbs);
+    super.dispose();
+  }
+
+  void _onThumbs() {
+    if (!mounted) return;
+    final next = DockStackThumbs.preview(widget.file.path);
+    if (next != _preview) setState(() => _preview = next);
+  }
+
+  @override
   Widget build(BuildContext context) {
-    final extension = DockStackFiles.extensionOf(file.path);
-    final preview = DockStackThumbs.preview(file.path);
+    final extension = DockStackFiles.extensionOf(widget.file.path);
     final art = _FileArt(
-      path: file.path,
-      preview: preview,
+      path: widget.file.path,
+      preview: _preview,
       icon: stackFileIcon(extension),
       color: stackFileColor(extension),
-      size: size,
+      size: widget.size,
     );
     return DockAccessoryItem(
-      label: file.label,
+      label: widget.file.label,
       icon: stackFileIcon(extension),
-      size: size,
-      lift: lift,
-      position: position,
-      onTap: onOpen,
-      onOverlayChanged: onOverlayChanged,
-      monitorBounds: monitorBounds,
+      size: widget.size,
+      lift: widget.lift,
+      position: widget.position,
+      onTap: widget.onOpen,
+      onOverlayChanged: widget.onOverlayChanged,
+      monitorBounds: widget.monitorBounds,
       // The macOS dock shows a pinned file as its own artwork; the Denial
       // look keeps the accent tile with the type glyph inside it.
-      face: appearance == DockAppearance.macos ? (pressed) => art : null,
-      glyph: appearance == DockAppearance.macos ? null : art,
+      face: widget.appearance == DockAppearance.macos ? (pressed) => art : null,
+      glyph: widget.appearance == DockAppearance.macos ? null : art,
       menuBuilder: (context, close) => [
         DockMenuRow(
           icon: Icons.open_in_new,
-          label: zh ? '打开' : 'Open',
+          label: widget.zh ? '打开' : 'Open',
           onTap: () {
             close();
-            onOpen();
+            widget.onOpen();
           },
         ),
         DockMenuRow(
           icon: Icons.folder_open_outlined,
-          label: zh ? '在文件管理器中显示' : 'Show in Files',
+          label: widget.zh ? '在文件管理器中显示' : 'Show in Files',
           onTap: () {
             close();
-            onReveal();
+            widget.onReveal();
           },
         ),
         DockMenuSeparator(),
         DockMenuSubmenuRow(
           icon: Icons.tune,
-          label: zh ? '选项' : 'Options',
+          label: widget.zh ? '选项' : 'Options',
           submenu: (context) => Column(
             mainAxisSize: MainAxisSize.min,
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
               DockMenuRow(
                 icon: Icons.remove_circle_outline,
-                label: zh ? '从 Dock 中移除' : 'Remove from Dock',
+                label: widget.zh ? '从 Dock 中移除' : 'Remove from Dock',
                 onTap: () {
                   close();
-                  onRemove();
+                  widget.onRemove();
                 },
               ),
               DockMenuRow(
                 icon: Icons.settings_outlined,
-                label: zh ? 'Dock 设置…' : 'Dock settings…',
+                label: widget.zh ? 'Dock 设置…' : 'Dock settings…',
                 onTap: () {
                   close();
-                  onOpenSettings();
+                  widget.onOpenSettings();
                 },
               ),
             ],
@@ -827,6 +862,7 @@ class _DockFolderItemState extends State<DockFolderItem> {
   @override
   void initState() {
     super.initState();
+    dockThumbsRevision.addListener(_onThumbs);
     _scheduleRefresh();
     _debug = DockDebug.commands.listen((words) {
       if (!mounted) return;
@@ -842,6 +878,16 @@ class _DockFolderItemState extends State<DockFolderItem> {
           : null;
       _toggleFan();
     });
+  }
+
+  void _onThumbs() {
+    if (!mounted || _entries.isEmpty) return;
+    final next = DockStackThumbs.preview(_entries.first.path);
+    if (next != _preview) {
+      setState(() => _preview = next);
+    } else if (widget.folder.stacked) {
+      setState(() {});
+    }
   }
 
   @override
@@ -873,6 +919,7 @@ class _DockFolderItemState extends State<DockFolderItem> {
 
   @override
   void dispose() {
+    dockThumbsRevision.removeListener(_onThumbs);
     _downloadPoll?.cancel();
     unawaited(_debug?.cancel());
     _watch?.stop();
@@ -889,6 +936,15 @@ class _DockFolderItemState extends State<DockFolderItem> {
     });
   }
 
+  void _requestPileThumbs(List<DockStackEntry> entries, {bool all = false}) {
+    final slice = all ? entries : entries.take(DockPile.count);
+    final paths = <String>[
+      for (final e in slice)
+        if (!e.isDirectory) e.path,
+    ];
+    if (paths.isNotEmpty) unawaited(DockStackThumbs.request(paths));
+  }
+
   /// Re-reads the folder for the icon and the download bar.
   void _refresh() {
     final entries = DockStackFiles.list(
@@ -896,6 +952,7 @@ class _DockFolderItemState extends State<DockFolderItem> {
       sort: widget.folder.sort,
       order: widget.folder.order,
     );
+    _requestPileThumbs(entries);
     final preview = entries.isEmpty
         ? null
         : DockStackThumbs.preview(entries.first.path);
@@ -964,6 +1021,7 @@ class _DockFolderItemState extends State<DockFolderItem> {
       sort: widget.folder.sort,
       order: widget.folder.order,
     );
+    _requestPileThumbs(entries, all: _fanOpen);
     final preview = entries.isEmpty
         ? null
         : DockStackThumbs.preview(entries.first.path);
@@ -994,6 +1052,7 @@ class _DockFolderItemState extends State<DockFolderItem> {
       sort: widget.folder.sort,
       order: widget.folder.order,
     );
+    _requestPileThumbs(entries, all: true);
     if (!mounted) return;
     setState(() {
       _entries = entries;

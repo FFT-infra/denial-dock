@@ -664,14 +664,59 @@ class ShellPreset {
     return a == b;
   }
 
-  /// Presets whose remembered state predates [memoryRevision] fall back to
-  /// their newly shipped defaults so stale caches cannot hide preset updates.
-  static const int memoryRevision = 2;
+  /// Legacy shipped values from `668cd0d` that changed in subsequent builds.
+  /// Used once when migrating pre-diff full snapshots so genuine user edits
+  /// survive while obsolete defaults yield to the updated shipped values.
+  static const Map<String, Map<String, Object?>> _legacyDefaults =
+      <String, Map<String, Object?>>{
+        'omarchy': <String, Object?>{
+          'look': 'terminal',
+          'bar': <String, Object?>{'endInset': 0, 'barHeight': null},
+        },
+        'noctalia': <String, Object?>{
+          'bar': <String, Object?>{
+            'barHeight': null,
+            'endInset': 0,
+            'contentPadding': 8,
+            'partGap': 6,
+            'partPill': 'none',
+            'concaveEdge': false,
+          },
+          'dock': <String, Object?>{
+            'leading': <String>['dock.launcher'],
+          },
+        },
+        'material': <String, Object?>{
+          'bar': <String, Object?>{
+            'barHeight': null,
+            'contentPadding': 6,
+            'partGap': 6,
+            'partPill': 'none',
+          },
+        },
+        'hyprpanel': <String, Object?>{
+          'bar': <String, Object?>{
+            'endInset': 0,
+            'contentPadding': 8,
+            'partGap': 6,
+            'partPill': 'none',
+          },
+        },
+        'axshell': <String, Object?>{
+          'bar': <String, Object?>{'partGap': 6, 'islandNotch': false},
+        },
+        'cosmic': <String, Object?>{
+          'bar': <String, Object?>{'barHeight': null, 'cornerRadius': 14},
+        },
+      };
 
-  /// The shell as it stands, in the shape [recall] reads: what to keep for
-  /// this preset when the user goes to another. Only the keys the preset
-  /// decides are kept; [dock] is null while no dock runs, and then the
-  /// dock's part of an earlier memory in [before] stays.
+  /// The diff of the shell relative to this preset's shipped defaults: only
+  /// keys the user actually changed are stored, so future updates to shipped
+  /// defaults flow through to untouched keys automatically.
+  ///
+  /// Returns an empty map when nothing differs from the shipped defaults.
+  /// While no dock runs (`dock == null`), any earlier dock overrides in
+  /// [before] are preserved.
   Map<String, Object?> remember({
     required String look,
     required String barMode,
@@ -679,27 +724,127 @@ class ShellPreset {
     Map<String, Object?>? dock,
     bool? dockVisible,
     Object? before,
-  }) => <String, Object?>{
-    'rev': memoryRevision,
-    'look': look,
-    'barMode': barMode,
-    'dockVisible': ?dockVisible,
-    'bar': <String, Object?>{
-      for (final key in this.bar.keys) key: bar[key],
-    },
-    if (dock != null)
-      'dock': <String, Object?>{
-        for (final key in this.dock.keys)
-          if (dock.containsKey(key)) key: dock[key],
+  }) {
+    final out = <String, Object?>{};
+    if (look != this.look) out['look'] = look;
+    if (barMode != this.barMode) out['barMode'] = barMode;
+    if (dockVisible != null &&
+        this.dockVisible != null &&
+        dockVisible != this.dockVisible) {
+      out['dockVisible'] = dockVisible;
+    }
+    final barDiff = <String, Object?>{};
+    for (final entry in this.bar.entries) {
+      if (!bar.containsKey(entry.key)) continue;
+      final value = bar[entry.key];
+      if (!_same(entry.value, value) && _kin(entry.value, value)) {
+        barDiff[entry.key] = value;
       }
-    else if (before is Map && before['dock'] is Map)
-      'dock': before['dock'],
-  };
+    }
+    if (barDiff.isNotEmpty) out['bar'] = barDiff;
 
-  /// This preset as the user left it: [memory] laid over what the preset
-  /// ships with, key by key, so a memory written by an older build that
-  /// lacks a key, or holds one of the wrong kind, still gives a whole
-  /// preset. Null or anything that is no map gives the preset as shipped.
+    if (dock != null) {
+      final dockDiff = <String, Object?>{};
+      for (final entry in this.dock.entries) {
+        if (!dock.containsKey(entry.key)) continue;
+        final value = dock[entry.key];
+        if (!_same(entry.value, value) && _kin(entry.value, value)) {
+          dockDiff[entry.key] = value;
+        }
+      }
+      if (dockDiff.isNotEmpty) out['dock'] = dockDiff;
+    } else if (before != null) {
+      final prev = migrateMemory(before);
+      if (prev['dock'] is Map && (prev['dock']! as Map).isNotEmpty) {
+        out['dock'] = prev['dock'];
+      }
+    }
+    if (out.isEmpty) return const <String, Object?>{};
+    return <String, Object?>{'diff': true, ...out};
+  }
+
+  /// Converts a legacy full snapshot (without `'diff': true`) into a diff map,
+  /// keeping genuine user customizations and discarding values that merely
+  /// matched current or pre-update (`668cd0d`) shipped defaults.
+  Map<String, Object?> migrateMemory(Object? memory) {
+    if (memory is! Map) return const <String, Object?>{};
+    if (memory['diff'] == true) {
+      return <String, Object?>{
+        for (final e in memory.entries)
+          if (e.key is String) e.key as String: e.value,
+      };
+    }
+    final legacy = group == ShellPresetGroup.user
+        ? const <String, Object?>{}
+        : (_legacyDefaults[id] ?? const <String, Object?>{});
+    final legacyBar = legacy['bar'] is Map
+        ? legacy['bar']! as Map
+        : const <Object?, Object?>{};
+    final legacyDock = legacy['dock'] is Map
+        ? legacy['dock']! as Map
+        : const <Object?, Object?>{};
+
+    bool isLegacyScalar(String key, Object? value) =>
+        legacy.containsKey(key) && _same(legacy[key], value);
+
+    final out = <String, Object?>{};
+    final savedLook = memory['look'];
+    if (savedLook is String &&
+        savedLook != look &&
+        !isLegacyScalar('look', savedLook)) {
+      out['look'] = savedLook;
+    }
+    final savedMode = memory['barMode'];
+    if (savedMode is String &&
+        savedMode != barMode &&
+        !isLegacyScalar('barMode', savedMode)) {
+      out['barMode'] = savedMode;
+    }
+    final savedDockShown = memory['dockVisible'];
+    if (savedDockShown is bool &&
+        dockVisible != null &&
+        savedDockShown != dockVisible) {
+      out['dockVisible'] = savedDockShown;
+    }
+    final savedBar = memory['bar'];
+    if (savedBar is Map) {
+      final barDiff = <String, Object?>{};
+      for (final entry in bar.entries) {
+        if (!savedBar.containsKey(entry.key)) continue;
+        final value = savedBar[entry.key];
+        if (!_kin(entry.value, value)) continue;
+        if (_same(entry.value, value)) continue;
+        if (legacyBar.containsKey(entry.key) &&
+            _same(legacyBar[entry.key], value)) {
+          continue;
+        }
+        barDiff[entry.key] = value;
+      }
+      if (barDiff.isNotEmpty) out['bar'] = barDiff;
+    }
+    final savedDock = memory['dock'];
+    if (savedDock is Map) {
+      final dockDiff = <String, Object?>{};
+      for (final entry in dock.entries) {
+        if (!savedDock.containsKey(entry.key)) continue;
+        final value = savedDock[entry.key];
+        if (!_kin(entry.value, value)) continue;
+        if (_same(entry.value, value)) continue;
+        if (legacyDock.containsKey(entry.key) &&
+            _same(legacyDock[entry.key], value)) {
+          continue;
+        }
+        dockDiff[entry.key] = value;
+      }
+      if (dockDiff.isNotEmpty) out['dock'] = dockDiff;
+    }
+    if (out.isEmpty) return const <String, Object?>{};
+    return <String, Object?>{'diff': true, ...out};
+  }
+
+  /// This preset as the user left it: diff overrides from [memory] laid over
+  /// what the preset ships with, key by key. Legacy full snapshots are
+  /// migrated transparently via [migrateMemory].
   ({
     String look,
     String barMode,
@@ -708,18 +853,7 @@ class ShellPreset {
     Map<String, Object?> dock,
   })
   recall(Object? memory) {
-    final map = memory is Map ? memory : const <Object?, Object?>{};
-    final rev = map['rev'];
-    if (group != ShellPresetGroup.user &&
-        (rev is! int || rev < memoryRevision)) {
-      return (
-        look: look,
-        barMode: barMode,
-        dockVisible: dockVisible,
-        bar: Map<String, Object?>.of(bar),
-        dock: Map<String, Object?>.of(dock),
-      );
-    }
+    final map = migrateMemory(memory);
     Map<String, Object?> over(Map<String, Object?> base, Object? saved) =>
         <String, Object?>{
           for (final entry in base.entries)
