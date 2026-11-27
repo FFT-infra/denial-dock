@@ -328,6 +328,7 @@ class BarSettings {
     this.islandEnabled = true,
     this.islandHoverPeek = true,
     this.islandHoverFade = false,
+    this.islandCursorAbsorb = true,
     this.islandNoticeSeconds = 5,
     this.islandFadeDelayMs = BarMetric.islandFadeDelayMs,
     this.islandLongPressMs = BarMetric.islandLongPressMs,
@@ -448,6 +449,10 @@ class BarSettings {
   /// The compact island fades away under a resting pointer, to show what
   /// it covers; a click still opens it.
   final bool islandHoverFade;
+
+  /// While hovered collapsed, the pointer cursor is absorbed into the pill
+  /// with a soft trailing sheen and restored when expanded.
+  final bool islandCursorAbsorb;
 
   /// How long a notice or a track change keeps the island open, in seconds.
   final int islandNoticeSeconds;
@@ -725,6 +730,7 @@ class BarSettings {
     bool? islandEnabled,
     bool? islandHoverPeek,
     bool? islandHoverFade,
+    bool? islandCursorAbsorb,
     int? islandNoticeSeconds,
     int? islandFadeDelayMs,
     int? islandLongPressMs,
@@ -809,6 +815,7 @@ class BarSettings {
     islandEnabled: islandEnabled ?? this.islandEnabled,
     islandHoverPeek: islandHoverPeek ?? this.islandHoverPeek,
     islandHoverFade: islandHoverFade ?? this.islandHoverFade,
+    islandCursorAbsorb: islandCursorAbsorb ?? this.islandCursorAbsorb,
     islandNoticeSeconds: islandNoticeSeconds ?? this.islandNoticeSeconds,
     islandFadeDelayMs: islandFadeDelayMs ?? this.islandFadeDelayMs,
     islandLongPressMs: islandLongPressMs ?? this.islandLongPressMs,
@@ -986,6 +993,7 @@ class BarSettings {
       islandEnabled: flag('islandEnabled', true),
       islandHoverPeek: flag('islandHoverPeek', true),
       islandHoverFade: flag('islandHoverFade', false),
+      islandCursorAbsorb: flag('islandCursorAbsorb', true),
       islandNoticeSeconds: (json['islandNoticeSeconds'] is num)
           ? (json['islandNoticeSeconds'] as num).round().clamp(2, 12)
           : 5,
@@ -1108,6 +1116,7 @@ class BarSettings {
     json['islandEnabled'] = islandEnabled;
     json['islandHoverPeek'] = islandHoverPeek;
     json['islandHoverFade'] = islandHoverFade;
+    json['islandCursorAbsorb'] = islandCursorAbsorb;
     json['islandNoticeSeconds'] = islandNoticeSeconds;
     json['islandFadeDelayMs'] = islandFadeDelayMs;
     json['islandLongPressMs'] = islandLongPressMs;

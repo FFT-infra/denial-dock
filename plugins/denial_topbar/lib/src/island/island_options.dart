@@ -16,6 +16,7 @@ enum IslandOption {
   shown,
   hoverPeek,
   hoverFade,
+  cursorAbsorb,
   fadeDelay,
   longPress,
   home,
@@ -157,6 +158,7 @@ class IslandOptions {
     IslandOption.shown => settings.showsIsland,
     IslandOption.hoverPeek => settings.islandHoverPeek,
     IslandOption.hoverFade => settings.islandHoverFade,
+    IslandOption.cursorAbsorb => settings.islandCursorAbsorb,
     IslandOption.fadeDelay => settings.islandHoverFade,
     IslandOption.longPress => true,
     IslandOption.home => settings.islandHome,
@@ -207,6 +209,7 @@ class IslandOptions {
   BarSettings get effective => settings.copyWith(
     islandHoverPeek: inForce(IslandOption.hoverPeek),
     islandHoverFade: inForce(IslandOption.hoverFade),
+    islandCursorAbsorb: inForce(IslandOption.cursorAbsorb),
     islandHome: inForce(IslandOption.home),
     islandSplit: inForce(IslandOption.split),
     islandSwipe: inForce(IslandOption.swipe),
@@ -238,6 +241,9 @@ class IslandOptions {
       IslandOption.hoverFade => settings.copyWith(
         islandHoverFade: value,
         islandHoverPeek: value ? false : settings.islandHoverPeek,
+      ),
+      IslandOption.cursorAbsorb => settings.copyWith(
+        islandCursorAbsorb: value,
       ),
       IslandOption.home => settings.copyWith(islandHome: value),
       IslandOption.split => settings.copyWith(islandSplit: value),

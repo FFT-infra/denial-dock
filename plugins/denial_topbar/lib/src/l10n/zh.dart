@@ -188,6 +188,7 @@ const Map<String, String> zh = <String, String>{
   'Show Dynamic Island': '显示灵动岛',
   'Open when the pointer rests on it': '指针停留时展开',
   'Fade away under the pointer': '指针停在上面时淡出',
+  'Absorb cursor on hover': '悬停吸收指针',
   'Live Activities': '实时活动',
   'Denial still shows its own volume and brightness display: a plugin cannot replace it.':
       'Denial 自带的音量和亮度提示仍会出现，插件无法替换它。',

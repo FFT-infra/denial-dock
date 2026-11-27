@@ -647,6 +647,7 @@ class _BarSettingsPanelState extends ConsumerState<BarSettingsPanel> {
           toggle(IslandOption.shown, 'Show Dynamic Island'),
           toggle(IslandOption.hoverPeek, 'Open when the pointer rests on it'),
           toggle(IslandOption.hoverFade, 'Fade away under the pointer'),
+          toggle(IslandOption.cursorAbsorb, 'Absorb cursor on hover'),
           _Pair(
             _timing(
               context,

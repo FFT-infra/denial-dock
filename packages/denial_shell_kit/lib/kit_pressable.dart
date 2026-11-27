@@ -64,6 +64,7 @@ class Pressable extends StatefulWidget {
     this.shape,
     this.onHighlight,
     this.disabled = false,
+    this.darken = false,
     this.onSecondaryTap,
     super.key,
   });
@@ -96,6 +97,10 @@ class Pressable extends StatefulWidget {
   /// or a key. A control that merely has nothing to do passes no callbacks
   /// instead, and keeps its full ink.
   final bool disabled;
+
+  /// Lays a darker shade instead of ink wash over the child, for accent-filled
+  /// controls that already have high brightness.
+  final bool darken;
 
   final VoidCallback? onSecondaryTap;
 
@@ -173,12 +178,23 @@ class _PressableState extends State<Pressable> {
     final theme = context.shellTheme;
     final style = KitStyle.of(context);
     final shade = widget.wash
-        ? KitFeedback.wash(
-            hovered: _hovered,
-            pressed: _pressed,
-            enabled: enabled,
-          )
+        ? widget.darken
+              ? !enabled
+                    ? 0.0
+                    : _pressed
+                    ? 0.16
+                    : _hovered
+                    ? 0.06
+                    : 0.0
+              : KitFeedback.wash(
+                  hovered: _hovered,
+                  pressed: _pressed,
+                  enabled: enabled,
+                )
         : 0.0;
+    final washColor = widget.darken
+        ? const Color(0xFF000000)
+        : theme.colors.textPrimary;
     // A flat look has no gloss to answer with, so the washed control draws
     // a line as well; the ring of a keyboard focus wins over it.
     final line = widget.wash
@@ -197,7 +213,7 @@ class _PressableState extends State<Pressable> {
         _pressed ? KitMotion.wash : KitMotion.enter,
       ),
       foregroundDecoration: BoxDecoration(
-        color: theme.colors.textPrimary.withValues(alpha: shade),
+        color: washColor.withValues(alpha: shade),
         borderRadius: widget.shape ?? BorderRadius.circular(style.corner(9)),
         border: Border.all(
           color: _ring

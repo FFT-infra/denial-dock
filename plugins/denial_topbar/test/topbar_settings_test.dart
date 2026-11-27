@@ -10,6 +10,8 @@ Future<void> main() async {
   _expect(defaults.ground == BarGround.none, 'default ground');
   _expect(defaults.groundOpacity == 0.55, 'default opacity');
   _expect(defaults.islandEnabled, 'default island');
+  _expect(!defaults.islandHoverFade, 'default island hover fade off');
+  _expect(defaults.islandCursorAbsorb, 'default island cursor absorb on');
   _expect(
     defaults.workspacePlacement == BarWorkspacePlacement.island,
     'default workspace placement',
@@ -163,6 +165,8 @@ Future<void> main() async {
     await BarPreferencesStore(file).write(
       reread.copyWith(
         islandHome: false,
+        islandHoverFade: true,
+        islandCursorAbsorb: false,
         activityTimer: false,
         collapseItems: true,
         trayFold: BarTrayFold.controlCenter,
@@ -177,7 +181,10 @@ Future<void> main() async {
     );
     final again = await BarPreferencesStore(file).read();
     _expect(
-      !again.islandHome && !again.activityTimer,
+      !again.islandHome &&
+          !again.activityTimer &&
+          again.islandHoverFade &&
+          !again.islandCursorAbsorb,
       'island switches persist',
     );
     _expect(

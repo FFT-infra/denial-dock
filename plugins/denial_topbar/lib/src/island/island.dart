@@ -174,6 +174,7 @@ class _IslandState extends ConsumerState<Island> with TickerProviderStateMixin {
   IconData _hudIcon = BarIcons.volumeUp;
   double _hudLevel = 0;
   int _hudTurn = 1;
+  int _hudStep = 0;
   IconData _statusIcon = BarIcons.bellFill;
   Color? _statusTint;
   String _statusLabel = '';
@@ -612,11 +613,17 @@ class _IslandState extends ConsumerState<Island> with TickerProviderStateMixin {
   void _hud(IconData icon, double level) {
     if (kitOpenPanel.value != null) return;
     final next = level.clamp(0.0, 1.0);
+    if (icon != _hudIcon || next != _hudLevel) _hudStep++;
     if (icon == _hudIcon && next != _hudLevel) {
       _hudTurn = next > _hudLevel ? 1 : -1;
     }
     _hudIcon = icon;
     _hudLevel = next;
+    if (next <= 0.001 || next >= 0.999) {
+      // Elastic boundary bounce when volume/brightness hits 0% or 100%.
+      _w.velocity += 95;
+      _kick(_shape);
+    }
     _show(IslandKind.hud, 'level', _I.hudHold);
   }
 
@@ -1345,6 +1352,25 @@ class _IslandState extends ConsumerState<Island> with TickerProviderStateMixin {
                     ),
                   ),
                 ),
+              if (!expanded &&
+                  !yields &&
+                  settings.islandCursorAbsorb &&
+                  hover > 0.01)
+                Positioned.fill(
+                  child: IgnorePointer(
+                    child: CustomPaint(
+                      painter: _CursorSheenPainter(
+                        center: Offset(
+                          width * (0.5 + _pull.dx * 0.5),
+                          h * (0.5 + _pull.dy * 0.5),
+                        ),
+                        color: _skin.ink.withValues(
+                          alpha: 0.14 * hover.clamp(0.0, 1.0),
+                        ),
+                      ),
+                    ),
+                  ),
+                ),
             ],
           ),
         );
@@ -1362,7 +1388,9 @@ class _IslandState extends ConsumerState<Island> with TickerProviderStateMixin {
             // Not opaque while faded, so the bar under the island is hit
             // too; the region itself still sees the pointer come and go.
             opaque: !yields,
-            cursor: !expanded && _engine.canExpand
+            cursor: !expanded && !yields && settings.islandCursorAbsorb
+                ? SystemMouseCursors.none
+                : !expanded && _engine.canExpand
                 ? SystemMouseCursors.click
                 : MouseCursor.defer,
             onEnter: (_) => _enter(),
@@ -1376,7 +1404,7 @@ class _IslandState extends ConsumerState<Island> with TickerProviderStateMixin {
                       (at.dy / h * 2 - 1).clamp(-1.0, 1.0),
                     );
                     // Small moves are not worth a frame.
-                    if ((pull - _pull).distance < 0.06) return;
+                    if ((pull - _pull).distance < 0.03) return;
                     _pull = pull;
                     _aimPull();
                     _kick(_feel);
@@ -1747,12 +1775,20 @@ class _IslandState extends ConsumerState<Island> with TickerProviderStateMixin {
             children: <Widget>[
               SizedBox(
                 width: 20,
-                child: IslandSwap(
-                  child: BarGlyph(
-                    _hudIcon,
-                    key: ValueKey<int>(_hudIcon.codePoint),
-                    size: 15,
-                    color: _skin.ink,
+                child: TweenAnimationBuilder<double>(
+                  key: ValueKey<int>(_hudStep),
+                  tween: Tween<double>(begin: 1.18, end: 1.0),
+                  duration: KitMotion.duration(context, KitMotion.tap),
+                  curve: Curves.easeOutCubic,
+                  builder: (context, scale, child) =>
+                      Transform.scale(scale: scale, child: child),
+                  child: IslandSwap(
+                    child: BarGlyph(
+                      _hudIcon,
+                      key: ValueKey<int>(_hudIcon.codePoint),
+                      size: 15,
+                      color: _skin.ink,
+                    ),
                   ),
                 ),
               ),
@@ -2095,4 +2131,26 @@ class _NotchClipper extends CustomClipper<Path> {
 
   @override
   bool shouldReclip(_NotchClipper old) => old.radius != radius;
+}
+
+class _CursorSheenPainter extends CustomPainter {
+  const _CursorSheenPainter({required this.center, required this.color});
+
+  final Offset center;
+  final Color color;
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    if (size.isEmpty || color.a <= 0.001) return;
+    const radius = 44.0;
+    final rect = Rect.fromCircle(center: center, radius: radius);
+    final shader = RadialGradient(
+      colors: <Color>[color, color.withValues(alpha: 0)],
+    ).createShader(rect);
+    canvas.drawRect(rect, Paint()..shader = shader);
+  }
+
+  @override
+  bool shouldRepaint(_CursorSheenPainter old) =>
+      old.center != center || old.color != color;
 }

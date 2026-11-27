@@ -214,6 +214,7 @@ void main() {
   _expect(off[IslandOption.shown].enabled, 'and can be switched back');
   _expect(
     off[IslandOption.media].why == IslandWhy.islandOff &&
+        off[IslandOption.cursorAbsorb].why == IslandWhy.islandOff &&
         off[IslandOption.swipe].why == IslandWhy.islandOff,
     'its options say the island is off',
   );
@@ -224,6 +225,31 @@ void main() {
   );
   _expect(back.present, 'the switch brings it back');
 
+  // Cursor absorption defaults on, does not conflict with hoverFade/hoverPeek,
+  // and follows the active island state.
+  _expect(
+    back[IslandOption.cursorAbsorb].enabled &&
+        back[IslandOption.cursorAbsorb].on &&
+        back.inForce(IslandOption.cursorAbsorb) &&
+        back.effective.islandCursorAbsorb,
+    'cursorAbsorb is active by default when island is shown',
+  );
+  final absorbOff = IslandOptions(
+    back.set(IslandOption.cursorAbsorb, false),
+    mode: KitBarMode.shown,
+    top: true,
+  );
+  _expect(
+    !absorbOff.settings.islandCursorAbsorb &&
+        !absorbOff.inForce(IslandOption.cursorAbsorb) &&
+        !absorbOff.effective.islandCursorAbsorb,
+    'cursorAbsorb toggles off cleanly',
+  );
+  _expect(
+    !off.inForce(IslandOption.cursorAbsorb) && !off.effective.islandCursorAbsorb,
+    'cursorAbsorb is off in effective settings when island is hidden',
+  );
+
   stdout.writeln('All island option tests passed.');
 }
 
@@ -232,6 +258,7 @@ extension on IslandOptions {
   bool _showsStored(IslandOption option) => switch (option) {
     IslandOption.hoverPeek => settings.islandHoverPeek,
     IslandOption.hoverFade => settings.islandHoverFade,
+    IslandOption.cursorAbsorb => settings.islandCursorAbsorb,
     IslandOption.home => settings.islandHome,
     IslandOption.split => settings.islandSplit,
     IslandOption.swipe => settings.islandSwipe,

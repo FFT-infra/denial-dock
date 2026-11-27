@@ -1146,6 +1146,7 @@ class _CapsuleState extends State<_Capsule> {
                 onTap: widget.onToggle,
                 scale: Pressable.small,
                 wash: true,
+                darken: widget.on,
                 shape: style.disc(42),
                 child: MacDisc(
                   icon: widget.icon,
@@ -1281,6 +1282,7 @@ class _Round extends StatelessWidget {
         onTap: onTap,
         scale: Pressable.small,
         wash: true,
+        darken: on,
         shape: shape,
         // The same fill as a capsule's disc, so every switch in the panel
         // turns on the same way.
