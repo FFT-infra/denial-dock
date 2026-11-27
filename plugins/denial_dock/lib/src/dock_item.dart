@@ -1251,6 +1251,26 @@ class _DockItemWidgetState extends State<DockItemWidget>
           },
           child: Focus(
             focusNode: _focus,
+            onFocusChange: (focused) {
+              if (_keyFocused != focused) {
+                setState(() => _keyFocused = focused);
+              }
+            },
+            onKeyEvent: (node, event) {
+              if (event is! KeyDownEvent) return KeyEventResult.ignored;
+              final key = event.logicalKey;
+              if (key == LogicalKeyboardKey.enter ||
+                  key == LogicalKeyboardKey.numpadEnter ||
+                  key == LogicalKeyboardKey.space) {
+                _activate();
+                return KeyEventResult.handled;
+              }
+              if (key == LogicalKeyboardKey.contextMenu) {
+                _menuOpen ? _closeOverlay() : _openMenu();
+                return KeyEventResult.handled;
+              }
+              return KeyEventResult.ignored;
+            },
             child: Semantics(
               label: widget.name,
               value: '${widget.windows.length}',
@@ -1313,29 +1333,7 @@ class _DockItemWidgetState extends State<DockItemWidget>
                           if (_pressKind == DockPointerKind.touch) return;
                           widget.onDragEnd!();
                         },
-                  child: Focus(
-                    focusNode: _focus,
-                    onFocusChange: (focused) {
-                      if (_keyFocused != focused) {
-                        setState(() => _keyFocused = focused);
-                      }
-                    },
-                    onKeyEvent: (node, event) {
-                      if (event is! KeyDownEvent) return KeyEventResult.ignored;
-                      final key = event.logicalKey;
-                      if (key == LogicalKeyboardKey.enter ||
-                          key == LogicalKeyboardKey.numpadEnter ||
-                          key == LogicalKeyboardKey.space) {
-                        _activate();
-                        return KeyEventResult.handled;
-                      }
-                      if (key == LogicalKeyboardKey.contextMenu) {
-                        _menuOpen ? _closeOverlay() : _openMenu();
-                        return KeyEventResult.handled;
-                      }
-                      return KeyEventResult.ignored;
-                    },
-                    child: Container(
+                  child: Container(
                       width: widget.cellExtent ?? size,
                       height: size,
                       decoration: _keyFocused
@@ -1538,7 +1536,6 @@ class _DockItemWidgetState extends State<DockItemWidget>
           ),
         ),
       ),
-    ),
     );
   }
 
