@@ -527,6 +527,11 @@ class _DockSettingsPanelState extends ConsumerState<DockSettingsPanel> {
                     Icons.vertical_align_bottom,
                   ),
                   (
+                    DockPosition.top,
+                    _zh ? '顶部' : 'Top',
+                    Icons.vertical_align_top,
+                  ),
+                  (
                     DockPosition.right,
                     _zh ? '右边' : 'Right',
                     Icons.align_horizontal_right,
@@ -541,6 +546,19 @@ class _DockSettingsPanelState extends ConsumerState<DockSettingsPanel> {
                 value: settings.avoidReservedEdge,
                 onChanged: (value) =>
                     _controller.setAvoidReservedEdge(avoid: value),
+              ),
+              _ToggleRow(
+                label: _zh ? '在所有显示器上显示' : 'Show on all monitors',
+                value: settings.allMonitors,
+                onChanged: (value) => _controller.setAllMonitors(all: value),
+              ),
+              _ToggleRow(
+                label: _zh
+                    ? '右侧显示最小化窗口缩略图'
+                    : 'Show minimized window thumbnails',
+                value: settings.showMinimizedWindows,
+                onChanged: (value) =>
+                    _controller.setShowMinimizedWindows(show: value),
               ),
             ],
           ),

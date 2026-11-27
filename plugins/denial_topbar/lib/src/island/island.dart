@@ -1414,11 +1414,22 @@ class _IslandState extends ConsumerState<Island> with TickerProviderStateMixin {
       builder: (context, _) {
         // A held press reaches a little towards the panel: wider, and
         // deeper from the pill's own top edge, which is how it will open.
+        // Absorbing the cursor adds a very subtle +6 px width elongation to
+        // mimic swallowing the pointer mass.
         final charge = _charge.value.clamp(-0.2, 1.2) * (1 - _content.value);
-        final width = math.max(h, _w.value + 14 * charge);
+        final tc = islandOpenShare(_h.value, h, cardSize.height);
+        final absorbActive =
+            !expanded &&
+            !yields &&
+            !settings.islandHoverFade &&
+            settings.islandCursorAbsorb;
+        final hover = _hoverFeel.value * (1 - tc);
+        final absorbElongation = absorbActive
+            ? 6.0 * hover.clamp(0.0, 1.2)
+            : 0.0;
+        final width = math.max(h, _w.value + 14 * charge + absorbElongation);
         final height = math.max(h * 0.9, _h.value + 5 * charge);
         final radius = math.max(0.0, _r.value);
-        final tc = islandOpenShare(_h.value, h, cardSize.height);
         final shown = _content.value;
         final faceShown = islandFaceShare(shown, tc);
         final cardShown = islandCardShare(shown, tc);
@@ -1432,7 +1443,6 @@ class _IslandState extends ConsumerState<Island> with TickerProviderStateMixin {
         final hasBubble = split > 0.002;
         final hasBubbleLeft = splitLeft > 0.002;
         final veil = _veil.value.clamp(0.0, 1.0);
-        final hover = _hoverFeel.value * (1 - tc);
         final press = _pressFeel.value;
         final coverSize = lerpDouble(_I.cover, _I.bigCover, tc)!;
         final coverInset = (h - _I.cover) / 2;
@@ -1532,6 +1542,11 @@ class _IslandState extends ConsumerState<Island> with TickerProviderStateMixin {
           ),
         );
 
+        // When the cursor is absorbed inside the resting pill, expand the hit
+        // region slightly (6 px horizontally, 5 px downward) so the pointer
+        // must travel a tiny bit further past the edge before escaping.
+        final double escapeX = absorbActive && _hovered ? 6.0 : 0.0;
+        final double escapeY = absorbActive && _hovered ? 5.0 : 0.0;
         final body = ShellInputRegion(
           debugLabel: 'denial_topbar.island',
           // Faded, the island gives its place up: the window underneath
@@ -1545,10 +1560,7 @@ class _IslandState extends ConsumerState<Island> with TickerProviderStateMixin {
             // Not opaque while faded, so the bar under the island is hit
             // too; the region itself still sees the pointer come and go.
             opaque: !yields,
-            cursor: !expanded &&
-                    !yields &&
-                    !settings.islandHoverFade &&
-                    settings.islandCursorAbsorb
+            cursor: absorbActive
                 ? SystemMouseCursors.none
                 : !expanded && _engine.canExpand
                 ? SystemMouseCursors.click
@@ -1558,10 +1570,10 @@ class _IslandState extends ConsumerState<Island> with TickerProviderStateMixin {
             onHover: expanded
                 ? null
                 : (event) {
-                    final at = event.localPosition;
+                    final at = event.localPosition - Offset(escapeX, 0);
                     final pull = Offset(
-                      (at.dx / width * 2 - 1).clamp(-1.0, 1.0),
-                      (at.dy / h * 2 - 1).clamp(-1.0, 1.0),
+                      (at.dx / width * 2 - 1).clamp(-1.15, 1.15),
+                      (at.dy / h * 2 - 1).clamp(-1.15, 1.15),
                     );
                     // Small moves are not worth a frame.
                     if ((pull - _pull).distance < 0.015) return;
@@ -1569,57 +1581,60 @@ class _IslandState extends ConsumerState<Island> with TickerProviderStateMixin {
                     _aimPull();
                     _kick(_feel);
                   },
-            child: IgnorePointer(
-              ignoring: yields,
-              child: Focus(
-                focusNode: _focus,
-                canRequestFocus: pinned,
-                skipTraversal: true,
-                onKeyEvent: _key,
-                child: Listener(
-                  onPointerSignal: (signal) {
-                    if (signal is PointerScrollEvent) _onScroll(signal);
-                  },
-                  onPointerDown: (_) {
-                    if (!_engine.expanded) return;
-                    // A press inside a preview keeps it.
-                    if (!_engine.pinned) {
-                      _engine.pin();
-                      _takeKeys();
-                      _sync();
-                    }
-                  },
-                  child: GestureDetector(
-                    behavior: HitTestBehavior.opaque,
-                    onTapDown: expanded ? null : (_) => _pressDown(),
-                    // Open, a press where the pill was puts it back.
-                    onTapUp: expanded
-                        ? (details) {
-                            final at = details.localPosition;
-                            if (at.dy <= h &&
-                                (at.dx - width / 2).abs() <= compact / 2) {
-                              _setOpen(false);
+            child: Padding(
+              padding: EdgeInsets.fromLTRB(escapeX, 0, escapeX, escapeY),
+              child: IgnorePointer(
+                ignoring: yields,
+                child: Focus(
+                  focusNode: _focus,
+                  canRequestFocus: pinned,
+                  skipTraversal: true,
+                  onKeyEvent: _key,
+                  child: Listener(
+                    onPointerSignal: (signal) {
+                      if (signal is PointerScrollEvent) _onScroll(signal);
+                    },
+                    onPointerDown: (_) {
+                      if (!_engine.expanded) return;
+                      // A press inside a preview keeps it.
+                      if (!_engine.pinned) {
+                        _engine.pin();
+                        _takeKeys();
+                        _sync();
+                      }
+                    },
+                    child: GestureDetector(
+                      behavior: HitTestBehavior.opaque,
+                      onTapDown: expanded ? null : (_) => _pressDown(),
+                      // Open, a press where the pill was puts it back.
+                      onTapUp: expanded
+                          ? (details) {
+                              final at = details.localPosition;
+                              if (at.dy <= h &&
+                                  (at.dx - width / 2).abs() <= compact / 2) {
+                                _setOpen(false);
+                              }
                             }
-                          }
-                        : (_) => _pressUp(),
-                    onTapCancel: expanded ? null : _pressUp,
-                    onTap: expanded ? null : _tap,
-                    onVerticalDragStart: _dragStart,
-                    onVerticalDragUpdate: _dragUpdate,
-                    onVerticalDragEnd: _dragEnd,
-                    onHorizontalDragStart: swipes ? (_) => _swiped = 0 : null,
-                    onHorizontalDragUpdate: swipes
-                        ? (details) => _swiped += details.primaryDelta ?? 0
-                        : null,
-                    onHorizontalDragEnd: swipes
-                        ? (details) => _turn(
-                            islandSwipeStep(
-                              _swiped,
-                              details.primaryVelocity ?? 0,
-                            ),
-                          )
-                        : null,
-                    child: KeyedSubtree(key: _bodyKey, child: content),
+                          : (_) => _pressUp(),
+                      onTapCancel: expanded ? null : _pressUp,
+                      onTap: expanded ? null : _tap,
+                      onVerticalDragStart: _dragStart,
+                      onVerticalDragUpdate: _dragUpdate,
+                      onVerticalDragEnd: _dragEnd,
+                      onHorizontalDragStart: swipes ? (_) => _swiped = 0 : null,
+                      onHorizontalDragUpdate: swipes
+                          ? (details) => _swiped += details.primaryDelta ?? 0
+                          : null,
+                      onHorizontalDragEnd: swipes
+                          ? (details) => _turn(
+                              islandSwipeStep(
+                                _swiped,
+                                details.primaryVelocity ?? 0,
+                              ),
+                            )
+                          : null,
+                      child: KeyedSubtree(key: _bodyKey, child: content),
+                    ),
                   ),
                 ),
               ),
@@ -1678,10 +1693,10 @@ class _IslandState extends ConsumerState<Island> with TickerProviderStateMixin {
                 ),
               ),
               Positioned(
-                left: reach,
+                left: reach - escapeX,
                 top: 0,
-                width: width,
-                height: height,
+                width: width + escapeX * 2,
+                height: height + escapeY,
                 child: body,
               ),
               if (hasBubble) bubbleAtop(bubbleAt, split, rightBubble),

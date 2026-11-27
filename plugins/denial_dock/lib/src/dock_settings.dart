@@ -232,13 +232,17 @@ enum DockPreviewStyle {
 enum DockPosition {
   left,
   bottom,
-  right;
+  right,
+  top;
 
   String get key => switch (this) {
     DockPosition.left => 'left',
     DockPosition.bottom => 'bottom',
     DockPosition.right => 'right',
+    DockPosition.top => 'top',
   };
+
+  bool get isVertical => this == DockPosition.left || this == DockPosition.right;
 
   static DockPosition parse(
     Object? value, {
@@ -246,6 +250,7 @@ enum DockPosition {
   }) => switch (value) {
     'left' => DockPosition.left,
     'right' => DockPosition.right,
+    'top' => DockPosition.top,
     _ => fallback,
   };
 }
@@ -557,6 +562,8 @@ class DockSettings {
     this.currentWorkspaceOnly = false,
     this.previewMiddleClose = false,
     this.avoidReservedEdge = true,
+    this.allMonitors = true,
+    this.showMinimizedWindows = true,
     this.look = const {},
     this.lookByStyle = const {},
     this.chosen = const {},
@@ -791,6 +798,14 @@ class DockSettings {
   /// edge it sits on.
   final bool avoidReservedEdge;
 
+  /// Shows the dock on every connected monitor rather than the primary output
+  /// only.
+  final bool allMonitors;
+
+  /// Lists minimized windows as live thumbnail tiles on the accessory side of
+  /// the dock.
+  final bool showMinimizedWindows;
+
   /// What sits before and after the applications, once it has been set as
   /// such. Null while the file holds none, and then [launcherSide],
   /// [extrasSide] and [showTrash] decide as they always did.
@@ -955,6 +970,8 @@ class DockSettings {
     bool? currentWorkspaceOnly,
     bool? previewMiddleClose,
     bool? avoidReservedEdge,
+    bool? allMonitors,
+    bool? showMinimizedWindows,
     DockZones? zones,
     DockAlign? align,
   }) => DockSettings(
@@ -1010,6 +1027,8 @@ class DockSettings {
     currentWorkspaceOnly: currentWorkspaceOnly ?? this.currentWorkspaceOnly,
     previewMiddleClose: previewMiddleClose ?? this.previewMiddleClose,
     avoidReservedEdge: avoidReservedEdge ?? this.avoidReservedEdge,
+    allMonitors: allMonitors ?? this.allMonitors,
+    showMinimizedWindows: showMinimizedWindows ?? this.showMinimizedWindows,
     look: look ?? this.look,
     lookByStyle: lookByStyle ?? this.lookByStyle,
     // Setting one of these values is choosing it over the look's.
@@ -1355,6 +1374,12 @@ class DockSettings {
       avoidReservedEdge: json['avoidReservedEdge'] is bool
           ? json['avoidReservedEdge'] as bool
           : true,
+      allMonitors: json['allMonitors'] is bool
+          ? json['allMonitors'] as bool
+          : true,
+      showMinimizedWindows: json['showMinimizedWindows'] is bool
+          ? json['showMinimizedWindows'] as bool
+          : true,
       look: DockLook.cleaned(json['look']),
       lookByStyle: _cleanedLookByStyle(json['lookByStyle']),
       chosen: Set<String>.unmodifiable(chosen),
@@ -1477,6 +1502,8 @@ class DockPreferencesStore {
     json['currentWorkspaceOnly'] = settings.currentWorkspaceOnly;
     json['previewMiddleClose'] = settings.previewMiddleClose;
     json['avoidReservedEdge'] = settings.avoidReservedEdge;
+    json['allMonitors'] = settings.allMonitors;
+    json['showMinimizedWindows'] = settings.showMinimizedWindows;
     if (settings.look.isEmpty) {
       json.remove('look');
     } else {

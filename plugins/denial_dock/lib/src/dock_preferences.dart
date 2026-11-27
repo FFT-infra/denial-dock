@@ -296,6 +296,12 @@ class DockSettingsController extends AsyncNotifier<DockSettings> {
   Future<void> setFolderSort(String path, DockStackSortMode sort) =>
       _update((current) => current.withFolderStack(path, sort: sort));
 
+  Future<void> setAllMonitors({required bool all}) =>
+      _update((current) => current.copyWith(allMonitors: all));
+
+  Future<void> setShowMinimizedWindows({required bool show}) =>
+      _update((current) => current.copyWith(showMinimizedWindows: show));
+
   /// Saves a dragged order and switches the folder to it, since a custom order
   /// only means anything under the `manual` sort.
   Future<void> setFolderOrder(String path, List<String> order) => _update(

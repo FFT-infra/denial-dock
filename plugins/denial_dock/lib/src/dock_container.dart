@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:math' as math;
 import 'dart:ui' show PointerDeviceKind;
 
+import 'package:denial_shell_kit/glass_card.dart';
 import 'package:denial_shell_kit/kit_dock_link.dart';
 import 'package:denial_shell_kit/kit_host.dart';
 import 'package:denial_shell_kit/kit_layer.dart' show kitOpenPanel;
@@ -257,7 +258,7 @@ class _DockContainerState extends ConsumerState<DockContainer>
   double get _halfIcon => _iconSize / 2;
 
   DockPosition get _position => _settings.position;
-  bool get _vertical => _position != DockPosition.bottom;
+  bool get _vertical => _position.isVertical;
   double get _effectiveScale =>
       resolveKitScale(widget.environment.shellScale, kitShellScale.value);
   double get _relativeScale {
@@ -315,6 +316,7 @@ class _DockContainerState extends ConsumerState<DockContainer>
 
   KitEdge get _kitEdge => switch (_position) {
     DockPosition.bottom => KitEdge.bottom,
+    DockPosition.top => KitEdge.top,
     DockPosition.left => KitEdge.left,
     DockPosition.right => KitEdge.right,
   };
@@ -366,6 +368,7 @@ class _DockContainerState extends ConsumerState<DockContainer>
   bool get _dragOutside => switch (_position) {
     DockPosition.bottom =>
       _dragLocalY < _surfaceHeight - _capsuleFar - _iconSize,
+    DockPosition.top => _dragLocalY > _capsuleFar + _iconSize,
     DockPosition.left => _dragLocalX > _capsuleFar + _iconSize,
     DockPosition.right => _dragLocalX < _surfaceWidth - _capsuleFar - _iconSize,
   };
@@ -884,13 +887,14 @@ class _DockContainerState extends ConsumerState<DockContainer>
     final mainCenter = slot?.center ?? _capsuleStart;
     final crossCenter = _capsuleCross + _look.padding + _halfIcon;
     _dragOriginX = switch (_position) {
-      DockPosition.bottom => _output.left + mainCenter,
+      DockPosition.bottom || DockPosition.top => _output.left + mainCenter,
       DockPosition.left => _output.left + crossCenter,
       DockPosition.right => _output.right - crossCenter,
     };
     _dragOriginY = switch (_position) {
       DockPosition.bottom => _output.top + _surfaceHeight - crossCenter,
-      _ => _output.top + mainCenter,
+      DockPosition.top => _output.top + crossCenter,
+      DockPosition.left || DockPosition.right => _output.top + mainCenter,
     };
     // Denial starts the button pointer at the scene origin, so a grab that
     // reports (0,0) is anchored on the icon instead of the screen corner.
@@ -1192,13 +1196,17 @@ class _DockContainerState extends ConsumerState<DockContainer>
   /// catalog is keyed by.
   static String _recentAppId(String recent) => appIdentity(recent);
 
-  List<_SlotSpec> _specsFor(List<_DockEntry> entries, DockSettings settings) {
+  List<_SlotSpec> _specsFor(
+    List<_DockEntry> entries,
+    DockSettings settings, {
+    List<ApplicationWindow> minimized = const <ApplicationWindow>[],
+  }) {
     final sections = DockSections.build(
       entryCount: entries.length,
       isPinned: (index) => entries[index].pinned,
       settings: settings,
     );
-    return [
+    final slots = <_SlotSpec>[
       for (final section in sections)
         _SlotSpec(
           kind: switch (section.kind) {
@@ -1233,6 +1241,28 @@ class _DockContainerState extends ConsumerState<DockContainer>
           dividerKey: section.dividerKey,
         ),
     ];
+    if (settings.showMinimizedWindows && minimized.isNotEmpty) {
+      // Insert minimized window thumbnail tiles right before the trash (or at
+      // the trailing end), matching macOS Dock's minimized window section.
+      var insertAt = slots.indexWhere((s) => s.kind == _SlotKind.trash);
+      if (insertAt < 0) insertAt = slots.length;
+      final minSlots = <_SlotSpec>[
+        if (insertAt > 0 && slots[insertAt - 1].kind != _SlotKind.divider)
+          _SlotSpec(
+            kind: _SlotKind.divider,
+            half: _fit.dividerSpan * _spacing / 2,
+            dividerKey: 'minimized',
+          ),
+        for (final win in minimized.take(6))
+          _SlotSpec(
+            kind: _SlotKind.minimized,
+            half: _iconSize / 2,
+            minimizedWindow: win,
+          ),
+      ];
+      slots.insertAll(insertAt, minSlots);
+    }
+    return slots;
   }
 
   /// Persists a recents section that changed this build. The write is skipped
@@ -1278,14 +1308,15 @@ class _DockContainerState extends ConsumerState<DockContainer>
   List<_SlotSpec> _fitSpecs(
     double surfaceExtent,
     List<_DockEntry> entries,
-    DockSettings settings,
-  ) {
+    DockSettings settings, {
+    List<ApplicationWindow> minimized = const <ApplicationWindow>[],
+  }) {
     _fitIcon = null;
     _taskExtent = 0;
     _verticalTaskCross = 0;
     final asked = _iconSize;
     _spaceFor(asked);
-    final specs = _specsFor(entries, settings);
+    final specs = _specsFor(entries, settings, minimized: minimized);
     if (!surfaceExtent.isFinite || specs.isEmpty) return specs;
     final bar = _look.shape == DockShape.bar;
     // A floating capsule keeps clear of the screen's corners.
@@ -1309,7 +1340,47 @@ class _DockContainerState extends ConsumerState<DockContainer>
     if (fitted < asked) {
       _fitIcon = fitted;
       _spaceFor(fitted);
-      return _specsFor(entries, settings);
+      final shrunk = _specsFor(entries, settings, minimized: minimized);
+      // If even at fitFloor the row overflows the monitor edge, fold trailing
+      // app icons into an overflow button so nothing clips off-screen.
+      double totalWidth(List<_SlotSpec> list) {
+        if (list.isEmpty) return 0;
+        var w = _look.endPadding * 2 + _look.gap * (list.length - 1);
+        for (final s in list) {
+          w += s.half * 2;
+        }
+        return w;
+      }
+
+      if (totalWidth(shrunk) > available) {
+        final appIndices = <int>[
+          for (var i = 0; i < shrunk.length; i++)
+            if (shrunk[i].kind == _SlotKind.app) i,
+        ];
+        if (appIndices.length > 2) {
+          final foldedEntries = <int>[];
+          final mutable = List<_SlotSpec>.of(shrunk);
+          while (totalWidth(mutable) + fitted + _look.gap > available &&
+              appIndices.length > 1) {
+            final dropAt = appIndices.removeLast();
+            final removed = mutable.removeAt(dropAt);
+            if (removed.entry != null) foldedEntries.insert(0, removed.entry!);
+          }
+          if (foldedEntries.isNotEmpty) {
+            final insertPos = appIndices.last + 1;
+            mutable.insert(
+              insertPos,
+              _SlotSpec(
+                kind: _SlotKind.overflow,
+                half: fitted / 2,
+                overflowEntries: foldedEntries,
+              ),
+            );
+            return mutable;
+          }
+        }
+      }
+      return shrunk;
     }
     if (!bar || !_fit.taskTitles) return specs;
     final tasks = specs
@@ -1322,7 +1393,7 @@ class _DockContainerState extends ConsumerState<DockContainer>
     if (_vertical) {
       if (tasks == 0) return specs;
       _verticalTaskCross = math.max(_iconSize, math.min(_fit.taskWidth, 152.0));
-      return _specsFor(entries, settings);
+      return _specsFor(entries, settings, minimized: minimized);
     }
     final extent = DockLayout.taskExtent(
       available: available - fixed - (icons - tasks) * asked,
@@ -1332,7 +1403,7 @@ class _DockContainerState extends ConsumerState<DockContainer>
     );
     if (extent <= asked) return specs;
     _taskExtent = extent;
-    return _specsFor(entries, settings);
+    return _specsFor(entries, settings, minimized: minimized);
   }
 
   /// Spaces the row for icons of [size]: a look whose spacing follows its
@@ -1389,6 +1460,9 @@ class _DockContainerState extends ConsumerState<DockContainer>
   Widget build(BuildContext context) {
     final storedSettings = ref.watch(dockSettingsProvider);
     final settings = storedSettings.value ?? DockSettings.defaults;
+    if (!settings.allMonitors && !widget.environment.isMainOutput) {
+      return const SizedBox.shrink();
+    }
     _settings = settings;
     _baseLook = dockLookNow(settings);
     _look = _baseLook;
@@ -1455,6 +1529,10 @@ class _DockContainerState extends ConsumerState<DockContainer>
     final chinese = Localizations.localeOf(context).languageCode == 'zh';
     final launcherLabel = chinese ? '启动台' : 'Launcher';
 
+    final minimizedWindows = <ApplicationWindow>[
+      for (final w in windows)
+        if (w.minimized) w,
+    ];
     final baseEntries = _entries(settings, catalog, windows, null, recents);
     final badges = settings.showBadges
         ? DockBadges.counts(
@@ -1484,13 +1562,18 @@ class _DockContainerState extends ConsumerState<DockContainer>
         _surfaceWidth = constraints.maxWidth;
         _surfaceHeight = constraints.maxHeight;
         final surfaceMain = _vertical ? _surfaceHeight : _surfaceWidth;
-        final baseSpecs = _fitSpecs(surfaceMain, baseEntries, settings);
+        final baseSpecs = _fitSpecs(
+          surfaceMain,
+          baseEntries,
+          settings,
+          minimized: minimizedWindows,
+        );
         var entries = baseEntries;
         var specs = baseSpecs;
         if (_dragKey != null && !_settling && _dragTo >= 0) {
           final displayPins = _displayPins(settings.pinned);
           entries = _entries(settings, catalog, windows, displayPins, recents);
-          specs = _specsFor(entries, settings);
+          specs = _specsFor(entries, settings, minimized: minimizedWindows);
         }
         _builtEntries = entries;
         _builtSpecs = specs;
@@ -1638,6 +1721,20 @@ class _DockContainerState extends ConsumerState<DockContainer>
                   width: 220,
                   child: IgnorePointer(child: Center(child: bubble)),
                 ),
+                DockPosition.top => Positioned(
+                  left: (label!.center - 110).clamp(
+                    12.0,
+                    math.max(12.0, _surfaceWidth - 232.0),
+                  ),
+                  top:
+                      _capsuleCross +
+                      _look.padding +
+                      (labelSlot?.half ?? _halfIcon) * 2 +
+                      labelLift +
+                      _fit.labelGap,
+                  width: 220,
+                  child: IgnorePointer(child: Center(child: bubble)),
+                ),
                 DockPosition.left => Positioned(
                   left: _capsuleFar + _fit.labelGap + 4,
                   top: (label!.center - 14).clamp(
@@ -1717,9 +1814,25 @@ class _DockContainerState extends ConsumerState<DockContainer>
                   child: MouseRegion(
                     onHover: _onHover,
                     onExit: _onExit,
-                    child: Listener(
-                      onPointerSignal: _onCapsuleScroll,
-                      child: Stack(
+                    child: FocusScope(
+                      onKeyEvent: (node, event) {
+                        if (event is! KeyDownEvent) return KeyEventResult.ignored;
+                        final key = event.logicalKey;
+                        if ((!_vertical && key == LogicalKeyboardKey.arrowRight) ||
+                            (_vertical && key == LogicalKeyboardKey.arrowDown)) {
+                          node.nextFocus();
+                          return KeyEventResult.handled;
+                        }
+                        if ((!_vertical && key == LogicalKeyboardKey.arrowLeft) ||
+                            (_vertical && key == LogicalKeyboardKey.arrowUp)) {
+                          node.previousFocus();
+                          return KeyEventResult.handled;
+                        }
+                        return KeyEventResult.ignored;
+                      },
+                      child: Listener(
+                        onPointerSignal: _onCapsuleScroll,
+                        child: Stack(
                         clipBehavior: Clip.none,
                         children: [
                           Positioned.fill(
@@ -1758,6 +1871,7 @@ class _DockContainerState extends ConsumerState<DockContainer>
                               child,
                         ],
                       ),
+                    ),
                     ),
                   ),
                 ),
@@ -1900,6 +2014,12 @@ class _DockContainerState extends ConsumerState<DockContainer>
         dockRect.right,
         dockRect.bottom,
       ),
+      DockPosition.top => Rect.fromLTRB(
+        dockRect.left,
+        dockRect.top,
+        dockRect.right,
+        dockRect.bottom + pad,
+      ),
       DockPosition.left => Rect.fromLTRB(
         dockRect.left,
         dockRect.top,
@@ -1934,6 +2054,7 @@ class _DockContainerState extends ConsumerState<DockContainer>
   Widget _revealHandle(ShellThemeData theme) => Align(
     alignment: switch (_position) {
       DockPosition.bottom => Alignment.bottomCenter,
+      DockPosition.top => Alignment.topCenter,
       DockPosition.left => Alignment.centerLeft,
       DockPosition.right => Alignment.centerRight,
     },
@@ -1968,6 +2089,13 @@ class _DockContainerState extends ConsumerState<DockContainer>
       height: crossExtent,
       child: child,
     ),
+    DockPosition.top => Positioned(
+      left: main,
+      top: cross,
+      width: mainExtent,
+      height: crossExtent,
+      child: child,
+    ),
     DockPosition.left => Positioned(
       left: cross,
       top: main,
@@ -1998,6 +2126,7 @@ class _DockContainerState extends ConsumerState<DockContainer>
       math.max(0.0, visible.width - 16),
     );
     final capsuleTopScene = anchor.top + _surfaceHeight - _capsuleFar;
+    final capsuleBottomTopScene = anchor.top + _capsuleFar;
     final capsuleLeftScene = _position == DockPosition.right
         ? anchor.left + _surfaceWidth - _capsuleFar
         : anchor.left + _capsuleCross;
@@ -2008,6 +2137,12 @@ class _DockContainerState extends ConsumerState<DockContainer>
       DockPosition.bottom => Rect.fromLTWH(
         anchor.left + _menuAnchor,
         capsuleTopScene,
+        1,
+        1,
+      ),
+      DockPosition.top => Rect.fromLTWH(
+        anchor.left + _menuAnchor,
+        capsuleBottomTopScene,
         1,
         1,
       ),
@@ -2033,9 +2168,13 @@ class _DockContainerState extends ConsumerState<DockContainer>
     if (placement == null) return const SizedBox.shrink();
     final smart = _settings.visibility == DockVisibilityMode.smart;
     final magnifies = _fit.magnify;
-    final maxHeight = _position == DockPosition.bottom
-        ? math.max(0.0, capsuleTopScene - visible.top - 16)
-        : math.max(0.0, visible.height - 16);
+    final maxHeight = switch (_position) {
+      DockPosition.bottom => math.max(0.0, capsuleTopScene - visible.top - 16),
+      DockPosition.top =>
+        math.max(0.0, visible.bottom - capsuleBottomTopScene - 16),
+      DockPosition.left || DockPosition.right =>
+        math.max(0.0, visible.height - 16),
+    };
     return ShellInputRegion(
       debugLabel: 'Dock menu',
       pointerPolicy: ShellPointerPolicy.fullScene,
@@ -2154,6 +2293,8 @@ class _DockContainerState extends ConsumerState<DockContainer>
                                         Icons.align_horizontal_left,
                                       DockPosition.bottom =>
                                         Icons.vertical_align_bottom,
+                                      DockPosition.top =>
+                                        Icons.vertical_align_top,
                                       DockPosition.right =>
                                         Icons.align_horizontal_right,
                                     },
@@ -2162,6 +2303,8 @@ class _DockContainerState extends ConsumerState<DockContainer>
                                         chinese ? '左边' : 'Left',
                                       DockPosition.bottom =>
                                         chinese ? '底部' : 'Bottom',
+                                      DockPosition.top =>
+                                        chinese ? '顶部' : 'Top',
                                       DockPosition.right =>
                                         chinese ? '右边' : 'Right',
                                     },
@@ -2210,6 +2353,12 @@ class _DockContainerState extends ConsumerState<DockContainer>
         DockPosition.bottom => Rect.fromLTWH(
           _output.left + slot.center - slot.half,
           _output.top + _surfaceHeight - near - extent,
+          extent,
+          extent,
+        ),
+        DockPosition.top => Rect.fromLTWH(
+          _output.left + slot.center - slot.half,
+          _output.top + near,
           extent,
           extent,
         ),
@@ -2393,7 +2542,7 @@ class _DockContainerState extends ConsumerState<DockContainer>
   double get _dividerReach => math.max(6.0, _fit.dividerSpan * _spacing / 2);
 
   Widget _dividerHandle(Color color) {
-    final vertical = _position == DockPosition.bottom;
+    final vertical = !_position.isVertical;
     return MouseRegion(
       cursor: vertical
           ? SystemMouseCursors.resizeUpDown
@@ -2428,6 +2577,7 @@ class _DockContainerState extends ConsumerState<DockContainer>
   void _resizeFromDivider(Offset delta) {
     final step = switch (_position) {
       DockPosition.bottom => -delta.dy,
+      DockPosition.top => delta.dy,
       DockPosition.left => delta.dx,
       DockPosition.right => -delta.dx,
     };
@@ -2483,6 +2633,16 @@ class _DockContainerState extends ConsumerState<DockContainer>
         curve: shuffleCurve,
         left: main,
         bottom: cross,
+        width: mainExtent,
+        height: crossExtent,
+        child: child,
+      ),
+      DockPosition.top => AnimatedPositioned(
+        key: key,
+        duration: shuffle,
+        curve: shuffleCurve,
+        left: main,
+        top: cross,
         width: mainExtent,
         height: crossExtent,
         child: child,
@@ -2552,6 +2712,15 @@ class _DockContainerState extends ConsumerState<DockContainer>
             duration: Duration.zero,
             left: main + slot.half - _dividerReach,
             bottom: inset,
+            width: _dividerReach * 2,
+            height: line,
+            child: handle,
+          ),
+          DockPosition.top => AnimatedPositioned(
+            key: ValueKey('dock-divider-${spec.dividerKey ?? 'default'}'),
+            duration: Duration.zero,
+            left: main + slot.half - _dividerReach,
+            top: inset,
             width: _dividerReach * 2,
             height: line,
             child: handle,
@@ -2709,6 +2878,46 @@ class _DockContainerState extends ConsumerState<DockContainer>
             monitorBounds: _overlayOutput,
             onOpenSettings: _openSettings,
             appearance: _settings.appearance,
+          )),
+        );
+      case _SlotKind.minimized:
+        final win = spec.minimizedWindow;
+        if (win == null) return null;
+        return slotAt(
+          key: ValueKey('dock-min-${win.id}'),
+          cross: _look.padding,
+          mainExtent: extent,
+          crossExtent: extent,
+          child: cell(_MinimizedWindowItem(
+            window: win,
+            size: extent,
+            lift: lift,
+            position: _position,
+            services: widget.services,
+            onRestore: () => widget.services.activateWindow(win.id),
+          )),
+        );
+      case _SlotKind.overflow:
+        final folded = <_DockEntry>[
+          for (final idx in spec.overflowEntries)
+            if (idx >= 0 && idx < entries.length) entries[idx],
+        ];
+        if (folded.isEmpty) return null;
+        return slotAt(
+          key: const ValueKey('dock-overflow'),
+          cross: _look.padding,
+          mainExtent: extent,
+          crossExtent: extent,
+          child: cell(_OverflowAppsItem(
+            entries: folded,
+            size: extent,
+            lift: lift,
+            position: _position,
+            services: widget.services,
+            monitorId: widget.monitorId,
+            monitorBounds: _overlayOutput,
+            onOverlayChanged: _setOverlayHold,
+            zh: chinese,
           )),
         );
       case _SlotKind.app:
@@ -2883,12 +3092,39 @@ class _DockContainerState extends ConsumerState<DockContainer>
         name: chinese ? '回收站' : 'Trash',
         center: center,
       ),
+      _SlotKind.minimized =>
+        spec.minimizedWindow == null
+            ? null
+            : _LabelTarget(
+                key: 'min-${spec.minimizedWindow!.id}',
+                name: spec.minimizedWindow!.title.trim().isEmpty
+                    ? spec.minimizedWindow!.appId
+                    : spec.minimizedWindow!.title,
+                center: center,
+              ),
+      _SlotKind.overflow => _LabelTarget(
+        key: 'overflow',
+        name: chinese
+            ? '更多应用 (${spec.overflowEntries.length})'
+            : 'More Apps (${spec.overflowEntries.length})',
+        center: center,
+      ),
       _SlotKind.divider || _SlotKind.part => null,
     };
   }
 }
 
-enum _SlotKind { app, launcher, folder, file, trash, divider, part }
+enum _SlotKind {
+  app,
+  launcher,
+  folder,
+  file,
+  trash,
+  minimized,
+  overflow,
+  divider,
+  part,
+}
 
 class _SlotSpec {
   const _SlotSpec({
@@ -2899,6 +3135,8 @@ class _SlotSpec {
     this.file,
     this.dividerKey,
     this.partId,
+    this.minimizedWindow,
+    this.overflowEntries = const <int>[],
     this.titled = false,
   });
 
@@ -2913,6 +3151,8 @@ class _SlotSpec {
   final DockFile? file;
   final String? dividerKey;
   final String? partId;
+  final ApplicationWindow? minimizedWindow;
+  final List<int> overflowEntries;
 
   /// Whether the slot is one icon: it grows under the pointer and shrinks
   /// with the row.
@@ -2992,6 +3232,7 @@ class _LauncherItemState extends State<_LauncherItem> {
     return Transform.translate(
       offset: switch (widget.position) {
         DockPosition.bottom => Offset(0, -widget.lift),
+        DockPosition.top => Offset(0, widget.lift),
         DockPosition.left => Offset(widget.lift, 0),
         DockPosition.right => Offset(-widget.lift, 0),
       },
@@ -3019,6 +3260,261 @@ class _LauncherItemState extends State<_LauncherItem> {
                       ),
                     ),
                   ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+/// A live thumbnail tile for a minimized window at the accessory end of the
+/// dock, with a mini application icon badge in the corner.
+class _MinimizedWindowItem extends StatelessWidget {
+  const _MinimizedWindowItem({
+    required this.window,
+    required this.size,
+    required this.lift,
+    required this.position,
+    required this.services,
+    required this.onRestore,
+  });
+
+  final ApplicationWindow window;
+  final double size;
+  final double lift;
+  final DockPosition position;
+  final ShellServices services;
+  final VoidCallback onRestore;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = context.shellTheme;
+    final radius = BorderRadius.circular(size * 0.18);
+    return Transform.translate(
+      offset: switch (position) {
+        DockPosition.bottom => Offset(0, -lift),
+        DockPosition.top => Offset(0, lift),
+        DockPosition.left => Offset(lift, 0),
+        DockPosition.right => Offset(-lift, 0),
+      },
+      child: GestureDetector(
+        behavior: HitTestBehavior.opaque,
+        onTap: onRestore,
+        child: Stack(
+          clipBehavior: Clip.none,
+          children: [
+            Positioned.fill(
+              child: Container(
+                decoration: BoxDecoration(
+                  borderRadius: radius,
+                  color: theme.panelColor(theme.colors.surfaceContainerHigh),
+                  border: Border.all(color: theme.colors.hairline),
+                ),
+                child: ClipRRect(
+                  borderRadius: radius,
+                  child: services.buildWindowPreview(context, window.id),
+                ),
+              ),
+            ),
+            Positioned(
+              right: -2,
+              bottom: -2,
+              width: size * 0.40,
+              height: size * 0.40,
+              child: services.buildApplicationIcon(context, window.appId),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+/// Overflow collapse button shown when the dock still exceeds the monitor's
+/// width even at minimum icon size; clicking opens a glass popover grid of
+/// the overflowed applications.
+class _OverflowAppsItem extends StatefulWidget {
+  const _OverflowAppsItem({
+    required this.entries,
+    required this.size,
+    required this.lift,
+    required this.position,
+    required this.services,
+    required this.monitorId,
+    required this.monitorBounds,
+    required this.onOverlayChanged,
+    required this.zh,
+  });
+
+  final List<_DockEntry> entries;
+  final double size;
+  final double lift;
+  final DockPosition position;
+  final ShellServices services;
+  final int monitorId;
+  final Rect monitorBounds;
+  final ValueChanged<bool> onOverlayChanged;
+  final bool zh;
+
+  @override
+  State<_OverflowAppsItem> createState() => _OverflowAppsItemState();
+}
+
+class _OverflowAppsItemState extends State<_OverflowAppsItem> {
+  final OverlayPortalController _portal = OverlayPortalController();
+  bool _open = false;
+
+  void _toggle() {
+    if (_open) {
+      _close();
+    } else {
+      setState(() => _open = true);
+      if (!_portal.isShowing) _portal.show();
+      widget.onOverlayChanged(true);
+    }
+  }
+
+  void _close() {
+    if (!_open) return;
+    setState(() => _open = false);
+    _portal.hide();
+    widget.onOverlayChanged(false);
+  }
+
+  @override
+  void dispose() {
+    if (_open) widget.onOverlayChanged(false);
+    super.dispose();
+  }
+
+  void _activate(_DockEntry entry) {
+    _close();
+    if (entry.windows.isNotEmpty) {
+      widget.services.activateWindow(entry.windows.first.id);
+    } else if (entry.launchId != null) {
+      unawaited(widget.services.launchApplication(entry.launchId!));
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = context.shellTheme;
+    return OverlayPortal.overlayChildLayoutBuilder(
+      controller: _portal,
+      overlayChildBuilder: (context, layout) {
+        if (!_open) return const SizedBox.shrink();
+        final anchor = MatrixUtils.transformRect(
+          layout.childPaintTransform,
+          Offset.zero & layout.childSize,
+        );
+        final scene = Offset.zero & layout.overlaySize;
+        final bounds = widget.monitorBounds.intersect(scene);
+        final out = bounds.isEmpty ? scene : bounds;
+        final width = math.min(264.0, math.max(160.0, out.width - 24));
+        final placement = dockMenuAnchor(
+          anchor: anchor,
+          output: out,
+          width: width,
+          position: widget.position,
+        );
+        if (placement == null) return const SizedBox.shrink();
+        return ShellInputRegion(
+          debugLabel: 'Dock overflow popover',
+          pointerPolicy: ShellPointerPolicy.fullScene,
+          keyboardPolicy: ShellKeyboardPolicy.capture,
+          child: CallbackShortcuts(
+            bindings: {
+              const SingleActivator(LogicalKeyboardKey.escape): _close,
+            },
+            child: Focus(
+              autofocus: true,
+              child: Stack(
+                children: [
+                  Positioned.fill(
+                    child: Listener(
+                      behavior: HitTestBehavior.opaque,
+                      onPointerDown: (_) => _close(),
+                      child: const ColoredBox(color: Color(0x00000000)),
+                    ),
+                  ),
+                  DockMenuLayer(
+                    anchor: placement,
+                    overlaySize: layout.overlaySize,
+                    child: GlassCard(
+                      tier: KitTier.popover,
+                      radius: 16,
+                      child: Padding(
+                        padding: const EdgeInsets.all(10),
+                        child: Wrap(
+                          spacing: 8,
+                          runSpacing: 8,
+                          children: [
+                            for (final entry in widget.entries)
+                              GestureDetector(
+                                behavior: HitTestBehavior.opaque,
+                                onTap: () => _activate(entry),
+                                child: SizedBox(
+                                  width: 56,
+                                  child: Column(
+                                    mainAxisSize: MainAxisSize.min,
+                                    children: [
+                                      SizedBox.square(
+                                        dimension: 38,
+                                        child: widget.services
+                                            .buildApplicationIcon(
+                                              context,
+                                              entry.appId,
+                                            ),
+                                      ),
+                                      const SizedBox(height: 3),
+                                      Text(
+                                        entry.name,
+                                        maxLines: 1,
+                                        overflow: TextOverflow.ellipsis,
+                                        textAlign: TextAlign.center,
+                                        style: theme
+                                            .text
+                                            .systemBarCaption
+                                            .inLook
+                                            .copyWith(
+                                              fontSize: 10,
+                                              color: theme.colors.textPrimary,
+                                            ),
+                                      ),
+                                    ],
+                                  ),
+                                ),
+                              ),
+                          ],
+                        ),
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+        );
+      },
+      child: Transform.translate(
+        offset: switch (widget.position) {
+          DockPosition.bottom => Offset(0, -widget.lift),
+          DockPosition.top => Offset(0, widget.lift),
+          DockPosition.left => Offset(widget.lift, 0),
+          DockPosition.right => Offset(-widget.lift, 0),
+        },
+        child: GestureDetector(
+          behavior: HitTestBehavior.opaque,
+          onTap: _toggle,
+          child: DockTile(
+            size: widget.size,
+            accent: theme.kitAccent,
+            pressed: _open,
+            child: Icon(
+              Icons.more_horiz_rounded,
+              size: widget.size * 0.5,
+              color: theme.colors.textPrimary,
+            ),
           ),
         ),
       ),

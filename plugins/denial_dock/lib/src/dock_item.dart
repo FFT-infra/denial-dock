@@ -27,12 +27,14 @@ import 'dock_click.dart';
 import 'dock_debug.dart';
 import 'dock_desktop_actions.dart';
 import 'dock_drag.dart';
+import 'dock_extras.dart';
 import 'dock_icon.dart';
 import 'dock_launch.dart';
 import 'dock_look.dart';
 import 'dock_menu.dart';
 import 'dock_metrics.dart';
 import 'dock_motion.dart';
+import 'dock_recent_docs.dart';
 import 'dock_scroll.dart';
 import 'dock_settings.dart';
 
@@ -317,11 +319,18 @@ class _DockItemWidgetState extends State<DockItemWidget>
   /// The desktop file's actions, read when the menu first opens.
   List<DesktopAction>? _desktopActions;
 
+  /// Per-app recent documents parsed asynchronously from `recently-used.xbel`.
+  List<DockRecentDocument> _recentDocs = const <DockRecentDocument>[];
+
+  /// Keyboard focus state when navigated via Tab/arrow keys.
+  bool _keyFocused = false;
+
   bool get _overlayOpen => _menuOpen || _previewsOpen;
 
   /// Unit vector pointing away from the screen edge the dock is attached to.
   Offset get _away => switch (widget.position) {
     DockPosition.bottom => const Offset(0, -1),
+    DockPosition.top => const Offset(0, 1),
     DockPosition.left => const Offset(1, 0),
     DockPosition.right => const Offset(-1, 0),
   };
@@ -591,6 +600,20 @@ class _DockItemWidgetState extends State<DockItemWidget>
     widget.onOverlayChanged(true);
     if (widget.showDesktopActions && _desktopActions == null) {
       unawaited(_loadDesktopActions());
+    }
+    unawaited(_loadRecentDocs());
+  }
+
+  Future<void> _loadRecentDocs() async {
+    final docs = await DockRecentDocs.loadForApp(
+      appId: widget.appId,
+      name: widget.name,
+    );
+    if (!mounted) return;
+    if (docs.length != _recentDocs.length ||
+        (docs.isNotEmpty &&
+            (_recentDocs.isEmpty || docs.first.path != _recentDocs.first.path))) {
+      setState(() => _recentDocs = docs);
     }
   }
 
@@ -1072,13 +1095,20 @@ class _DockItemWidgetState extends State<DockItemWidget>
         : metrics.markerSize;
     // How far past the icon's edge the marker's far side lies.
     final reach = widget.markerOffset + thickness / 2;
-    final horizontal = widget.position == DockPosition.bottom;
+    final horizontal = !widget.position.isVertical;
     final square = KitStyle.of(context).square;
     Widget along(Widget child, {double inset = 0}) => switch (widget.position) {
       DockPosition.bottom => Positioned(
         left: inset,
         right: inset,
         bottom: -reach,
+        height: thickness,
+        child: child,
+      ),
+      DockPosition.top => Positioned(
+        left: inset,
+        right: inset,
+        top: -reach,
         height: thickness,
         child: child,
       ),
@@ -1283,10 +1313,43 @@ class _DockItemWidgetState extends State<DockItemWidget>
                           if (_pressKind == DockPointerKind.touch) return;
                           widget.onDragEnd!();
                         },
-                  child: SizedBox(
-                    width: widget.cellExtent ?? size,
-                    height: size,
-                    child: Stack(
+                  child: Focus(
+                    focusNode: _focus,
+                    onFocusChange: (focused) {
+                      if (_keyFocused != focused) {
+                        setState(() => _keyFocused = focused);
+                      }
+                    },
+                    onKeyEvent: (node, event) {
+                      if (event is! KeyDownEvent) return KeyEventResult.ignored;
+                      final key = event.logicalKey;
+                      if (key == LogicalKeyboardKey.enter ||
+                          key == LogicalKeyboardKey.numpadEnter ||
+                          key == LogicalKeyboardKey.space) {
+                        _activate();
+                        return KeyEventResult.handled;
+                      }
+                      if (key == LogicalKeyboardKey.contextMenu) {
+                        _menuOpen ? _closeOverlay() : _openMenu();
+                        return KeyEventResult.handled;
+                      }
+                      return KeyEventResult.ignored;
+                    },
+                    child: Container(
+                      width: widget.cellExtent ?? size,
+                      height: size,
+                      decoration: _keyFocused
+                          ? BoxDecoration(
+                              borderRadius: BorderRadius.circular(
+                                kitStyle.value.corner(12),
+                              ),
+                              border: Border.all(
+                                color: context.shellTheme.kitAccent,
+                                width: 1.8,
+                              ),
+                            )
+                          : null,
+                      child: Stack(
                       clipBehavior: Clip.none,
                       children: [
                         Positioned.fill(
@@ -1475,6 +1538,7 @@ class _DockItemWidgetState extends State<DockItemWidget>
           ),
         ),
       ),
+    ),
     );
   }
 
@@ -1489,6 +1553,12 @@ class _DockItemWidgetState extends State<DockItemWidget>
         panel.bottom,
         panel.width,
         (anchor.top - panel.bottom).clamp(0.0, reach),
+      ),
+      DockPosition.top => Rect.fromLTWH(
+        panel.left,
+        anchor.bottom,
+        panel.width,
+        (panel.top - anchor.bottom).clamp(0.0, reach),
       ),
       DockPosition.left => Rect.fromLTWH(
         panel.right,
@@ -1551,9 +1621,11 @@ class _DockItemWidgetState extends State<DockItemWidget>
       position: widget.position,
     );
     if (placement == null) return const SizedBox.shrink();
-    final maxHeight = widget.position == DockPosition.bottom
-        ? math.max(0.0, geometry.anchor.top - output.top - 16)
-        : math.max(0.0, output.height - 16);
+    final maxHeight = switch (widget.position) {
+      DockPosition.bottom => math.max(0.0, geometry.anchor.top - output.top - 16),
+      DockPosition.top => math.max(0.0, output.bottom - geometry.anchor.bottom - 16),
+      DockPosition.left || DockPosition.right => math.max(0.0, output.height - 16),
+    };
     final radius = dockMenuRadius(context);
     return ShellInputRegion(
       debugLabel: 'Dock application menu',
@@ -1607,12 +1679,35 @@ class _DockItemWidgetState extends State<DockItemWidget>
                           // "show all windows" row.
                           for (final window in _shownWindows.take(8))
                             DockMenuRow(
-                              icon: window.active
+                              icon: window.minimized
+                                  ? Icons.minimize_rounded
+                                  : window.active
                                   ? Icons.check
                                   : Icons.crop_square,
                               label: window.title.trim().isEmpty
                                   ? (chinese ? '未命名窗口' : 'Untitled window')
                                   : window.title,
+                              trailing: GestureDetector(
+                                behavior: HitTestBehavior.opaque,
+                                onTap: () {
+                                  if (window.minimized) {
+                                    _activateWindow(window.id);
+                                  } else {
+                                    widget.services.minimizeWindow(window.id);
+                                    _closeOverlay();
+                                  }
+                                },
+                                child: Padding(
+                                  padding: const EdgeInsets.only(left: 6),
+                                  child: Icon(
+                                    window.minimized
+                                        ? Icons.open_in_full_rounded
+                                        : Icons.remove_rounded,
+                                    size: 14,
+                                    color: colors.textSecondary,
+                                  ),
+                                ),
+                              ),
                               onTap: () {
                                 _closeOverlay();
                                 _activateWindow(window.id);
@@ -1625,6 +1720,21 @@ class _DockItemWidgetState extends State<DockItemWidget>
                               onTap: _showPreviews,
                             ),
                           if (widget.windows.isNotEmpty) DockMenuSeparator(),
+                          if (_recentDocs.isNotEmpty) ...[
+                            DockMenuSectionLabel(
+                              chinese ? '最近文档' : 'Recent Documents',
+                            ),
+                            for (final doc in _recentDocs.take(5))
+                              DockMenuRow(
+                                icon: Icons.description_outlined,
+                                label: doc.name,
+                                onTap: () {
+                                  _closeOverlay();
+                                  unawaited(DockExtras.openPath(doc.path));
+                                },
+                              ),
+                            DockMenuSeparator(),
+                          ],
                           DockMenuSubmenuRow(
                             icon: Icons.tune,
                             label: chinese ? '选项' : 'Options',
@@ -1760,12 +1870,14 @@ class _DockItemWidgetState extends State<DockItemWidget>
     final geometry = _geometry(layout);
     final output = geometry.output;
     final theme = context.shellTheme;
-    final side = widget.position != DockPosition.bottom;
+    final side = widget.position.isVertical;
     final available = math.max(0.0, output.width - 16);
     final maxHeight = math.min(
       200.0,
       side
           ? math.max(0.0, output.height - 16)
+          : widget.position == DockPosition.top
+          ? math.max(0.0, output.bottom - geometry.anchor.bottom - 40)
           : math.max(0.0, geometry.anchor.top - output.top - 40),
     );
     if (available <= 0 || maxHeight <= 0) {
@@ -1783,10 +1895,11 @@ class _DockItemWidgetState extends State<DockItemWidget>
     final width = math.min(available, contentWidth + 16);
     final height = cardHeight + 16;
     final left = switch (widget.position) {
-      DockPosition.bottom => (geometry.anchor.center.dx - width / 2).clamp(
-        output.left + 8,
-        math.max(output.left + 8, output.right - width - 8),
-      ),
+      DockPosition.bottom || DockPosition.top =>
+        (geometry.anchor.center.dx - width / 2).clamp(
+          output.left + 8,
+          math.max(output.left + 8, output.right - width - 8),
+        ),
       DockPosition.left => math.max(
         output.left + 8,
         geometry.anchor.right + 12,
@@ -1799,6 +1912,8 @@ class _DockItemWidgetState extends State<DockItemWidget>
     final top =
         (widget.position == DockPosition.bottom
                 ? geometry.anchor.top - height - 12
+                : widget.position == DockPosition.top
+                ? geometry.anchor.bottom + 12
                 : geometry.anchor.center.dy - height / 2)
             .clamp(
               output.top + 8,
@@ -1823,6 +1938,7 @@ class _DockItemWidgetState extends State<DockItemWidget>
                 scale: 0.96 + 0.04 * t,
                 alignment: switch (widget.position) {
                   DockPosition.bottom => Alignment.bottomCenter,
+                  DockPosition.top => Alignment.topCenter,
                   DockPosition.left => Alignment.centerLeft,
                   DockPosition.right => Alignment.centerRight,
                 },
@@ -1947,7 +2063,7 @@ class _DockItemWidgetState extends State<DockItemWidget>
     final geometry = _geometry(layout);
     final output = geometry.output;
     final theme = context.shellTheme;
-    final side = widget.position != DockPosition.bottom;
+    final side = widget.position.isVertical;
     const pad = 6.0;
     const gap = 6.0;
     const titleHeight = 15.0;
@@ -1956,6 +2072,13 @@ class _DockItemWidgetState extends State<DockItemWidget>
         ? math.max(
             0.0,
             (output.height - 48) / windows.length - titleHeight - gap,
+          )
+        : widget.position == DockPosition.top
+        ? math.max(
+            0.0,
+            (output.bottom - geometry.anchor.bottom - 24) / windows.length -
+                titleHeight -
+                gap,
           )
         : math.max(
             0.0,
@@ -1980,10 +2103,11 @@ class _DockItemWidgetState extends State<DockItemWidget>
         gap * (sizes.length - 1) +
         pad * 2;
     final left = switch (widget.position) {
-      DockPosition.bottom => (geometry.anchor.center.dx - width / 2).clamp(
-        output.left + 8,
-        math.max(output.left + 8, output.right - width - 8),
-      ),
+      DockPosition.bottom || DockPosition.top =>
+        (geometry.anchor.center.dx - width / 2).clamp(
+          output.left + 8,
+          math.max(output.left + 8, output.right - width - 8),
+        ),
       DockPosition.left => math.max(
         output.left + 8,
         geometry.anchor.right + 12,
@@ -1996,6 +2120,8 @@ class _DockItemWidgetState extends State<DockItemWidget>
     final top =
         (side
                 ? geometry.anchor.center.dy - height / 2
+                : widget.position == DockPosition.top
+                ? geometry.anchor.bottom + 12
                 : geometry.anchor.top - height - 12)
             .clamp(
               output.top + 8,
@@ -2020,6 +2146,7 @@ class _DockItemWidgetState extends State<DockItemWidget>
                 scale: 0.96 + 0.04 * t,
                 alignment: switch (widget.position) {
                   DockPosition.bottom => Alignment.bottomCenter,
+                  DockPosition.top => Alignment.topCenter,
                   DockPosition.left => Alignment.centerLeft,
                   DockPosition.right => Alignment.centerRight,
                 },

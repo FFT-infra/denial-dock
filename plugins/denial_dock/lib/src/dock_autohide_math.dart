@@ -47,6 +47,12 @@ Box dockRect({
       width: extent,
       height: thickness,
     ),
+    DockPosition.top => (
+      left: centerX - extent / 2,
+      top: output.top + inset,
+      width: extent,
+      height: thickness,
+    ),
     DockPosition.left => (
       left: output.left + inset,
       top: centerY - extent / 2,
@@ -75,6 +81,15 @@ Box overlapDepth(
     return (
       left: rect.left,
       top: rect.top + d,
+      width: rect.width,
+      height: rect.height - d,
+    );
+  }(),
+  DockPosition.top => () {
+    final d = depth.clamp(0.0, rect.height - 1);
+    return (
+      left: rect.left,
+      top: rect.top,
       width: rect.width,
       height: rect.height - d,
     );
@@ -141,12 +156,13 @@ double reservedEdge({
   if (workArea.isEmpty) return 0;
   final gap = switch (position) {
     DockPosition.bottom => output.bottom - workArea.bottom,
+    DockPosition.top => workArea.top - output.top,
     DockPosition.left => workArea.left - output.left,
     DockPosition.right => output.right - workArea.right,
   };
   if (!gap.isFinite || gap <= 0) return 0;
   final limit =
-      (position == DockPosition.bottom ? output.height : output.width) / 2;
+      (!position.isVertical ? output.height : output.width) / 2;
   return gap > limit ? 0 : gap;
 }
 

@@ -37,6 +37,9 @@ class DockThumbRevision {
   void addListener(void Function() listener) => _listeners.add(listener);
   void removeListener(void Function() listener) => _listeners.remove(listener);
 
+  /// Broadcasts an update to listeners (also used by MIME icon indexing).
+  void notify() => _bump();
+
   void _bump() {
     if (_scheduled) return;
     _scheduled = true;

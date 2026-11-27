@@ -18,6 +18,7 @@ import 'dock_icon.dart';
 import 'dock_mac_icons.dart';
 import 'dock_pile.dart';
 import 'dock_menu.dart';
+import 'dock_mime_icons.dart';
 import 'dock_settings.dart';
 import 'dock_stack_files.dart'
     show DockDownloadProgress, DockStackEntry, DockStackFiles;
@@ -153,6 +154,7 @@ class _DockAccessoryItemState extends State<DockAccessoryItem> {
       child: Transform.translate(
         offset: switch (widget.position) {
           DockPosition.bottom => Offset(0, -widget.lift),
+          DockPosition.top => Offset(0, widget.lift),
           DockPosition.left => Offset(widget.lift, 0),
           DockPosition.right => Offset(-widget.lift, 0),
         },
@@ -280,10 +282,15 @@ class _DockAccessoryItemState extends State<DockAccessoryItem> {
     final scene = Offset.zero & layout.overlaySize;
     final output = widget.monitorBounds.intersect(scene);
     final bounds = output.isEmpty ? scene : output;
-    final width = math.min(236.0, math.max(0.0, bounds.width - 16));
-    final maxHeight = widget.position == DockPosition.bottom
-        ? math.max(0.0, anchor.top - bounds.top - 16)
-        : math.max(0.0, bounds.height - 16);
+    final width = math.min(
+      dockLookMetrics.menuWidth,
+      math.max(0.0, bounds.width - 16),
+    );
+    final maxHeight = switch (widget.position) {
+      DockPosition.bottom => math.max(0.0, anchor.top - bounds.top - 16),
+      DockPosition.top => math.max(0.0, bounds.bottom - anchor.bottom - 16),
+      DockPosition.left || DockPosition.right => math.max(0.0, bounds.height - 16),
+    };
     if (width <= 0 || maxHeight <= 0) return const SizedBox.shrink();
     final placement = dockMenuAnchor(
       anchor: anchor,
@@ -645,6 +652,7 @@ class _DockFileItemState extends State<DockFileItem> {
     _preview = DockStackThumbs.preview(widget.file.path);
     dockThumbsRevision.addListener(_onThumbs);
     unawaited(DockStackThumbs.request(<String>[widget.file.path]));
+    unawaited(DockMimeIcons.request(<String>[widget.file.path]));
   }
 
   @override
@@ -653,6 +661,7 @@ class _DockFileItemState extends State<DockFileItem> {
     if (oldWidget.file.path != widget.file.path) {
       _preview = DockStackThumbs.preview(widget.file.path);
       unawaited(DockStackThumbs.request(<String>[widget.file.path]));
+      unawaited(DockMimeIcons.request(<String>[widget.file.path]));
     }
   }
 
@@ -760,32 +769,45 @@ class _FileArt extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final theme = context.shellTheme;
+    final mimeIcon = preview == null ? DockMimeIcons.iconPathCached(path) : null;
     final glyph = Icon(icon, size: size * 0.52, color: color);
+    final Widget fallback = DecoratedBox(
+      decoration: BoxDecoration(
+        color: theme.panelColor(theme.colors.surfaceContainerHigh),
+        border: Border.all(color: theme.colors.hairline),
+      ),
+      child: Center(child: glyph),
+    );
     return ClipRRect(
       borderRadius: BorderRadius.circular(size * 0.22),
-      child: preview == null
-          ? DecoratedBox(
-              decoration: BoxDecoration(
-                color: theme.panelColor(theme.colors.surfaceContainerHigh),
-                border: Border.all(color: theme.colors.hairline),
-              ),
-              child: Center(child: glyph),
-            )
-          : Image.file(
+      child: preview != null
+          ? Image.file(
               File(preview!),
               width: size,
               height: size,
               fit: BoxFit.cover,
               cacheWidth: (size * 3).round(),
               gaplessPlayback: true,
-              errorBuilder: (_, _, _) => DecoratedBox(
-                decoration: BoxDecoration(
-                  color: theme.panelColor(theme.colors.surfaceContainerHigh),
-                  border: Border.all(color: theme.colors.hairline),
-                ),
-                child: Center(child: glyph),
+              errorBuilder: (_, _, _) => fallback,
+            )
+          : mimeIcon != null
+          ? DecoratedBox(
+              decoration: BoxDecoration(
+                color: theme.panelColor(theme.colors.surfaceContainerHigh),
+                border: Border.all(color: theme.colors.hairline),
               ),
-            ),
+              child: Padding(
+                padding: EdgeInsets.all(size * 0.14),
+                child: Image.file(
+                  File(mimeIcon),
+                  fit: BoxFit.contain,
+                  cacheWidth: (size * 2).round(),
+                  gaplessPlayback: true,
+                  errorBuilder: (_, _, _) => Center(child: glyph),
+                ),
+              ),
+            )
+          : fallback,
     );
   }
 }
@@ -942,7 +964,10 @@ class _DockFolderItemState extends State<DockFolderItem> {
       for (final e in slice)
         if (!e.isDirectory) e.path,
     ];
-    if (paths.isNotEmpty) unawaited(DockStackThumbs.request(paths));
+    if (paths.isNotEmpty) {
+      unawaited(DockStackThumbs.request(paths));
+      unawaited(DockMimeIcons.request(paths));
+    }
   }
 
   /// Re-reads the folder for the icon and the download bar.
@@ -1146,6 +1171,9 @@ class _DockFolderItemState extends State<DockFolderItem> {
           keyboardPolicy: ShellKeyboardPolicy.capture,
           child: DockStackView(
             entries: _entries,
+            folderPath: widget.folder.path,
+            sort: widget.folder.sort,
+            order: widget.folder.order,
             anchor: anchor,
             anchorNow: () => _iconNow(anchor),
             bounds: bounds,
@@ -1156,6 +1184,10 @@ class _DockFolderItemState extends State<DockFolderItem> {
             zh: widget.zh,
             onDismiss: _closeFan,
             onOpenFolder: _openFolder,
+            onOpenPath: (path) {
+              _closeFan();
+              unawaited(DockExtras.openPath(path));
+            },
             onOpenEntry: _openEntry,
             onReorder: _reorder,
             trashRect: widget.trashRect,
@@ -1171,6 +1203,7 @@ class _DockFolderItemState extends State<DockFolderItem> {
             ? Icons.folder_rounded
             : switch (widget.position) {
                 DockPosition.bottom => Icons.keyboard_arrow_down_rounded,
+                DockPosition.top => Icons.keyboard_arrow_up_rounded,
                 DockPosition.left => Icons.keyboard_arrow_right_rounded,
                 DockPosition.right => Icons.keyboard_arrow_left_rounded,
               },
@@ -1219,6 +1252,7 @@ class _DockFolderItemState extends State<DockFolderItem> {
                           size: widget.size,
                           quarterTurns: switch (widget.position) {
                             DockPosition.bottom => 0,
+                            DockPosition.top => 2,
                             DockPosition.left => 3,
                             DockPosition.right => 1,
                           },

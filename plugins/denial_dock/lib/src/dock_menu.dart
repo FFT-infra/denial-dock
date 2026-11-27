@@ -27,7 +27,7 @@ BorderRadius dockMenuRowRadius(BuildContext context) => BorderRadius.circular(
 
 /// Which side of a menu panel carries the pointer tail, mirroring the dock's
 /// edge. Menus open away from the screen edge, so the tail points back at it.
-enum DockMenuTail { none, down, left, right }
+enum DockMenuTail { none, down, up, left, right }
 
 /// A tail drawn in the panel's fill colour, so the seam between the tail and
 /// the panel is invisible.
@@ -42,7 +42,7 @@ class DockTail extends StatelessWidget {
   final DockMenuTail tail;
   final Color color;
 
-  /// Height of a downward tail, or width of a sideways one.
+  /// Height of a downward/upward tail, or width of a sideways one.
   final double length;
 
   @override
@@ -50,7 +50,7 @@ class DockTail extends StatelessWidget {
     if (tail == DockMenuTail.none) return const SizedBox.shrink();
     final depth = length * 2.1;
     return CustomPaint(
-      size: tail == DockMenuTail.down
+      size: tail == DockMenuTail.down || tail == DockMenuTail.up
           ? Size(depth, length)
           : Size(length, depth),
       painter: _MenuTailPainter(color, tail),
@@ -66,6 +66,7 @@ class DockMenuAnchor {
     required this.tail,
     required this.tailAlignment,
     this.panelBottomY,
+    this.panelTopY,
     this.alignBox,
     this.alignmentY = 0,
   });
@@ -78,14 +79,17 @@ class DockMenuAnchor {
   /// Scene-space y of the panel's bottom edge, for docks on the bottom edge.
   final double? panelBottomY;
 
+  /// Scene-space y of the panel's top edge, for docks on the top edge.
+  final double? panelTopY;
+
   /// Vertical band a side-dock panel is centred inside.
   final Rect? alignBox;
 
   final double alignmentY;
 }
 
-/// A menu opens away from the dock's edge: above a bottom dock, beside a side
-/// dock, with the tail pointing back at the icon.
+/// A menu opens away from the dock's edge: above a bottom dock, below a top
+/// dock, beside a side dock, with the tail pointing back at the icon.
 DockMenuAnchor? dockMenuAnchor({
   required Rect anchor,
   required Rect output,
@@ -108,6 +112,19 @@ DockMenuAnchor? dockMenuAnchor({
         tail: DockMenuTail.down,
         tailAlignment: ((anchor.center.dx - left) / width).clamp(0.08, 0.92),
         panelBottomY: anchor.top - gap,
+      );
+    case DockPosition.top:
+      if (output.bottom - (anchor.bottom + gap) < inset) return null;
+      final left = (anchor.center.dx - width / 2).clamp(
+        output.left + inset,
+        math.max(output.left + inset, output.right - width - inset),
+      );
+      return DockMenuAnchor(
+        left: left.toDouble(),
+        width: width,
+        tail: DockMenuTail.up,
+        tailAlignment: ((anchor.center.dx - left) / width).clamp(0.08, 0.92),
+        panelTopY: anchor.bottom + gap,
       );
     case DockPosition.left:
     case DockPosition.right:
@@ -163,6 +180,15 @@ class DockMenuLayer extends StatelessWidget {
         child: child,
       );
     }
+    final topY = anchor.panelTopY;
+    if (topY != null) {
+      return Positioned(
+        left: anchor.left,
+        top: topY,
+        width: anchor.width,
+        child: child,
+      );
+    }
     final box = anchor.alignBox ?? Offset.zero & overlaySize;
     return Positioned(
       left: anchor.left,
@@ -205,6 +231,7 @@ class DockMenuPanel extends StatelessWidget {
         origin ??
         switch (tail) {
           DockMenuTail.down => Alignment(tailAlignment * 2 - 1, 1),
+          DockMenuTail.up => Alignment(tailAlignment * 2 - 1, -1),
           DockMenuTail.left => Alignment(-1, tailAlignment * 2 - 1),
           DockMenuTail.right => Alignment(1, tailAlignment * 2 - 1),
           DockMenuTail.none => Alignment.topCenter,
@@ -273,7 +300,7 @@ class DockMenuPanel extends StatelessWidget {
     if (tail == DockMenuTail.none) return sized;
     final aligned = Align(
       alignment: switch (tail) {
-        DockMenuTail.down => Alignment(tailAlignment * 2 - 1, 0),
+        DockMenuTail.down || DockMenuTail.up => Alignment(tailAlignment * 2 - 1, 0),
         _ => Alignment(0, tailAlignment * 2 - 1),
       },
       child: tailed ? DockTail(tail: tail, color: fill) : null,
@@ -285,6 +312,14 @@ class DockMenuPanel extends StatelessWidget {
         children: [
           sized,
           SizedBox(height: 6, child: aligned),
+        ],
+      ),
+      DockMenuTail.up => Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          SizedBox(height: 6, child: aligned),
+          sized,
         ],
       ),
       DockMenuTail.left => Row(
@@ -410,6 +445,19 @@ class _MenuOutlinePainter extends CustomPainter {
           ..lineTo(centre, size.height)
           ..lineTo(centre + _depth / 2, rect.bottom - 1)
           ..close();
+      case DockMenuTail.up:
+        final rect = Rect.fromLTWH(0, _length, size.width, size.height - _length);
+        final centre =
+            (rect.left + radius + (rect.width - radius * 2) * tailAlignment)
+                .clamp(rect.left + radius, rect.right - radius)
+                .toDouble();
+        body = Path()
+          ..addRRect(RRect.fromRectAndRadius(rect, Radius.circular(radius)));
+        point = Path()
+          ..moveTo(centre - _depth / 2, rect.top + 1)
+          ..lineTo(centre, 0)
+          ..lineTo(centre + _depth / 2, rect.top + 1)
+          ..close();
       case DockMenuTail.left:
         final rect = Rect.fromLTWH(
           _length,
@@ -470,6 +518,11 @@ class _MenuTailPainter extends CustomPainter {
           ..moveTo(0, 0)
           ..lineTo(size.width / 2, size.height)
           ..lineTo(size.width, 0);
+      case DockMenuTail.up:
+        path
+          ..moveTo(0, size.height)
+          ..lineTo(size.width / 2, 0)
+          ..lineTo(size.width, size.height);
       case DockMenuTail.left:
         path
           ..moveTo(0, size.height / 2)
@@ -686,6 +739,7 @@ class DockMenuRow extends StatefulWidget {
     required this.onTap,
     this.icon,
     this.selected = false,
+    this.trailing,
     super.key,
   });
 
@@ -695,6 +749,10 @@ class DockMenuRow extends StatefulWidget {
   final String label;
   final VoidCallback onTap;
   final bool selected;
+
+  /// Optional inline action button at the trailing end (e.g. per-window
+  /// minimize/restore).
+  final Widget? trailing;
 
   @override
   State<DockMenuRow> createState() => _DockMenuRowState();
@@ -749,6 +807,7 @@ class _DockMenuRowState extends State<DockMenuRow> {
                     ),
                   ),
                 ),
+                ?widget.trailing,
                 if (widget.selected)
                   Icon(
                     Icons.check,

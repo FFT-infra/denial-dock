@@ -1,3 +1,4 @@
+import 'dart:async' show unawaited;
 import 'dart:io';
 import 'dart:math' as math;
 
@@ -15,6 +16,7 @@ import 'dock_look_style.dart';
 import 'dock_drag.dart';
 import 'dock_mac_icons.dart';
 import 'dock_menu.dart';
+import 'dock_mime_icons.dart';
 import 'dock_settings.dart' show DockPosition, DockStackMode, DockStackSortMode;
 import 'dock_pile.dart';
 import 'dock_spring.dart';
@@ -34,6 +36,9 @@ class DockStackView extends StatefulWidget {
     required this.entries,
     required this.anchor,
     required this.bounds,
+    this.folderPath,
+    this.sort = DockStackSortMode.added,
+    this.order = const <String>[],
     this.anchorNow,
     this.workArea,
     required this.position,
@@ -42,6 +47,7 @@ class DockStackView extends StatefulWidget {
     required this.zh,
     required this.onDismiss,
     required this.onOpenFolder,
+    this.onOpenPath,
     required this.onOpenEntry,
     this.onReorder,
     this.onTrash,
@@ -50,6 +56,9 @@ class DockStackView extends StatefulWidget {
   });
 
   final List<DockStackEntry> entries;
+  final String? folderPath;
+  final DockStackSortMode sort;
+  final List<String> order;
 
   /// The folder icon's rectangle in scene coordinates.
   final Rect anchor;
@@ -84,6 +93,9 @@ class DockStackView extends StatefulWidget {
   /// Called once the rows have folded back, so the portal can be dropped.
   final VoidCallback onDismiss;
   final VoidCallback onOpenFolder;
+
+  /// Opens a specific folder path (e.g. a drilled-down subfolder in Grid view).
+  final ValueChanged<String>? onOpenPath;
   final ValueChanged<DockStackEntry> onOpenEntry;
 
   /// Called with the file names in their new order after a drag, in either
@@ -110,6 +122,58 @@ class _DockStackViewState extends State<DockStackView>
   bool _launched = false;
   double _stagger = 0;
   double _total = 1;
+
+  /// Grid subfolder drill-down stack: each frame holds the folder path, label,
+  /// and cached directory listing.
+  final List<({String path, String label, List<DockStackEntry> entries})>
+      _drillStack =
+      <({String path, String label, List<DockStackEntry> entries})>[];
+
+  List<DockStackEntry> get _activeEntries =>
+      _drillStack.isEmpty ? widget.entries : _drillStack.last.entries;
+
+  String? get _activeTitle =>
+      _drillStack.isEmpty ? widget.title : _drillStack.last.label;
+
+  void _drillInto(DockStackEntry folder) {
+    final entries = DockStackFiles.list(folder.path, sort: widget.sort);
+    final files = <String>[
+      for (final e in entries)
+        if (!e.isDirectory) e.path,
+    ];
+    if (files.isNotEmpty) {
+      unawaited(DockStackThumbs.request(files));
+      unawaited(DockMimeIcons.request(files));
+    }
+    _query.clear();
+    setState(() {
+      _drillStack.add((path: folder.path, label: folder.name, entries: entries));
+      _layout = null;
+      _scroll = 0;
+      _hovered = null;
+      _selected = -1;
+    });
+  }
+
+  void _drillBack() {
+    if (_drillStack.isEmpty) return;
+    _query.clear();
+    setState(() {
+      _drillStack.removeLast();
+      _layout = null;
+      _scroll = 0;
+      _hovered = null;
+      _selected = -1;
+    });
+  }
+
+  void _openActiveFolder() {
+    if (_drillStack.isNotEmpty && widget.onOpenPath != null) {
+      widget.onOpenPath!(_drillStack.last.path);
+    } else {
+      widget.onOpenFolder();
+    }
+  }
 
   /// The spring a row rides out of the pile on.
   late DockSpring _out;
@@ -341,15 +405,19 @@ class _DockStackViewState extends State<DockStackView>
     );
   }
 
-  /// Escape clears a search before it closes the stack, so one key backs out
-  /// one step at a time.
+  /// Escape clears a search, then steps up from a drilled subfolder, before
+  /// closing the stack.
   void _escape() {
-    if (_query.text.isEmpty) {
-      _dismiss();
+    if (_query.text.isNotEmpty) {
+      _query.clear();
+      setState(() => _layout = null);
       return;
     }
-    _query.clear();
-    setState(() => _layout = null);
+    if (_drillStack.isNotEmpty) {
+      _drillBack();
+      return;
+    }
+    _dismiss();
   }
 
   // -- input ---------------------------------------------------------------
@@ -509,10 +577,18 @@ class _DockStackViewState extends State<DockStackView>
   void _activate(_StackRow row) {
     final entry = row.entry;
     if (entry == null) {
-      widget.onOpenFolder();
-    } else {
-      widget.onOpenEntry(entry);
+      _openActiveFolder();
+      return;
     }
+    final layout = _layout;
+    if (entry.isDirectory &&
+        layout != null &&
+        !layout.isFan &&
+        !layout.isList) {
+      _drillInto(entry);
+      return;
+    }
+    widget.onOpenEntry(entry);
   }
 
   /// Folds the rows back into the icon, then drops the portal.
@@ -555,7 +631,8 @@ class _DockStackViewState extends State<DockStackView>
       widget.bounds,
       widget.position,
       widget.mode,
-      identityHashCode(widget.entries),
+      identityHashCode(_activeEntries),
+      _drillStack.length,
     );
     final cached = _layout;
     if (cached != null && _layoutKey == key) return cached;
@@ -570,9 +647,12 @@ class _DockStackViewState extends State<DockStackView>
     final style = _plateStyle(theme);
     final entries = _visible;
     if (entries.isEmpty) {
+      if (_drillStack.isNotEmpty) {
+        return _gridLayout(theme, const <DockStackEntry>[]);
+      }
       return _messageLayout(
         style,
-        widget.entries.isEmpty
+        _activeEntries.isEmpty
             ? (widget.zh ? '文件夹是空的' : 'Empty folder')
             : (widget.zh ? '没有匹配的项目' : 'No matches'),
       );
@@ -582,8 +662,10 @@ class _DockStackViewState extends State<DockStackView>
     if (widget.mode == DockStackMode.list) return _listLayout(entries, style);
     // The fan is what a folder of a few files opens into. `auto` falls back to
     // a grid when it cannot fit; `fan` truncates instead, because a grid is not
-    // what the user asked for.
-    if (widget.mode != DockStackMode.grid) {
+    // what the user asked for. A drilled subfolder always stays in Grid view.
+    if (_drillStack.isEmpty &&
+        widget.mode != DockStackMode.grid &&
+        widget.position != DockPosition.top) {
       final fan = _fanLayout(
         style,
         entries,
@@ -596,11 +678,11 @@ class _DockStackViewState extends State<DockStackView>
 
   /// The entries the query leaves, which is what the stack draws.
   List<DockStackEntry> get _visible =>
-      DockStackFiles.filter(widget.entries, _query.text);
+      DockStackFiles.filter(_activeEntries, _query.text);
 
   /// A search field is worth drawing only when there are enough files that
   /// finding one by eye is work.
-  bool get _searchable => widget.entries.length > 8;
+  bool get _searchable => _activeEntries.length > 8;
 
   /// The scene y the rows grow from, and the scene y they must stay under.
   ///
@@ -610,7 +692,9 @@ class _DockStackViewState extends State<DockStackView>
     const searchHeight = 38.0;
     // The work area already excludes the system bar, so the rows start at its
     // edge; without one, fall back to the output with a small inset.
-    final top = widget.workArea?.top ?? widget.bounds.top;
+    final top = widget.position == DockPosition.top
+        ? widget.anchor.bottom + DockStackFan.gap
+        : (widget.workArea?.top ?? widget.bounds.top);
     return (
       top: top + 8 + (_searchable ? searchHeight : 0),
       bottom: widget.position == DockPosition.bottom
@@ -621,7 +705,7 @@ class _DockStackViewState extends State<DockStackView>
 
   /// The x the rows start from, for a side dock.
   double? get _sideEdge => switch (widget.position) {
-    DockPosition.bottom => null,
+    DockPosition.bottom || DockPosition.top => null,
     DockPosition.left => widget.anchor.right + DockStackFan.gap,
     DockPosition.right => widget.anchor.left - DockStackFan.gap,
   };
@@ -749,7 +833,9 @@ class _DockStackViewState extends State<DockStackView>
     const pad = 6.0;
     final width = math.min(280.0, math.max(180.0, widget.bounds.width - 32));
     final room = _room.bottom - _room.top;
-    final content = entries.length * rowHeight + pad * 2;
+    final header = _activeTitle == null ? 0.0 : 28.0;
+    const footer = 32.0;
+    final content = entries.length * rowHeight + pad * 2 + header + footer;
     final height = math.min(content, room);
     final left = (widget.anchor.center.dx - width / 2)
         .clamp(
@@ -757,21 +843,26 @@ class _DockStackViewState extends State<DockStackView>
           math.max(widget.bounds.left + 16, widget.bounds.right - width - 16),
         )
         .toDouble();
+    final top = widget.position == DockPosition.top
+        ? _room.top
+        : _room.bottom - height;
     return _StackLayout.list(
       [for (final entry in entries) _StackRow.entry(entry)],
       width: width,
       height: height,
       contentHeight: content,
       scrolls: content > height,
-      origin: Offset(left, _room.bottom - height),
+      origin: Offset(left, top),
     );
   }
 
   _StackLayout _gridLayout(ShellThemeData theme, List<DockStackEntry> entries) {
+    const footer = 32.0;
+    final header = _activeTitle != null || _drillStack.isNotEmpty ? 30.0 : 0.0;
     final grid = DockStackGrid.layout(
-      count: entries.length,
+      count: math.max(1, entries.length),
       width: widget.bounds.width - 32,
-      maxHeight: _room.bottom - _room.top,
+      maxHeight: math.max(96.0, _room.bottom - _room.top - header - footer),
     );
     // The panel is centred on the icon and clamped onto the screen; the cells
     // are measured from its corner, so the hit test needs that corner.
@@ -784,15 +875,18 @@ class _DockStackViewState extends State<DockStackView>
           ),
         )
         .toDouble();
+    final gridTop = widget.position == DockPosition.top
+        ? _room.top + header
+        : _room.bottom - grid.height - footer;
     return _StackLayout.grid(
       [for (final entry in entries) _StackRow.entry(entry)],
-      grid: grid.cells,
+      grid: entries.isEmpty ? const <DockGridCell>[] : grid.cells,
       columns: grid.columns,
       width: grid.width,
       height: grid.height,
       contentHeight: grid.contentHeight,
       scrolls: grid.scrolls,
-      origin: Offset(left, _room.bottom - grid.height),
+      origin: Offset(left, gridTop),
     );
   }
 
@@ -1079,29 +1173,58 @@ class _DockStackViewState extends State<DockStackView>
         opacity: progress.clamp(0.0, 1.0),
         child: Transform.scale(
           scale: 0.60 + 0.40 * progress,
-          alignment: Alignment.bottomCenter,
+          alignment: widget.position == DockPosition.top
+              ? Alignment.topCenter
+              : Alignment.bottomCenter,
           child: GlassCard(
             tier: KitTier.popover,
             minOpacity: 0.78,
             radius: DockStackFan.radius,
             child: ClipRRect(
               borderRadius: BorderRadius.circular(kitStyle.value.outer(theme, DockStackFan.radius)),
-              child: SingleChildScrollView(
-                controller: _gridController(scroll),
-                physics: layout.scrolls
-                    ? const ClampingScrollPhysics()
-                    : const NeverScrollableScrollPhysics(),
-                child: Padding(
-                  padding: const EdgeInsets.symmetric(vertical: 6),
-                  child: Column(
-                    mainAxisSize: MainAxisSize.min,
-                    crossAxisAlignment: CrossAxisAlignment.stretch,
-                    children: [
-                      for (final row in layout.rows)
-                        _buildListRow(context, row),
-                    ],
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  if (_activeTitle case final title?)
+                    Padding(
+                      padding: const EdgeInsets.fromLTRB(14, 8, 14, 4),
+                      child: Text(
+                        title,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: theme.text.systemBarCaption.inLook.copyWith(
+                          color: theme.colors.textTertiary,
+                          fontWeight: FontWeight.w600,
+                        ),
+                      ),
+                    ),
+                  Expanded(
+                    child: SingleChildScrollView(
+                      controller: _gridController(scroll),
+                      physics: layout.scrolls
+                          ? const ClampingScrollPhysics()
+                          : const NeverScrollableScrollPhysics(),
+                      child: Padding(
+                        padding: const EdgeInsets.symmetric(vertical: 4),
+                        child: Column(
+                          mainAxisSize: MainAxisSize.min,
+                          crossAxisAlignment: CrossAxisAlignment.stretch,
+                          children: [
+                            for (final row in layout.rows)
+                              _buildListRow(context, row),
+                          ],
+                        ),
+                      ),
+                    ),
                   ),
-                ),
+                  const DockMenuSeparator(),
+                  DockMenuRow(
+                    icon: Icons.open_in_new_rounded,
+                    label: _openLabel,
+                    onTap: _openActiveFolder,
+                  ),
+                  const SizedBox(height: 2),
+                ],
               ),
             ),
           ),
@@ -1163,84 +1286,165 @@ class _DockStackViewState extends State<DockStackView>
   Widget _buildGrid(BuildContext context, _StackLayout layout) {
     final theme = context.shellTheme;
     final width = layout.width;
-    final left = (widget.anchor.center.dx - width / 2)
-        .clamp(
-          widget.bounds.left + 16,
-          math.max(widget.bounds.left + 16, widget.bounds.right - width - 16),
-        )
-        .toDouble();
+    final left = layout.origin.dx;
     final max = math.max(0.0, layout.contentHeight - layout.height);
     final scroll = _scroll.clamp(0.0, max);
     final progress = _panelProgress;
-    // The header grows the panel upward rather than pushing the cells down,
-    // so the hit test keeps using the grid's own origin.
-    final header = widget.title == null ? 0.0 : 26.0;
+    // The header sits above layout.origin.dy and the footer sits below
+    // layout.origin.dy + layout.height so cell hit testing stays aligned with
+    // layout.origin.
+    final hasHeader = _activeTitle != null || _drillStack.isNotEmpty;
+    final header = hasHeader ? 30.0 : 0.0;
+    const footer = 32.0;
+    final breadcrumb = _drillStack.isEmpty
+        ? (_activeTitle ?? '')
+        : <String>[
+            if (widget.title != null && widget.title!.isNotEmpty) widget.title!,
+            for (final frame in _drillStack) frame.label,
+          ].join(' / ');
     return Positioned(
       left: left,
-      top: _room.bottom - layout.height - header,
+      top: layout.origin.dy - header,
       width: width,
-      height: layout.height + header,
+      height: layout.height + header + footer,
       child: Opacity(
         opacity: progress.clamp(0.0, 1.0),
         child: Transform.scale(
           scale: 0.60 + 0.40 * progress,
-          alignment: Alignment.bottomCenter,
+          alignment: widget.position == DockPosition.top
+              ? Alignment.topCenter
+              : Alignment.bottomCenter,
           child: GlassCard(
             tier: KitTier.popover,
             minOpacity: 0.78,
             radius: DockStackFan.radius,
             child: ClipRRect(
-              borderRadius: BorderRadius.circular(kitStyle.value.outer(theme, DockStackFan.radius)),
+              borderRadius: BorderRadius.circular(
+                kitStyle.value.outer(theme, DockStackFan.radius),
+              ),
               child: Column(
                 children: [
-                  if (widget.title case final title?)
+                  if (hasHeader)
                     SizedBox(
                       height: header,
-                      child: Center(
-                        child: Text(
-                          title,
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
-                          style: theme.text.systemBarCaption.inLook.copyWith(
-                            color: theme.colors.textPrimary,
-                            fontWeight: FontWeight.w600,
-                          ),
+                      child: Padding(
+                        padding: const EdgeInsets.symmetric(horizontal: 8),
+                        child: Row(
+                          children: [
+                            if (_drillStack.isNotEmpty)
+                              GestureDetector(
+                                behavior: HitTestBehavior.opaque,
+                                onTap: _drillBack,
+                                child: Padding(
+                                  padding: const EdgeInsets.symmetric(
+                                    horizontal: 4,
+                                    vertical: 4,
+                                  ),
+                                  child: Icon(
+                                    Icons.arrow_back_ios_new_rounded,
+                                    size: 13,
+                                    color: theme.kitAccent,
+                                  ),
+                                ),
+                              ),
+                            Expanded(
+                              child: Center(
+                                child: Text(
+                                  breadcrumb,
+                                  maxLines: 1,
+                                  overflow: TextOverflow.ellipsis,
+                                  style: theme.text.systemBarCaption.inLook
+                                      .copyWith(
+                                        color: theme.colors.textPrimary,
+                                        fontWeight: FontWeight.w600,
+                                      ),
+                                ),
+                              ),
+                            ),
+                            if (_drillStack.isNotEmpty)
+                              const SizedBox(width: 21),
+                          ],
                         ),
                       ),
                     ),
                   Expanded(
-                    child: SingleChildScrollView(
-                      controller: _gridController(scroll),
-                      physics: layout.scrolls
-                          ? const ClampingScrollPhysics()
-                          : const NeverScrollableScrollPhysics(),
-                      child: SizedBox(
-                        width: width,
-                        height: layout.contentHeight,
-                        child: Stack(
-                          children: [
-                            for (final cell in layout.grid)
-                              Positioned(
-                                left: cell.left,
-                                top: cell.top,
-                                width: cell.size,
-                                height: cell.size,
-                                child: IgnorePointer(
-                                  child: _GridCellTile(
-                                    row: layout.rows[cell.index],
-                                    theme: theme,
-                                    lit:
-                                        _hovered == cell.index ||
-                                        _selected == cell.index,
-                                    lifting: _dragFrom == cell.index,
-                                    dropTarget:
-                                        _dragging &&
-                                        _dragTo == cell.index &&
-                                        _dragFrom != cell.index,
-                                  ),
-                                ),
+                    child: layout.rows.isEmpty
+                        ? Center(
+                            child: Text(
+                              widget.zh ? '文件夹是空的' : 'Empty folder',
+                              style: theme.text.systemBarCaption.inLook
+                                  .copyWith(color: theme.colors.textTertiary),
+                            ),
+                          )
+                        : SingleChildScrollView(
+                            controller: _gridController(scroll),
+                            physics: layout.scrolls
+                                ? const ClampingScrollPhysics()
+                                : const NeverScrollableScrollPhysics(),
+                            child: SizedBox(
+                              width: width,
+                              height: layout.contentHeight,
+                              child: Stack(
+                                children: [
+                                  for (final cell in layout.grid)
+                                    Positioned(
+                                      left: cell.left,
+                                      top: cell.top,
+                                      width: cell.size,
+                                      height: cell.size,
+                                      child: IgnorePointer(
+                                        child: _GridCellTile(
+                                          row: layout.rows[cell.index],
+                                          theme: theme,
+                                          lit:
+                                              _hovered == cell.index ||
+                                              _selected == cell.index,
+                                          lifting: _dragFrom == cell.index,
+                                          dropTarget:
+                                              _dragging &&
+                                              _dragTo == cell.index &&
+                                              _dragFrom != cell.index,
+                                        ),
+                                      ),
+                                    ),
+                                ],
                               ),
-                          ],
+                            ),
+                          ),
+                  ),
+                  SizedBox(
+                    height: footer,
+                    child: DecoratedBox(
+                      decoration: BoxDecoration(
+                        border: Border(
+                          top: BorderSide(color: theme.colors.hairline),
+                        ),
+                      ),
+                      child: GestureDetector(
+                        behavior: HitTestBehavior.opaque,
+                        onTap: _openActiveFolder,
+                        child: Center(
+                          child: Row(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              Icon(
+                                Icons.open_in_new_rounded,
+                                size: 13,
+                                color: theme.colors.textSecondary,
+                              ),
+                              const SizedBox(width: 5),
+                              Text(
+                                _openLabel,
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
+                                style: theme.text.systemBarCaption.inLook
+                                    .copyWith(
+                                      color: theme.colors.textSecondary,
+                                      fontWeight: FontWeight.w500,
+                                    ),
+                              ),
+                            ],
+                          ),
                         ),
                       ),
                     ),
@@ -1461,28 +1665,34 @@ const Color _plateInk = Color(0xFFFFFFFF);
 TextStyle _plateStyle(ShellThemeData theme) => theme.text.systemBarCaption.inLook
     .copyWith(color: _plateInk, fontWeight: FontWeight.w500);
 
-/// A plate under the pointer or the keyboard, [hover] of the way there. One
-/// look pours its accent into the plate, the other only lifts it.
+/// A plate under the pointer or the keyboard, [hover] of the way there.
+/// macOS keeps its signature dark translucent pill; non-mac looks follow the
+/// active theme's surface and ink tokens.
 ({Color fill, Color ink, Color edge}) _plateColours(
   BuildContext context,
   ShellThemeData theme,
   double hover,
 ) {
   final style = KitStyle.of(context);
+  final mac = style.look.id == 'mac';
+  final baseFill = mac
+      ? _plateFill
+      : theme.panelColor(theme.colors.surfaceContainerHigh).withValues(alpha: 0.92);
+  final baseInk = mac ? _plateInk : theme.colors.textPrimary;
   final accent = style.accent(theme);
   final hot = style.accentMenuRows
       ? accent
       : Color.alphaBlend(
-          _plateInk.withValues(alpha: 0.20),
-          _plateFill.withValues(alpha: 0.86),
+          baseInk.withValues(alpha: 0.16),
+          baseFill.withValues(alpha: 0.96),
         );
   return (
-    fill: Color.lerp(_plateFill, hot, hover)!,
+    fill: Color.lerp(baseFill, hot, hover)!,
     ink: style.accentMenuRows
-        ? Color.lerp(_plateInk, style.onAccent(theme), hover)!
-        : _plateInk,
+        ? Color.lerp(baseInk, style.onAccent(theme), hover)!
+        : baseInk,
     edge: Color.lerp(
-      _plateInk.withValues(alpha: 0.12),
+      mac ? _plateInk.withValues(alpha: 0.12) : theme.colors.hairline,
       accent.withValues(alpha: style.accentMenuRows ? 0 : 0.75),
       hover,
     )!,
@@ -1893,6 +2103,22 @@ class _StackIcon extends StatelessWidget {
 
   Widget _glyph(DockStackEntry entry, ShellThemeData theme) {
     if (entry.isDirectory) return DockFolderIcon(size: size);
+    final mimeIcon = DockMimeIcons.iconPathCached(entry.path);
+    if (mimeIcon != null) {
+      return Image.file(
+        File(mimeIcon),
+        width: size * 0.84,
+        height: size * 0.84,
+        fit: BoxFit.contain,
+        cacheWidth: (size * 2).round(),
+        gaplessPlayback: true,
+        errorBuilder: (_, _, _) => Icon(
+          stackFileIcon(entry.extension),
+          size: size * 0.72,
+          color: stackFileColor(entry.extension),
+        ),
+      );
+    }
     return Icon(
       stackFileIcon(entry.extension),
       size: size * 0.72,
