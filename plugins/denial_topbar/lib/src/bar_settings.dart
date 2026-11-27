@@ -254,16 +254,30 @@ enum BarTrayFold {
 
 /// Splits [trayIds] into icons that stay directly on the bar (`visible`)
 /// and icons gathered into the collection target (`folded`).
+///
+/// When [BarSettings.trayAutoHideByFreq] is enabled, items whose recorded
+/// click count in [usageCounts] is below [BarSettings.trayAutoHideThreshold]
+/// are folded automatically (unless excluded via [BarSettings.trayNever]).
 ({List<String> visible, List<String> folded}) partitionTrayIds(
   List<String> trayIds, {
   required BarSettings settings,
   required String Function(String id) resolveKey,
+  Map<String, int> usageCounts = const <String, int>{},
 }) {
   bool listed(List<String> keys, String id) =>
       keys.contains(resolveKey(id)) || keys.contains(id);
+  bool lowUsage(String id) {
+    if (!settings.trayAutoHideByFreq) return false;
+    final key = resolveKey(id);
+    final hits = usageCounts[key] ?? usageCounts[id] ?? 0;
+    return hits < settings.trayAutoHideThreshold;
+  }
+
   final tucked = <String>[
     for (final id in trayIds)
-      if (listed(settings.trayHidden, id) && !listed(settings.trayNever, id)) id,
+      if (!listed(settings.trayNever, id) &&
+          (listed(settings.trayHidden, id) || lowUsage(id)))
+        id,
   ];
   final shown = <String>[
     for (final id in trayIds)
@@ -362,6 +376,8 @@ class BarSettings {
     this.collapseItems = false,
     this.collapseAutoSeconds = 15,
     this.trayFold = BarTrayFold.inline,
+    this.trayAutoHideByFreq = false,
+    this.trayAutoHideThreshold = 3,
     this.showBluetooth = true,
     this.showKeyboard = true,
     this.showSearch = true,
@@ -373,6 +389,7 @@ class BarSettings {
     this.overviewMiddleClickCloses = true,
     this.overviewLiveOtherWorkspaces = true,
     this.overviewLiveLimit = 6,
+    this.overviewCardWidth = 300,
     this.clockWeekday = true,
     this.workspaceStyle = BarWorkspaceStyle.dots,
     this.activityRecording = true,
@@ -513,6 +530,11 @@ class BarSettings {
   final int collapseAutoSeconds;
   final BarTrayFold trayFold;
 
+  /// Automatically folds tray icons with fewer than [trayAutoHideThreshold]
+  /// recorded clicks.
+  final bool trayAutoHideByFreq;
+  final int trayAutoHideThreshold;
+
   /// The collection style the bar acts on. Icons sent to Control Centre need
   /// its button in the bar; without it they open in a grid of their own, so
   /// no choice of settings leaves them out of reach.
@@ -535,6 +557,7 @@ class BarSettings {
   final bool overviewMiddleClickCloses;
   final bool overviewLiveOtherWorkspaces;
   final int overviewLiveLimit;
+  final double overviewCardWidth;
   final bool clockWeekday;
   final BarWorkspaceStyle workspaceStyle;
 
@@ -764,6 +787,8 @@ class BarSettings {
     bool? collapseItems,
     int? collapseAutoSeconds,
     BarTrayFold? trayFold,
+    bool? trayAutoHideByFreq,
+    int? trayAutoHideThreshold,
     bool? showBluetooth,
     bool? showKeyboard,
     bool? showSearch,
@@ -775,6 +800,7 @@ class BarSettings {
     bool? overviewMiddleClickCloses,
     bool? overviewLiveOtherWorkspaces,
     int? overviewLiveLimit,
+    double? overviewCardWidth,
     bool? clockWeekday,
     BarWorkspaceStyle? workspaceStyle,
     bool? activityRecording,
@@ -850,6 +876,9 @@ class BarSettings {
     collapseItems: collapseItems ?? this.collapseItems,
     collapseAutoSeconds: collapseAutoSeconds ?? this.collapseAutoSeconds,
     trayFold: trayFold ?? this.trayFold,
+    trayAutoHideByFreq: trayAutoHideByFreq ?? this.trayAutoHideByFreq,
+    trayAutoHideThreshold:
+        (trayAutoHideThreshold ?? this.trayAutoHideThreshold).clamp(1, 20),
     showBluetooth: showBluetooth ?? this.showBluetooth,
     showKeyboard: showKeyboard ?? this.showKeyboard,
     showSearch: showSearch ?? this.showSearch,
@@ -865,6 +894,9 @@ class BarSettings {
         overviewLiveOtherWorkspaces ?? this.overviewLiveOtherWorkspaces,
     overviewLiveLimit:
         (overviewLiveLimit ?? this.overviewLiveLimit).clamp(1, 12),
+    overviewCardWidth: (overviewCardWidth ?? this.overviewCardWidth)
+        .clamp(200.0, 420.0)
+        .toDouble(),
     clockWeekday: clockWeekday ?? this.clockWeekday,
     workspaceStyle: workspaceStyle ?? this.workspaceStyle,
     activityRecording: activityRecording ?? this.activityRecording,
@@ -1055,6 +1087,8 @@ class BarSettings {
           ? (json['collapseAutoSeconds'] as num).round().clamp(0, 120)
           : 15,
       trayFold: BarTrayFold.parse(json['trayFold']),
+      trayAutoHideByFreq: flag('trayAutoHideByFreq', false),
+      trayAutoHideThreshold: whole('trayAutoHideThreshold', 1, 20, 3),
       showBluetooth: flag('showBluetooth', true),
       showKeyboard: flag('showKeyboard', true),
       showSearch: flag('showSearch', true),
@@ -1066,6 +1100,7 @@ class BarSettings {
       overviewMiddleClickCloses: flag('overviewMiddleClickCloses', true),
       overviewLiveOtherWorkspaces: flag('overviewLiveOtherWorkspaces', true),
       overviewLiveLimit: whole('overviewLiveLimit', 1, 12, 6),
+      overviewCardWidth: within('overviewCardWidth', 200, 420, 300),
       clockWeekday: flag('clockWeekday', true),
       workspaceStyle: json['workspaceStyle'] == 'numbers'
           ? BarWorkspaceStyle.numbers
@@ -1160,6 +1195,8 @@ class BarSettings {
     json['collapseItems'] = collapseItems;
     json['collapseAutoSeconds'] = collapseAutoSeconds;
     json['trayFold'] = trayFold.key;
+    json['trayAutoHideByFreq'] = trayAutoHideByFreq;
+    json['trayAutoHideThreshold'] = trayAutoHideThreshold;
     json['showBluetooth'] = showBluetooth;
     json['showKeyboard'] = showKeyboard;
     json['showSearch'] = showSearch;
@@ -1171,6 +1208,7 @@ class BarSettings {
     json['overviewMiddleClickCloses'] = overviewMiddleClickCloses;
     json['overviewLiveOtherWorkspaces'] = overviewLiveOtherWorkspaces;
     json['overviewLiveLimit'] = overviewLiveLimit;
+    json['overviewCardWidth'] = overviewCardWidth;
     json['clockWeekday'] = clockWeekday;
     json['activityRecording'] = activityRecording;
     json['activityStatus'] = activityStatus;

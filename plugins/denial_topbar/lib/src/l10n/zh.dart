@@ -632,4 +632,25 @@ const Map<String, String> zh = <String, String>{
   'Turn on the home card first.': '请先开启「点击静态灵动岛展开主卡片」。',
   'Balanced': '平衡',
   'Caelestia style': 'Caelestia 风格',
+  'Liquid Glass style': '液态玻璃风格',
+  'Clear glass': '通透',
+  'Clear matches macOS 26 transparent glass; Tinted increases frost for legibility; Custom unlocks manual opacity and refraction.':
+      '「通透」贴近 macOS 26 透明液态玻璃；「着色」增强磨砂可读性；「自定义」可手动调节不透明度与折射强度。',
+  'Glass opacity': '玻璃不透明度',
+  'Refraction strength': '折射强度',
+  'Overview card size': '总览桌面卡片宽度',
+  'Auto-hide by usage frequency': '按使用频率自动收纳',
+  'Icons clicked fewer times than the threshold fold automatically.':
+      '点击次数低于阈值的托盘图标会自动收纳。',
+  'Usage threshold': '常用点击阈值',
+  'Turn on “Auto-hide by usage frequency” first.':
+      '请先开启“按使用频率自动收纳”。',
+  'Icons with fewer clicks than this number are folded.':
+      '点击次数少于该值的托盘图标将被自动收纳。',
+  'Usage history': '点击频率记录',
+  '{} recorded': '已记录 {} 项',
+  'Clear history': '清空记录',
+  'Enable Battery in the list above first.': '请先在上方列表中开启电池图标。',
+  'Turn on “Show the date” first.': '请先开启“显示日期”。',
+  'Enable “Use workspaces” first.': '请先开启“使用工作台”。',
 };

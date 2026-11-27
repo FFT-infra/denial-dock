@@ -1217,6 +1217,7 @@ class _TrayPopoverState extends ConsumerState<TrayPopover> {
       trayIds,
       settings: settings,
       resolveKey: (id) => trayNames.of(id).key,
+      usageCounts: trayUsage.counts,
     ).folded;
     final ink = theme.colors.textPrimary;
     final capsule = settings.trayFoldInForce == BarTrayFold.floatingBar;

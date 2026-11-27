@@ -176,8 +176,19 @@ class _DockSettingsPanelState extends ConsumerState<DockSettingsPanel> {
   DockSettingsController get _controller =>
       ref.read(dockSettingsProvider.notifier);
 
+  void _styleChanged() {
+    if (mounted) setState(() {});
+  }
+
+  @override
+  void initState() {
+    super.initState();
+    kitStyle.addListener(_styleChanged);
+  }
+
   @override
   void dispose() {
+    kitStyle.removeListener(_styleChanged);
     _bodyScroll.dispose();
     _browserScroll.dispose();
     super.dispose();
@@ -474,6 +485,11 @@ class _DockSettingsPanelState extends ConsumerState<DockSettingsPanel> {
               ),
               _SliderRow(
                 label: _zh ? '出现前等待' : 'Delay before showing',
+                note: hides
+                    ? null
+                    : (_zh
+                          ? '选择「智能隐藏」或「自动隐藏」后可调节。'
+                          : 'Available under Smart hide or Auto-hide.'),
                 value: settings.revealDelayMs.toDouble(),
                 min: 0,
                 max: DockSettings.maxRevealDelayMs.toDouble(),
@@ -487,6 +503,11 @@ class _DockSettingsPanelState extends ConsumerState<DockSettingsPanel> {
               ),
               _SliderRow(
                 label: _zh ? '收起前等待' : 'Delay before hiding',
+                note: hides
+                    ? null
+                    : (_zh
+                          ? '选择「智能隐藏」或「自动隐藏」后可调节。'
+                          : 'Available under Smart hide or Auto-hide.'),
                 value: settings.hideDelayMs.toDouble(),
                 min: 0,
                 max: DockSettings.maxHideDelayMs.toDouble(),
@@ -499,6 +520,12 @@ class _DockSettingsPanelState extends ConsumerState<DockSettingsPanel> {
               ),
               _ToggleRow(
                 label: _zh ? '收起时显示提示条' : 'Show a handle while hidden',
+                note: hides
+                    ? null
+                    : (_zh
+                          ? '仅在 Dock 自动或智能隐藏时显示边缘提示条。'
+                          : 'Only applies while Smart hide or Auto-hide is active.'),
+                enabled: hides,
                 value: settings.revealIndicator,
                 onChanged: (value) =>
                     _controller.setRevealIndicator(show: value),
@@ -549,6 +576,9 @@ class _DockSettingsPanelState extends ConsumerState<DockSettingsPanel> {
               ),
               _ToggleRow(
                 label: _zh ? '在所有显示器上显示' : 'Show on all monitors',
+                note: _zh
+                    ? '关闭时仅在主显示器显示程序坞。'
+                    : 'When off, the dock stays on the primary monitor.',
                 value: settings.allMonitors,
                 onChanged: (value) => _controller.setAllMonitors(all: value),
               ),
@@ -556,6 +586,9 @@ class _DockSettingsPanelState extends ConsumerState<DockSettingsPanel> {
                 label: _zh
                     ? '右侧显示最小化窗口缩略图'
                     : 'Show minimized window thumbnails',
+                note: _zh
+                    ? '像 macOS 一样在程序坞末端显示已最小化窗口的实时缩略图。'
+                    : 'Keep live thumbnails of minimized windows at the trailing end.',
                 value: settings.showMinimizedWindows,
                 onChanged: (value) =>
                     _controller.setShowMinimizedWindows(show: value),
@@ -661,6 +694,11 @@ class _DockSettingsPanelState extends ConsumerState<DockSettingsPanel> {
               ),
               _ToggleRow(
                 label: _zh ? '反向滚动' : 'Reverse scroll direction',
+                note: settings.scrollAction != DockScrollAction.nothing
+                    ? null
+                    : (_zh
+                          ? '请先在上方启用滚轮操作。'
+                          : 'Choose a scroll action above first.'),
                 value: settings.scrollReversed,
                 enabled: settings.scrollAction != DockScrollAction.nothing,
                 onChanged: (value) =>
@@ -670,6 +708,11 @@ class _DockSettingsPanelState extends ConsumerState<DockSettingsPanel> {
                 label: _zh
                     ? '滚到尽头时循环到另一端'
                     : 'Wrap around at the last workspace',
+                note: settings.scrollAction == DockScrollAction.switchWorkspace
+                    ? null
+                    : (_zh
+                          ? '仅在滚轮设为「切换工作区」时生效。'
+                          : 'Only applies when scrolling switches workspaces.'),
                 value: settings.scrollWraps,
                 enabled:
                     settings.scrollAction == DockScrollAction.switchWorkspace,
@@ -697,31 +740,13 @@ class _DockSettingsPanelState extends ConsumerState<DockSettingsPanel> {
         sections: [
           _SettingsSection(
             title: _zh ? '风格' : 'Style',
+            footer: _zh
+                ? '与顶栏共用同一套外壳外观（支持全部内置与自定义外观）。'
+                : 'Shared with the top bar — all built-in and custom looks are available here.',
             children: [
-              _SegmentedField<KitStyle>(
-                label: _zh ? '与顶栏共用' : 'Shared with the top bar',
-                value: kitStyle.value,
-                options: [
-                  // The look in force is always among them, so the control
-                  // never shows a look that is not the one drawn.
-                  for (final style in <KitStyle>[
-                    ...KitStyle.presets,
-                    if (!KitStyle.presets.any(
-                      (one) => one.id == kitStyle.value.id,
-                    ))
-                      kitStyle.value,
-                  ])
-                    (
-                      style,
-                      style.label,
-                      switch (style.id) {
-                        'denial' => Icons.water_drop_outlined,
-                        'mac' => Icons.laptop_mac_outlined,
-                        'terminal' => Icons.terminal_outlined,
-                        _ => Icons.style_outlined,
-                      },
-                    ),
-                ],
+              _LookGrid(
+                selected: kitStyle.value,
+                looks: <KitStyle>[...KitStyle.builtins, ...KitStyle.user],
                 onChanged: kitStyle.choose,
               ),
             ],
@@ -777,6 +802,11 @@ class _DockSettingsPanelState extends ConsumerState<DockSettingsPanel> {
                 ),
               _SliderRow(
                 label: _zh ? '放大程度' : 'Magnification amount',
+                note: fit.magnify
+                    ? null
+                    : (_zh
+                          ? '请先在上方将悬停反馈设为「放大」（贴边通栏不支持放大）。'
+                          : 'Set hover feedback to Magnify on a floating dock first.'),
                 value: fit.magnifyAmount,
                 min: DockSettings.minMagnificationAmount,
                 max: DockSettings.maxMagnificationAmount,
@@ -804,6 +834,11 @@ class _DockSettingsPanelState extends ConsumerState<DockSettingsPanel> {
               _lookSlider(
                 settings,
                 label: _zh ? '放大范围' : 'Magnification reach',
+                note: fit.magnify
+                    ? null
+                    : (_zh
+                          ? '开启图标放大后可调整波及范围。'
+                          : 'Available while magnification is enabled.'),
                 keyName: DockLook.magnifyRangeKey,
                 value: look.magnifyRange,
                 min: DockLook.minMagnifyRange,
@@ -867,6 +902,11 @@ class _DockSettingsPanelState extends ConsumerState<DockSettingsPanel> {
               ),
               _SliderRow(
                 label: _zh ? '图标强度' : 'Icon strength',
+                note: settings.iconMode != DockIconMode.color
+                    ? null
+                    : (_zh
+                          ? '选择「灰度」或「着色」图标模式后可调节。'
+                          : 'Available in Greyscale or Tinted icon mode.'),
                 value: settings.iconOpacity,
                 min: DockSettings.minIconOpacity,
                 max: 1,
@@ -881,6 +921,11 @@ class _DockSettingsPanelState extends ConsumerState<DockSettingsPanel> {
               ),
               _TintRow(
                 label: _zh ? '着色颜色' : 'Tint colour',
+                note: settings.iconMode == DockIconMode.tinted
+                    ? null
+                    : (_zh
+                          ? '选择「着色」图标模式后可选颜色。'
+                          : 'Available in Tinted icon mode.'),
                 accentLabel: _zh ? '强调色' : 'Accent',
                 value: settings.tintColor,
                 accent: context.shellTheme.kitAccent,
@@ -942,6 +987,11 @@ class _DockSettingsPanelState extends ConsumerState<DockSettingsPanel> {
                 label: _zh
                     ? '通栏上显示窗口标题'
                     : 'Show window titles on an edge bar',
+                note: look.shape == DockShape.bar
+                    ? null
+                    : (_zh
+                          ? '将形状切换为「贴边通栏」后可用。'
+                          : 'Switch Shape to Edge bar first.'),
                 value: fit.taskTitles,
                 enabled: look.shape == DockShape.bar,
                 onChanged: (value) =>
@@ -993,6 +1043,11 @@ class _DockSettingsPanelState extends ConsumerState<DockSettingsPanel> {
               _lookSlider(
                 settings,
                 label: _zh ? '深浅' : 'Shade',
+                note: look.tint == DockTint.custom
+                    ? null
+                    : (_zh
+                          ? '将着色设为「自定深浅」后可调节。'
+                          : 'Select Custom tint above first.'),
                 keyName: DockLook.tintShadeKey,
                 value: look.tintShade,
                 min: DockLook.minShade,
@@ -1010,6 +1065,11 @@ class _DockSettingsPanelState extends ConsumerState<DockSettingsPanel> {
               _lookSlider(
                 settings,
                 label: _zh ? '圆角' : 'Corner radius',
+                note: floating
+                    ? null
+                    : (_zh
+                          ? '仅悬浮圆角形状支持调节圆角。'
+                          : 'Floating shape only.'),
                 keyName: DockLook.radiusKey,
                 value: look.radius,
                 min: DockLook.minRadius,
@@ -1027,6 +1087,9 @@ class _DockSettingsPanelState extends ConsumerState<DockSettingsPanel> {
               _lookSlider(
                 settings,
                 label: _zh ? '描边粗细' : 'Border width',
+                note: look.border
+                    ? null
+                    : (_zh ? '请先开启「描边」。' : 'Enable Border above first.'),
                 keyName: DockLook.borderWidthKey,
                 value: look.borderWidth,
                 min: DockLook.minBorderWidth,
@@ -1075,6 +1138,11 @@ class _DockSettingsPanelState extends ConsumerState<DockSettingsPanel> {
               _lookSlider(
                 settings,
                 label: _zh ? '离屏幕边缘' : 'Distance from the edge',
+                note: floating
+                    ? null
+                    : (_zh
+                          ? '仅悬浮圆角形状支持边缘间距。'
+                          : 'Floating shape only.'),
                 keyName: DockLook.edgeMarginKey,
                 value: look.edgeMargin,
                 min: DockLook.minEdgeMargin,
@@ -1408,6 +1476,11 @@ class _DockSettingsPanelState extends ConsumerState<DockSettingsPanel> {
               ),
               _SliderRow(
                 label: _zh ? '最近 App 数量' : 'Recent app count',
+                note: settings.showSuggestions
+                    ? null
+                    : (_zh
+                          ? '开启「显示建议 App 和最近使用的 App」后生效。'
+                          : 'Enable suggested and recent apps above first.'),
                 value: settings.recentCount.toDouble(),
                 min: DockSettings.minRecentCount.toDouble(),
                 max: DockSettings.maxRecentCount.toDouble(),
@@ -1474,9 +1547,11 @@ class _DockSettingsPanelState extends ConsumerState<DockSettingsPanel> {
     required double step,
     required String Function(double value) text,
     String? display,
+    String? note,
     bool enabled = true,
   }) => _SliderRow(
     label: label,
+    note: note,
     value: value,
     min: min,
     max: max,
@@ -1497,6 +1572,10 @@ class _DockSettingsPanelState extends ConsumerState<DockSettingsPanel> {
 
   Widget _pageScroll(BuildContext context, List<Widget> children) {
     final theme = context.shellTheme;
+    final sections = <Widget>[
+      for (final child in children)
+        if (child is! SizedBox) child,
+    ];
     return _ScrollEdgeFade(
       controller: _bodyScroll,
       child: RawScrollbar(
@@ -1506,13 +1585,37 @@ class _DockSettingsPanelState extends ConsumerState<DockSettingsPanel> {
         radius: Radius.circular(kitStyle.value.pill(5)),
         crossAxisMargin: 2,
         minThumbLength: 36,
-        child: SingleChildScrollView(
-          controller: _bodyScroll,
-          padding: const EdgeInsets.fromLTRB(16, 16, 16, 24),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.stretch,
-            children: children,
-          ),
+        child: LayoutBuilder(
+          builder: (context, constraints) {
+            final twoColumn =
+                constraints.maxWidth >= 700 && sections.length >= 2;
+            final arranged = !twoColumn
+                ? children
+                : <Widget>[
+                    for (var i = 0; i < sections.length; i += 2) ...[
+                      if (i > 0) const SizedBox(height: 18),
+                      if (i + 1 < sections.length)
+                        Row(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Expanded(child: sections[i]),
+                            const SizedBox(width: 14),
+                            Expanded(child: sections[i + 1]),
+                          ],
+                        )
+                      else
+                        sections[i],
+                    ],
+                  ];
+            return SingleChildScrollView(
+              controller: _bodyScroll,
+              padding: const EdgeInsets.fromLTRB(16, 16, 16, 24),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: arranged,
+              ),
+            );
+          },
         ),
       ),
     );
@@ -2347,12 +2450,14 @@ class _ToggleRow extends StatelessWidget {
     required this.label,
     required this.value,
     required this.onChanged,
+    this.note,
     this.enabled = true,
     this.margin = EdgeInsets.zero,
     this.radius = 0,
   });
 
   final String label;
+  final String? note;
   final bool value;
   final ValueChanged<bool> onChanged;
 
@@ -2380,18 +2485,39 @@ class _ToggleRow extends StatelessWidget {
         child: Opacity(
           opacity: enabled ? 1 : KitFeedback.disabledOpacity,
           child: _HoverSurface(
-            height: _rowHeight,
+            height: note == null ? _rowHeight : null,
+            minHeight: _rowHeight,
+            padding: note == null
+                ? const EdgeInsets.symmetric(horizontal: 12)
+                : const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
             margin: margin,
             radius: radius,
             onTap: toggle,
             child: Row(
               children: [
                 Expanded(
-                  child: Text(
-                    label,
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                    style: _labelStyle(theme),
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        label,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: _labelStyle(theme),
+                      ),
+                      if (note != null)
+                        Padding(
+                          padding: const EdgeInsets.only(top: 2),
+                          child: Text(
+                            note!,
+                            style: _captionStyle(
+                              theme,
+                              theme.colors.textSecondary,
+                            ),
+                          ),
+                        ),
+                    ],
                   ),
                 ),
                 const SizedBox(width: 12),
@@ -2550,9 +2676,11 @@ class _TintRow extends StatelessWidget {
     required this.accent,
     required this.enabled,
     required this.onChanged,
+    this.note,
   });
 
   final String label;
+  final String? note;
   final String accentLabel;
   final String? value;
   final Color accent;
@@ -2577,19 +2705,37 @@ class _TintRow extends StatelessWidget {
       duration: _motion(context, _quick),
       opacity: enabled ? 1 : KitFeedback.disabledOpacity,
       child: Padding(
-        padding: const EdgeInsets.symmetric(horizontal: 12),
-        child: SizedBox(
-          height: 52,
+        padding: EdgeInsets.symmetric(
+          horizontal: 12,
+          vertical: note == null ? 0 : 8,
+        ),
+        child: ConstrainedBox(
+          constraints: const BoxConstraints(minHeight: 52),
           child: Row(
             children: [
               Expanded(
-                child: Text(
-                  label,
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                  style: _labelStyle(theme).copyWith(
-                    color: enabled ? colors.textPrimary : colors.textSecondary,
-                  ),
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      label,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: _labelStyle(theme).copyWith(
+                        color:
+                            enabled ? colors.textPrimary : colors.textSecondary,
+                      ),
+                    ),
+                    if (note != null)
+                      Padding(
+                        padding: const EdgeInsets.only(top: 2),
+                        child: Text(
+                          note!,
+                          style: _captionStyle(theme, colors.textSecondary),
+                        ),
+                      ),
+                  ],
                 ),
               ),
               for (final (index, swatch) in _swatches.indexed) ...[
@@ -2675,6 +2821,7 @@ class _SliderRow extends StatelessWidget {
     required this.display,
     required this.describe,
     required this.onChanged,
+    this.note,
     this.enabled = true,
     this.onReset,
     this.resetLabel = '',
@@ -2682,6 +2829,7 @@ class _SliderRow extends StatelessWidget {
   });
 
   final String label;
+  final String? note;
   final double value;
   final double min;
   final double max;
@@ -2746,6 +2894,26 @@ class _SliderRow extends StatelessWidget {
                           iconSize: 15,
                         ),
                 );
+          final labelBlock = Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                label,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: labelStyle,
+              ),
+              if (note != null)
+                Padding(
+                  padding: const EdgeInsets.only(top: 2),
+                  child: Text(
+                    note!,
+                    style: _captionStyle(theme, colors.textSecondary),
+                  ),
+                ),
+            ],
+          );
           if (constraints.maxWidth < 360) {
             return Padding(
               padding: const EdgeInsets.fromLTRB(12, 10, 12, 6),
@@ -2754,14 +2922,7 @@ class _SliderRow extends StatelessWidget {
                 children: [
                   Row(
                     children: [
-                      Expanded(
-                        child: Text(
-                          label,
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
-                          style: labelStyle,
-                        ),
-                      ),
+                      Expanded(child: labelBlock),
                       const SizedBox(width: 10),
                       SizedBox(width: 52, child: readout),
                       ?reset,
@@ -2774,19 +2935,15 @@ class _SliderRow extends StatelessWidget {
             );
           }
           return Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 12),
-            child: SizedBox(
-              height: 52,
+            padding: EdgeInsets.symmetric(
+              horizontal: 12,
+              vertical: note == null ? 0 : 8,
+            ),
+            child: ConstrainedBox(
+              constraints: const BoxConstraints(minHeight: 52),
               child: Row(
                 children: [
-                  Expanded(
-                    child: Text(
-                      label,
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                      style: labelStyle,
-                    ),
-                  ),
+                  Expanded(child: labelBlock),
                   const SizedBox(width: 14),
                   SizedBox(
                     width: (constraints.maxWidth * 0.48).clamp(120.0, 210.0),
@@ -3289,6 +3446,7 @@ class _HoverSurface extends StatefulWidget {
     required this.child,
     this.onTap,
     this.height = _rowHeight,
+    this.minHeight,
     this.width,
     this.margin = EdgeInsets.zero,
     this.radius = 0,
@@ -3299,7 +3457,8 @@ class _HoverSurface extends StatefulWidget {
 
   final Widget child;
   final VoidCallback? onTap;
-  final double height;
+  final double? height;
+  final double? minHeight;
   final double? width;
   final EdgeInsetsGeometry margin;
   final double radius;
@@ -3331,6 +3490,9 @@ class _HoverSurfaceState extends State<_HoverSurface> {
           duration: _motion(context, Motion.tile),
           curve: Motion.standard,
           height: widget.height,
+          constraints: widget.minHeight == null
+              ? null
+              : BoxConstraints(minHeight: widget.minHeight!),
           width: widget.width,
           padding: widget.padding,
           alignment: widget.alignment,
@@ -3347,6 +3509,91 @@ class _HoverSurfaceState extends State<_HoverSurface> {
           child: widget.child,
         ),
         child: const SizedBox.shrink(),
+      ),
+    );
+  }
+}
+
+class _LookGrid extends StatelessWidget {
+  const _LookGrid({
+    required this.selected,
+    required this.looks,
+    required this.onChanged,
+  });
+
+  final KitStyle selected;
+  final List<KitStyle> looks;
+  final ValueChanged<KitStyle> onChanged;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = context.shellTheme;
+    final active = KitStyle.of(context);
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(12, 10, 12, 12),
+      child: Wrap(
+        spacing: 8,
+        runSpacing: 8,
+        children: [
+          for (final look in looks)
+            Builder(
+              builder: (context) {
+                final isSelected = look.id == selected.id;
+                final own = look.themed(theme);
+                final accent = look.accent(own);
+                return Pressable(
+                  onTap: () => onChanged(look),
+                  scale: 0.96,
+                  child: AnimatedContainer(
+                    duration: _motion(context, _quick),
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 10,
+                      vertical: 7,
+                    ),
+                    decoration: BoxDecoration(
+                      color: isSelected
+                          ? active.accent(theme).withValues(alpha: 0.16)
+                          : theme.colors.textPrimary.withValues(alpha: 0.05),
+                      borderRadius: BorderRadius.circular(active.corner(9)),
+                      border: Border.all(
+                        width: isSelected ? 1.5 : 1,
+                        color: isSelected
+                            ? active.accent(theme)
+                            : theme.colors.hairline,
+                      ),
+                    ),
+                    child: Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Container(
+                          width: 10,
+                          height: 10,
+                          decoration: BoxDecoration(
+                            color: accent,
+                            borderRadius: active.disc(10),
+                          ),
+                        ),
+                        const SizedBox(width: 7),
+                        Text(
+                          look.label,
+                          style: _captionStyle(
+                            theme,
+                            isSelected
+                                ? theme.colors.textPrimary
+                                : theme.colors.textSecondary,
+                          ).copyWith(
+                            fontWeight: isSelected
+                                ? FontWeight.w600
+                                : FontWeight.w500,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                );
+              },
+            ),
+        ],
       ),
     );
   }

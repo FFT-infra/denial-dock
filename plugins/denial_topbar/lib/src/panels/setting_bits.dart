@@ -179,6 +179,8 @@ class SettingSlider extends StatefulWidget {
     this.text,
     this.enabled = true,
     this.commitOnRelease = false,
+    this.onReset,
+    this.resetLabel,
     super.key,
   });
 
@@ -191,6 +193,8 @@ class SettingSlider extends StatefulWidget {
   final String Function(double value)? text;
   final bool enabled;
   final bool commitOnRelease;
+  final VoidCallback? onReset;
+  final String? resetLabel;
 
   static String number(double value) => value == value.roundToDouble()
       ? value.toStringAsFixed(0)
@@ -245,6 +249,20 @@ class _SettingSliderState extends State<SettingSlider> {
                       ),
                     ),
                   ),
+                  if (widget.onReset != null && widget.resetLabel != null)
+                    Padding(
+                      padding: const EdgeInsets.only(right: 10),
+                      child: Pressable(
+                        onTap: widget.onReset,
+                        scale: 0.96,
+                        child: Text(
+                          widget.resetLabel!,
+                          style: BarType.caption.copyWith(
+                            color: KitStyle.of(context).accent(theme),
+                          ),
+                        ),
+                      ),
+                    ),
                   Text(
                     widget.text?.call(shown) ?? SettingSlider.number(shown),
                     style: BarType.caption.copyWith(

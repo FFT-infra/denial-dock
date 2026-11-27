@@ -1,9 +1,13 @@
 import 'dart:async';
 
 import 'package:dbus/dbus.dart';
+import 'package:denial_shell_kit/kit_store.dart';
 import 'package:flutter/foundation.dart';
 
 import 'tray_address.dart';
+import 'tray_usage.dart';
+
+export 'tray_usage.dart';
 
 class TrayIdentity {
   const TrayIdentity(this.key, this.title);
@@ -65,3 +69,9 @@ class TrayNames extends ValueNotifier<Map<String, TrayIdentity>> {
 }
 
 final TrayNames trayNames = TrayNames();
+
+/// Persisted system-tray click frequency tracker stored in `denial_shell_kit.json`.
+final TrayUsageTracker trayUsage = TrayUsageTracker(
+  reader: () => parseTrayUsageMap(kitStore.read()['trayUsage']),
+  writer: (counts) => kitStore.put('trayUsage', counts),
+);

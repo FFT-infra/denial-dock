@@ -230,15 +230,21 @@ class BarStatusCluster extends ConsumerWidget {
     double span(double width) => horizontal ? width : crossExtent;
     final percent = settings.showBatteryPercent && horizontal;
     final sorting =
-        settings.trayNever.isNotEmpty || settings.trayHidden.isNotEmpty;
+        settings.trayNever.isNotEmpty ||
+        settings.trayHidden.isNotEmpty ||
+        settings.trayAutoHideByFreq;
     if (sorting) {
       trayNames.resolve(trayIds);
       ref.watch(_trayNamesProvider);
+    }
+    if (settings.trayAutoHideByFreq) {
+      ref.watch(_trayUsageProvider);
     }
     final part = partitionTrayIds(
       trayIds,
       settings: settings,
       resolveKey: (id) => trayNames.of(id).key,
+      usageCounts: trayUsage.counts,
     );
     final hasFolded = part.folded.isNotEmpty;
     final inBarFold =
@@ -814,6 +820,13 @@ final _trayNamesProvider = Provider.autoDispose<Map<String, TrayIdentity>>((
   return trayNames.value;
 });
 
+final _trayUsageProvider = Provider.autoDispose<Map<String, int>>((ref) {
+  void changed() => ref.invalidateSelf();
+  trayUsage.addListener(changed);
+  ref.onDispose(() => trayUsage.removeListener(changed));
+  return trayUsage.counts;
+});
+
 /// A colour matrix that paints every pixel in [ink] at the source's own alpha,
 /// the way macOS renders a template image in a menu-bar extra.
 List<double> _templateMatrix(Color ink) {
@@ -862,12 +875,41 @@ Widget buildTrayIcons(
     KitIconTint.accent => style.accent(context.shellTheme),
     KitIconTint.original || KitIconTint.mono => ink,
   };
-  Widget build({Color? foreground}) => services.buildSystemTray(
-    context,
-    horizontal: horizontal,
-    foregroundColor: foreground,
-    itemIds: itemIds,
+  Widget buildSingle(String id, {Color? foreground}) => Listener(
+    behavior: HitTestBehavior.translucent,
+    onPointerDown: (_) => trayUsage.record(trayNames.of(id).key),
+    child: services.buildSystemTray(
+      context,
+      horizontal: horizontal,
+      foregroundColor: foreground,
+      itemIds: <String>[id],
+    ),
   );
+  Widget build({Color? foreground}) {
+    if (settings.trayAutoHideByFreq && itemIds.length > 1) {
+      return Flex(
+        direction: horizontal ? Axis.horizontal : Axis.vertical,
+        mainAxisSize: MainAxisSize.min,
+        children: <Widget>[
+          for (final id in itemIds) buildSingle(id, foreground: foreground),
+        ],
+      );
+    }
+    return Listener(
+      behavior: HitTestBehavior.translucent,
+      onPointerDown: (_) {
+        if (itemIds.length == 1) {
+          trayUsage.record(trayNames.of(itemIds.first).key);
+        }
+      },
+      child: services.buildSystemTray(
+        context,
+        horizontal: horizontal,
+        foregroundColor: foreground,
+        itemIds: itemIds,
+      ),
+    );
+  }
   return ConstrainedBox(
     constraints: horizontal
         ? BoxConstraints(maxWidth: maxExtent)

@@ -10,6 +10,7 @@ import 'kit_layer.dart';
 import 'kit_motion.dart';
 import 'kit_pressable.dart';
 import 'kit_settings_order.dart';
+import 'kit_store.dart';
 import 'kit_style.dart';
 
 /// One page of the shell's settings window.
@@ -91,6 +92,8 @@ class KitSettingsPages extends ChangeNotifier {
 const String kitSettingsKey = 'denial_shell.settings';
 
 const double _settingsWidth = 880;
+const double _settingsMinWidth = 660;
+const double _settingsMinHeight = 460;
 const double _sidebarWidth = 228;
 
 /// The page an open settings window is asked to turn to.
@@ -106,14 +109,16 @@ void openKitSettingsPage(String pageId) {
 void showKitSettings({required WidgetRef ref, String? page}) {
   _wanted.value = page;
   if (_open > 0) return;
+  final sceneWidth = MediaQuery.maybeSizeOf(ref.context)?.width ?? 1440.0;
   showKitDialog(
     ref: ref,
-    width: _settingsWidth,
+    width: math.max(_settingsWidth, sceneWidth - 32),
     keyName: kitSettingsKey,
     debugLabel: 'Shell settings',
     builder: (context, close) => _KitSettingsWindow(
       onClose: close,
-      maxHeight: MediaQuery.sizeOf(context).height - 96,
+      maxWidth: MediaQuery.sizeOf(context).width - 48,
+      maxHeight: MediaQuery.sizeOf(context).height - 80,
     ),
   );
 }
@@ -122,9 +127,14 @@ void showKitSettings({required WidgetRef ref, String? page}) {
 int _open = 0;
 
 class _KitSettingsWindow extends StatefulWidget {
-  const _KitSettingsWindow({required this.onClose, required this.maxHeight});
+  const _KitSettingsWindow({
+    required this.onClose,
+    required this.maxWidth,
+    required this.maxHeight,
+  });
 
   final VoidCallback onClose;
+  final double maxWidth;
   final double maxHeight;
 
   @override
@@ -135,6 +145,27 @@ class _KitSettingsWindowState extends State<_KitSettingsWindow> {
   String? _page = _wanted.value;
   final TextEditingController _search = TextEditingController();
   String _query = '';
+  late double _winWidth = _readDim('settingsWidth', _settingsWidth);
+  late double _winHeight = _readDim('settingsHeight', 680.0);
+
+  static double _readDim(String key, double fallback) {
+    final v = kitStore.read()[key];
+    return v is num && v.isFinite ? v.toDouble() : fallback;
+  }
+
+  void _resizeBy(double dx, double dy) {
+    final maxW = math.max(_settingsMinWidth, widget.maxWidth);
+    final maxH = math.max(_settingsMinHeight, widget.maxHeight);
+    setState(() {
+      _winWidth = (_winWidth + dx).clamp(_settingsMinWidth, maxW).toDouble();
+      _winHeight = (_winHeight + dy).clamp(_settingsMinHeight, maxH).toDouble();
+    });
+  }
+
+  void _persistSize() {
+    kitStore.put('settingsWidth', _winWidth.roundToDouble());
+    kitStore.put('settingsHeight', _winHeight.roundToDouble());
+  }
 
   /// What every page says on its rows, read once the search box is first
   /// typed in, so a search finds an option by its own label and not only
@@ -238,9 +269,14 @@ class _KitSettingsWindowState extends State<_KitSettingsWindow> {
   Widget build(BuildContext context) {
     final allPages = kitSettingsPages.pages;
     final chinese = Localizations.maybeLocaleOf(context)?.languageCode == 'zh';
-    final height = math.min(680.0, widget.maxHeight);
+    final width = _winWidth
+        .clamp(_settingsMinWidth, math.max(_settingsMinWidth, widget.maxWidth))
+        .toDouble();
+    final height = _winHeight
+        .clamp(_settingsMinHeight, math.max(_settingsMinHeight, widget.maxHeight))
+        .toDouble();
     if (allPages.isEmpty) {
-      return SizedBox(width: _settingsWidth, height: math.min(160, height));
+      return SizedBox(width: width, height: math.min(160, height));
     }
     final filtered = kitFilterPages<KitSettingsPage>(
       allPages,
@@ -260,8 +296,9 @@ class _KitSettingsWindowState extends State<_KitSettingsWindow> {
     final page = index >= 0 || filtered.isEmpty ? chosen : filtered.first;
     final subtitle = page.subtitle?.call(context);
 
+    final layerScale = KitLayerSpace.maybeOf(context)?.scale ?? 1.0;
     return SizedBox(
-      width: _settingsWidth,
+      width: width,
       height: height,
       child: Stack(
         fit: StackFit.expand,
@@ -273,8 +310,8 @@ class _KitSettingsWindowState extends State<_KitSettingsWindow> {
                   enabled: false,
                   child: OverflowBox(
                     alignment: Alignment.topLeft,
-                    minWidth: _settingsWidth - _sidebarWidth - 1,
-                    maxWidth: _settingsWidth - _sidebarWidth - 1,
+                    minWidth: width - _sidebarWidth - 1,
+                    maxWidth: width - _sidebarWidth - 1,
                     // Tall enough that a page which builds its rows lazily
                     // builds them all.
                     minHeight: 6000,
@@ -296,6 +333,69 @@ class _KitSettingsWindowState extends State<_KitSettingsWindow> {
               ),
             ),
           _window(context, filtered, index, page, subtitle, chinese),
+          // Right-edge horizontal resize strip.
+          Positioned(
+            top: 48,
+            bottom: 18,
+            right: 0,
+            width: 7,
+            child: MouseRegion(
+              cursor: SystemMouseCursors.resizeLeftRight,
+              child: GestureDetector(
+                behavior: HitTestBehavior.translucent,
+                onHorizontalDragUpdate: (d) =>
+                    _resizeBy(d.delta.dx / layerScale, 0),
+                onHorizontalDragEnd: (_) => _persistSize(),
+              ),
+            ),
+          ),
+          // Bottom-edge vertical resize strip.
+          Positioned(
+            left: 18,
+            right: 18,
+            bottom: 0,
+            height: 7,
+            child: MouseRegion(
+              cursor: SystemMouseCursors.resizeUpDown,
+              child: GestureDetector(
+                behavior: HitTestBehavior.translucent,
+                onVerticalDragUpdate: (d) =>
+                    _resizeBy(0, d.delta.dy / layerScale),
+                onVerticalDragEnd: (_) => _persistSize(),
+              ),
+            ),
+          ),
+          // Bottom-right corner resize grip.
+          Positioned(
+            right: 0,
+            bottom: 0,
+            width: 18,
+            height: 18,
+            child: MouseRegion(
+              cursor: SystemMouseCursors.resizeUpLeftDownRight,
+              child: GestureDetector(
+                behavior: HitTestBehavior.opaque,
+                onPanUpdate: (d) => _resizeBy(
+                  d.delta.dx / layerScale,
+                  d.delta.dy / layerScale,
+                ),
+                onPanEnd: (_) => _persistSize(),
+                child: Align(
+                  alignment: Alignment.bottomRight,
+                  child: Padding(
+                    padding: const EdgeInsets.only(right: 4, bottom: 4),
+                    child: Icon(
+                      Icons.drag_handle_rounded,
+                      size: 11,
+                      color: context.shellTheme.colors.textTertiary.withValues(
+                        alpha: 0.55,
+                      ),
+                    ),
+                  ),
+                ),
+              ),
+            ),
+          ),
         ],
       ),
     );

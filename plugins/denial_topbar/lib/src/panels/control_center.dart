@@ -927,6 +927,7 @@ class _ControlCenterPanelState extends ConsumerState<ControlCenterPanel>
             trayIds,
             settings: settings,
             resolveKey: (id) => trayNames.of(id).key,
+            usageCounts: trayUsage.counts,
           ).folded
         : const <String>[];
     final floating = _CcGlassScope.of(context).floating;

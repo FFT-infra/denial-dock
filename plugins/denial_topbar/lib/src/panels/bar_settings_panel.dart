@@ -252,16 +252,54 @@ class _BarSettingsPanelState extends ConsumerState<BarSettingsPanel> {
   void initState() {
     super.initState();
     trayNames.addListener(_namesChanged);
+    trayUsage.addListener(_namesChanged);
     kitShellScale.addListener(_namesChanged);
     kitSurfaceMode.addListener(_namesChanged);
+    kitGlassPreset.addListener(_namesChanged);
+    kitGlassOpacity.addListener(_namesChanged);
+    kitGlassRefraction.addListener(_namesChanged);
   }
 
   @override
   void dispose() {
     trayNames.removeListener(_namesChanged);
+    trayUsage.removeListener(_namesChanged);
     kitShellScale.removeListener(_namesChanged);
     kitSurfaceMode.removeListener(_namesChanged);
+    kitGlassPreset.removeListener(_namesChanged);
+    kitGlassOpacity.removeListener(_namesChanged);
+    kitGlassRefraction.removeListener(_namesChanged);
     super.dispose();
+  }
+
+  List<Widget> _arrangeGroups(List<Widget> items, bool twoColumn) {
+    if (!twoColumn) return items;
+    final out = <Widget>[];
+    var i = 0;
+    while (i < items.length) {
+      final current = items[i];
+      if (current is _Group &&
+          !current.fullWidth &&
+          i + 1 < items.length &&
+          items[i + 1] is _Group &&
+          !(items[i + 1] as _Group).fullWidth) {
+        out.add(
+          Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: <Widget>[
+              Expanded(child: current),
+              const SizedBox(width: 14),
+              Expanded(child: items[i + 1]),
+            ],
+          ),
+        );
+        i += 2;
+      } else {
+        out.add(current);
+        i += 1;
+      }
+    }
+    return out;
   }
 
   @override
@@ -280,31 +318,38 @@ class _BarSettingsPanelState extends ConsumerState<BarSettingsPanel> {
       _ => _clock(context, settings, save),
     };
 
-    return SingleChildScrollView(
-      padding: const EdgeInsets.fromLTRB(20, 6, 20, 22),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.stretch,
-        children: <Widget>[
-          ...body,
-          // The window's own sidebar has no room for it, so the reset
-          // sits at the foot of the first page.
-          if (_page == 0)
-            _Group(
-              children: <Widget>[
-                _Row(
-                  label: context.tr('Menu Bar'),
-                  trailing: SizedBox(
-                    width: 132,
-                    child: _TextButton(
-                      label: context.tr('Restore Defaults'),
-                      onTap: _restore,
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final twoColumn = _page != 1 && constraints.maxWidth >= 700;
+        final arranged = _arrangeGroups(body, twoColumn);
+        return SingleChildScrollView(
+          padding: const EdgeInsets.fromLTRB(20, 6, 20, 22),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: <Widget>[
+              ...arranged,
+              // The window's own sidebar has no room for it, so the reset
+              // sits at the foot of the first page.
+              if (_page == 0)
+                _Group(
+                  fullWidth: true,
+                  children: <Widget>[
+                    _Row(
+                      label: context.tr('Menu Bar'),
+                      trailing: SizedBox(
+                        width: 132,
+                        child: _TextButton(
+                          label: context.tr('Restore Defaults'),
+                          onTap: _restore,
+                        ),
+                      ),
                     ),
-                  ),
+                  ],
                 ),
-              ],
-            ),
-        ],
-      ),
+            ],
+          ),
+        );
+      },
     );
   }
 
@@ -327,6 +372,7 @@ class _BarSettingsPanelState extends ConsumerState<BarSettingsPanel> {
       ),
       _Group(
         title: context.tr('Look only'),
+        fullWidth: true,
         resetLabel: context.tr('Edit Look…'),
         onReset: () => openKitSettingsPage('bar.look'),
         note: context.tr(
@@ -437,6 +483,55 @@ class _BarSettingsPanelState extends ConsumerState<BarSettingsPanel> {
               );
             },
           ),
+          if (activeStyle.surfaceMode == KitSurfaceMode.liquidGlass) ...<Widget>[
+            _Row(
+              label: context.tr('Liquid Glass style'),
+              note: context.tr(
+                'Clear matches macOS 26 transparent glass; Tinted increases frost for legibility; Custom unlocks manual opacity and refraction.',
+              ),
+              onReset: kitGlassPreset.value != KitGlassPreset.system
+                  ? () => kitGlassPreset.value = KitGlassPreset.system
+                  : null,
+              trailing: _Segments<KitGlassPreset>(
+                value: kitGlassPreset.value,
+                options: <(KitGlassPreset, String)>[
+                  (KitGlassPreset.system, context.tr('Follow system')),
+                  (KitGlassPreset.clear, context.tr('Clear glass')),
+                  (KitGlassPreset.tinted, context.tr('Tinted')),
+                  (KitGlassPreset.custom, context.tr('Custom')),
+                ],
+                onChanged: (preset) => kitGlassPreset.value = preset,
+              ),
+            ),
+            if (kitGlassPreset.value == KitGlassPreset.custom) ...<Widget>[
+              SettingSlider(
+                label: context.tr('Glass opacity'),
+                value: kitGlassOpacity.value,
+                min: 0.10,
+                max: 0.90,
+                step: 0.02,
+                text: (v) => '${(v * 100).round()}%',
+                resetLabel: context.tr('Reset'),
+                onReset: (kitGlassOpacity.value - 0.42).abs() > 0.01
+                    ? () => kitGlassOpacity.value = 0.42
+                    : null,
+                onChanged: (v) => kitGlassOpacity.value = v,
+              ),
+              SettingSlider(
+                label: context.tr('Refraction strength'),
+                value: kitGlassRefraction.value,
+                min: 0.0,
+                max: 1.5,
+                step: 0.05,
+                text: (v) => '${(v * 100).round()}%',
+                resetLabel: context.tr('Reset'),
+                onReset: (kitGlassRefraction.value - 1.0).abs() > 0.02
+                    ? () => kitGlassRefraction.value = 1.0
+                    : null,
+                onChanged: (v) => kitGlassRefraction.value = v,
+              ),
+            ],
+          ],
           Builder(
             builder: (context) {
               final override = kitPanelStyle.value;
@@ -483,6 +578,9 @@ class _BarSettingsPanelState extends ConsumerState<BarSettingsPanel> {
             note: context.tr(
               'Glass matches the active surface material; Color uses distinct paper and tinted widget cards.',
             ),
+            onReset: kitWidgetStyle.value != KitWidgetStyle.glass
+                ? () => kitWidgetStyle.value = KitWidgetStyle.glass
+                : null,
             trailing: _Segments<KitWidgetStyle>(
               value: kitWidgetStyle.value,
               options: <(KitWidgetStyle, String)>[
@@ -510,6 +608,9 @@ class _BarSettingsPanelState extends ConsumerState<BarSettingsPanel> {
               return _Row(
                 label: context.tr('Shell scale'),
                 note: note,
+                onReset: override != null
+                    ? () => kitShellScale.value = null
+                    : null,
                 trailing: _Segments<double?>(
                   value: override,
                   options: <(double?, String)>[
@@ -533,6 +634,8 @@ class _BarSettingsPanelState extends ConsumerState<BarSettingsPanel> {
               step: 0.05,
               commitOnRelease: true,
               text: (v) => '${(v * 100).round()}%',
+              resetLabel: context.tr('Reset'),
+              onReset: () => kitShellScale.value = null,
               onChanged: (v) => kitShellScale.value = v,
             ),
         ],
@@ -910,7 +1013,8 @@ class _BarSettingsPanelState extends ConsumerState<BarSettingsPanel> {
             !s.overviewShowMinimised ||
                     !s.overviewMiddleClickCloses ||
                     !s.overviewLiveOtherWorkspaces ||
-                    s.overviewLiveLimit != 6
+                    s.overviewLiveLimit != 6 ||
+                    s.overviewCardWidth != 300
                 ? context.tr('Reset')
                 : null,
         onReset: () => save(
@@ -919,6 +1023,7 @@ class _BarSettingsPanelState extends ConsumerState<BarSettingsPanel> {
             overviewMiddleClickCloses: true,
             overviewLiveOtherWorkspaces: true,
             overviewLiveLimit: 6,
+            overviewCardWidth: 300,
           ),
         ),
         children: <Widget>[
@@ -942,12 +1047,28 @@ class _BarSettingsPanelState extends ConsumerState<BarSettingsPanel> {
           ),
           _Row(
             label: context.tr('Live thumbnails per desktop'),
+            onReset: s.overviewLiveLimit != 6
+                ? () => save((s) => s.copyWith(overviewLiveLimit: 6))
+                : null,
             trailing: _Stepper(
               value: s.overviewLiveLimit,
               min: 1,
               max: 12,
               onChanged: (v) => save((s) => s.copyWith(overviewLiveLimit: v)),
             ),
+          ),
+          SettingSlider(
+            label: context.tr('Overview card size'),
+            value: s.overviewCardWidth,
+            min: 200,
+            max: 420,
+            step: 10,
+            text: (v) => '${v.round()} px',
+            resetLabel: context.tr('Reset'),
+            onReset: s.overviewCardWidth != 300
+                ? () => save((s) => s.copyWith(overviewCardWidth: 300))
+                : null,
+            onChanged: (v) => save((s) => s.copyWith(overviewCardWidth: v)),
           ),
         ],
       ),
@@ -962,6 +1083,9 @@ class _BarSettingsPanelState extends ConsumerState<BarSettingsPanel> {
           _Row(
             label: context.tr('Number of desktops'),
             enabled: layout.workspacesEnabled,
+            note: layout.workspacesEnabled
+                ? null
+                : context.tr('Enable “Use workspaces” first.'),
             trailing: _Stepper(
               value: layout.workspaceCount,
               min: minimumWorkspaceCount,
@@ -1045,6 +1169,8 @@ class _BarSettingsPanelState extends ConsumerState<BarSettingsPanel> {
     final order = <String>[
       ...<String>{...s.statusOrder, ..._statusItems.keys},
     ].where(_statusItems.containsKey).toList();
+    final foldingActive =
+        s.collapseItems || s.trayHidden.isNotEmpty || s.trayAutoHideByFreq;
     return <Widget>[
       _Group(
         title: context.tr('Left side'),
@@ -1063,6 +1189,7 @@ class _BarSettingsPanelState extends ConsumerState<BarSettingsPanel> {
       ),
       _Group(
         title: context.tr('Right side'),
+        fullWidth: true,
         note: context.tr(
           'Drag the handle to change the order in the menu bar.',
         ),
@@ -1105,11 +1232,14 @@ class _BarSettingsPanelState extends ConsumerState<BarSettingsPanel> {
       ),
       _Group(
         title: context.tr('System tray'),
+        fullWidth: true,
         // The per-item choices below are the user's own list and are not
         // part of what this group puts back.
         resetLabel: s.collapseItems ||
                 s.trayFold != BarTrayFold.inline ||
-                s.collapseAutoSeconds != 15
+                s.collapseAutoSeconds != 15 ||
+                s.trayAutoHideByFreq ||
+                s.trayAutoHideThreshold != 3
             ? context.tr('Reset')
             : null,
         onReset: () => save(
@@ -1117,6 +1247,8 @@ class _BarSettingsPanelState extends ConsumerState<BarSettingsPanel> {
             collapseItems: false,
             trayFold: BarTrayFold.inline,
             collapseAutoSeconds: 15,
+            trayAutoHideByFreq: false,
+            trayAutoHideThreshold: 3,
           ),
         ),
         children: <Widget>[
@@ -1142,12 +1274,56 @@ class _BarSettingsPanelState extends ConsumerState<BarSettingsPanel> {
                 : null,
             onChanged: (v) => save((s) => s.copyWith(collapseItems: v)),
           ),
-          _Row(
-            label: context.tr('Collection style'),
-            enabled: s.showTray && (s.collapseItems || s.trayHidden.isNotEmpty),
+          _Switch(
+            label: context.tr('Auto-hide by usage frequency'),
+            value: s.trayAutoHideByFreq,
+            enabled: s.showTray,
             note: !s.showTray
                 ? context.tr('System tray is turned off.')
-                : !(s.collapseItems || s.trayHidden.isNotEmpty)
+                : context.tr(
+                    'Icons clicked fewer times than the threshold fold automatically.',
+                  ),
+            onChanged: (v) => save((s) => s.copyWith(trayAutoHideByFreq: v)),
+          ),
+          _Row(
+            label: context.tr('Usage threshold'),
+            enabled: s.showTray && s.trayAutoHideByFreq,
+            note: !s.showTray
+                ? context.tr('System tray is turned off.')
+                : !s.trayAutoHideByFreq
+                ? context.tr('Turn on “Auto-hide by usage frequency” first.')
+                : context.tr(
+                    'Icons with fewer clicks than this number are folded.',
+                  ),
+            onReset: s.trayAutoHideThreshold != 3
+                ? () => save((s) => s.copyWith(trayAutoHideThreshold: 3))
+                : null,
+            trailing: _Stepper(
+              value: s.trayAutoHideThreshold,
+              min: 1,
+              max: 10,
+              onChanged: (v) =>
+                  save((s) => s.copyWith(trayAutoHideThreshold: v)),
+            ),
+          ),
+          if (trayUsage.counts.isNotEmpty)
+            _Row(
+              label: context.tr('Usage history'),
+              note: context.tr('{} recorded', trayUsage.counts.length),
+              trailing: SizedBox(
+                width: 112,
+                child: _TextButton(
+                  label: context.tr('Clear history'),
+                  onTap: trayUsage.clear,
+                ),
+              ),
+            ),
+          _Row(
+            label: context.tr('Collection style'),
+            enabled: s.showTray && foldingActive,
+            note: !s.showTray
+                ? context.tr('System tray is turned off.')
+                : !foldingActive
                 ? context.tr(
                     'Turn on folding or set an item below to Hidden first.',
                   )
@@ -1156,6 +1332,9 @@ class _BarSettingsPanelState extends ConsumerState<BarSettingsPanel> {
                 ? context.tr(
                     'Control Centre is off in the menu bar, so the icons open in a grid instead.',
                   )
+                : null,
+            onReset: s.trayFold != BarTrayFold.inline
+                ? () => save((s) => s.copyWith(trayFold: BarTrayFold.inline))
                 : null,
             trailing: _Segments<BarTrayFold>(
               value: s.trayFold,
@@ -1173,11 +1352,11 @@ class _BarSettingsPanelState extends ConsumerState<BarSettingsPanel> {
             label: context.tr('Fold again after'),
             enabled:
                 s.showTray &&
-                (s.collapseItems || s.trayHidden.isNotEmpty) &&
+                foldingActive &&
                 s.trayFold != BarTrayFold.controlCenter,
             note: !s.showTray
                 ? context.tr('System tray is turned off.')
-                : !(s.collapseItems || s.trayHidden.isNotEmpty)
+                : !foldingActive
                 ? context.tr(
                     'Turn on folding or set an item below to Hidden first.',
                   )
@@ -1185,6 +1364,9 @@ class _BarSettingsPanelState extends ConsumerState<BarSettingsPanel> {
                 ? context.tr(
                     'Not used while icons sit inside Control Centre.',
                   )
+                : null,
+            onReset: s.collapseAutoSeconds != 15
+                ? () => save((s) => s.copyWith(collapseAutoSeconds: 15))
                 : null,
             trailing: _Segments<int>(
               value: const <int>[0, 5, 15, 30].contains(s.collapseAutoSeconds)
@@ -1203,6 +1385,7 @@ class _BarSettingsPanelState extends ConsumerState<BarSettingsPanel> {
       if (trayIds.isNotEmpty)
         _Group(
           title: context.tr('Tray items'),
+          fullWidth: true,
           note: context.tr(
             'Hidden items wait behind the arrow; items set to Never are not drawn at all. The list shows what is in the tray right now.',
           ),
@@ -1245,6 +1428,12 @@ class _BarSettingsPanelState extends ConsumerState<BarSettingsPanel> {
             label: context.tr('Show percentage'),
             value: s.showBatteryPercent,
             enabled: s.showBattery,
+            note: s.showBattery
+                ? null
+                : context.tr('Enable Battery in the list above first.'),
+            onReset: s.showBatteryPercent
+                ? () => save((s) => s.copyWith(showBatteryPercent: false))
+                : null,
             onChanged: (v) => save((s) => s.copyWith(showBatteryPercent: v)),
           ),
         ],
@@ -1263,12 +1452,21 @@ class _BarSettingsPanelState extends ConsumerState<BarSettingsPanel> {
         _Switch(
           label: context.tr('Show the date'),
           value: s.showClockDate,
+          onReset: !s.showClockDate
+              ? () => save((s) => s.copyWith(showClockDate: true))
+              : null,
           onChanged: (v) => save((s) => s.copyWith(showClockDate: v)),
         ),
         _Switch(
           label: context.tr('Show the day of the week'),
           value: s.clockWeekday,
           enabled: s.showClockDate,
+          note: s.showClockDate
+              ? null
+              : context.tr('Turn on “Show the date” first.'),
+          onReset: !s.clockWeekday
+              ? () => save((s) => s.copyWith(clockWeekday: true))
+              : null,
           onChanged: (v) => save((s) => s.copyWith(clockWeekday: v)),
         ),
       ],
@@ -1282,6 +1480,9 @@ class _BarSettingsPanelState extends ConsumerState<BarSettingsPanel> {
         _Switch(
           label: context.tr('Open notifications and widgets from the clock'),
           value: s.mergedNotificationCenter,
+          onReset: !s.mergedNotificationCenter
+              ? () => save((s) => s.copyWith(mergedNotificationCenter: true))
+              : null,
           onChanged: (v) =>
               save((s) => s.copyWith(mergedNotificationCenter: v)),
         ),
@@ -1324,12 +1525,14 @@ class _Group extends StatelessWidget {
     this.note,
     this.onReset,
     this.resetLabel,
+    this.fullWidth = false,
   });
 
   final String? title;
   final String? note;
   final VoidCallback? onReset;
   final String? resetLabel;
+  final bool fullWidth;
   final List<Widget> children;
 
   @override
@@ -1525,6 +1728,7 @@ class _Row extends StatelessWidget {
     required this.trailing,
     this.enabled = true,
     this.note,
+    this.onReset,
   });
 
   final String label;
@@ -1534,9 +1738,33 @@ class _Row extends StatelessWidget {
   /// Why the row cannot be changed, said under its label.
   final String? note;
 
+  /// Optional per-item reset action shown beside [trailing].
+  final VoidCallback? onReset;
+
   @override
   Widget build(BuildContext context) {
     final theme = context.shellTheme;
+    final control = onReset == null
+        ? trailing
+        : Row(
+            mainAxisSize: MainAxisSize.min,
+            children: <Widget>[
+              Padding(
+                padding: const EdgeInsets.only(right: 8),
+                child: Pressable(
+                  onTap: onReset,
+                  scale: 0.96,
+                  child: Text(
+                    context.tr('Reset'),
+                    style: BarType.caption.copyWith(
+                      color: KitStyle.of(context).accent(theme),
+                    ),
+                  ),
+                ),
+              ),
+              trailing,
+            ],
+          );
     return IgnorePointer(
       ignoring: !enabled,
       child: AnimatedOpacity(
@@ -1584,7 +1812,7 @@ class _Row extends StatelessWidget {
                     child: FittedBox(
                       fit: BoxFit.scaleDown,
                       alignment: Alignment.centerRight,
-                      child: trailing,
+                      child: control,
                     ),
                   ),
                 ],
@@ -1604,6 +1832,7 @@ class _Switch extends StatelessWidget {
     required this.onChanged,
     this.enabled = true,
     this.note,
+    this.onReset,
   });
 
   final String label;
@@ -1611,6 +1840,7 @@ class _Switch extends StatelessWidget {
   final ValueChanged<bool> onChanged;
   final bool enabled;
   final String? note;
+  final VoidCallback? onReset;
 
   @override
   Widget build(BuildContext context) {
@@ -1618,6 +1848,7 @@ class _Switch extends StatelessWidget {
       label: label,
       enabled: enabled,
       note: note,
+      onReset: onReset,
       trailing: Transform.scale(
         scale: 0.86,
         alignment: Alignment.centerRight,

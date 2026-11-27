@@ -277,6 +277,7 @@ mixin _BarActions<T extends ConsumerStatefulWidget> on ConsumerState<T> {
           trayIds,
           settings: settings,
           resolveKey: (id) => trayNames.of(id).key,
+          usageCounts: trayUsage.counts,
         ).folded.length;
         final capsule = settings.trayFoldInForce == BarTrayFold.floatingBar;
         final density = KitStyle.of(context).density.clamp(0.75, 1.35);

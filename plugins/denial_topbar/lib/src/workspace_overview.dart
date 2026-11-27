@@ -71,12 +71,15 @@ void showWorkspaceOverview({
   final maxHeight = vertical
       ? math.max(220.0, scene.height - itemTop - 28)
       : math.min(scene.height * 0.8, scene.height - barHeight - 48);
+  final maxCard =
+      (ref.read(barSettingsProvider).value ?? BarSettings.defaults)
+          .overviewCardWidth;
   final grid = overviewGrid(
     count: status.count + 1,
     aspect: _aspect(bounds, scene),
     maxWidth: scene.width - 16 - (vertical ? barHeight + 12 : 0),
     maxHeight: maxHeight,
-    maxCard: OverviewTuning.maxCardWidth,
+    maxCard: maxCard,
   );
   showBarPanel(
     ref: ref,
@@ -428,13 +431,15 @@ class _WorkspaceOverviewState extends ConsumerState<WorkspaceOverview> {
       onKeyEvent: _onKey,
       child: LayoutBuilder(
         builder: (context, constraints) {
+          final settings =
+              ref.watch(barSettingsProvider).value ?? BarSettings.defaults;
           final grid = overviewGrid(
             count: status.count + (canAdd ? 1 : 0),
             aspect: _aspect(bounds, scene),
             maxWidth: constraints.maxWidth,
             maxHeight: widget.maxHeight,
             footer: minimised.isEmpty ? 0 : OverviewTuning.minimisedRow,
-            maxCard: OverviewTuning.maxCardWidth,
+            maxCard: settings.overviewCardWidth,
           );
           _grid = grid;
           _selected = _selected.clamp(0, grid.count - 1).toInt();
