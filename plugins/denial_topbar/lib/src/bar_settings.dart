@@ -141,6 +141,23 @@ enum BarBorderColour {
       value == 'accent' ? BarBorderColour.accent : BarBorderColour.ink;
 }
 
+/// How individual parts inside the bar are backed.
+enum BarPartPill {
+  none,
+  uniform,
+  tinted,
+  split;
+
+  String get key => name;
+
+  static BarPartPill parse(Object? value) => switch (value) {
+    'uniform' => BarPartPill.uniform,
+    'tinted' => BarPartPill.tinted,
+    'split' => BarPartPill.split,
+    _ => BarPartPill.none,
+  };
+}
+
 /// The bar's adjustable measures: the least and most each may be, and what
 /// it is until changed. Every default is what the bar measured before the
 /// setting existed.
@@ -192,6 +209,9 @@ abstract final class BarMetric {
   static const double borderWidthMin = 0;
   static const double borderWidthMax = 3;
   static const double hairline = 0.8;
+
+  static const double barHeightMin = 24;
+  static const double barHeightMax = 48;
 
   static const double opacityMin = 0.05;
   static const double opacityMax = 1;
@@ -301,6 +321,10 @@ class BarSettings {
     this.endInset,
     this.contentPadding = BarMetric.contentPadding,
     this.cornerRadius = BarMetric.cornerRadius,
+    this.partPill = BarPartPill.none,
+    this.barHeight,
+    this.concaveEdge = false,
+    this.islandNotch = false,
     this.islandEnabled = true,
     this.islandHoverPeek = true,
     this.islandHoverFade = false,
@@ -405,6 +429,18 @@ class BarSettings {
 
   /// Corner radius of a floating plate with round caps.
   final double cornerRadius;
+
+  /// Optional per-part pill backing style.
+  final BarPartPill partPill;
+
+  /// Optional override height of the bar in logical pixels (`null` = system).
+  final double? barHeight;
+
+  /// Concave inverted corner ears along an attached top strip.
+  final bool concaveEdge;
+
+  /// Flared top-edge hardware notch presentation for the Dynamic Island.
+  final bool islandNotch;
 
   final bool islandEnabled;
   final bool islandHoverPeek;
@@ -635,6 +671,10 @@ class BarSettings {
       'endInset': endInset,
       'contentPadding': contentPadding,
       'cornerRadius': cornerRadius,
+      'partPill': partPill.key,
+      'barHeight': barHeight,
+      'concaveEdge': concaveEdge,
+      'islandNotch': islandNotch,
       'workspaceStyle': workspaceStyle.name,
       'workspacePlacement': workspacesShownIn?.key,
       'start': zones.start,
@@ -678,6 +718,10 @@ class BarSettings {
     Object? endInset = _keep,
     double? contentPadding,
     double? cornerRadius,
+    BarPartPill? partPill,
+    Object? barHeight = _keep,
+    bool? concaveEdge,
+    bool? islandNotch,
     bool? islandEnabled,
     bool? islandHoverPeek,
     bool? islandHoverFade,
@@ -754,6 +798,14 @@ class BarSettings {
     endInset: identical(endInset, _keep) ? this.endInset : endInset as double?,
     contentPadding: contentPadding ?? this.contentPadding,
     cornerRadius: cornerRadius ?? this.cornerRadius,
+    partPill: partPill ?? this.partPill,
+    barHeight: identical(barHeight, _keep)
+        ? this.barHeight
+        : (barHeight as double?)
+              ?.clamp(BarMetric.barHeightMin, BarMetric.barHeightMax)
+              .toDouble(),
+    concaveEdge: concaveEdge ?? this.concaveEdge,
+    islandNotch: islandNotch ?? this.islandNotch,
     islandEnabled: islandEnabled ?? this.islandEnabled,
     islandHoverPeek: islandHoverPeek ?? this.islandHoverPeek,
     islandHoverFade: islandHoverFade ?? this.islandHoverFade,
@@ -920,6 +972,17 @@ class BarSettings {
         BarMetric.cornerRadiusMax,
         BarMetric.cornerRadius,
       ),
+      partPill: BarPartPill.parse(json['partPill']),
+      barHeight: json['barHeight'] is num
+          ? within(
+              'barHeight',
+              BarMetric.barHeightMin,
+              BarMetric.barHeightMax,
+              BarMetric.barHeightMin,
+            )
+          : null,
+      concaveEdge: flag('concaveEdge', false),
+      islandNotch: flag('islandNotch', false),
       islandEnabled: flag('islandEnabled', true),
       islandHoverPeek: flag('islandHoverPeek', true),
       islandHoverFade: flag('islandHoverFade', false),
@@ -1034,6 +1097,14 @@ class BarSettings {
     }
     json['contentPadding'] = contentPadding;
     json['cornerRadius'] = cornerRadius;
+    json['partPill'] = partPill.key;
+    if (barHeight == null) {
+      json.remove('barHeight');
+    } else {
+      json['barHeight'] = barHeight;
+    }
+    json['concaveEdge'] = concaveEdge;
+    json['islandNotch'] = islandNotch;
     json['islandEnabled'] = islandEnabled;
     json['islandHoverPeek'] = islandHoverPeek;
     json['islandHoverFade'] = islandHoverFade;

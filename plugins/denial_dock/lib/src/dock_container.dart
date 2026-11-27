@@ -99,7 +99,9 @@ class _DockContainerState extends ConsumerState<DockContainer>
   /// Distance from the screen edge to the capsule. A bar that reserves the
   /// dock's own edge adds its thickness, so the two never share pixels.
   double _reserved = 0;
-  double get _edgeInset => _look.effectiveEdgeMargin + _reserved;
+  double get _effectiveEdgeMargin => _look.effectiveEdgeMargin * _floatFraction;
+  double get _effectiveCorner => _look.effectiveRadius * _floatFraction;
+  double get _edgeInset => _effectiveEdgeMargin + _reserved;
 
   late final Ticker _ticker;
   Duration _lastTick = Duration.zero;
@@ -118,6 +120,8 @@ class _DockContainerState extends ConsumerState<DockContainer>
   double _hoverTarget = 0;
   double _reveal = 1;
   double _revealTarget = 1;
+  double _floatFraction = 1;
+  double _floatTarget = 1;
 
   bool _insideCapsule = false;
   bool _edgeHover = false;
@@ -505,6 +509,16 @@ class _DockContainerState extends ConsumerState<DockContainer>
   void _requestReveal(double target) {
     if ((_revealTarget - target).abs() < 0.001) return;
     _revealTarget = target;
+    _scheduleTicker();
+  }
+
+  void _requestFloat(double target) {
+    if ((_floatTarget - target).abs() < 0.001) return;
+    _floatTarget = target;
+    _scheduleTicker();
+  }
+
+  void _scheduleTicker() {
     if (_ticker.isActive || _tickerScheduled) return;
     _tickerScheduled = true;
     SchedulerBinding.instance.addPostFrameCallback((_) {
@@ -541,6 +555,12 @@ class _DockContainerState extends ConsumerState<DockContainer>
       dt,
       responseSeconds: 0.10,
     );
+    final floatFraction = _motion.advance(
+      _floatFraction,
+      _floatTarget,
+      dt,
+      responseSeconds: 0.10,
+    );
     var dragDx = _dragDx;
     var dragDy = _dragDy;
     var settleFinished = false;
@@ -556,11 +576,13 @@ class _DockContainerState extends ConsumerState<DockContainer>
         (pointer - _pointer).abs() < 0.001 &&
         (hover - _hover).abs() < 0.001 &&
         (reveal - _reveal).abs() < 0.001 &&
+        (floatFraction - _floatFraction).abs() < 0.001 &&
         !_settling;
     setState(() {
       _pointer = pointer;
       _hover = hover;
       _reveal = reveal;
+      _floatFraction = floatFraction;
       _dragDx = dragDx;
       _dragDy = dragDy;
     });
@@ -1529,6 +1551,13 @@ class _DockContainerState extends ConsumerState<DockContainer>
           ),
           ready: !storedSettings.isLoading,
         );
+        _requestFloat(
+          _look.defloatOnTouch &&
+                  settings.visibility == DockVisibilityMode.always &&
+                  conflict
+              ? 0.0
+              : 1.0,
+        );
 
         if (_dragKey != null) {
           final baseFrame = _layout(surfaceMain, baseSpecs, hover: 0);
@@ -1654,9 +1683,11 @@ class _DockContainerState extends ConsumerState<DockContainer>
               // its own extent and everything in it stays where it was.
               if (_look.shape == DockShape.bar)
                 _placeInSurface(
-                  main: 0,
+                  main: _look.defloatOnTouch ? _effectiveEdgeMargin : 0,
                   cross: _capsuleCross,
-                  mainExtent: surfaceMain,
+                  mainExtent: _look.defloatOnTouch
+                      ? math.max(0.0, surfaceMain - _effectiveEdgeMargin * 2)
+                      : surfaceMain,
                   crossExtent: _capsuleHeight,
                   child: IgnorePointer(child: _capsuleSurface(context, theme)),
                 ),
@@ -2196,7 +2227,7 @@ class _DockContainerState extends ConsumerState<DockContainer>
   Widget _capsuleSurface(BuildContext context, ShellThemeData theme) {
     final look = _look;
     final chosen = _settings.look;
-    final corner = KitStyle.of(context).outer(theme, look.effectiveRadius);
+    final corner = KitStyle.of(context).outer(theme, _effectiveCorner);
     final base = kitMaterialOf(context, KitTier.dock);
     final own = base.fill.fixed
         ? kitToneColor(base.fill, theme, KitStyle.of(context))
@@ -2226,8 +2257,11 @@ class _DockContainerState extends ConsumerState<DockContainer>
     final alpha = own != null && !chosen.containsKey(DockLook.opacityKey)
         ? own.a
         : look.opacity ?? theme.effectivePanelOpacity;
+    if (alpha <= 0.001 && !look.border && look.shadow <= 0) {
+      return const SizedBox.expand();
+    }
     final inner = base.inner;
-    final isBar = look.shape == DockShape.bar;
+    final isBar = look.shape == DockShape.bar && !look.defloatOnTouch;
     final material = base.copyWith(
       // A preset that counts its blur in pixels has it drawn at that sigma;
       // any other is a share of the system's own blur.

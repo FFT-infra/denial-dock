@@ -737,6 +737,30 @@ class _LayoutPageState extends ConsumerState<_LayoutPage> {
               ),
             ),
             _Pair(
+              choice<BarPartPill>(
+                context.tr('Part pills'),
+                s.partPill,
+                <(BarPartPill, String)>[
+                  (BarPartPill.none, context.tr('None')),
+                  (BarPartPill.uniform, context.tr('Uniform')),
+                  (BarPartPill.tinted, context.tr('Tinted')),
+                  (BarPartPill.split, context.tr('Split')),
+                ],
+                (v) => save((s) => s.copyWith(partPill: v)),
+              ),
+              slider(
+                context.tr('Bar height'),
+                s.barHeight ?? 28,
+                BarMetric.barHeightMin,
+                BarMetric.barHeightMax,
+                (v) => save((s) => s.copyWith(barHeight: v)),
+                step: 1,
+                text: (v) => s.barHeight == null
+                    ? context.tr('As the look has it')
+                    : '${v.round()} px',
+              ),
+            ),
+            _Pair(
               choice<BarGround>(
                 context.tr('Background'),
                 s.ground,
@@ -871,6 +895,18 @@ class _LayoutPageState extends ConsumerState<_LayoutPage> {
                 ],
                 (v) => save((s) => s.copyWith(workspaceStyle: v)),
               ),
+            ),
+            _Switch(
+              label: context.tr('Concave bar corners'),
+              value: s.concaveEdge,
+              enabled: strip && plated,
+              onChanged: (v) => save((s) => s.copyWith(concaveEdge: v)),
+            ),
+            _Switch(
+              label: context.tr('Notch-style island'),
+              value: s.islandNotch,
+              enabled: s.islandEnabled,
+              onChanged: (v) => save((s) => s.copyWith(islandNotch: v)),
             ),
           ],
         ),

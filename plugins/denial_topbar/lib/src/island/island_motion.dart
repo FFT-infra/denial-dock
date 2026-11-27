@@ -295,6 +295,7 @@ class IslandBlobPainter extends CustomPainter {
     required this.bubbleRadius,
     required this.shadow,
     required this.skin,
+    this.notch = false,
   });
 
   final Rect body;
@@ -307,10 +308,35 @@ class IslandBlobPainter extends CustomPainter {
   /// 0 for the pill in the bar, 1 for the open card over the desktop.
   final double shadow;
   final IslandSkin skin;
+  final bool notch;
 
   @override
   void paint(Canvas canvas, Size size) {
-    final bodyPath = continuousRoundedRectPath(body, radius);
+    final Path bodyPath;
+    if (notch) {
+      final r = radius.clamp(0.0, math.min(body.width, body.height) / 2);
+      final flare = math.min(14.0, r * 0.55 + 5.0);
+      bodyPath = Path()
+        ..addRRect(
+          RRect.fromRectAndCorners(
+            body,
+            bottomLeft: Radius.circular(r),
+            bottomRight: Radius.circular(r),
+          ),
+        )
+        ..moveTo(body.left - flare, body.top)
+        ..lineTo(body.left, body.top)
+        ..lineTo(body.left, body.top + flare)
+        ..quadraticBezierTo(body.left, body.top, body.left - flare, body.top)
+        ..close()
+        ..moveTo(body.right + flare, body.top)
+        ..lineTo(body.right, body.top)
+        ..lineTo(body.right, body.top + flare)
+        ..quadraticBezierTo(body.right, body.top, body.right + flare, body.top)
+        ..close();
+    } else {
+      bodyPath = continuousRoundedRectPath(body, radius);
+    }
     var shape = bodyPath;
     for (final drop in drops) {
       final box = drop.box;
@@ -371,5 +397,6 @@ class IslandBlobPainter extends CustomPainter {
       !listEquals(old.drops, drops) ||
       old.bubbleRadius != bubbleRadius ||
       old.shadow != shadow ||
-      old.skin != skin;
+      old.skin != skin ||
+      old.notch != notch;
 }

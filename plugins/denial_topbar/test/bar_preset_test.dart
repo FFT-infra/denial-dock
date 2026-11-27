@@ -88,7 +88,8 @@ void main() {
     omarchy.shape == BarShape.strip &&
         omarchy.ground == BarGround.plate &&
         omarchy.groundOpacity == 1 &&
-        omarchy.endInset == 0 &&
+        omarchy.endInset == 8 &&
+        omarchy.barHeight == 26 &&
         omarchy.workspaceStyle == BarWorkspaceStyle.numbers &&
         !omarchy.showsIsland &&
         omarchy.zones.start.single == 'workspaces' &&

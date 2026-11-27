@@ -34,15 +34,18 @@ const KitLook _noctalia = KitLook(
   entry: KitPanelEntry.zoom,
   switchTuning: KitSpringTuning(620, 1),
   dockKin: 'soft',
-  dock: <String, Object?>{'radius': 16, 'indicator': 'dot', 'magnify': false},
+  dock: <String, Object?>{
+    'radius': 16,
+    'indicator': 'dot',
+    'iconSize': 48,
+    'opacity': 0.88,
+    'magnify': false,
+  },
 );
 
-/// After DankMaterialShell's default: Material 3 tones with the baseline
-/// purple, large corners, filled accent rows, lively springs.
-///
-/// Not reproduced: Material's state layers and ripples, its type scale
-/// (the look keeps the shell's font unless the user names one), and colour
-/// schemes generated from the wallpaper beyond the accent.
+/// After DankMaterialShell's default (also matching dux-shell): Material 3
+/// tones with the baseline purple, large corners, filled accent rows, lively
+/// springs.
 const KitLook _material = KitLook(
   id: 'material',
   label: 'Material style',
@@ -63,7 +66,15 @@ const KitLook _material = KitLook(
   beadHeight: 0.86,
   entry: KitPanelEntry.zoom,
   dockKin: 'soft',
-  dock: <String, Object?>{'radius': 24, 'indicator': 'pill', 'magnify': false},
+  dock: <String, Object?>{
+    'radius': 16,
+    'indicator': 'pill',
+    'iconSize': 42,
+    'gap': 8,
+    'padding': 8,
+    'edgeMargin': 8,
+    'magnify': false,
+  },
 );
 
 /// After HyprPanel's default: Catppuccin Mocha / Latte following system
@@ -129,6 +140,8 @@ const KitLook _plasma = KitLook(
     'iconSize': 40,
     'magnify': false,
     'opacity': 0.8,
+    'edgeMargin': 6,
+    'defloatOnTouch': true,
   },
 );
 
@@ -190,13 +203,21 @@ const KitLook _cosmic = KitLook(
   scaleCorners: false,
   opaque: true,
   shadow: 0.4,
-  cornerScale: 0.55,
+  cornerScale: 0,
   accentMenuRows: true,
   panelGrow: KitSpringTuning(680, 1),
   entry: KitPanelEntry.fade,
   switchTuning: KitSpringTuning(700, 1),
   dockKin: 'soft',
-  dock: <String, Object?>{'radius': 12, 'indicator': 'dot', 'magnify': false},
+  dock: <String, Object?>{
+    'radius': 16,
+    'indicator': 'dot',
+    'iconSize': 40,
+    'padding': 8,
+    'edgeMargin': 4,
+    'magnify': false,
+    'defloatOnTouch': true,
+  },
 );
 
 /// After Cutefish OS: clean translucent top bar and rounded floating dock,

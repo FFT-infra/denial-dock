@@ -12,6 +12,8 @@ import 'package:denial_shell_kit/kit_style.dart'
     show kitShellScale, resolveKitScale;
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import 'bar_preferences.dart' show barSettingsProvider;
+
 /// The room the shell keeps free of windows, decided between the bar and the
 /// dock. This plugin holds the shell's one work-area provider, so it answers
 /// for both: the bar's strip while the bar draws one, otherwise the edge of
@@ -19,11 +21,12 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 ShellWorkAreaReservation? barReservation(
   ShellLayoutSettings settings, {
   double scaleRatio = 1.0,
+  double? barHeight,
 }) {
   final side = settings.systemBarSide ?? PanelEdge.top;
   final held = kitResolveReservation(
     barEdge: side == PanelEdge.hidden ? null : side.kitEdge,
-    barThickness: settings.systemBarThickness,
+    barThickness: barHeight ?? settings.systemBarThickness,
   );
   // Whoever asked may be in the middle of a build; the dock rebuilds when
   // this changes.
@@ -54,7 +57,12 @@ void syncBarReservation(WidgetRef ref, ShellLayoutSettings settings) {
   final hostScale = mainId == null ? 1.0 : current!.shellScaleOf(mainId);
   final effectiveScale = resolveKitScale(hostScale, kitShellScale.value);
   final scaleRatio = effectiveScale / (hostScale > 0 ? hostScale : 1.0);
-  final reservation = barReservation(settings, scaleRatio: scaleRatio);
+  final barHeight = ref.read(barSettingsProvider).value?.barHeight;
+  final reservation = barReservation(
+    settings,
+    scaleRatio: scaleRatio,
+    barHeight: barHeight,
+  );
   final side = reservation?.edge ?? PanelEdge.hidden;
   final thickness = reservation?.thickness ?? 0.0;
   if (current != null &&

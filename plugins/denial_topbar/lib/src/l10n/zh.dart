@@ -541,4 +541,10 @@ const Map<String, String> zh = <String, String>{
   'Custom shell scale': '自定义外壳缩放',
   'Keyboard layout': '输入法与键盘布局',
   'Switch keyboard layout': '切换键盘布局',
+  'Part pills': '部件胶囊底色',
+  'Uniform': '统一底色',
+  'Split': '双色徽章',
+  'Bar height': '顶栏高度',
+  'Concave bar corners': '顶栏内凹衔接角',
+  'Notch-style island': '贴顶外扩刘海',
 };

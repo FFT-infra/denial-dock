@@ -93,6 +93,7 @@ class Island extends ConsumerStatefulWidget {
     this.onControlCenter,
     this.onNotifications,
     this.subline,
+    this.notch = false,
     super.key,
   });
 
@@ -115,6 +116,7 @@ class Island extends ConsumerStatefulWidget {
   /// A second line for the playback card. Left null, the card shows the
   /// lyrics found on this machine for the track; see [IslandLyricSource].
   final IslandSubline? subline;
+  final bool notch;
 
   @override
   ConsumerState<Island> createState() => _IslandState();
@@ -1276,7 +1278,9 @@ class _IslandState extends ConsumerState<Island> with TickerProviderStateMixin {
             : 0.0;
 
         final content = ClipPath(
-          clipper: ContinuousCornersClipper(radius: radius),
+          clipper: widget.notch
+              ? _NotchClipper(radius: radius)
+              : ContinuousCornersClipper(radius: radius),
           child: Stack(
             children: <Widget>[
               Positioned(
@@ -1478,6 +1482,7 @@ class _IslandState extends ConsumerState<Island> with TickerProviderStateMixin {
                     bubbleRadius: _skin.pill(h),
                     shadow: tc,
                     skin: _skin,
+                    notch: widget.notch,
                   ),
                 ),
               ),
@@ -2069,4 +2074,25 @@ class _IslandState extends ConsumerState<Island> with TickerProviderStateMixin {
         );
     }
   }
+}
+
+class _NotchClipper extends CustomClipper<Path> {
+  const _NotchClipper({required this.radius});
+
+  final double radius;
+
+  @override
+  Path getClip(Size size) {
+    final r = radius.clamp(0.0, math.min(size.width, size.height) / 2);
+    return Path()..addRRect(
+      RRect.fromRectAndCorners(
+        Offset.zero & size,
+        bottomLeft: Radius.circular(r),
+        bottomRight: Radius.circular(r),
+      ),
+    );
+  }
+
+  @override
+  bool shouldReclip(_NotchClipper old) => old.radius != radius;
 }

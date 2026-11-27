@@ -1,6 +1,8 @@
 @Plugin()
 library;
 
+import 'dart:math' as math;
+
 import 'package:denial_flutter_sdk/actions.dart';
 import 'package:denial_flutter_sdk/surfaces.dart';
 import 'package:denial_sdk/composition.dart';
@@ -46,7 +48,7 @@ final class TopBarPlugin implements ShellSurface {
       bounds: ShellSurfacePlacement.edgeBounds(
         environment.output.logicalRect,
         side,
-        (layout.systemBarThickness +
+        (math.max(layout.systemBarThickness, 48.0) +
                 barShadowExtent +
                 (side == PanelEdge.top ? islandReach : 0)) *
             scalePad,

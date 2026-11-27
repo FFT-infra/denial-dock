@@ -27,6 +27,7 @@ class BarGroundLayer extends StatelessWidget {
     required this.child,
     this.edges,
     this.fill,
+    this.concaveEdge = false,
     super.key,
   });
 
@@ -41,6 +42,7 @@ class BarGroundLayer extends StatelessWidget {
 
   /// The plate's colour when it is not the bar's own, without its opacity.
   final Color? fill;
+  final bool concaveEdge;
   final Widget child;
 
   static double luminanceOf(Color color) =>
@@ -134,13 +136,58 @@ class BarGroundLayer extends StatelessWidget {
       ),
       child: child,
     );
-    if (ground != BarGround.glass) return plate;
-    return ShellBackdropBlur(
-      borderRadius: borderRadius,
-      blendMode: BlendMode.srcOver,
-      child: plate,
+    final Widget backed = ground != BarGround.glass
+        ? plate
+        : ShellBackdropBlur(
+            borderRadius: borderRadius,
+            blendMode: BlendMode.srcOver,
+            child: plate,
+          );
+    if (!concaveEdge) return backed;
+    return Stack(
+      clipBehavior: Clip.none,
+      children: <Widget>[
+        backed,
+        Positioned(
+          left: 0,
+          right: 0,
+          bottom: -12,
+          height: 12,
+          child: IgnorePointer(
+            child: CustomPaint(painter: _ConcaveEarsPainter(colour)),
+          ),
+        ),
+      ],
     );
   }
+}
+
+class _ConcaveEarsPainter extends CustomPainter {
+  const _ConcaveEarsPainter(this.color);
+
+  final Color color;
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    const r = 12.0;
+    final paint = Paint()..color = color;
+    final left = Path()
+      ..moveTo(0, 0)
+      ..lineTo(0, r)
+      ..quadraticBezierTo(0, 0, r, 0)
+      ..close();
+    final right = Path()
+      ..moveTo(size.width, 0)
+      ..lineTo(size.width, r)
+      ..quadraticBezierTo(size.width, 0, size.width - r, 0)
+      ..close();
+    canvas
+      ..drawPath(left, paint)
+      ..drawPath(right, paint);
+  }
+
+  @override
+  bool shouldRepaint(_ConcaveEarsPainter old) => old.color != color;
 }
 
 Path _segmentPath(Size size, BarSegmentEdges edges) {

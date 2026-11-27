@@ -50,6 +50,7 @@ class DockLook {
     required this.shape,
     required this.markerColor,
     required this.magnifyRange,
+    this.defloatOnTouch = false,
     this.accentBorder = false,
     this.endInset = 5,
     this.blurFull,
@@ -150,6 +151,7 @@ class DockLook {
       shape: base.shape,
       markerColor: base.markerColor,
       magnifyRange: base.magnifyRange,
+      defloatOnTouch: base.defloatOnTouch,
       accentBorder: accentBorder,
       endInset: base.endInset,
       blurFull: base.blurFull,
@@ -187,6 +189,7 @@ class DockLook {
       shape: base.shape,
       markerColor: base.markerColor,
       magnifyRange: base.magnifyRange,
+      defloatOnTouch: base.defloatOnTouch,
       accentBorder: base.accentBorder,
       endInset: endInset,
       blurFull: base.blurFull,
@@ -224,6 +227,7 @@ class DockLook {
   static const String shapeKey = 'shape';
   static const String markerColorKey = 'markerColor';
   static const String magnifyRangeKey = 'magnifyRange';
+  static const String defloatOnTouchKey = 'defloatOnTouch';
 
   /// Strength of the backdrop blur: a share of [blurFull], or of the
   /// system's own blur where that is null.
@@ -281,6 +285,9 @@ class DockLook {
   /// How far along the row the pointer's magnification reaches.
   final double magnifyRange;
 
+  /// Whether a floating bar/dock snaps flush to the edge on window touch.
+  final bool defloatOnTouch;
+
   /// How much looser the two ends of the row are than [padding]. Part of
   /// the preset; the settings do not offer it on its own.
   final double endInset;
@@ -288,11 +295,13 @@ class DockLook {
   /// Space at the two ends of the row.
   double get endPadding => padding + endInset;
 
-  /// A bar lies on the edge it belongs to.
-  double get effectiveEdgeMargin => shape == DockShape.bar ? 0 : edgeMargin;
+  /// A bar lies on the edge it belongs to unless [defloatOnTouch] floats it.
+  double get effectiveEdgeMargin =>
+      shape == DockShape.bar && !defloatOnTouch ? 0 : edgeMargin;
 
-  /// A bar has square corners.
-  double get effectiveRadius => shape == DockShape.bar ? 0 : radius;
+  /// A bar has square corners unless [defloatOnTouch] floats it.
+  double get effectiveRadius =>
+      shape == DockShape.bar && !defloatOnTouch ? 0 : radius;
 
   /// [base] with the overrides a settings file holds. A missing key, or a
   /// value of the wrong kind, keeps the preset's; a number is clamped into
@@ -316,6 +325,7 @@ class DockLook {
 
     final opacity = overrides[opacityKey];
     final border = overrides[borderKey];
+    final defloat = overrides[defloatOnTouchKey];
     return DockLook(
       blur: number(blurKey, base.blur, minBlur, maxBlur),
       opacity: opacity is num && opacity.isFinite
@@ -356,6 +366,7 @@ class DockLook {
         minMagnifyRange,
         maxMagnifyRange,
       ),
+      defloatOnTouch: defloat is bool ? defloat : base.defloatOnTouch,
     );
   }
 

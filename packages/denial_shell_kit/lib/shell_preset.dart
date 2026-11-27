@@ -85,6 +85,10 @@ class ShellPreset {
     'endInset': null,
     'contentPadding': 0,
     'cornerRadius': 14,
+    'partPill': 'none',
+    'barHeight': null,
+    'concaveEdge': false,
+    'islandNotch': false,
     'workspaceStyle': 'dots',
     'workspacePlacement': 'island',
     'start': <String>['system', 'app'],
@@ -123,8 +127,9 @@ class ShellPreset {
       'ground': 'plate',
       'groundOpacity': 1,
       'groundTint': 'panel',
-      'endInset': 0,
+      'endInset': 8,
       'contentPadding': 8,
+      'barHeight': 26,
       'workspaceStyle': 'numbers',
       'workspacePlacement': 'leading',
       'start': <String>['workspaces'],
@@ -255,19 +260,31 @@ class ShellPreset {
   static final ShellPreset noctalia = _reference(
     'noctalia',
     'Noctalia style',
-    bar: const <String, Object?>{
+    bar: <String, Object?>{
       ..._solidStrip,
+      'barHeight': 34,
+      'endInset': 8,
+      'contentPadding': 6,
+      'partGap': 6,
+      'partPill': 'uniform',
+      'concaveEdge': true,
       'cornerRadius': 12,
       'start': <String>['system', 'workspaces'],
       'center': <String>['clock'],
       'end': <String>['status'],
     },
+    dock: const <String, Object?>{
+      'leading': <String>[],
+      'trailing': <String>['dock.stacks', 'dock.trash'],
+      'shape': 'floating',
+      'align': 'packed',
+      'visibility': 'smart',
+    },
   );
 
-  /// After DankMaterialShell's default bar: one floating rounded bar with
-  /// the launcher, the workspaces and the application at its start, the
-  /// clock in the middle and status at its end. Its weather, media and
-  /// system-monitor widgets have no part here.
+  /// After DankMaterialShell & Dux: one floating rounded bar with
+  /// launcher, workspaces and application at its start, clock in the
+  /// middle and status at its end.
   static final ShellPreset material = _reference(
     'material',
     'Material style',
@@ -276,9 +293,12 @@ class ShellPreset {
       'ground': 'plate',
       'groundOpacity': 1,
       'groundTint': 'panel',
+      'barHeight': 38,
       'edgeMargin': 4,
       'endInset': 6,
-      'contentPadding': 6,
+      'contentPadding': 8,
+      'partGap': 4,
+      'partPill': 'uniform',
       'cornerRadius': 16,
       'workspacePlacement': 'leading',
       'start': <String>['system', 'workspaces', 'app'],
@@ -288,14 +308,16 @@ class ShellPreset {
   );
 
   /// After HyprPanel's default bar: a flat solid strip with numbered
-  /// workspaces and the window title at the start and everything else at
-  /// the end. Its modules are pills each in a colour of its own; ours
-  /// share one ink.
+  /// workspaces, tinted per-module pills, and the window title at the start.
   static final ShellPreset hyprpanel = _reference(
     'hyprpanel',
     'HyprPanel style',
-    bar: const <String, Object?>{
+    bar: <String, Object?>{
       ..._solidStrip,
+      'endInset': 4,
+      'contentPadding': 6,
+      'partGap': 5,
+      'partPill': 'tinted',
       'workspaceStyle': 'numbers',
       'start': <String>['system', 'workspaces', 'app'],
       'center': <String>['island'],
@@ -304,8 +326,7 @@ class ShellPreset {
   );
 
   /// After Ax-Shell's default bar: floating pills at the two ends and the
-  /// notch between them, which is this shell's island. Its vertical bar is
-  /// not something this bar does.
+  /// flared top-edge notch between them.
   static final ShellPreset axShell = _reference(
     'axshell',
     'Ax-Shell style',
@@ -317,7 +338,9 @@ class ShellPreset {
       'edgeMargin': 8,
       'endInset': 8,
       'contentPadding': 6,
+      'partGap': 4,
       'cornerRadius': 16,
+      'islandNotch': true,
       'workspacePlacement': 'leading',
       'start': <String>['system', 'workspaces'],
       'center': <String>['island'],
@@ -388,6 +411,8 @@ class ShellPreset {
     'COSMIC style',
     bar: const <String, Object?>{
       ..._solidStrip,
+      'barHeight': 32,
+      'cornerRadius': 0,
       'start': <String>['workspaces', 'app'],
       'center': <String>['clock'],
       'end': <String>['status'],
@@ -492,6 +517,7 @@ class ShellPreset {
         'endInset': (0, 400),
         'contentPadding': (0, 40),
         'cornerRadius': (0, 60),
+        'barHeight': (24, 48),
       };
 
   static const int _longestList = 40;

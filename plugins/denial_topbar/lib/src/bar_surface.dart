@@ -16,7 +16,13 @@ import 'package:denial_shell_kit/kit_host.dart';
 import 'package:denial_shell_kit/kit_look_motion.dart';
 import 'package:denial_shell_kit/kit_springs.dart' show Sprung;
 import 'package:denial_shell_kit/kit_style.dart'
-    show KitScaleScope, KitStyle, kitDockEnabled, kitShellScale, resolveKitScale;
+    show
+        KitScaleScope,
+        KitStyle,
+        KitThemeAccent,
+        kitDockEnabled,
+        kitShellScale,
+        resolveKitScale;
 import 'package:denial_shell_kit/shell_preset.dart';
 import 'package:denial_shell_kit/kit_part.dart';
 import 'package:denial_shell_kit/kit_requests.dart';
@@ -243,7 +249,8 @@ class _TopBarSurfaceState extends ConsumerState<TopBarSurface>
   double get _bodyHeight {
     final settings =
         ref.read(barSettingsProvider).value ?? BarSettings.defaults;
-    final thickness = widget.environment.settings.layout.systemBarThickness;
+    final thickness =
+        settings.barHeight ?? widget.environment.settings.layout.systemBarThickness;
     final margin = _marginOf(settings);
     return margin + math.max(BarTokens.height, thickness - margin * 2);
   }
@@ -315,7 +322,8 @@ class _TopBarSurfaceState extends ConsumerState<TopBarSurface>
   Widget build(BuildContext context) {
     final settings =
         ref.watch(barSettingsProvider).value ?? BarSettings.defaults;
-    final thickness = widget.environment.settings.layout.systemBarThickness;
+    final thickness =
+        settings.barHeight ?? widget.environment.settings.layout.systemBarThickness;
     final theme = context.shellTheme;
     final attached = settings.shape == BarShape.strip;
     final margin = _marginOf(settings);
@@ -367,10 +375,12 @@ class _TopBarSurfaceState extends ConsumerState<TopBarSurface>
     // macOS measures 31 pt on a machine whose bar is taller than 24; on a
     // 24 pt strip the capsule takes the strip's own height, capped so the
     // pill never fills it edge to edge.
-    final islandHeight = math.max(
-      BarTokens.islandMinHeight,
-      math.min(BarTokens.islandHeight, bodyHeight - 5),
-    );
+    final islandHeight = settings.islandNotch && _side == PanelEdge.top
+        ? math.max(BarTokens.islandMinHeight, bodyHeight)
+        : math.max(
+            BarTokens.islandMinHeight,
+            math.min(BarTokens.islandHeight, bodyHeight - 5),
+          );
 
     _status = status;
     final island = islandAvailable
@@ -384,6 +394,7 @@ class _TopBarSurfaceState extends ConsumerState<TopBarSurface>
             dateLabel: clock.date,
             onControlCenter: status.onControlCenter,
             onNotifications: clock.onTap,
+            notch: settings.islandNotch && _side == PanelEdge.top,
             workspace: workspaceInIsland
                 ? BarWorkspaces(
                     services: _services,
@@ -469,11 +480,12 @@ class _TopBarSurfaceState extends ConsumerState<TopBarSurface>
       Color ink, {
       required bool flexible,
     }) {
+      final pillActive = settings.partPill != BarPartPill.none;
       final part = KitPartContext(
         edge: _side.kitEdge,
         axis: _horizontal ? Axis.horizontal : Axis.vertical,
         crossExtent: bodyHeight,
-        ink: ink,
+        ink: pillActive ? theme.colors.textPrimary : ink,
       );
       final widgets = <Widget>[];
       for (var index = 0; index < ids.length; index++) {
@@ -491,7 +503,17 @@ class _TopBarSurfaceState extends ConsumerState<TopBarSurface>
             ink: ink,
             horizontal: _horizontal,
           ),
-          _ => KitPartView(id: id, part: part),
+          BarPart.island => KitPartView(id: id, part: part),
+          _ => pillActive
+              ? _partPill(
+                  settings: settings,
+                  theme: theme,
+                  style: style,
+                  id: id,
+                  bodyHeight: bodyHeight,
+                  child: KitPartView(id: id, part: part),
+                )
+              : KitPartView(id: id, part: part),
         });
       }
       return widgets;
@@ -709,6 +731,8 @@ class _TopBarSurfaceState extends ConsumerState<TopBarSurface>
             borderRadius: radius,
             backdrop: wallpaper,
             edges: ends,
+            concaveEdge:
+                settings.concaveEdge && attached && _horizontal && _side == PanelEdge.top,
             child: pad + clear == 0
                 ? hosted
                 : Padding(
@@ -763,7 +787,9 @@ class _TopBarSurfaceState extends ConsumerState<TopBarSurface>
           Positioned(
             left: 0,
             right: 0,
-            top: margin + (bodyHeight - islandHeight) / 2,
+            top: settings.islandNotch && _side == PanelEdge.top
+                ? 0
+                : margin + (bodyHeight - islandHeight) / 2,
             child: Align(
               alignment: Alignment.topCenter,
               child: MouseRegion(
@@ -859,6 +885,80 @@ class _TopBarSurfaceState extends ConsumerState<TopBarSurface>
       d.stiffness / d.mass,
       d.damping / (2 * math.sqrt(d.stiffness * d.mass)),
     );
+  }
+
+  Widget _partPill({
+    required BarSettings settings,
+    required ShellThemeData theme,
+    required KitStyle style,
+    required String id,
+    required double bodyHeight,
+    required Widget child,
+  }) {
+    final dark = theme.brightness == Brightness.dark;
+    final base = theme.colors.surfaceContainerHigh;
+    final radius = switch (settings.partPill) {
+      BarPartPill.uniform => style.pill(bodyHeight - 4),
+      BarPartPill.tinted => style.corner(9),
+      BarPartPill.split => style.corner(8),
+      BarPartPill.none => 0.0,
+    };
+    final tint = switch (settings.partPill) {
+      BarPartPill.tinted => _moduleTint(id, dark),
+      BarPartPill.split => theme.kitAccent,
+      _ => null,
+    };
+    final fill = tint == null
+        ? base.withValues(alpha: dark ? 0.72 : 0.78)
+        : Color.alphaBlend(
+            tint.withValues(alpha: dark ? 0.22 : 0.18),
+            base,
+          ).withValues(alpha: dark ? 0.84 : 0.88);
+    return Padding(
+      padding: _horizontal
+          ? const EdgeInsets.symmetric(vertical: 2)
+          : const EdgeInsets.symmetric(horizontal: 2),
+      child: DecoratedBox(
+        decoration: BoxDecoration(
+          color: fill,
+          borderRadius: BorderRadius.circular(radius),
+          border: tint == null
+              ? null
+              : Border.all(
+                  width: 0.7,
+                  color: tint.withValues(alpha: dark ? 0.36 : 0.30),
+                ),
+        ),
+        child: Padding(
+          padding: EdgeInsets.symmetric(
+            horizontal: _horizontal ? 6 : 2,
+            vertical: _horizontal ? 0 : 4,
+          ),
+          child: child,
+        ),
+      ),
+    );
+  }
+
+  static Color _moduleTint(String id, bool dark) {
+    const darkSwatches = <Color>[
+      Color(0xffb4befe), // Lavender
+      Color(0xff74c7ec), // Sapphire
+      Color(0xfffab387), // Peach
+      Color(0xffcba6f7), // Mauve
+      Color(0xffa6e3a1), // Green
+      Color(0xfff5c2e7), // Pink
+    ];
+    const lightSwatches = <Color>[
+      Color(0xff7287fd),
+      Color(0xff209fb5),
+      Color(0xfffe640b),
+      Color(0xff8839ef),
+      Color(0xff40a02b),
+      Color(0xffea76cb),
+    ];
+    final palette = dark ? darkSwatches : lightSwatches;
+    return palette[id.hashCode.abs() % palette.length];
   }
 
   /// The app's own name from the shell's catalog, falling back to the id's
