@@ -1211,7 +1211,7 @@ class _SceneState extends State<_Scene> with SingleTickerProviderStateMixin {
 
     final Widget panel = KitGlass(
       material: popover,
-      radius: style.radius(theme, popover.radius ?? 16),
+      radius: style.outer(theme, popover.radius ?? 16),
       child: Padding(
         padding: EdgeInsets.all(10 * style.density),
         child: Column(

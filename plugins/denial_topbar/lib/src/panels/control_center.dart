@@ -586,7 +586,7 @@ class _ControlCenterPanelState extends ConsumerState<ControlCenterPanel>
       case 'display':
         final level = ref.watch(
           displayBrightnessProvider.select(
-            (state) => state.levels[widget.output.monitorId] ?? 1.0,
+            (state) => state.levels[widget.output.monitorId],
           ),
         );
         final brightness = ref.read(displayBrightnessProvider.notifier);
@@ -595,7 +595,10 @@ class _ControlCenterPanelState extends ConsumerState<ControlCenterPanel>
           size: const TileSize(4, 1),
           child: _SliderTile(
             label: context.tr('Display'),
-            value: level,
+            // No level until the backlight has been read, and none at all
+            // on a screen that has no backlight to set.
+            value: level ?? 0,
+            enabled: level != null,
             leading: BarIcons.sunMax,
             trailing: BarIcons.sunMaxFill,
             onChanged: (value) => brightness.setLevel(widget.output, value),
@@ -605,12 +608,14 @@ class _ControlCenterPanelState extends ConsumerState<ControlCenterPanel>
         );
       case 'sound':
         final volume = ref.watch(services.volume);
+        final audible = ref.watch(services.volumeAvailable);
         return Tile(
           id: id,
           size: const TileSize(4, 1),
           child: _SliderTile(
             label: context.tr('Sound'),
             value: volume,
+            enabled: audible,
             leading: volume <= 0.001
                 ? BarIcons.speakerSlashFill
                 : BarIcons.speaker1Fill,
@@ -1499,10 +1504,12 @@ class _SliderTile extends StatelessWidget {
     required this.onChangeEnd,
     this.onChangeStart,
     this.onOpen,
+    this.enabled = true,
   });
 
   final String label;
   final double value;
+  final bool enabled;
   final IconData leading;
   final IconData trailing;
   final ValueChanged<double> onChanged;
@@ -1549,6 +1556,7 @@ class _SliderTile extends StatelessWidget {
             const Spacer(),
             MacSlider(
               value: value,
+              enabled: enabled,
               leading: leading,
               trailing: trailing,
               onChangeStart: onChangeStart,

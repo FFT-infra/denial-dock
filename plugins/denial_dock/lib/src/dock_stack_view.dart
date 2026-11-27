@@ -842,7 +842,7 @@ class _DockStackViewState extends State<DockStackView>
           child: DecoratedBox(
             decoration: BoxDecoration(
               color: theme.panelColor(theme.colors.surfaceContainerHigh),
-              borderRadius: BorderRadius.circular(kitStyle.value.radius(theme, 15)),
+              borderRadius: BorderRadius.circular(kitStyle.value.outer(theme, 15)),
               border: Border.all(color: theme.colors.hairline),
             ),
             child: Padding(
@@ -1019,10 +1019,10 @@ class _DockStackViewState extends State<DockStackView>
             decoration: BoxDecoration(
               color: theme.panelColor(theme.colors.surfaceContainerHigh),
               border: Border.all(color: theme.colors.hairline),
-              borderRadius: BorderRadius.circular(kitStyle.value.radius(theme, DockStackFan.radius)),
+              borderRadius: BorderRadius.circular(kitStyle.value.outer(theme, DockStackFan.radius)),
             ),
             child: ClipRRect(
-              borderRadius: BorderRadius.circular(kitStyle.value.radius(theme, DockStackFan.radius)),
+              borderRadius: BorderRadius.circular(kitStyle.value.outer(theme, DockStackFan.radius)),
               child: SingleChildScrollView(
                 controller: _gridController(scroll),
                 physics: layout.scrolls
@@ -1126,10 +1126,10 @@ class _DockStackViewState extends State<DockStackView>
             decoration: BoxDecoration(
               color: theme.panelColor(theme.colors.surfaceContainerHigh),
               border: Border.all(color: theme.colors.hairline),
-              borderRadius: BorderRadius.circular(kitStyle.value.radius(theme, DockStackFan.radius)),
+              borderRadius: BorderRadius.circular(kitStyle.value.outer(theme, DockStackFan.radius)),
             ),
             child: ClipRRect(
-              borderRadius: BorderRadius.circular(kitStyle.value.radius(theme, DockStackFan.radius)),
+              borderRadius: BorderRadius.circular(kitStyle.value.outer(theme, DockStackFan.radius)),
               child: Column(
                 children: [
                   if (widget.title case final title?)

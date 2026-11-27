@@ -2,7 +2,8 @@ import 'dart:async';
 import 'dart:math' as math;
 
 import 'package:denial_flutter_sdk/theme.dart';
-import 'package:denial_shell_kit/kit_layer.dart' show kitPressTargets;
+import 'package:denial_shell_kit/kit_layer.dart'
+    show kitOverlayRect, kitPressTargets, kitScreenRect;
 import 'package:denial_shell_kit/kit_feedback.dart';
 import 'package:denial_shell_kit/kit_motion.dart';
 import 'package:denial_shell_kit/kit_style.dart';
@@ -64,8 +65,7 @@ class BarButton extends StatefulWidget {
     for (final state in _mounted) {
       final render = state.context.findRenderObject();
       if (render is! RenderBox || !render.attached || !render.hasSize) continue;
-      final rect = render.localToGlobal(Offset.zero) & render.size;
-      if (rect.contains(position)) {
+      if (kitScreenRect(render).contains(position)) {
         return state.widget.open ? null : state.widget.onTap;
       }
     }
@@ -114,8 +114,10 @@ class _BarButtonState extends State<BarButton> {
     final overlay = Overlay.maybeOf(context);
     final box = context.findRenderObject();
     if (overlay == null || box is! RenderBox || !box.hasSize) return;
-    final frame = box.localToGlobal(Offset.zero) & box.size;
-    final screen = MediaQuery.sizeOf(context);
+    final placed = kitOverlayRect(context, box);
+    if (placed == null) return;
+    final frame = placed.rect;
+    final screen = placed.size;
     // The bar's surface only has room on the side the screen is on.
     final below = frame.center.dy < screen.height / 2;
     final double left = (frame.center.dx - _tipSlot / 2).clamp(

@@ -17,7 +17,7 @@ import 'dock_look_style.dart';
 
 /// The corners of a menu of the dock in the look in force.
 BorderRadius dockMenuRadius(BuildContext context) => BorderRadius.circular(
-  KitStyle.of(context).radius(context.shellTheme, dockLookMetrics.menuRadius),
+  KitStyle.of(context).outer(context.shellTheme, dockLookMetrics.menuRadius),
 );
 
 /// The corners of a row's plate in such a menu.
@@ -233,9 +233,12 @@ class DockMenuPanel extends StatelessWidget {
     final outlined = tail != DockMenuTail.none && tailed;
     final style = KitStyle.of(context);
     final material = kitMaterialOf(context, KitTier.menu);
-    final menuRadius = BorderRadius.circular(
-      style.radius(theme, material.radius ?? radius.topLeft.x),
-    );
+    // [radius] arrives in the look's own scale already; a material with
+    // corners of its own is scaled here, once.
+    final own = material.radius;
+    final menuRadius = own == null
+        ? radius
+        : BorderRadius.circular(style.outer(theme, own));
     final tone = material.fill.fixed
         ? kitToneColor(material.fill, theme, style)
         : style.panelFill(GlassCard.fillOf(theme));
@@ -246,7 +249,12 @@ class DockMenuPanel extends StatelessWidget {
     // A tail has to be stroked as one outline with its panel, so only a
     // tail-less panel takes the card's continuous corners and shadow.
     final panel = !outlined
-        ? GlassCard(tier: KitTier.menu, radius: menuRadius.topLeft.x, child: child)
+        ? GlassCard(
+            tier: KitTier.menu,
+            // The card scales its corners itself.
+            radius: own ?? dockLookMetrics.menuRadius,
+            child: child,
+          )
         : KitGlass(
             material: material.copyWith(outer: () => null, inner: () => null),
             radius: menuRadius.topLeft.x,

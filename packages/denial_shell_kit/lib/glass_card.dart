@@ -61,7 +61,7 @@ class GlassCard extends StatelessWidget {
     return KitGlass(
       material: material,
       // A material with corners of its own keeps them.
-      radius: style.radius(theme, material.radius ?? radius),
+      radius: style.outer(theme, material.radius ?? radius),
       // A material that brings its own fill keeps it, whatever the caller
       // mixed from the theme; one filled from the theme takes the caller's.
       fill: material.fill.fixed

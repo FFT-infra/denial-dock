@@ -695,7 +695,10 @@ class _ColumnState extends ConsumerState<_Column>
   void showMenu(Rect anchor, List<NcMenuItem> items) {
     final scene = _sceneKey.currentContext?.findRenderObject();
     final local = scene is RenderBox && scene.hasSize
-        ? scene.globalToLocal(anchor.topLeft) & anchor.size
+        ? Rect.fromPoints(
+            scene.globalToLocal(anchor.topLeft),
+            scene.globalToLocal(anchor.bottomRight),
+          )
         : anchor;
     _menuReturn = FocusManager.instance.primaryFocus;
     setState(() => _menu = (anchor: local, items: items));
@@ -1177,7 +1180,7 @@ class _Surface extends StatelessWidget {
     final style = KitStyle.of(context);
     final framed = NcScope.of(context).framed;
     final shape = ContinuousCorners(
-      radius: style.radius(theme, NcLook.widgetRadius),
+      radius: style.outer(theme, NcLook.widgetRadius),
     );
     return Listener(
       behavior: HitTestBehavior.opaque,

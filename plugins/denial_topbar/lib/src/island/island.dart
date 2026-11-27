@@ -737,7 +737,16 @@ class _IslandState extends ConsumerState<Island> with TickerProviderStateMixin {
     // Both levels go through a gate, fed even while the HUD is off so it
     // always knows the last real level. A source's first value, and what it
     // reports while it starts over, is not a change the user made.
+    // While no audio service has reported, the level is a placeholder 0;
+    // the gate is told there is none, so the first real one is not news.
+    ref.listen<bool>(_services.volumeAvailable, (previous, next) {
+      if (!next) _volumeGate.feed(null, _now);
+    });
     ref.listen<double>(_services.volume, (previous, next) {
+      if (!ref.read(_services.volumeAvailable)) {
+        _volumeGate.feed(null, _now);
+        return;
+      }
       final changed = _volumeGate.feed(next, _now, from: previous);
       if (!changed || !settings.activityHud) return;
       _hud(

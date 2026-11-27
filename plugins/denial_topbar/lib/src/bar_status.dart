@@ -192,6 +192,7 @@ class BarStatusCluster extends ConsumerWidget {
     final trayIds = ref.watch(services.trayItemIds);
     final wifi = ref.watch(services.connectedWifi);
     final volume = ref.watch(services.volume);
+    final audible = ref.watch(services.volumeAvailable);
     final battery = ref.watch(services.battery);
     final plugged = ref.watch(
       upowerProvider.select((state) => state.snapshot?.onBattery == false),
@@ -329,7 +330,9 @@ class BarStatusCluster extends ConsumerWidget {
           ink: ink,
           width: span(BarTokens.statusCellWidth),
           onTap: onVolume,
-          tooltip: '${context.tr('Sound')} ${(volume * 100).round()}%',
+          tooltip: audible
+              ? '${context.tr('Sound')} ${(volume * 100).round()}%'
+              : '${context.tr('Sound')} · ${context.tr('Unavailable')}',
           open: openPanel == 'volume',
           child: BarGlyph(
             headphones
@@ -338,7 +341,8 @@ class BarStatusCluster extends ConsumerWidget {
                 ? BarIcons.speakerSlashFill
                 : (volume < 0.34 ? BarIcons.volumeDown : BarIcons.volumeUp),
             size: BarTokens.statusIconSize,
-            color: ink,
+            // Dim until an audio service has reported a level.
+            color: audible ? ink : ink.withValues(alpha: 0.45),
           ),
         ),
       if (settings.showBattery && battery.capacity != null)

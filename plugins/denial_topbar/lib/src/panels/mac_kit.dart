@@ -531,10 +531,16 @@ class MacSlider extends StatefulWidget {
     this.trailing,
     this.height = 18,
     this.inList = false,
+    this.enabled = true,
     super.key,
   });
 
   final double value;
+
+  /// Whether there is a level to show and change. A slider without one is
+  /// dimmed and takes no input: a source that has not reported yet, or a
+  /// screen with no backlight to set.
+  final bool enabled;
   final ValueChanged<double> onChanged;
   final VoidCallback? onChangeStart;
   final ValueChanged<double>? onChangeEnd;
@@ -806,11 +812,12 @@ class _MacSliderState extends State<MacSlider>
       padding: const EdgeInsets.symmetric(horizontal: 6),
       child: BarGlyph(icon, size: 15, color: theme.colors.textSecondary),
     );
-    return Row(
+    final row = Row(
       children: <Widget>[
         if (widget.leading != null) glyph(widget.leading!),
         Expanded(
           child: Focus(
+            canRequestFocus: widget.enabled,
             onKeyEvent: _onKey,
             onFocusChange: (focused) {
               if (focused != _focused) setState(() => _focused = focused);
@@ -825,6 +832,14 @@ class _MacSliderState extends State<MacSlider>
         ),
         if (widget.trailing != null) glyph(widget.trailing!),
       ],
+    );
+    return IgnorePointer(
+      ignoring: !widget.enabled,
+      child: AnimatedOpacity(
+        opacity: widget.enabled ? 1 : 0.4,
+        duration: KitMotion.duration(context, KitMotion.tap),
+        child: row,
+      ),
     );
   }
 }

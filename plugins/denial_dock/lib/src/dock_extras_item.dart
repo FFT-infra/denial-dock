@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:io';
 import 'dart:math' as math;
 
+import 'package:denial_shell_kit/kit_layer.dart' show kitOverlayRect;
 import 'package:denial_shell_kit/kit_motion.dart';
 import 'package:denial_shell_kit/kit_style.dart';
 import 'package:denial_flutter_sdk/input.dart';
@@ -1062,7 +1063,8 @@ class _DockFolderItemState extends State<DockFolderItem> {
   Rect _iconNow(Rect fallback) {
     final box = context.findRenderObject();
     if (box is! RenderBox || !box.hasSize) return fallback;
-    return box.localToGlobal(Offset.zero) & box.size;
+    // In the overlay's own space, where the fan is laid out.
+    return kitOverlayRect(context, box)?.rect ?? fallback;
   }
 
   @override

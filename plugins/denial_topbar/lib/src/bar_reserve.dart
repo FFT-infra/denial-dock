@@ -1,5 +1,8 @@
 import 'dart:async';
 
+import 'package:denial_flutter_sdk/models.dart' show DisplayLayout;
+import 'package:denial_flutter_sdk/settings.dart'
+    show ShellScale, shellSettingsProvider;
 import 'package:denial_flutter_sdk/state.dart' show displayLayoutProvider;
 import 'package:denial_flutter_sdk/surfaces.dart';
 import 'package:denial_shell_kit/kit_host.dart';
@@ -49,6 +52,7 @@ void syncBarReservation(WidgetRef ref, ShellLayoutSettings settings) {
       (side == PanelEdge.hidden || current.systemBarThickness == thickness)) {
     return;
   }
+  final scales = ref.read(shellSettingsProvider).appearance.shellScales;
   ref
       .read(displayLayoutProvider.notifier)
       .applyShellConfiguration(
@@ -57,5 +61,30 @@ void syncBarReservation(WidgetRef ref, ShellLayoutSettings settings) {
         systemBarThickness: thickness,
         // The shell decides the padding by its own rules; keep its value.
         maximizePadding: current?.maximizePadding ?? settings.maximizePadding,
+        // The call replaces the shell's scale on every output along with the
+        // reservation, so the scales go back in as the shell has them.
+        shellScales: scales,
+        desktopPanels: _desktopPanels(current, scales),
       );
+}
+
+/// Whether the desktop shell has the built-in panels, read back from the
+/// layout: the shell does not say so anywhere a plugin can ask. Where the
+/// mobile shell has them, a built-in panel that would take a scale of its
+/// own carries none.
+bool _desktopPanels(DisplayLayout? layout, Map<String, double> scales) {
+  if (layout == null) return true;
+  for (final output in layout.outputs) {
+    final name = output.name;
+    final builtIn =
+        name.startsWith('DSI-') ||
+        name.startsWith('eDP-') ||
+        name.startsWith('LVDS-');
+    if (builtIn &&
+        ShellScale.of(output, scales) != 1.0 &&
+        layout.shellScaleOf(output.monitorId) == 1.0) {
+      return false;
+    }
+  }
+  return true;
 }

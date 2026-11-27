@@ -3,6 +3,7 @@ import 'dart:math' as math;
 import 'package:denial_flutter_sdk/models.dart';
 import 'package:denial_flutter_sdk/services.dart';
 import 'package:denial_flutter_sdk/theme.dart';
+import 'package:denial_shell_kit/kit_layer.dart' show kitScreenRect;
 import 'package:denial_shell_kit/kit_motion.dart';
 import 'package:denial_shell_kit/kit_springs.dart';
 import 'package:denial_shell_kit/kit_style.dart';
@@ -889,7 +890,7 @@ class _MorePill extends StatelessWidget {
       onTap: () {
         final box = context.findRenderObject();
         if (box is! RenderBox || !box.hasSize) return;
-        onOpen(box.localToGlobal(Offset.zero) & box.size);
+        onOpen(kitScreenRect(box));
       },
       builder: (context, hovered, pressed, focused) => DecoratedBox(
         decoration: BoxDecoration(

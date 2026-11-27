@@ -658,6 +658,7 @@ class SoundPopover extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final volume = ref.watch(services.volume);
+    final audible = ref.watch(services.volumeAvailable);
     final devices = ref
         .watch(audioDevicesProvider)
         .devices
@@ -672,6 +673,7 @@ class SoundPopover extends ConsumerWidget {
           padding: const EdgeInsets.symmetric(horizontal: 2),
           child: MacSlider(
             value: volume,
+            enabled: audible,
             leading: volume <= 0.001
                 ? BarIcons.speakerSlashFill
                 : BarIcons.speaker1Fill,

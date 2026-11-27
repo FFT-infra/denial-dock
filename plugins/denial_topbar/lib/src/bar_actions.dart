@@ -202,8 +202,9 @@ mixin _BarActions<T extends ConsumerStatefulWidget> on ConsumerState<T> {
   bool _nearTrailingSide(GlobalKey key) {
     if (!_horizontal) return true;
     final rect = kitSceneRect(key);
-    if (rect == null) return true;
-    return rect.center.dx >= MediaQuery.sizeOf(context).width / 2;
+    final bar = context.findRenderObject();
+    if (rect == null || bar is! RenderBox || !bar.hasSize) return true;
+    return rect.center.dx >= kitScreenRect(bar).center.dx;
   }
 
   /// The clock in [ink], opening the notification column.

@@ -1,7 +1,6 @@
 import 'dart:ui' show Rect;
 
 import 'package:denial_flutter_sdk/models.dart' show DenialWindow;
-import 'package:denial_flutter_sdk/surfaces.dart' show DisplayOutput;
 
 import 'dock_autohide_math.dart' as math;
 import 'dock_settings.dart' show DockHideScope, DockPosition;
@@ -11,8 +10,8 @@ export 'dock_autohide_math.dart' show Box, WindowSample;
 /// Adapts the dock's scene types to [math], which holds the policy.
 ///
 /// The arithmetic lives in `dock_autohide_math.dart` so it can be unit-tested
-/// without `dart:ui`; this file only converts [Rect], [DenialWindow] and
-/// [DisplayOutput] into plain boxes.
+/// without `dart:ui`; this file only converts [Rect] and [DenialWindow] into
+/// plain boxes.
 abstract final class DockAutoHide {
   /// The fully revealed capsule in scene coordinates.
   static Rect visibleDockRect({
@@ -42,18 +41,9 @@ abstract final class DockAutoHide {
     math.overlapDepth(_toBox(rect), position: position, depth: depth),
   );
 
-  static Rect windowRect(DenialWindow window, DisplayOutput output) {
-    final geometry = window.geometry;
-    if (geometry == null) return Rect.zero;
-    return _toRect(
-      math.scaledWindowBox(
-        geometry: _toBox(geometry),
-        scale: output.scale,
-        outputWidth: output.logicalRect.width,
-      ),
-    );
-  }
-
+  /// [trigger], [release] and the windows are in the screen's units, and so
+  /// are [outputScale] and [outputWidth]: where the shell draws itself at a
+  /// scale of its own the dock's rectangles are brought over before this.
   static bool hasConflict({
     required Iterable<DenialWindow> windows,
     required Rect trigger,
@@ -61,7 +51,8 @@ abstract final class DockAutoHide {
     required bool previousConflict,
     required int monitorId,
     required int workspaceId,
-    required DisplayOutput output,
+    required double outputScale,
+    required double outputWidth,
     required bool desktopVisible,
     DockHideScope scope = DockHideScope.all,
     Set<int> activeIds = const {},
@@ -73,7 +64,7 @@ abstract final class DockAutoHide {
           active: activeIds.contains(window.objectId),
           maximized: window.maximized || window.fullscreen,
         ))
-          _sample(window, output),
+          _sample(window, outputScale, outputWidth),
     ],
     trigger: _toBox(trigger),
     release: _toBox(release),
@@ -94,7 +85,11 @@ abstract final class DockAutoHide {
     position: position,
   );
 
-  static math.WindowSample _sample(DenialWindow window, DisplayOutput output) {
+  static math.WindowSample _sample(
+    DenialWindow window,
+    double outputScale,
+    double outputWidth,
+  ) {
     final geometry = window.geometry;
     return (
       monitorId: window.monitorId,
@@ -105,8 +100,8 @@ abstract final class DockAutoHide {
           ? null
           : math.scaledWindowBox(
               geometry: _toBox(geometry),
-              scale: output.scale,
-              outputWidth: output.logicalRect.width,
+              scale: outputScale,
+              outputWidth: outputWidth,
             ),
     );
   }

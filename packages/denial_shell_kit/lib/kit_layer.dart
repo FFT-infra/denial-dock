@@ -2,9 +2,12 @@ import 'dart:async';
 import 'dart:math' as math;
 
 import 'package:denial_flutter_sdk/input.dart';
+import 'package:denial_flutter_sdk/models.dart' show DisplayLayout;
 import 'package:denial_flutter_sdk/panels.dart';
 import 'package:denial_flutter_sdk/popups.dart';
-import 'package:denial_flutter_sdk/state.dart' show denialBridgeProvider;
+import 'package:denial_flutter_sdk/state.dart'
+    show denialBridgeProvider, displayLayoutProvider;
+import 'package:denial_flutter_sdk/surfaces.dart' show ShellScaleViewport;
 import 'package:denial_flutter_sdk/theme.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -38,11 +41,136 @@ final Set<KitPressTarget> kitPressTargets = <KitPressTarget>{};
 
 _KitLayerState? _currentPanel;
 
-/// The rectangle of [key]'s widget in the scene, once it is laid out.
+/// The rectangle of [key]'s widget on the screen, once it is laid out.
 Rect? kitSceneRect(GlobalKey key) {
   final render = key.currentContext?.findRenderObject();
   if (render is! RenderBox || !render.hasSize) return null;
-  return render.localToGlobal(Offset.zero) & render.size;
+  return kitScreenRect(render);
+}
+
+/// Where [box] is drawn, in the screen's units. The shell may lay a surface
+/// out in units of its own and draw it larger, so the size a box has for
+/// itself is not the size it takes on the screen.
+Rect kitScreenRect(RenderBox box) => MatrixUtils.transformRect(
+  box.getTransformTo(null),
+  Offset.zero & box.size,
+);
+
+/// The units a layer is laid out in. The shell draws itself larger than the
+/// screen's scale on some outputs, and a layer follows the output it opens
+/// on: it covers that output alone, its origin is the output's corner and one
+/// of its units takes [scale] of the screen's.
+///
+/// Everything that reaches a layer from outside it, an anchor or a pointer
+/// position, arrives in the screen's units and is brought over here.
+class KitLayerSpace extends InheritedWidget {
+  const KitLayerSpace({
+    required this.origin,
+    required this.scale,
+    required super.child,
+    super.key,
+  });
+
+  /// The output's corner on the screen.
+  final Offset origin;
+  final double scale;
+
+  static KitLayerSpace? maybeOf(BuildContext context) =>
+      context.dependOnInheritedWidgetOfExactType<KitLayerSpace>();
+
+  /// [screen] in the layer of [context]. Outside a layer it stays as it is.
+  static Rect rectIn(BuildContext context, Rect screen) =>
+      maybeOf(context)?.rect(screen) ?? screen;
+
+  /// The rectangle [box] takes in the layer of [context].
+  static Rect boxIn(BuildContext context, RenderBox box) =>
+      rectIn(context, kitScreenRect(box));
+
+  Offset point(Offset screen) => (screen - origin) / scale;
+
+  Rect rect(Rect screen) => point(screen.topLeft) & (screen.size / scale);
+
+  @override
+  bool updateShouldNotify(KitLayerSpace old) =>
+      origin != old.origin || scale != old.scale;
+}
+
+/// The output of [layout] a layer near [near] opens on, the main one when
+/// that is nowhere: its rectangle on [canvas], in the screen's units, and the
+/// shell's scale there.
+({Rect rect, double scale}) kitOutputAt(
+  DisplayLayout? layout,
+  Offset? near,
+  Rect canvas,
+) {
+  if (layout == null) return (rect: canvas, scale: 1.0);
+  var output = layout.mainOutput;
+  if (near != null) {
+    for (final candidate in layout.outputs) {
+      if (candidate.logicalRect.contains(near)) {
+        output = candidate;
+        break;
+      }
+    }
+  }
+  final rect = output?.logicalRect.intersect(canvas);
+  if (output == null || rect == null || rect.isEmpty) {
+    return (rect: canvas, scale: 1.0);
+  }
+  return (rect: rect, scale: layout.shellScaleOf(output.monitorId));
+}
+
+/// The rectangle [box] takes in the overlay that entries opened from
+/// [context] go to, and that overlay's size. A surface's overlay is laid out
+/// in the shell's units like the surface, so a position on the screen is not
+/// one in it.
+({Rect rect, Size size})? kitOverlayRect(BuildContext context, RenderBox box) {
+  final overlay = Overlay.maybeOf(context)?.context.findRenderObject();
+  if (overlay is! RenderBox || !overlay.hasSize || !box.hasSize) return null;
+  return (
+    rect: box.localToGlobal(Offset.zero, ancestor: overlay) & box.size,
+    size: overlay.size,
+  );
+}
+
+/// Lays a layer's content out on one output, in the shell's units there: the
+/// output [near] is on, or the main one.
+class _KitLayerOutput extends ConsumerWidget {
+  const _KitLayerOutput({required this.near, required this.child});
+
+  final Offset? near;
+  final Widget child;
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final (:rect, :scale) = kitOutputAt(
+      ref.watch(displayLayoutProvider),
+      near,
+      Offset.zero & MediaQuery.sizeOf(context),
+    );
+    final space = KitLayerSpace(
+      origin: rect.topLeft,
+      scale: scale,
+      child: child,
+    );
+    return Stack(
+      fit: StackFit.expand,
+      children: <Widget>[
+        Positioned.fromRect(
+          rect: rect,
+          // The viewport tells its child the size it has; at a scale of 1 it
+          // steps aside, and the size of one output among several is told
+          // here.
+          child: scale == 1.0
+              ? MediaQuery(
+                  data: MediaQuery.of(context).copyWith(size: rect.size),
+                  child: space,
+                )
+              : ShellScaleViewport(scale: scale, child: space),
+        ),
+      ],
+    );
+  }
 }
 
 extension KitEdgeOfPanelEdge on PanelEdge {
@@ -96,6 +224,10 @@ class KitLayer extends InheritedWidget {
 /// leaves when the content calls [KitLayer.finish]: for content that goes out
 /// on a spring, whose length the layer cannot know in advance. A layer whose
 /// content never answers still leaves after a moment.
+///
+/// The content is laid out on one output, the one [near] is on (a point on
+/// the screen, usually the middle of what opened the layer) or the main one,
+/// and in the shell's units there; see [KitLayerSpace].
 void showKitLayer({
   required WidgetRef ref,
   required String keyName,
@@ -108,6 +240,7 @@ void showKitLayer({
   bool passthrough = false,
   bool contentEndsClose = false,
   Color? scrim,
+  Offset? near,
 }) {
   final controller = ref.read(shellPopupControllerProvider.notifier);
   // A passthrough layer takes no input of its own; what it shows claims its
@@ -142,6 +275,7 @@ void showKitLayer({
         dismissOnOutsideTap: dismissOnOutsideTap,
         contentEndsClose: contentEndsClose,
         scrim: scrim,
+        near: near,
         onClosed: popup.close,
         builder: builder,
       ),
@@ -158,10 +292,12 @@ class _KitLayerHost extends StatefulWidget {
     required this.dismissOnOutsideTap,
     required this.contentEndsClose,
     required this.scrim,
+    required this.near,
     required this.onClosed,
     required this.builder,
   });
 
+  final Offset? near;
   final String? panelId;
   final Stream<Object?>? outside;
   final Duration open;
@@ -269,7 +405,12 @@ class _KitLayerState extends State<_KitLayerHost>
         animation: _controller,
         dismiss: dismiss,
         finish: widget.contentEndsClose ? _finish : null,
-        child: Builder(builder: (context) => widget.builder(context, dismiss)),
+        child: _KitLayerOutput(
+          near: widget.near,
+          child: Builder(
+            builder: (context) => widget.builder(context, dismiss),
+          ),
+        ),
       );
     }
     final scrim = widget.scrim;
@@ -303,8 +444,11 @@ class _KitLayerState extends State<_KitLayerHost>
             dismiss: dismiss,
             interceptBack: (handler) => _back = handler,
             finish: widget.contentEndsClose ? _finish : null,
-            child: Builder(
-              builder: (context) => widget.builder(context, dismiss),
+            child: _KitLayerOutput(
+              near: widget.near,
+              child: Builder(
+                builder: (context) => widget.builder(context, dismiss),
+              ),
             ),
           ),
         ],
@@ -320,6 +464,8 @@ enum KitPanelKind { menu, popover }
 /// Opens one panel at a time, placed from the item that opened it and the
 /// edge its host sits on; see [kitPanelPlace]. Asking for the panel that is
 /// open closes it.
+///
+/// [anchor] is where the item is on the screen, as [kitSceneRect] gives it.
 void showKitPanel({
   required WidgetRef ref,
   required String panelId,
@@ -348,6 +494,7 @@ void showKitPanel({
     debugLabel: debugLabel,
     open: menu ? KitMotion.tap : KitMotion.enter,
     close: menu ? KitMotion.ease : KitMotion.fill,
+    near: anchor?.center,
     builder: (context, close) => KitPanelFrame(
       anchor: anchor,
       edge: edge,
@@ -636,7 +783,9 @@ class KitWindowState extends State<KitWindow> {
             ),
             child: Listener(
               behavior: HitTestBehavior.opaque,
-              onPointerMove: _super ? (event) => moveBy(event.delta) : null,
+              onPointerMove: _super
+                  ? (event) => moveBy(event.localDelta)
+                  : null,
               child: MouseRegion(
                 cursor: _super ? SystemMouseCursors.move : MouseCursor.defer,
                 child: KitCard(
@@ -668,7 +817,10 @@ class KitWindowHandle extends StatelessWidget {
       behavior: HitTestBehavior.translucent,
       onPanUpdate: (details) => context
           .findAncestorStateOfType<KitWindowState>()
-          ?.moveBy(details.delta),
+          ?.moveBy(
+            // The pointer moves in screen units, the window in the layer's.
+            details.delta / (KitLayerSpace.maybeOf(context)?.scale ?? 1),
+          ),
       child: child,
     );
   }
@@ -701,6 +853,7 @@ class KitPanelFrame extends StatelessWidget {
   /// anchor's own position along the edge.
   final bool cornerOrigin;
 
+  /// Where the item that opened the panel is on the screen.
   final Rect? anchor;
   final KitEdge edge;
   final double hostExtent;
@@ -719,6 +872,10 @@ class KitPanelFrame extends StatelessWidget {
     final theme = context.shellTheme;
     final scene = MediaQuery.sizeOf(context);
     final menu = kind == KitPanelKind.menu;
+    final screenAnchor = this.anchor;
+    final anchor = screenAnchor == null
+        ? null
+        : KitLayerSpace.rectIn(context, screenAnchor);
     final place = kitPanelPlace(
       sceneWidth: scene.width,
       sceneHeight: scene.height,

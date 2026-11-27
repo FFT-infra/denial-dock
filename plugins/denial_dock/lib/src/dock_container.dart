@@ -253,6 +253,17 @@ class _DockContainerState extends ConsumerState<DockContainer>
   bool get _vertical => _position != DockPosition.bottom;
   Rect get _output => widget.environment.output.logicalRect;
 
+  /// The output as the overlay the dock's menus open in has it. Where the
+  /// shell draws itself at a scale of its own, each output has an overlay
+  /// that starts at the output's corner; elsewhere the overlay is the scene.
+  Rect get _overlayOutput => widget.environment.shellScale == 1.0
+      ? _output
+      : Offset.zero & _output.size;
+
+  Rect get _overlayWorkArea => widget.environment.shellScale == 1.0
+      ? widget.environment.workArea
+      : widget.environment.workArea.shift(-_output.topLeft);
+
   bool get _held =>
       _insideCapsule ||
       _edgeHover ||
@@ -798,9 +809,10 @@ class _DockContainerState extends ConsumerState<DockContainer>
     _DockEntry entry,
     int entryIndex,
     int pinIndex,
-    Offset pointer,
+    Offset screenPointer,
   ) {
     if (_dragKey != null) return;
+    final pointer = _toShell(screenPointer);
     final slotIndex = _entrySlots[entryIndex];
     final slot = slotIndex == null ? null : _frame?.slots[slotIndex];
     _dragKey = appIdentity(entry.appId);
@@ -842,12 +854,22 @@ class _DockContainerState extends ConsumerState<DockContainer>
     _evaluateHide();
   }
 
-  void _updateDrag(Offset pointer) {
+  /// A point on the screen in the units the dock is laid out in, which the
+  /// shell may draw larger than the screen's. The dock's surface covers its
+  /// output, so its own corner is the output's.
+  Offset _toShell(Offset screen) {
+    final box = context.findRenderObject();
+    if (box is! RenderBox || !box.hasSize) return screen;
+    return box.globalToLocal(screen) + _output.topLeft;
+  }
+
+  void _updateDrag(Offset screenPointer) {
     if (_dragKey == null) return;
-    if (!pointer.dx.isFinite || !pointer.dy.isFinite) return;
+    if (!screenPointer.dx.isFinite || !screenPointer.dy.isFinite) return;
     // The button pointer emits a stray move at the scene origin; a real dock
     // drag never visits that corner.
-    if (pointer.dx == 0 && pointer.dy == 0) return;
+    if (screenPointer.dx == 0 && screenPointer.dy == 0) return;
+    final pointer = _toShell(screenPointer);
     setState(() {
       _dragDx = pointer.dx - _dragStartX;
       _dragDy = pointer.dy - _dragStartY;
@@ -1453,15 +1475,17 @@ class _DockContainerState extends ConsumerState<DockContainer>
         );
         final conflict = DockAutoHide.hasConflict(
           windows: denialWindows,
-          trigger: DockAutoHide.intentionalOverlap(
-            dockRect,
-            position: _position,
+          // Windows are where the screen has them; the dock's own rectangles
+          // are in the shell's units and go over to the screen's.
+          trigger: environment.toScreen(
+            DockAutoHide.intentionalOverlap(dockRect, position: _position),
           ),
-          release: dockRect,
+          release: environment.toScreen(dockRect),
           previousConflict: _conflict,
           monitorId: widget.monitorId,
           workspaceId: environment.workspaceId,
-          output: environment.output,
+          outputScale: environment.output.scale / environment.shellScale,
+          outputWidth: environment.screenRect.width,
           desktopVisible: environment.desktopVisible,
           scope: settings.hideScope,
           activeIds: {
@@ -2132,7 +2156,7 @@ class _DockContainerState extends ConsumerState<DockContainer>
   Widget _capsuleSurface(BuildContext context, ShellThemeData theme) {
     final look = _look;
     final chosen = _settings.look;
-    final corner = KitStyle.of(context).radius(theme, look.effectiveRadius);
+    final corner = KitStyle.of(context).outer(theme, look.effectiveRadius);
     final base = kitMaterialOf(context, KitTier.dock);
     final own = base.fill.fixed
         ? kitToneColor(base.fill, theme, KitStyle.of(context))
@@ -2475,8 +2499,8 @@ class _DockContainerState extends ConsumerState<DockContainer>
               ref.read(dockSettingsProvider.notifier).removeFolder(folder.path),
             ),
             onOverlayChanged: _setOverlayHold,
-            monitorBounds: _output,
-            workArea: widget.environment.workArea,
+            monitorBounds: _overlayOutput,
+            workArea: _overlayWorkArea,
             appearance: _settings.appearance,
             onOpenSettings: _openSettings,
             onSetView: (view) => unawaited(
@@ -2517,7 +2541,7 @@ class _DockContainerState extends ConsumerState<DockContainer>
             position: _position,
             zh: chinese,
             appearance: _settings.appearance,
-            monitorBounds: _output,
+            monitorBounds: _overlayOutput,
             onOpen: () => unawaited(DockExtras.openPath(file.path)),
             onReveal: () => unawaited(DockExtras.revealPath(file.path)),
             onRemove: () => unawaited(
@@ -2539,7 +2563,7 @@ class _DockContainerState extends ConsumerState<DockContainer>
             position: _position,
             zh: chinese,
             onOverlayChanged: _setOverlayHold,
-            monitorBounds: _output,
+            monitorBounds: _overlayOutput,
             onOpenSettings: _openSettings,
             appearance: _settings.appearance,
           )),
@@ -2599,7 +2623,7 @@ class _DockContainerState extends ConsumerState<DockContainer>
               dragging: dragging,
               services: widget.services,
               monitorId: widget.monitorId,
-              monitorBounds: _output,
+              monitorBounds: _overlayOutput,
               position: _position,
               size: spec.titled ? _iconSize : extent,
               cellExtent: spec.titled

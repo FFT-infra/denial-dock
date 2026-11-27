@@ -498,7 +498,7 @@ class NcPlate extends StatelessWidget {
     // The card's material: a look that measured one brings its own fill,
     // corners and blur; any other takes the shell's panel.
     final material = kitMaterialOf(context, KitTier.card);
-    final radius = style.radius(theme, material.radius ?? NcLook.cardRadius);
+    final radius = style.outer(theme, material.radius ?? NcLook.cardRadius);
     final panel = material.fill.fixed
         ? kitToneColor(material.fill, theme, style)
         : style.panelFill(GlassCard.fillOf(theme));

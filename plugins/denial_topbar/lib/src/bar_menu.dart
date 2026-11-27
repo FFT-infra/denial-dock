@@ -91,6 +91,7 @@ void showBarMenu({
     panelId: panelId,
     open: KitMotion.menuOpen,
     close: KitMotion.menuExit,
+    near: rect.center,
     builder: (context, close) => _MenuTree(
       anchor: rect,
       vertical: vertical,
@@ -303,7 +304,7 @@ class _MenuTreeState extends State<_MenuTree> {
   Widget build(BuildContext context) {
     final scene = MediaQuery.sizeOf(context);
     const margin = 6.0;
-    final anchor = widget.anchor;
+    final anchor = KitLayerSpace.rectIn(context, widget.anchor);
     final rootMaxHeight = scene.height - margin * 2;
 
     final root = _MenuCard(
@@ -566,7 +567,7 @@ class _Row extends StatelessWidget {
       WidgetsBinding.instance.addPostFrameCallback((_) {
         final render = context.findRenderObject();
         if (render is RenderBox && render.attached) {
-          report(render.localToGlobal(Offset.zero) & render.size);
+          report(KitLayerSpace.boxIn(context, render));
         }
       });
     }

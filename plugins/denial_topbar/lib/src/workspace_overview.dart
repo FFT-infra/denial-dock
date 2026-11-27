@@ -62,9 +62,14 @@ void showWorkspaceOverview({
   final status = ref.read(services.workspace(monitorId));
   final bounds = ref.read(services.monitorBounds(monitorId));
   final vertical = side == PanelEdge.left || side == PanelEdge.right;
+  // The item's place on the screen, as far down its output in the shell's
+  // units, which is what the panel is laid out in.
   final at = kitSceneRect(anchor);
+  final scale =
+      ref.read(displayLayoutProvider)?.shellScaleOf(monitorId) ?? 1.0;
+  final itemTop = at == null ? 0.0 : (at.top - (bounds?.top ?? 0)) / scale;
   final maxHeight = vertical
-      ? math.max(220.0, scene.height - (at?.top ?? 0) - 28)
+      ? math.max(220.0, scene.height - itemTop - 28)
       : math.min(scene.height * 0.8, scene.height - barHeight - 48);
   final grid = overviewGrid(
     count: status.count + 1,

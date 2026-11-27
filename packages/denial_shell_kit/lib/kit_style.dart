@@ -347,8 +347,24 @@ class KitStyle {
     );
   }
 
+  /// The corner of something inside a surface: a card, a tile, a field.
+  /// Where the look follows the shell it takes the shell's interface
+  /// roundness.
   double radius(ShellThemeData theme, double base) =>
       (scaleCorners ? theme.scaledRadius(base) : base) * cornerScale;
+
+  /// The corner of a surface that stands on the desktop by itself: a panel,
+  /// a menu, a banner, the dock. Where the look follows the shell these take
+  /// its window roundness, as the shell's own panels do, so a panel of ours
+  /// and one of the shell's share a shape. [base] is drawn against a panel
+  /// of [_panelBase]; the shell's is [ShellRadii.panel] at roundness 1.
+  double outer(ShellThemeData theme, double base) =>
+      (scaleCorners
+          ? theme.outerRadius(base * ShellRadii.panel / _panelBase)
+          : base) *
+      cornerScale;
+
+  static const double _panelBase = 16;
 
   /// A radius that does not follow the shell's roundness, such as a row's or
   /// a button's, in this look.
