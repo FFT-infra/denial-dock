@@ -750,7 +750,10 @@ class _ControlCenterPanelState extends ConsumerState<ControlCenterPanel>
           ),
     ];
     final density = KitStyle.of(context).density.clamp(0.75, 1.35);
-    return Padding(
+    // On a short screen, or with every control added, the sheet is taller
+    // than the room above a dock: it scrolls then, and only then, so a tile
+    // dragged while editing is not taken for a scroll when all of it fits.
+    return SingleChildScrollView(
       padding: EdgeInsets.all(_C.inset * density),
       child: Column(
         mainAxisSize: MainAxisSize.min,

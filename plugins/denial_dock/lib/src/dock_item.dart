@@ -1694,6 +1694,18 @@ class _DockItemWidgetState extends State<DockItemWidget>
                                   unawaited(DesktopActions.run(action));
                                 },
                               ),
+                          // Quit closes the menu, last and on its own, where
+                          // macOS keeps it: every window of the application
+                          // is asked to close, which is all a compositor can
+                          // do to make an application leave.
+                          if (widget.windows.isNotEmpty) ...[
+                            DockMenuSeparator(),
+                            DockMenuRow(
+                              icon: Icons.power_settings_new,
+                              label: chinese ? '退出' : 'Quit',
+                              onTap: _closeWindows,
+                            ),
+                          ],
                           if (_launchError case final error?)
                             Padding(
                               padding: const EdgeInsets.fromLTRB(14, 6, 14, 8),

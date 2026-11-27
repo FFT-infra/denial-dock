@@ -14,6 +14,24 @@ abstract final class KitRequests {
   /// The system's about box, which the top bar owns.
   static const String about = 'about';
 
+  /// The bar's panels and the shell's settings, which a shortcut may ask for
+  /// while the bar draws no strip to click.
+  static const String controlCentre = 'controlCentre';
+  static const String notificationCentre = 'notificationCentre';
+  static const String settings = 'settings';
+
+  static KitRequest? _taken;
+
+  /// Whether the caller is the one to answer [request]: the first to ask
+  /// is, so a panel asked for on any output opens once and is not opened
+  /// and shut again by the bar of a second screen.
+  static bool take(KitRequest request) {
+    if (_taken == request) return false;
+    _taken = request;
+    Timer.run(() => _taken = null);
+    return true;
+  }
+
   static final StreamController<KitRequest> _controller =
       StreamController<KitRequest>.broadcast();
 

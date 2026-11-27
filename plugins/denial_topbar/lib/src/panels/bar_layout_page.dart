@@ -323,6 +323,26 @@ class _LayoutPageState extends ConsumerState<_LayoutPage> {
     ];
   }
 
+  /// Shows, hides or reduces the bar. A part sits in one place: a bar that
+  /// comes back takes its parts from the dock, which held them while the
+  /// bar drew no strip, so no clock or tray is drawn twice.
+  void _setBarMode(KitBarMode mode) {
+    setState(() => kitBarMode.value = mode);
+    final zones = _dockZones;
+    if (zones == null || kitBarModeInForce != KitBarMode.shown) return;
+    var changed = false;
+    for (final zone in zones) {
+      final before = zone.length;
+      zone.removeWhere(
+        (id) => !BarPart.repeats(id) && _s.zones.contains(id),
+      );
+      changed = changed || zone.length != before;
+    }
+    if (!changed) return;
+    setState(() => _dockPicked = null);
+    _setDockZones(zones);
+  }
+
   void _setDockZones(List<List<String>> zones) => kitDock.apply(
     <String, Object?>{_dockZoneKeys[0]: zones[0], _dockZoneKeys[1]: zones[1]},
   );
@@ -491,10 +511,12 @@ class _LayoutPageState extends ConsumerState<_LayoutPage> {
       double step = 1,
       String Function(double value)? text,
       bool enabled = true,
+      String? why,
     }) => _Cell(
       label: label,
       detail: text?.call(value) ?? _number(value),
       enabled: enabled,
+      why: why,
       child: MacSlider(
         // This page scrolls, so the slider yields the wheel and vertical
         // drags to it.
@@ -513,9 +535,11 @@ class _LayoutPageState extends ConsumerState<_LayoutPage> {
       List<(T, String)> options,
       ValueChanged<T> set, {
       bool enabled = true,
+      String? why,
     }) => _Cell(
       label: label,
       enabled: enabled,
+      why: why,
       child: FittedBox(
         fit: BoxFit.scaleDown,
         alignment: Alignment.centerLeft,
@@ -709,6 +733,7 @@ class _LayoutPageState extends ConsumerState<_LayoutPage> {
                 ],
                 (v) => save((s) => s.copyWith(cap: v)),
                 enabled: !strip,
+                why: context.tr('Floating shapes only'),
               ),
             ),
             _Pair(
@@ -732,6 +757,7 @@ class _LayoutPageState extends ConsumerState<_LayoutPage> {
                 ],
                 (v) => save((s) => s.copyWith(groundTint: v)),
                 enabled: plated,
+                why: context.tr('Needs a background'),
               ),
             ),
             _Pair(
@@ -744,6 +770,7 @@ class _LayoutPageState extends ConsumerState<_LayoutPage> {
                 step: 0.05,
                 text: _percent,
                 enabled: plated,
+                why: context.tr('Needs a background'),
               ),
               slider(
                 context.tr('Corner radius'),
@@ -752,6 +779,9 @@ class _LayoutPageState extends ConsumerState<_LayoutPage> {
                 BarMetric.cornerRadiusMax,
                 (v) => save((s) => s.copyWith(cornerRadius: v)),
                 enabled: !strip && s.cap == BarCap.round,
+                why: strip
+                    ? context.tr('Floating shapes only')
+                    : context.tr('Round ends only'),
               ),
             ),
             _Pair(
@@ -763,6 +793,7 @@ class _LayoutPageState extends ConsumerState<_LayoutPage> {
                 (v) => save((s) => s.copyWith(borderWidth: v)),
                 step: 0.2,
                 enabled: plated,
+                why: context.tr('Needs a background'),
               ),
               choice<BarBorderColour>(
                 context.tr('Border colour'),
@@ -773,6 +804,9 @@ class _LayoutPageState extends ConsumerState<_LayoutPage> {
                 ],
                 (v) => save((s) => s.copyWith(borderColour: v)),
                 enabled: plated && s.borderWidth > 0,
+                why: plated
+                    ? context.tr('Needs a border')
+                    : context.tr('Needs a background'),
               ),
             ),
           ],
@@ -809,6 +843,7 @@ class _LayoutPageState extends ConsumerState<_LayoutPage> {
                 BarMetric.edgeMarginMax,
                 (v) => save((s) => s.copyWith(edgeMargin: v)),
                 enabled: !strip,
+                why: context.tr('Floating shapes only'),
               ),
               slider(
                 context.tr('Inset at both ends'),
@@ -854,7 +889,7 @@ class _LayoutPageState extends ConsumerState<_LayoutPage> {
                   (KitBarMode.islandOnly, context.tr('Island only')),
                   (KitBarMode.hidden, context.tr('Hidden')),
                 ],
-                onChanged: (mode) => setState(() => kitBarMode.value = mode),
+                onChanged: _setBarMode,
               ),
             ),
           ],
@@ -1026,6 +1061,7 @@ class _LayoutPageState extends ConsumerState<_LayoutPage> {
                       ],
                       (v) => kitDock.apply(<String, Object?>{'align': v}),
                       enabled: dockLayout['shape'] == 'bar',
+                      why: context.tr('Edge bar docks only'),
                     ),
                   ),
                   _Switch(
@@ -1093,36 +1129,49 @@ class _Pair extends StatelessWidget {
 }
 
 /// One setting with its name above its control.
+///
+/// A cell that is switched off says [why] where its value would stand, so a
+/// greyed control is never a riddle.
 class _Cell extends StatelessWidget {
   const _Cell({
     required this.label,
     required this.child,
     this.detail,
     this.enabled = true,
+    this.why,
   });
 
   final String label;
   final String? detail;
   final bool enabled;
+  final String? why;
   final Widget child;
 
   @override
   Widget build(BuildContext context) {
     final theme = context.shellTheme;
+    final duration = KitMotion.duration(context, KitMotion.fill);
+    final aside = enabled ? detail : why ?? detail;
+    final reasoned = !enabled && why != null;
+    Widget faded(Widget child) => AnimatedOpacity(
+      duration: duration,
+      opacity: enabled ? 1 : 0.4,
+      child: child,
+    );
     return IgnorePointer(
       ignoring: !enabled,
-      child: AnimatedOpacity(
-        duration: KitMotion.duration(context, KitMotion.fill),
-        opacity: enabled ? 1 : 0.4,
-        child: Padding(
-          padding: const EdgeInsets.fromLTRB(12, 9, 12, 6),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.stretch,
-            children: <Widget>[
-              Row(
-                children: <Widget>[
-                  Expanded(
-                    child: Text(
+      child: Padding(
+        padding: const EdgeInsets.fromLTRB(12, 9, 12, 6),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: <Widget>[
+            Row(
+              children: <Widget>[
+                Flexible(
+                  flex: reasoned ? 0 : 1,
+                  fit: reasoned ? FlexFit.loose : FlexFit.tight,
+                  child: faded(
+                    Text(
                       label,
                       maxLines: 1,
                       overflow: TextOverflow.ellipsis,
@@ -1131,23 +1180,43 @@ class _Cell extends StatelessWidget {
                       ),
                     ),
                   ),
-                  if (detail != null)
-                    Text(
-                      detail!,
-                      style: BarType.caption.copyWith(
-                        color: theme.colors.textTertiary,
-                        fontFeatures: const <FontFeature>[
-                          FontFeature.tabularFigures(),
-                        ],
+                ),
+                if (aside != null)
+                  if (reasoned)
+                    Expanded(
+                      child: Padding(
+                        padding: const EdgeInsets.only(left: 8),
+                        child: Text(
+                          aside,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          textAlign: TextAlign.end,
+                          style: BarType.caption.copyWith(
+                            color: theme.colors.textTertiary,
+                          ),
+                        ),
+                      ),
+                    )
+                  else
+                    faded(
+                      Text(
+                        aside,
+                        style: BarType.caption.copyWith(
+                          color: theme.colors.textTertiary,
+                          fontFeatures: const <FontFeature>[
+                            FontFeature.tabularFigures(),
+                          ],
+                        ),
                       ),
                     ),
-                ],
+              ],
+            ),
+            Expanded(
+              child: faded(
+                Align(alignment: Alignment.centerLeft, child: child),
               ),
-              Expanded(
-                child: Align(alignment: Alignment.centerLeft, child: child),
-              ),
-            ],
-          ),
+            ),
+          ],
         ),
       ),
     );

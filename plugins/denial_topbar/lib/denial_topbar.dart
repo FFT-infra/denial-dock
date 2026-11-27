@@ -1,8 +1,10 @@
 @Plugin()
 library;
 
+import 'package:denial_flutter_sdk/actions.dart';
 import 'package:denial_flutter_sdk/surfaces.dart';
 import 'package:denial_sdk/composition.dart';
+import 'package:denial_shell_kit/kit_requests.dart';
 import 'package:denial_shell_kit/kit_style.dart';
 import 'package:flutter/widgets.dart';
 
@@ -73,4 +75,72 @@ final class TopBarWorkArea implements ShellWorkArea {
   @override
   ShellWorkAreaReservation? reserve(ShellLayoutSettings settings) =>
       barReservation(settings);
+}
+
+/// What a shortcut can ask of the bar. A bar hidden or reduced to its
+/// island has nothing to click, so its panels stay within reach this way.
+abstract base class _BarAction implements ShellAction {
+  const _BarAction(this.request, this._en, this._zh, this._enNote, this._zhNote);
+
+  final String request;
+  final String _en;
+  final String _zh;
+  final String _enNote;
+  final String _zhNote;
+
+  @override
+  String get id => 'denial_topbar.$request';
+
+  @override
+  String get provider => 'Top bar';
+
+  bool _chinese(BuildContext context) =>
+      Localizations.localeOf(context).languageCode == 'zh';
+
+  @override
+  String label(BuildContext context) => _chinese(context) ? _zh : _en;
+
+  @override
+  String description(BuildContext context) =>
+      _chinese(context) ? _zhNote : _enNote;
+
+  @override
+  void invoke(ShellActionContext context) =>
+      KitRequests.send(request, monitorId: context.monitorId);
+}
+
+@Provides(ShellAction)
+final class ToggleControlCentre extends _BarAction {
+  const ToggleControlCentre()
+    : super(
+        KitRequests.controlCentre,
+        'Control Centre',
+        '控制中心',
+        'Opens or closes Control Centre',
+        '打开或关闭控制中心',
+      );
+}
+
+@Provides(ShellAction)
+final class ToggleNotificationCentre extends _BarAction {
+  const ToggleNotificationCentre()
+    : super(
+        KitRequests.notificationCentre,
+        'Notification Centre',
+        '通知中心',
+        'Opens or closes Notification Centre',
+        '打开或关闭通知中心',
+      );
+}
+
+@Provides(ShellAction)
+final class OpenShellSettings extends _BarAction {
+  const OpenShellSettings()
+    : super(
+        KitRequests.settings,
+        'Shell Settings',
+        '外壳设置',
+        'Opens the settings of the bar and the Dock',
+        '打开顶栏与 Dock 的设置',
+      );
 }

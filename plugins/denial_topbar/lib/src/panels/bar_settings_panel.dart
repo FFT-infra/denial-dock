@@ -641,6 +641,32 @@ class _BarSettingsPanelState extends ConsumerState<BarSettingsPanel> {
               onChanged: (v) => save((s) => s.copyWith(islandLongPressMs: v)),
             ),
           ),
+          _Cell(
+            label: context.tr('Width at rest'),
+            detail: s.islandWidth == BarMetric.islandWidth
+                ? context.tr('As the look has it')
+                : '${s.islandWidth}%',
+            enabled: options[IslandOption.shown].on,
+            child: MacSlider(
+              inList: true,
+              value:
+                  (s.islandWidth - BarMetric.islandWidthMin) /
+                  (BarMetric.islandWidthMax - BarMetric.islandWidthMin),
+              onChanged: (v) {
+                final next =
+                    ((BarMetric.islandWidthMin +
+                                    v *
+                                        (BarMetric.islandWidthMax -
+                                            BarMetric.islandWidthMin)) /
+                                10)
+                            .round() *
+                        10;
+                if (next != s.islandWidth) {
+                  save((s) => s.copyWith(islandWidth: next));
+                }
+              },
+            ),
+          ),
         ],
       ),
       _Group(
@@ -651,7 +677,7 @@ class _BarSettingsPanelState extends ConsumerState<BarSettingsPanel> {
         children: <Widget>[
           toggle(IslandOption.media, 'Now Playing'),
           toggle(IslandOption.notifications, 'Notifications'),
-          toggle(IslandOption.charging, 'Charging'),
+          toggle(IslandOption.charging, 'Charging and low battery'),
           toggle(IslandOption.hud, 'Volume and brightness'),
           toggle(IslandOption.recording, 'Screen recording'),
           toggle(IslandOption.timer, 'Timer'),
@@ -684,6 +710,24 @@ class _BarSettingsPanelState extends ConsumerState<BarSettingsPanel> {
           toggle(IslandOption.split, 'Show other activities beside the island'),
           toggle(IslandOption.swipe, 'Swipe sideways to switch activities'),
           toggle(IslandOption.home, 'Open a home card from the resting island'),
+          _Row(
+            label: context.tr('Timers on the home card'),
+            enabled:
+                options[IslandOption.home].on &&
+                options[IslandOption.timer].on,
+            note:
+                options[IslandOption.home].on && options[IslandOption.timer].on
+                ? null
+                : context.tr('Needs the home card and the Timer activity.'),
+            trailing: _Segments<int>(
+              value: s.islandTimerSet,
+              options: <(int, String)>[
+                for (var i = 0; i < BarMetric.islandTimerSets.length; i++)
+                  (i, BarMetric.islandTimerSets[i].join(' · ')),
+              ],
+              onChanged: (v) => save((s) => s.copyWith(islandTimerSet: v)),
+            ),
+          ),
         ],
       ),
     ];

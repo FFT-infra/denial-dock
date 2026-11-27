@@ -731,6 +731,7 @@ class KitPanelFrame extends StatelessWidget {
       anchorLeft: anchor?.left,
       anchorTop: anchor?.top,
       anchorRight: anchor?.right,
+      anchorBottom: anchor?.bottom,
     );
     final cardColor =
         fill ??

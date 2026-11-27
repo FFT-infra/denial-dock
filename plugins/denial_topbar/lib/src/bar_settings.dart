@@ -153,6 +153,19 @@ abstract final class BarMetric {
   static const int islandLongPressMsMax = 600;
   static const int islandLongPressMs = 280;
 
+  /// The resting island's width, as a percentage of what the look gives it.
+  static const int islandWidthMin = 60;
+  static const int islandWidthMax = 220;
+  static const int islandWidth = 100;
+
+  /// The sets of timers the island's home card can offer, in minutes.
+  static const List<List<int>> islandTimerSets = <List<int>>[
+    <int>[1, 3, 5],
+    <int>[5, 15, 25],
+    <int>[10, 20, 30],
+    <int>[25, 50, 90],
+  ];
+
   static const double textScaleMin = 0.8;
   static const double textScaleMax = 1.4;
   static const double textScale = 1;
@@ -294,6 +307,8 @@ class BarSettings {
     this.islandNoticeSeconds = 5,
     this.islandFadeDelayMs = BarMetric.islandFadeDelayMs,
     this.islandLongPressMs = BarMetric.islandLongPressMs,
+    this.islandWidth = BarMetric.islandWidth,
+    this.islandTimerSet = 1,
     this.activityMedia = true,
     this.activityCharging = true,
     this.activityNotifications = true,
@@ -406,6 +421,14 @@ class BarSettings {
 
   /// How long a press is held before it opens the island.
   final int islandLongPressMs;
+
+  /// The resting island's width, as a percentage of the look's own.
+  final int islandWidth;
+
+  /// Which of [BarMetric.islandTimerSets] the home card offers.
+  final int islandTimerSet;
+
+  List<int> get islandTimers => BarMetric.islandTimerSets[islandTimerSet];
 
   final bool activityMedia;
   final bool activityCharging;
@@ -659,6 +682,8 @@ class BarSettings {
     int? islandNoticeSeconds,
     int? islandFadeDelayMs,
     int? islandLongPressMs,
+    int? islandWidth,
+    int? islandTimerSet,
     bool? activityMedia,
     bool? activityCharging,
     bool? activityNotifications,
@@ -732,6 +757,8 @@ class BarSettings {
     islandNoticeSeconds: islandNoticeSeconds ?? this.islandNoticeSeconds,
     islandFadeDelayMs: islandFadeDelayMs ?? this.islandFadeDelayMs,
     islandLongPressMs: islandLongPressMs ?? this.islandLongPressMs,
+    islandWidth: islandWidth ?? this.islandWidth,
+    islandTimerSet: islandTimerSet ?? this.islandTimerSet,
     activityMedia: activityMedia ?? this.activityMedia,
     activityCharging: activityCharging ?? this.activityCharging,
     activityNotifications: activityNotifications ?? this.activityNotifications,
@@ -907,6 +934,18 @@ class BarSettings {
         BarMetric.islandLongPressMsMax,
         BarMetric.islandLongPressMs,
       ),
+      islandWidth: whole(
+        'islandWidth',
+        BarMetric.islandWidthMin,
+        BarMetric.islandWidthMax,
+        BarMetric.islandWidth,
+      ),
+      islandTimerSet: whole(
+        'islandTimerSet',
+        0,
+        BarMetric.islandTimerSets.length - 1,
+        1,
+      ),
       activityMedia: flag('activityMedia', true),
       activityCharging: flag('activityCharging', true),
       activityNotifications: flag('activityNotifications', true),
@@ -996,6 +1035,8 @@ class BarSettings {
     json['islandNoticeSeconds'] = islandNoticeSeconds;
     json['islandFadeDelayMs'] = islandFadeDelayMs;
     json['islandLongPressMs'] = islandLongPressMs;
+    json['islandWidth'] = islandWidth;
+    json['islandTimerSet'] = islandTimerSet;
     json['activityMedia'] = activityMedia;
     json['activityCharging'] = activityCharging;
     json['activityNotifications'] = activityNotifications;

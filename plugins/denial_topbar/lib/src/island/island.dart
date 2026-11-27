@@ -57,6 +57,7 @@ abstract final class _I {
   static const double pad = 18;
   static const Duration hudHold = Duration(seconds: 2);
   static const Duration chargeHold = Duration(seconds: 3);
+  static const Duration lowHold = Duration(seconds: 5);
   static const Duration trackHold = Duration(seconds: 3);
   static const Duration statusHold = Duration(milliseconds: 2600);
   static const Duration settle = Duration(seconds: 6);
@@ -756,9 +757,15 @@ class _IslandState extends ConsumerState<Island> with TickerProviderStateMixin {
   }
 
   bool? _wasPlugged;
+  int? _wasCharge;
+
+  /// Whether the battery is low enough, and unplugged, to say so in red.
+  static bool _low(bool plugged, int? charge) =>
+      !plugged && charge != null && charge <= 20;
 
   /// The resting pill's width in the look in force.
-  double get _rest => _skin.rest(widget.height);
+  double get _rest =>
+      _skin.rest(widget.height) * widget.settings.islandWidth / 100;
 
   double _measure(String text, TextStyle style) {
     final painter = TextPainter(
@@ -1011,6 +1018,23 @@ class _IslandState extends ConsumerState<Island> with TickerProviderStateMixin {
       });
     }
     _wasPlugged = plugged;
+    // On battery, falling to a fifth and then to a tenth says so once each.
+    final charge = ref.watch(_services.battery).capacity;
+    final before = _wasCharge;
+    _wasCharge = charge;
+    if (!plugged &&
+        charge != null &&
+        before != null &&
+        widget.settings.activityCharging) {
+      for (final mark in const <int>[20, 10]) {
+        if (before > mark && charge <= mark) {
+          scheduleMicrotask(() {
+            if (mounted) _show(IslandKind.charging, 'low$mark', _I.lowHold);
+          });
+          break;
+        }
+      }
+    }
 
     final settings = widget.settings;
     final style = KitStyle.of(context);
@@ -1702,14 +1726,25 @@ class _IslandState extends ConsumerState<Island> with TickerProviderStateMixin {
         );
       case IslandKind.charging:
         final plugged = _wasPlugged ?? false;
-        final colour = plugged ? const Color(0xff30d158) : _skin.ink;
+        final low = _low(plugged, battery.capacity);
+        final colour = plugged
+            ? const Color(0xff30d158)
+            : low
+            ? const Color(0xffff453a)
+            : _skin.ink;
         return Padding(
           padding: const EdgeInsets.symmetric(horizontal: 13),
           child: Row(
             children: <Widget>[
               Expanded(
                 child: Text(
-                  context.tr(plugged ? 'Charging' : 'On Battery'),
+                  context.tr(
+                    plugged
+                        ? 'Charging'
+                        : low
+                        ? 'Low Battery'
+                        : 'On Battery',
+                  ),
                   maxLines: 1,
                   overflow: TextOverflow.ellipsis,
                   style: BarType.islandLabel.copyWith(color: _skin.ink),
@@ -1864,7 +1899,7 @@ class _IslandState extends ConsumerState<Island> with TickerProviderStateMixin {
                 ),
           actions: <IslandHomeAction>[
             if (widget.settings.activityTimer)
-              for (final minutes in const <int>[5, 15, 25])
+              for (final minutes in widget.settings.islandTimers)
                 IslandHomeAction(
                   icon: BarIcons.timer,
                   label: context.tr('{}m', minutes),
@@ -1934,7 +1969,13 @@ class _IslandState extends ConsumerState<Island> with TickerProviderStateMixin {
         return IslandChargeCard(
           percent: battery.capacity ?? 0,
           plugged: plugged,
-          label: context.tr(plugged ? 'Charging' : 'On Battery'),
+          label: context.tr(
+            plugged
+                ? 'Charging'
+                : _low(plugged, battery.capacity)
+                ? 'Low Battery'
+                : 'On Battery',
+          ),
           detail: left != null && left > Duration.zero
               ? context.tr(
                   plugged ? '{} until full' : '{} remaining',

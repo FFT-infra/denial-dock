@@ -67,6 +67,39 @@ void main() {
   );
   _expect(_near(p.left, 94) && _near(p.top, bar + 2), 'a menu under its title');
 
+  // On a side bar an item low on the screen hangs its panel upwards, so the
+  // panel has the screen above it rather than the little below.
+  p = kitPanelPlace(
+    sceneWidth: w,
+    sceneHeight: h,
+    edge: KitEdge.left,
+    hostExtent: bar,
+    gap: 8,
+    width: 320,
+    align: KitPanelAlign.sceneEnd,
+    anchorLeft: 2,
+    anchorTop: h - 60,
+    anchorRight: 31,
+    anchorBottom: h - 30,
+  );
+  _expect(p.top == null && _near(p.bottom, 30 - 4), 'a low item opens upwards');
+  _expect(p.originY == 1, 'and grows from its foot');
+  _expect(_near(p.maxHeight, h - 26 - 8), 'with the screen above it free');
+  p = kitPanelPlace(
+    sceneWidth: w,
+    sceneHeight: h,
+    edge: KitEdge.left,
+    hostExtent: bar,
+    gap: 8,
+    width: 320,
+    align: KitPanelAlign.anchorCenter,
+    anchorLeft: 2,
+    anchorTop: 120,
+    anchorRight: 31,
+    anchorBottom: 151,
+  );
+  _expect(_near(p.top, 116) && p.bottom == null, 'a high item opens downwards');
+
   // A sheet at the scene's trailing side ignores where its item is.
   p = kitPanelPlace(
     sceneWidth: w,

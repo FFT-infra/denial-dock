@@ -65,7 +65,8 @@ class KitPanelPlace {
 /// and the middle for [KitPanelAlign.anchorCenter].
 ///
 /// A host on the left or right edge hangs the panel beside the item, its top
-/// [sideLift] above the item's top.
+/// [sideLift] above the item's top, or its foot as far below the item's foot
+/// when the item is in the lower half of the scene.
 KitPanelPlace kitPanelPlace({
   required double sceneWidth,
   required double sceneHeight,
@@ -80,9 +81,10 @@ KitPanelPlace kitPanelPlace({
   double? anchorLeft,
   double? anchorTop,
   double? anchorRight,
+  double? anchorBottom,
 }) {
   final double? left;
-  final double? top;
+  double? top;
   double? right;
   double? bottom;
   final double originX;
@@ -125,9 +127,21 @@ KitPanelPlace kitPanelPlace({
       left = null;
       right = hostExtent + gap;
     }
-    top = math.max(margin, (anchorTop ?? margin) - sideLift);
+    // An item in the lower half of a side bar hangs its panel upwards from
+    // the item's foot: hung from its top there, the panel would have what
+    // is left of the screen below it and no more.
+    final low =
+        anchorTop != null &&
+        anchorBottom != null &&
+        (anchorTop + anchorBottom) / 2 > sceneHeight / 2;
+    if (low) {
+      top = null;
+      bottom = math.max(margin, sceneHeight - anchorBottom - sideLift);
+    } else {
+      top = math.max(margin, (anchorTop ?? margin) - sideLift);
+    }
     originX = edge == KitEdge.left ? -1 : 1;
-    originY = -1;
+    originY = low ? 1 : -1;
   }
   return KitPanelPlace(
     left: left,

@@ -103,9 +103,19 @@ class _TopBarSurfaceState extends ConsumerState<TopBarSurface>
     // Another plugin asks for the about box by name; it opens on the output
     // the request names, or on every bar's when it names none.
     _requests = KitRequests.stream.listen((request) {
-      if (!mounted || request.name != KitRequests.about) return;
+      if (!mounted) return;
       final monitor = request.monitorId;
-      if (monitor == null || monitor == widget.monitorId) _openAbout();
+      if (monitor != null && monitor != widget.monitorId) return;
+      switch (request.name) {
+        case KitRequests.about:
+          _openAbout();
+        case KitRequests.controlCentre:
+          if (KitRequests.take(request)) _status?.onControlCenter();
+        case KitRequests.notificationCentre:
+          if (KitRequests.take(request)) _clockTap?.call();
+        case KitRequests.settings:
+          if (KitRequests.take(request)) _openBarSettings();
+      }
     });
     startDebugRemote();
     debugCommand.addListener(_debug);
@@ -223,14 +233,16 @@ class _TopBarSurfaceState extends ConsumerState<TopBarSurface>
     return side == null || side == PanelEdge.hidden ? PanelEdge.top : side;
   }
 
-  /// The strip's height as laid out, so a panel hangs from its real bottom
-  /// edge rather than the reference token.
+  /// How far the bar reaches from its screen edge as laid out, so a panel
+  /// hangs from the bar's real inner face: a floating bar stands its margin
+  /// off the edge, and that margin is under the panel too.
   @override
   double get _bodyHeight {
     final settings =
         ref.read(barSettingsProvider).value ?? BarSettings.defaults;
     final thickness = widget.environment.settings.layout.systemBarThickness;
-    return math.max(BarTokens.height, thickness - _marginOf(settings) * 2);
+    final margin = _marginOf(settings);
+    return margin + math.max(BarTokens.height, thickness - margin * 2);
   }
 
   /// Room between the bar and the screen edge it sits on; a strip has none.
@@ -254,6 +266,10 @@ class _TopBarSurfaceState extends ConsumerState<TopBarSurface>
     switch (words.first) {
       case 'close':
         closeKitPanel();
+      case 'ask':
+        if (words.length > 1) {
+          KitRequests.send(words[1], monitorId: widget.monitorId);
+        }
       case 'preset':
         if (words.length > 1) {
           applyShellPreset(ref, ShellPreset.byId(words[1]));
