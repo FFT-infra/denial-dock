@@ -19,6 +19,7 @@ export 'kit_look.dart'
         KitLook,
         KitPanelEntry;
 export 'kit_look_motion.dart' show KitLookMotion, KitSpringTuning;
+export 'kit_store.dart' show resolveKitScale;
 
 /// One look for the dock and the top bar: where colour, type and corners come
 /// from, and how things move. The values are a [KitLook], which is plain
@@ -622,6 +623,50 @@ class KitSaturateNotifier extends ValueNotifier<bool> {
 /// Whether the dock shows at all. The dock reads it when the shell places
 /// its surfaces, so a change rebuilds everything to have them placed again.
 final KitDockNotifier kitDockEnabled = KitDockNotifier._();
+
+/// Optional shell UI scale override (`null` follows the system display scale).
+final KitShellScaleNotifier kitShellScale = KitShellScaleNotifier._();
+
+class KitShellScaleNotifier extends ValueNotifier<double?> {
+  KitShellScaleNotifier._() : super(_read());
+
+  static double? _read() {
+    final raw = kitStore.read()['shellScale'];
+    if (raw is! num || !raw.isFinite) return null;
+    return raw.toDouble().clamp(0.75, 1.50).toDouble();
+  }
+
+  @override
+  set value(double? next) {
+    final normalized = next == null || !next.isFinite
+        ? null
+        : next.clamp(0.75, 1.50).toDouble();
+    if (super.value == normalized) return;
+    super.value = normalized;
+    _rebuildEverything();
+    kitStore.put('shellScale', normalized);
+  }
+}
+
+/// Effective shell UI scale active for the subtree below [ShellScaleViewport].
+class KitScaleScope extends InheritedWidget {
+  const KitScaleScope({
+    required this.effectiveScale,
+    required super.child,
+    super.key,
+  });
+
+  final double effectiveScale;
+
+  static double effectiveOf(BuildContext context) {
+    final scope = context.dependOnInheritedWidgetOfExactType<KitScaleScope>();
+    return scope?.effectiveScale ?? 1.0;
+  }
+
+  @override
+  bool updateShouldNotify(KitScaleScope oldWidget) =>
+      effectiveScale != oldWidget.effectiveScale;
+}
 
 class KitDockNotifier extends ValueNotifier<bool> {
   KitDockNotifier._() : super(KitStore.dockOf(kitStore.read()));

@@ -85,5 +85,12 @@ class KitStore {
   }
 }
 
+/// Resolves effective shell UI scale against [hostScale] and optional [override].
+double resolveKitScale(double hostScale, double? override) {
+  final base = hostScale.isFinite && hostScale > 0 ? hostScale : 1.0;
+  if (override == null || !override.isFinite) return base;
+  return override.clamp(0.75, 1.50).toDouble();
+}
+
 /// The store every notifier of the kit reads and writes.
 final KitStore kitStore = KitStore(KitStore.defaultFile());

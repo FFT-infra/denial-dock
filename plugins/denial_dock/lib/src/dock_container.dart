@@ -17,6 +17,7 @@ import 'package:denial_flutter_sdk/applications.dart'
 import 'package:denial_flutter_sdk/input.dart';
 import 'package:denial_flutter_sdk/popups.dart';
 import 'package:denial_flutter_sdk/services.dart';
+import 'package:denial_flutter_sdk/settings.dart' show ShellScale;
 import 'package:denial_flutter_sdk/shell.dart';
 import 'package:denial_flutter_sdk/state.dart'
     show
@@ -251,18 +252,40 @@ class _DockContainerState extends ConsumerState<DockContainer>
 
   DockPosition get _position => _settings.position;
   bool get _vertical => _position != DockPosition.bottom;
-  Rect get _output => widget.environment.output.logicalRect;
+  double get _effectiveScale =>
+      resolveKitScale(widget.environment.shellScale, kitShellScale.value);
+  double get _relativeScale {
+    final hostScale = widget.environment.shellScale;
+    return _effectiveScale / (hostScale > 0 ? hostScale : 1.0);
+  }
+
+  Rect _scaleByRelative(Rect rect) {
+    final rel = _relativeScale;
+    if ((rel - 1.0).abs() <= 1e-4) return rect;
+    return ShellScale.toShell(
+      rect,
+      widget.environment.output.logicalRect.topLeft,
+      rel,
+    );
+  }
+
+  Rect get _output => _scaleByRelative(widget.environment.output.logicalRect);
+  Rect get _workArea => _scaleByRelative(widget.environment.workArea);
 
   /// The output as the overlay the dock's menus open in has it. Where the
   /// shell draws itself at a scale of its own, each output has an overlay
   /// that starts at the output's corner; elsewhere the overlay is the scene.
-  Rect get _overlayOutput => widget.environment.shellScale == 1.0
+  Rect get _overlayOutput =>
+      widget.environment.shellScale == 1.0 &&
+          (_relativeScale - 1.0).abs() <= 1e-4
       ? _output
       : Offset.zero & _output.size;
 
-  Rect get _overlayWorkArea => widget.environment.shellScale == 1.0
-      ? widget.environment.workArea
-      : widget.environment.workArea.shift(-_output.topLeft);
+  Rect get _overlayWorkArea =>
+      widget.environment.shellScale == 1.0 &&
+          (_relativeScale - 1.0).abs() <= 1e-4
+      ? _workArea
+      : _workArea.shift(-_output.topLeft);
 
   bool get _held =>
       _insideCapsule ||
@@ -315,7 +338,7 @@ class _DockContainerState extends ConsumerState<DockContainer>
       KitHosts.dock,
       KitHostState(
         edge: _kitEdge,
-        thickness: _look.effectiveEdgeMargin + _capsuleHeight,
+        thickness: (_look.effectiveEdgeMargin + _capsuleHeight) * _relativeScale,
         pinned: settings.visibility == DockVisibilityMode.always,
       ),
     );
@@ -364,6 +387,7 @@ class _DockContainerState extends ConsumerState<DockContainer>
     _debug = DockDebug.commands.listen(_onDebug);
     kitOpenPanel.addListener(_onShellState);
     kitReservation.addListener(_onShellState);
+    kitShellScale.addListener(_onShellState);
     if (widget.environment.isMainOutput) kitDock.attach(_applyLayout);
     registerDockSettingsPages();
     registerDockParts();
@@ -450,6 +474,7 @@ class _DockContainerState extends ConsumerState<DockContainer>
     kitSpeed.removeListener(_onSpeed);
     kitOpenPanel.removeListener(_onShellState);
     kitReservation.removeListener(_onShellState);
+    kitShellScale.removeListener(_onShellState);
     // Listeners rebuild, which they may not do while the tree is torn down.
     scheduleMicrotask(() {
       kitDock.detach(_applyLayout);
@@ -860,7 +885,7 @@ class _DockContainerState extends ConsumerState<DockContainer>
   Offset _toShell(Offset screen) {
     final box = context.findRenderObject();
     if (box is! RenderBox || !box.hasSize) return screen;
-    return box.globalToLocal(screen) + _output.topLeft;
+    return box.globalToLocal(screen) / _relativeScale + _output.topLeft;
   }
 
   void _updateDrag(Offset screenPointer) {
@@ -1367,7 +1392,7 @@ class _DockContainerState extends ConsumerState<DockContainer>
     _reserved = settings.avoidReservedEdge && foreign
         ? DockAutoHide.reservedEdge(
             output: _output,
-            workArea: widget.environment.workArea,
+            workArea: _workArea,
             position: settings.position,
           )
         : 0;
@@ -1425,7 +1450,7 @@ class _DockContainerState extends ConsumerState<DockContainer>
           )
         : const <String, int>{};
 
-    return LayoutBuilder(
+    final viewport = LayoutBuilder(
       builder: (context, constraints) {
         _surfaceWidth = constraints.maxWidth;
         _surfaceHeight = constraints.maxHeight;
@@ -1473,14 +1498,18 @@ class _DockContainerState extends ConsumerState<DockContainer>
           thickness: _capsuleHeight,
           inset: _edgeInset,
         );
+        final origin = widget.environment.output.logicalRect.topLeft;
+        final effectiveScale = _effectiveScale;
         final conflict = DockAutoHide.hasConflict(
           windows: denialWindows,
           // Windows are where the screen has them; the dock's own rectangles
           // are in the shell's units and go over to the screen's.
-          trigger: environment.toScreen(
+          trigger: ShellScale.toScreen(
             DockAutoHide.intentionalOverlap(dockRect, position: _position),
+            origin,
+            effectiveScale,
           ),
-          release: environment.toScreen(dockRect),
+          release: ShellScale.toScreen(dockRect, origin, effectiveScale),
           previousConflict: _conflict,
           monitorId: widget.monitorId,
           workspaceId: environment.workspaceId,
@@ -1790,6 +1819,17 @@ class _DockContainerState extends ConsumerState<DockContainer>
         );
       },
     );
+    final rel = _relativeScale;
+    final scoped = KitScaleScope(
+      effectiveScale: _effectiveScale,
+      child: viewport,
+    );
+    return (rel - 1.0).abs() <= 1e-4
+        ? scoped
+        : ShellScaleViewport(
+            scale: rel,
+            child: ShellOverlayHost(child: scoped),
+          );
   }
 
   /// A short bar on the screen edge while the dock is retracted, so a hidden

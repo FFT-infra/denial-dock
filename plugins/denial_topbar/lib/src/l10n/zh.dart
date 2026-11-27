@@ -535,4 +535,9 @@ const Map<String, String> zh = <String, String>{
   'Live thumbnails on other desktops': '其他桌面显示实时缩略图',
   'Middle-click a thumbnail to close window': '中键点击缩略图关闭窗口',
   'Live thumbnails per desktop': '每个桌面最多实时缩略图数',
+  'Shell scale': '外壳缩放',
+  'Follow system': '跟随系统',
+  'Custom shell scale': '自定义外壳缩放',
+  'Keyboard layout': '输入法与键盘布局',
+  'Switch keyboard layout': '切换键盘布局',
 };

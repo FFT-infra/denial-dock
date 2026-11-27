@@ -28,6 +28,7 @@ import '../l10n.dart';
 import 'look_page.dart';
 import 'mac_kit.dart';
 import 'part_drop.dart';
+import 'setting_bits.dart' show SettingSlider;
 
 part 'bar_layout_page.dart';
 
@@ -242,6 +243,7 @@ class _BarSettingsPanelState extends ConsumerState<BarSettingsPanel> {
     applyShellPreset(ref, ShellPreset.denial, fresh: true);
     forgetShellPresets();
     kitSpeed.value = 1;
+    kitShellScale.value = null;
     ref
         .read(barSettingsProvider.notifier)
         .save((s) => BarSettings(recentsClearedAt: s.recentsClearedAt));
@@ -251,11 +253,13 @@ class _BarSettingsPanelState extends ConsumerState<BarSettingsPanel> {
   void initState() {
     super.initState();
     trayNames.addListener(_namesChanged);
+    kitShellScale.addListener(_namesChanged);
   }
 
   @override
   void dispose() {
     trayNames.removeListener(_namesChanged);
+    kitShellScale.removeListener(_namesChanged);
     super.dispose();
   }
 
@@ -497,6 +501,30 @@ class _BarSettingsPanelState extends ConsumerState<BarSettingsPanel> {
               ],
             ),
           ),
+          _Row(
+            label: context.tr('Shell scale'),
+            trailing: _Segments<double?>(
+              value: kitShellScale.value,
+              options: <(double?, String)>[
+                (null, context.tr('Follow system')),
+                (0.85, '85%'),
+                (1.0, '100%'),
+                (1.10, '110%'),
+                (1.25, '125%'),
+              ],
+              onChanged: (scale) => kitShellScale.value = scale,
+            ),
+          ),
+          if (kitShellScale.value != null)
+            SettingSlider(
+              label: context.tr('Custom shell scale'),
+              value: kitShellScale.value!,
+              min: 0.75,
+              max: 1.50,
+              step: 0.05,
+              text: (v) => '${(v * 100).round()}%',
+              onChanged: (v) => kitShellScale.value = v,
+            ),
         ],
       ),
       _Group(
@@ -873,6 +901,7 @@ class _BarSettingsPanelState extends ConsumerState<BarSettingsPanel> {
         'bluetooth': ('Bluetooth', BarIcons.bluetooth),
         'volume': ('Sound', BarIcons.speaker3Fill),
         'battery': ('Battery', BarIcons.batteryFull),
+        'keyboard': ('Keyboard layout', BarIcons.globe),
         'search': ('Search', BarIcons.search),
         'clipboard': ('Clipboard History', BarIcons.clipboard),
         'notifications': ('Notifications', BarIcons.bellFill),
@@ -886,6 +915,7 @@ class _BarSettingsPanelState extends ConsumerState<BarSettingsPanel> {
     'bluetooth' => s.showBluetooth,
     'volume' => s.showVolume,
     'battery' => s.showBattery,
+    'keyboard' => s.showKeyboard,
     'search' => s.showSearch,
     'clipboard' => s.showClipboard,
     'notifications' => s.showNotifications,
@@ -899,6 +929,7 @@ class _BarSettingsPanelState extends ConsumerState<BarSettingsPanel> {
     'bluetooth' => s.copyWith(showBluetooth: v),
     'volume' => s.copyWith(showVolume: v),
     'battery' => s.copyWith(showBattery: v),
+    'keyboard' => s.copyWith(showKeyboard: v),
     'search' => s.copyWith(showSearch: v),
     'clipboard' => s.copyWith(showClipboard: v),
     'notifications' => s.copyWith(showNotifications: v),

@@ -218,9 +218,13 @@ class KitGlass extends StatelessWidget {
     final corners = BorderRadius.circular(radius);
     Widget plate;
     if (filtered && plan.direct) {
+      final effectiveScale = KitScaleScope.effectiveOf(context);
+      final sigma = material.sigma != null && effectiveScale > 1e-3
+          ? plan.sigma / effectiveScale
+          : plan.sigma;
       final config = filterFor(
         theme,
-        sigma: plan.sigma,
+        sigma: sigma,
         saturation: material.saturation,
       );
       // Laid out as the shell's own backdrop is: a steady one replaces what

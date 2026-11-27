@@ -1,5 +1,6 @@
 import 'dart:async';
 
+import 'package:denial_flutter_sdk/platform.dart' show DenialTextInputState;
 import 'package:denial_flutter_sdk/services.dart';
 import 'package:denial_flutter_sdk/state.dart';
 import 'package:denial_flutter_sdk/theme.dart';
@@ -208,6 +209,22 @@ class BarStatusCluster extends ConsumerWidget {
     final unread = ref.watch(
       desktopNotificationsProvider.select((state) => state.unreadCount),
     );
+    final keyboard = ref.watch(
+      keyboardConfigurationProvider.select((state) => state.configuration),
+    );
+    final textInput = ref.watch(_textInputActiveProvider).value;
+    final keyboardLayouts = keyboard?.layouts ?? const [];
+    final activeLayout = keyboardLayouts.isEmpty
+        ? null
+        : keyboardLayouts[keyboard!.activeLayout.clamp(
+            0,
+            keyboardLayouts.length - 1,
+          )];
+    final showKeyboardCell =
+        settings.showKeyboard &&
+        (keyboardLayouts.length > 1 ||
+            (textInput?.inputMethod ?? false) ||
+            (textInput?.active ?? false));
 
     double span(double width) => horizontal ? width : crossExtent;
     final percent = settings.showBatteryPercent && horizontal;
@@ -368,6 +385,30 @@ class BarStatusCluster extends ConsumerWidget {
                 level: (battery.capacity ?? 0) / 100,
                 colour: ink,
                 charging: battery.charging || plugged,
+              ),
+            ],
+          ),
+        ),
+      if (showKeyboardCell && activeLayout != null)
+        'keyboard': BarStatusCell(
+          ink: ink,
+          width: span(36),
+          onTap: () => ref.read(denialBridgeProvider).nextKeyboardLayout(),
+          tooltip:
+              '${context.tr('Switch keyboard layout')}: ${activeLayout.label}',
+          child: Row(
+            mainAxisSize: MainAxisSize.min,
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: <Widget>[
+              Text(
+                _layoutBadge(activeLayout.layout, textInput),
+                maxLines: 1,
+                style: BarType.caption.copyWith(
+                  fontSize: 11,
+                  fontWeight: FontWeight.w600,
+                  letterSpacing: 0.4,
+                  color: ink,
+                ),
               ),
             ],
           ),
@@ -537,6 +578,18 @@ final _micProvider = Provider.autoDispose<List<String>>((ref) {
   ref.onDispose(() => micWatch.removeListener(changed));
   return micWatch.value;
 });
+
+final _textInputActiveProvider = StreamProvider.autoDispose<DenialTextInputState>(
+  (ref) => ref.watch(denialBridgeProvider).textInputStates,
+);
+
+String _layoutBadge(String layout, DenialTextInputState? textInput) {
+  if (textInput?.inputMethod == true) return '中';
+  final clean = layout.trim();
+  if (clean.isEmpty) return 'KB';
+  final short = clean.length <= 3 ? clean : clean.substring(0, 2);
+  return short.toUpperCase();
+}
 
 final _trayNamesProvider = Provider.autoDispose<Map<String, TrayIdentity>>((
   ref,

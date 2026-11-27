@@ -38,13 +38,18 @@ final class TopBarPlugin implements ShellSurface {
         !environment.outputSelected(layout.systemBarOutputNames)) {
       return null;
     }
+    final rel =
+        resolveKitScale(environment.shellScale, kitShellScale.value) /
+        (environment.shellScale > 0 ? environment.shellScale : 1.0);
+    final scalePad = rel > 1.0 ? rel : 1.0;
     return ShellSurfacePlacement(
       bounds: ShellSurfacePlacement.edgeBounds(
         environment.output.logicalRect,
         side,
-        layout.systemBarThickness +
-            barShadowExtent +
-            (side == PanelEdge.top ? islandReach : 0),
+        (layout.systemBarThickness +
+                barShadowExtent +
+                (side == PanelEdge.top ? islandReach : 0)) *
+            scalePad,
       ),
       visible:
           !environment.locked &&

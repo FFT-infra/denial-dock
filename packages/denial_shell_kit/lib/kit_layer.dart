@@ -5,6 +5,7 @@ import 'package:denial_flutter_sdk/input.dart';
 import 'package:denial_flutter_sdk/models.dart' show DisplayLayout;
 import 'package:denial_flutter_sdk/panels.dart';
 import 'package:denial_flutter_sdk/popups.dart';
+import 'package:denial_flutter_sdk/rendering.dart' show translationOnPixelGrid;
 import 'package:denial_flutter_sdk/state.dart'
     show denialBridgeProvider, displayLayoutProvider;
 import 'package:denial_flutter_sdk/surfaces.dart' show ShellScaleViewport;
@@ -128,7 +129,10 @@ class KitLayerSpace extends InheritedWidget {
   final overlay = Overlay.maybeOf(context)?.context.findRenderObject();
   if (overlay is! RenderBox || !overlay.hasSize || !box.hasSize) return null;
   return (
-    rect: box.localToGlobal(Offset.zero, ancestor: overlay) & box.size,
+    rect: MatrixUtils.transformRect(
+      box.getTransformTo(overlay),
+      Offset.zero & box.size,
+    ),
     size: overlay.size,
   );
 }
@@ -148,27 +152,33 @@ class _KitLayerOutput extends ConsumerWidget {
       near,
       Offset.zero & MediaQuery.sizeOf(context),
     );
-    final space = KitLayerSpace(
-      origin: rect.topLeft,
-      scale: scale,
-      child: child,
-    );
-    return Stack(
-      fit: StackFit.expand,
-      children: <Widget>[
-        Positioned.fromRect(
-          rect: rect,
-          // The viewport tells its child the size it has; at a scale of 1 it
-          // steps aside, and the size of one output among several is told
-          // here.
-          child: scale == 1.0
-              ? MediaQuery(
-                  data: MediaQuery.of(context).copyWith(size: rect.size),
-                  child: space,
-                )
-              : ShellScaleViewport(scale: scale, child: space),
-        ),
-      ],
+    return ValueListenableBuilder<double?>(
+      valueListenable: kitShellScale,
+      builder: (context, override, _) {
+        final effectiveScale = resolveKitScale(scale, override);
+        final space = KitLayerSpace(
+          origin: rect.topLeft,
+          scale: effectiveScale,
+          child: KitScaleScope(effectiveScale: effectiveScale, child: child),
+        );
+        return Stack(
+          fit: StackFit.expand,
+          children: <Widget>[
+            Positioned.fromRect(
+              rect: rect,
+              // The viewport tells its child the size it has; at a scale of 1 it
+              // steps aside, and the size of one output among several is told
+              // here.
+              child: (effectiveScale - 1.0).abs() <= 1e-4
+                  ? MediaQuery(
+                      data: MediaQuery.of(context).copyWith(size: rect.size),
+                      child: space,
+                    )
+                  : ShellScaleViewport(scale: effectiveScale, child: space),
+            ),
+          ],
+        );
+      },
     );
   }
 }
@@ -773,7 +783,10 @@ class KitWindowState extends State<KitWindow> {
     final scene = MediaQuery.sizeOf(context);
     return Center(
       child: Transform.translate(
-        offset: _offset,
+        offset: translationOnPixelGrid(
+          _offset,
+          devicePixelRatio: MediaQuery.maybeDevicePixelRatioOf(context),
+        ),
         child: KitSwell(
           alignment: Alignment.center,
           child: ConstrainedBox(

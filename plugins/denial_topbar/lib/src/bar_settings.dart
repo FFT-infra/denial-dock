@@ -333,6 +333,7 @@ class BarSettings {
     this.collapseAutoSeconds = 15,
     this.trayFold = BarTrayFold.inline,
     this.showBluetooth = true,
+    this.showKeyboard = true,
     this.showSearch = true,
     this.showClipboard = false,
     this.activityHud = true,
@@ -474,6 +475,7 @@ class BarSettings {
       ? BarTrayFold.popover
       : trayFold;
   final bool showBluetooth;
+  final bool showKeyboard;
   final bool showSearch;
 
   /// Keeps the texts copied this session and shows them from a bar item.
@@ -708,6 +710,7 @@ class BarSettings {
     int? collapseAutoSeconds,
     BarTrayFold? trayFold,
     bool? showBluetooth,
+    bool? showKeyboard,
     bool? showSearch,
     bool? showClipboard,
     bool? activityHud,
@@ -784,6 +787,7 @@ class BarSettings {
     collapseAutoSeconds: collapseAutoSeconds ?? this.collapseAutoSeconds,
     trayFold: trayFold ?? this.trayFold,
     showBluetooth: showBluetooth ?? this.showBluetooth,
+    showKeyboard: showKeyboard ?? this.showKeyboard,
     showSearch: showSearch ?? this.showSearch,
     showClipboard: showClipboard ?? this.showClipboard,
     activityHud: activityHud ?? this.activityHud,
@@ -976,6 +980,7 @@ class BarSettings {
           : 15,
       trayFold: BarTrayFold.parse(json['trayFold']),
       showBluetooth: flag('showBluetooth', true),
+      showKeyboard: flag('showKeyboard', true),
       showSearch: flag('showSearch', true),
       showClipboard: flag('showClipboard', false),
       activityHud: flag('activityHud', true),
@@ -1061,6 +1066,7 @@ class BarSettings {
     json['collapseAutoSeconds'] = collapseAutoSeconds;
     json['trayFold'] = trayFold.key;
     json['showBluetooth'] = showBluetooth;
+    json['showKeyboard'] = showKeyboard;
     json['showSearch'] = showSearch;
     json['showClipboard'] = showClipboard;
     json['activityHud'] = activityHud;

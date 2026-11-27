@@ -8,13 +8,18 @@ import 'package:denial_flutter_sdk/surfaces.dart';
 import 'package:denial_shell_kit/kit_host.dart';
 import 'package:denial_shell_kit/kit_layer.dart' show KitEdgeOfPanelEdge;
 import 'package:denial_shell_kit/kit_panel_place.dart' show KitEdge;
+import 'package:denial_shell_kit/kit_style.dart'
+    show kitShellScale, resolveKitScale;
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 /// The room the shell keeps free of windows, decided between the bar and the
 /// dock. This plugin holds the shell's one work-area provider, so it answers
 /// for both: the bar's strip while the bar draws one, otherwise the edge of
 /// a dock that stays on screen, otherwise nothing.
-ShellWorkAreaReservation? barReservation(ShellLayoutSettings settings) {
+ShellWorkAreaReservation? barReservation(
+  ShellLayoutSettings settings, {
+  double scaleRatio = 1.0,
+}) {
   final side = settings.systemBarSide ?? PanelEdge.top;
   final held = kitResolveReservation(
     barEdge: side == PanelEdge.hidden ? null : side.kitEdge,
@@ -24,6 +29,7 @@ ShellWorkAreaReservation? barReservation(ShellLayoutSettings settings) {
   // this changes.
   scheduleMicrotask(() => kitReservation.value = held);
   if (held == null) return null;
+  final ratio = scaleRatio.isFinite && scaleRatio > 0 ? scaleRatio : 1.0;
   return ShellWorkAreaReservation(
     edge: switch (held.edge) {
       KitEdge.top => PanelEdge.top,
@@ -31,7 +37,7 @@ ShellWorkAreaReservation? barReservation(ShellLayoutSettings settings) {
       KitEdge.left => PanelEdge.left,
       KitEdge.right => PanelEdge.right,
     },
-    thickness: held.thickness,
+    thickness: held.thickness * ratio,
     outputNames: settings.systemBarOutputNames,
   );
 }
@@ -43,10 +49,14 @@ ShellWorkAreaReservation? barReservation(ShellLayoutSettings settings) {
 /// them, so after one of those changes the answer is handed over here, with
 /// the same call the shell makes itself.
 void syncBarReservation(WidgetRef ref, ShellLayoutSettings settings) {
-  final reservation = barReservation(settings);
+  final current = ref.read(displayLayoutProvider);
+  final mainId = current?.mainOutput?.monitorId;
+  final hostScale = mainId == null ? 1.0 : current!.shellScaleOf(mainId);
+  final effectiveScale = resolveKitScale(hostScale, kitShellScale.value);
+  final scaleRatio = effectiveScale / (hostScale > 0 ? hostScale : 1.0);
+  final reservation = barReservation(settings, scaleRatio: scaleRatio);
   final side = reservation?.edge ?? PanelEdge.hidden;
   final thickness = reservation?.thickness ?? 0.0;
-  final current = ref.read(displayLayoutProvider);
   if (current != null &&
       current.systemBarSide == side &&
       (side == PanelEdge.hidden || current.systemBarThickness == thickness)) {

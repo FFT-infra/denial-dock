@@ -9,6 +9,7 @@ const List<String> barStatusItems = <String>[
   'bluetooth',
   'volume',
   'battery',
+  'keyboard',
   'search',
   'clipboard',
   'notifications',
