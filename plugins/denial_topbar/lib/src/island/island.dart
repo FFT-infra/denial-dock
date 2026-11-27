@@ -58,6 +58,10 @@ abstract final class _I {
   static const Duration hudHold = Duration(seconds: 2);
   static const Duration chargeHold = Duration(seconds: 3);
   static const Duration lowHold = Duration(seconds: 5);
+
+  /// How far the pill leans towards a pointer at its edge.
+  static const double leanX = 3;
+  static const double leanY = 1.5;
   static const Duration trackHold = Duration(seconds: 3);
   static const Duration statusHold = Duration(milliseconds: 2600);
   static const Duration settle = Duration(seconds: 6);
@@ -232,6 +236,13 @@ class _IslandState extends ConsumerState<Island> with TickerProviderStateMixin {
   late final KitSpring _pressFeel = KitSpring(0, IslandFeel.liquid.press);
   late final KitSpring _veil = KitSpring(0, IslandFeel.liquid.veil);
 
+  /// Where over the pill the pointer is, from -1 to 1 each way, and the
+  /// lean towards it that follows. The pill is drawn a little towards the
+  /// pointer, as something held by its middle would be.
+  Offset _pull = Offset.zero;
+  late final KitSpring _pullX = KitSpring(0, IslandFeel.liquid.hover);
+  late final KitSpring _pullY = KitSpring(0, IslandFeel.liquid.hover);
+
   /// The bubble on the pill's right, and the one on its left.
   late final KitSpring _split = KitSpring(0, IslandFeel.liquid.split);
   late final KitSpring _splitLeft = KitSpring(0, IslandFeel.liquid.split);
@@ -243,6 +254,8 @@ class _IslandState extends ConsumerState<Island> with TickerProviderStateMixin {
   late final KitSprings _feel = KitSprings(this, <KitSpring>[
     _hoverFeel,
     _pressFeel,
+    _pullX,
+    _pullY,
     _veil,
     _split,
     _splitLeft,
@@ -339,6 +352,9 @@ class _IslandState extends ConsumerState<Island> with TickerProviderStateMixin {
     _pressFeel
       ..tune(feel.press)
       ..target = _pressed ? 1 : 0;
+    _pullX.tune(feel.hover);
+    _pullY.tune(feel.hover);
+    _aimPull();
     // Held, the pill gathers over exactly the time the press has to last;
     // let go, it springs back as any press does.
     final charging = _pressed && _engine.canExpand && !_engine.expanded;
@@ -374,6 +390,15 @@ class _IslandState extends ConsumerState<Island> with TickerProviderStateMixin {
       _veil.target = 0;
     }
     _kick(_feel);
+  }
+
+  /// Points the lean at where the pointer is. Called as the pointer moves,
+  /// so it touches the two springs and nothing else.
+  void _aimPull() {
+    final leans =
+        _hovered && !widget.settings.islandHoverFade && !_engine.expanded;
+    _pullX.target = leans ? _pull.dx : 0;
+    _pullY.target = leans ? _pull.dy : 0;
   }
 
   double? _dragFrom;
@@ -846,6 +871,7 @@ class _IslandState extends ConsumerState<Island> with TickerProviderStateMixin {
   void _left() {
     if (!_hovered) return;
     _hovered = false;
+    _pull = Offset.zero;
     _dwelt = false;
     _news = false;
     _dwell?.cancel();
@@ -1328,6 +1354,20 @@ class _IslandState extends ConsumerState<Island> with TickerProviderStateMixin {
                 : MouseCursor.defer,
             onEnter: (_) => _enter(),
             onExit: _exit,
+            onHover: expanded
+                ? null
+                : (event) {
+                    final at = event.localPosition;
+                    final pull = Offset(
+                      (at.dx / width * 2 - 1).clamp(-1.0, 1.0),
+                      (at.dy / h * 2 - 1).clamp(-1.0, 1.0),
+                    );
+                    // Small moves are not worth a frame.
+                    if ((pull - _pull).distance < 0.06) return;
+                    _pull = pull;
+                    _aimPull();
+                    _kick(_feel);
+                  },
             child: IgnorePointer(
               ignoring: yields,
               child: Focus(
@@ -1449,16 +1489,20 @@ class _IslandState extends ConsumerState<Island> with TickerProviderStateMixin {
         // Under a pointer the pill swells; under a press it flattens more
         // than it narrows, like something soft; an arrival is one breath.
         // All of it turns about the middle of the pill's own row.
-        return Transform(
-          alignment: Alignment(0, h / height - 1),
-          transform: Matrix4.diagonal3Values(
-            1 + 0.05 * hover - 0.03 * press + _pop.value,
-            1 + 0.09 * hover - 0.09 * press + _pop.value,
-            1,
+        final lean = Offset(_pullX.value, _pullY.value) * (1 - tc);
+        return Transform.translate(
+          offset: Offset(lean.dx * _I.leanX, lean.dy * _I.leanY),
+          child: Transform(
+            alignment: Alignment(0, h / height - 1),
+            transform: Matrix4.diagonal3Values(
+              1 + 0.05 * hover - 0.03 * press + _pop.value,
+              1 + 0.09 * hover - 0.09 * press + _pop.value,
+              1,
+            ),
+            child: veil <= 0.001
+                ? island
+                : Opacity(opacity: 1 - veil, child: island),
           ),
-          child: veil <= 0.001
-              ? island
-              : Opacity(opacity: 1 - veil, child: island),
         );
       },
     );
