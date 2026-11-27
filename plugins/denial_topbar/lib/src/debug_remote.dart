@@ -1,4 +1,5 @@
 import 'package:denial_shell_kit/debug_file.dart';
+import 'package:denial_shell_kit/kit_perf.dart';
 import 'package:denial_shell_kit/kit_style.dart';
 import 'package:flutter/foundation.dart';
 
@@ -18,6 +19,18 @@ void startDebugRemote() {
     // `look <id>` switches the look and leaves the layout alone.
     if (words.length > 1 && words.first == 'look') {
       kitStyle.choose(KitStyle.byId(words[1]));
+    } else if (words.length > 1 && words.first == 'perf') {
+      if (words[1] == 'start') {
+        KitPerfProbe.start();
+      } else if (words[1] == 'stop') {
+        KitPerfProbe.stop();
+      }
+      return;
+    } else if (words.length > 1 && words.first == 'scale') {
+      kitShellScale.value = words[1] == 'auto'
+          ? null
+          : double.tryParse(words[1]);
+      return;
     }
     debugCommand.value = '${words.join(' ')} #${count++}';
   });

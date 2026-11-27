@@ -485,6 +485,25 @@ class _IslandState extends ConsumerState<Island> with TickerProviderStateMixin {
             : islandTimer.cancel();
       case 'cycle':
         _turn(1);
+      case 'hud':
+        if (words.length >= 2) {
+          final kind = words[1];
+          final pct = words.length >= 3
+              ? (double.tryParse(words[2]) ?? 50).clamp(0.0, 100.0) / 100.0
+              : 0.0;
+          if (kind == 'brightness') {
+            _hud(BarIcons.sunMaxFill, pct);
+          } else if (kind == 'mute') {
+            _hud(BarIcons.speakerSlashFill, 0.0);
+          } else {
+            _hud(
+              pct <= 0.001
+                  ? BarIcons.speakerSlashFill
+                  : (pct < 0.5 ? BarIcons.speaker1Fill : BarIcons.speaker3Fill),
+              pct,
+            );
+          }
+        }
     }
   }
 
