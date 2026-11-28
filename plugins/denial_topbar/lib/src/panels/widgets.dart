@@ -31,6 +31,7 @@ import 'mac_kit.dart';
 import 'nc_parts.dart';
 import 'popovers.dart';
 import 'tile_grid.dart';
+import 'weather_widget.dart';
 import 'world_clock_card.dart';
 
 bool _customLoaded = false;
@@ -64,6 +65,7 @@ void setWidgetClockDigital(bool digital) {
 IconData widgetIconFor(String id) => switch (id) {
   'calendar' || 'date' => BarIcons.calendar,
   'worldclock' => BarIcons.globe,
+  'weather' => BarIcons.sunMaxFill,
   'clock' => BarIcons.clock,
   'battery' => BarIcons.batteryFull,
   'cpu' => BarIcons.cpu,
@@ -117,6 +119,7 @@ Color? widgetPlate(
   return switch (id) {
     'calendar' || 'date' => NcLook.paper(theme),
     'worldclock' => NcLook.night,
+    'weather' => const Color(0xff1e66b8),
     _ => null,
   };
 }
@@ -143,6 +146,10 @@ Widget buildBarWidget(
     'calendar' => CalendarWidget(size: size),
     'date' => const CalendarWidget(size: KitWidgetSize.small),
     'worldclock' => WorldClockCard(
+      size: size,
+      glass: widgetStyle == KitWidgetStyle.glass,
+    ),
+    'weather' => WeatherWidget(
       size: size,
       glass: widgetStyle == KitWidgetStyle.glass,
     ),
@@ -1661,6 +1668,7 @@ class _RemindersWidget extends StatefulWidget {
 class _RemindersWidgetState extends State<_RemindersWidget> {
   List<_TodoItem> _items = const <_TodoItem>[];
   bool _adding = false;
+  int? _editingIndex;
   final TextEditingController _input = TextEditingController();
 
   @override
@@ -1693,12 +1701,40 @@ class _RemindersWidgetState extends State<_RemindersWidget> {
     ]);
   }
 
-  void _commitNew() {
+  void _commitInput() {
     final text = _input.text.trim();
+    final editIdx = _editingIndex;
     _input.clear();
-    setState(() => _adding = false);
+    setState(() {
+      _adding = false;
+      _editingIndex = null;
+    });
     if (text.isEmpty) return;
-    _save(<_TodoItem>[_TodoItem(text: text), ..._items]);
+    if (editIdx != null && editIdx >= 0 && editIdx < _items.length) {
+      final copy = List<_TodoItem>.of(_items);
+      copy[editIdx] = _TodoItem(text: text, done: copy[editIdx].done);
+      _save(copy);
+    } else {
+      _save(<_TodoItem>[_TodoItem(text: text), ..._items]);
+    }
+  }
+
+  void _startEdit(int index) {
+    _input.text = _items[index].text;
+    setState(() {
+      _editingIndex = index;
+      _adding = true;
+    });
+  }
+
+  void _deleteAt(int index) {
+    final copy = List<_TodoItem>.of(_items)..removeAt(index);
+    if (_editingIndex == index) {
+      _editingIndex = null;
+      _adding = false;
+      _input.clear();
+    }
+    _save(copy);
   }
 
   @override
@@ -1755,7 +1791,13 @@ class _RemindersWidgetState extends State<_RemindersWidget> {
                   ),
                 ),
               Pressable(
-                onTap: () => setState(() => _adding = !_adding),
+                onTap: () {
+                  setState(() {
+                    _adding = !_adding;
+                    _editingIndex = null;
+                    if (!_adding) _input.clear();
+                  });
+                },
                 scale: Pressable.small,
                 wash: true,
                 shape: style.disc(22),
@@ -1803,7 +1845,7 @@ class _RemindersWidgetState extends State<_RemindersWidget> {
                         color: theme.colors.textTertiary,
                       ),
                     ),
-                    onSubmitted: (_) => _commitNew(),
+                    onSubmitted: (_) => _commitInput(),
                   ),
                 ),
               ),
@@ -1860,18 +1902,49 @@ class _RemindersWidgetState extends State<_RemindersWidget> {
                             ),
                             const SizedBox(width: 8),
                             Expanded(
-                              child: Text(
-                                item.text,
-                                maxLines: 1,
-                                overflow: TextOverflow.ellipsis,
-                                style: BarType.caption.copyWith(
-                                  fontSize: 12.5,
-                                  decoration: item.done
-                                      ? TextDecoration.lineThrough
-                                      : null,
-                                  color: item.done
-                                      ? theme.colors.textTertiary
-                                      : theme.colors.textPrimary,
+                              child: GestureDetector(
+                                onDoubleTap: () => _startEdit(index),
+                                child: Text(
+                                  item.text,
+                                  maxLines: 1,
+                                  overflow: TextOverflow.ellipsis,
+                                  style: BarType.caption.copyWith(
+                                    fontSize: 12.5,
+                                    decoration: item.done
+                                        ? TextDecoration.lineThrough
+                                        : null,
+                                    color: item.done
+                                        ? theme.colors.textTertiary
+                                        : theme.colors.textPrimary,
+                                  ),
+                                ),
+                              ),
+                            ),
+                            Pressable(
+                              onTap: () => _startEdit(index),
+                              scale: Pressable.small,
+                              wash: true,
+                              shape: BorderRadius.circular(6),
+                              child: Padding(
+                                padding: const EdgeInsets.all(3),
+                                child: BarGlyph(
+                                  BarIcons.gear,
+                                  size: 11,
+                                  color: theme.colors.textTertiary,
+                                ),
+                              ),
+                            ),
+                            Pressable(
+                              onTap: () => _deleteAt(index),
+                              scale: Pressable.small,
+                              wash: true,
+                              shape: BorderRadius.circular(6),
+                              child: Padding(
+                                padding: const EdgeInsets.all(3),
+                                child: BarGlyph(
+                                  BarIcons.xmark,
+                                  size: 10,
+                                  color: theme.colors.textTertiary,
                                 ),
                               ),
                             ),

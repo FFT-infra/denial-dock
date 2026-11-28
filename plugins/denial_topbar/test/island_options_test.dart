@@ -262,6 +262,40 @@ void main() {
     'cursorAbsorb is off in effective settings when island is hidden',
   );
 
+  // Exhaustive cursorAbsorb × hoverFade × shown × mode × top matrix.
+  for (final shown in const <bool>[false, true]) {
+    for (final fade in const <bool>[false, true]) {
+      for (final absorb in const <bool>[false, true]) {
+        for (final mode in KitBarMode.values) {
+          for (final top in const <bool>[false, true]) {
+            final s = const BarSettings().copyWith(
+              islandEnabled: shown,
+              islandHoverFade: fade,
+              islandCursorAbsorb: absorb,
+            );
+            final opts = IslandOptions(s, mode: mode, top: top);
+            final state = opts[IslandOption.cursorAbsorb];
+            final wantInForce = opts.present && !fade && absorb;
+            _expect(
+              opts.inForce(IslandOption.cursorAbsorb) == wantInForce,
+              'cursorAbsorb inForce (shown=$shown fade=$fade absorb=$absorb mode=$mode top=$top)',
+            );
+            _expect(
+              opts.effective.islandCursorAbsorb == wantInForce,
+              'cursorAbsorb effective mirrors inForce',
+            );
+            if (opts.present && fade) {
+              _expect(
+                !state.enabled && state.why == IslandWhy.fadesOnHover,
+                'hoverFade disables cursorAbsorb with fadesOnHover reason',
+              );
+            }
+          }
+        }
+      }
+    }
+  }
+
   stdout.writeln('All island option tests passed.');
 }
 

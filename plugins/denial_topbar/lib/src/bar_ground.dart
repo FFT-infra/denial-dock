@@ -78,7 +78,7 @@ class BarGroundLayer extends StatelessWidget {
 
   /// The second colour of a bar whose segments alternate.
   static Color alternateFor(Color base, ShellThemeData theme) =>
-      Color.lerp(base, theme.kitAccent, 0.24) ?? base;
+      Color.lerp(base, theme.kitAccent, 0.38) ?? base;
 
   /// Black or white, whichever reads on [ground].
   static Color inkOn(Color ground) =>
@@ -192,6 +192,9 @@ class BarGroundLayer extends StatelessWidget {
         ? plate
         : _wrapGlass(context, borderRadius: borderRadius, child: plate);
     if (!concaveEdge) return backed;
+    final earColor = ground == BarGround.glass
+        ? colour.withValues(alpha: (colour.a * 0.65).clamp(0.0, 1.0))
+        : colour;
     const ear = 12.0;
     final Positioned ears = switch (side) {
       PanelEdge.bottom => Positioned(
@@ -200,7 +203,7 @@ class BarGroundLayer extends StatelessWidget {
         top: -ear,
         height: ear,
         child: IgnorePointer(
-          child: CustomPaint(painter: _ConcaveEarsPainter(colour, side)),
+          child: CustomPaint(painter: _ConcaveEarsPainter(earColor, side)),
         ),
       ),
       PanelEdge.left => Positioned(
@@ -209,7 +212,7 @@ class BarGroundLayer extends StatelessWidget {
         right: -ear,
         width: ear,
         child: IgnorePointer(
-          child: CustomPaint(painter: _ConcaveEarsPainter(colour, side)),
+          child: CustomPaint(painter: _ConcaveEarsPainter(earColor, side)),
         ),
       ),
       PanelEdge.right => Positioned(
@@ -218,7 +221,7 @@ class BarGroundLayer extends StatelessWidget {
         left: -ear,
         width: ear,
         child: IgnorePointer(
-          child: CustomPaint(painter: _ConcaveEarsPainter(colour, side)),
+          child: CustomPaint(painter: _ConcaveEarsPainter(earColor, side)),
         ),
       ),
       _ => Positioned(
@@ -227,7 +230,7 @@ class BarGroundLayer extends StatelessWidget {
         bottom: -ear,
         height: ear,
         child: IgnorePointer(
-          child: CustomPaint(painter: _ConcaveEarsPainter(colour, side)),
+          child: CustomPaint(painter: _ConcaveEarsPainter(earColor, side)),
         ),
       ),
     };

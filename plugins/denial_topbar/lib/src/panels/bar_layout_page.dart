@@ -921,35 +921,21 @@ class _LayoutPageState extends ConsumerState<_LayoutPage> {
                 (v) => save((s) => s.copyWith(endInset: v)),
               ),
             ),
-            _Pair(
-              slider(
-                context.tr('Padding inside the background'),
-                s.contentPadding,
-                BarMetric.contentPaddingMin,
-                BarMetric.contentPaddingMax,
-                (v) => save((s) => s.copyWith(contentPadding: v)),
-              ),
-              choice<BarWorkspaceStyle>(
-                context.tr('Workspaces'),
-                s.workspaceStyle,
-                <(BarWorkspaceStyle, String)>[
-                  (BarWorkspaceStyle.dots, context.tr('Dots')),
-                  (BarWorkspaceStyle.numbers, context.tr('Numbers')),
-                ],
-                (v) => save((s) => s.copyWith(workspaceStyle: v)),
-              ),
+            slider(
+              context.tr('Padding inside the background'),
+              s.contentPadding,
+              BarMetric.contentPaddingMin,
+              BarMetric.contentPaddingMax,
+              (v) => save((s) => s.copyWith(contentPadding: v)),
             ),
             _Switch(
               label: context.tr('Concave bar corners'),
               value: s.concaveEdge,
               enabled: strip && plated,
+              note: strip && plated
+                  ? null
+                  : context.tr('Strip with a background only'),
               onChanged: (v) => save((s) => s.copyWith(concaveEdge: v)),
-            ),
-            _Switch(
-              label: context.tr('Notch-style island'),
-              value: s.islandNotch,
-              enabled: s.islandEnabled,
-              onChanged: (v) => save((s) => s.copyWith(islandNotch: v)),
             ),
           ],
         ),
@@ -1833,8 +1819,17 @@ class _BarSketch extends CustomPainter {
 
   @override
   bool shouldRepaint(_BarSketch old) =>
-      old.settings.layoutJson().toString() !=
-          settings.layoutJson().toString() ||
+      old.settings.shape != settings.shape ||
+      old.settings.cap != settings.cap ||
+      old.settings.ground != settings.ground ||
+      old.settings.groundOpacity != settings.groundOpacity ||
+      old.settings.groundTint != settings.groundTint ||
+      old.settings.borderWidth != settings.borderWidth ||
+      old.settings.partPill != settings.partPill ||
+      old.settings.concaveEdge != settings.concaveEdge ||
+      old.settings.islandNotch != settings.islandNotch ||
+      old.settings.workspaceStyle != settings.workspaceStyle ||
+      old.settings.zones != settings.zones ||
       old.look != look ||
       old.ink != ink ||
       old.surface != surface ||
@@ -1842,7 +1837,7 @@ class _BarSketch extends CustomPainter {
       old.accent != accent ||
       old.corner != corner ||
       old.barMode != barMode ||
-      old.dock.toString() != dock.toString();
+      old.dock != dock;
 }
 
 /// Every preset as a card, one tap to wear the whole of it: the look, the
@@ -1914,13 +1909,15 @@ class _PresetShelf extends ConsumerWidget {
                                 preset: preset,
                                 selected: preset.id == current.id,
                                 modified: preset.id == current.id && modified,
-                                // The preset in force, tapped again, goes
-                                // back to how it ships.
-                                onTap: () => applyShellPreset(
-                                  ref,
-                                  preset,
-                                  fresh: preset.id == current.id,
-                                ),
+                                // Tapping another preset switches to it; the
+                                // active preset is reset only via the explicit
+                                // Reset Preset button below so accidental
+                                // re-taps never wipe customizations.
+                                onTap: () {
+                                  if (preset.id != current.id) {
+                                    applyShellPreset(ref, preset);
+                                  }
+                                },
                               ),
                             ),
                         ],

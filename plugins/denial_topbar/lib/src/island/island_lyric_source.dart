@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:convert';
 import 'dart:io';
 
 import 'package:dbus/dbus.dart';
@@ -8,13 +9,44 @@ import 'package:flutter/foundation.dart';
 import 'island_lyrics.dart';
 import 'island_subline.dart';
 
-/// Lyrics for the track playing, from what is already on this machine: the
-/// text a player publishes with the track, or an `.lrc` file of the same
-/// name beside a local one. Nothing is fetched from anywhere.
+class _ListenerAwareNotifier<T> extends ValueNotifier<T> {
+  _ListenerAwareNotifier(super.value, this._onListenersChanged);
+
+  final VoidCallback _onListenersChanged;
+  int _count = 0;
+
+  bool get observed => _count > 0;
+
+  @override
+  void addListener(VoidCallback listener) {
+    _count++;
+    super.addListener(listener);
+    _onListenersChanged();
+  }
+
+  @override
+  void removeListener(VoidCallback listener) {
+    if (_count > 0) _count--;
+    super.removeListener(listener);
+    _onListenersChanged();
+  }
+}
+
+/// Lyrics for the track playing:
+/// 1. MPRIS `xesam:asText`
+/// 2. Sibling local `.lrc` beside `xesam:url`
+/// 3. Cached online lookup via LRCLIB (short timeout, silent offline fallback)
+///
+/// The 250 ms position timer runs strictly while at least one widget is
+/// subscribed to [line] AND playback is active — zero wakeups while collapsed.
 class IslandLyricSource implements IslandSubline {
   static const int _largest = 512 * 1024;
+  static const int _maxCacheEntries = 48;
+  static final Map<String, List<LyricLine>> _onlineCache =
+      <String, List<LyricLine>>{};
 
-  final ValueNotifier<String?> _line = ValueNotifier<String?>(null);
+  late final _ListenerAwareNotifier<String?> _line =
+      _ListenerAwareNotifier<String?>(null, _syncTick);
   DBusClient? _client;
   Timer? _tick;
   MprisPlaybackState? _playback;
@@ -40,11 +72,19 @@ class IslandLyricSource implements IslandSubline {
       scheduleMicrotask(() {
         if (asked != _asked) return;
         _line.value = null;
-        if (track.isNotEmpty) unawaited(_load(playback!.serviceName, asked));
+        if (track.isNotEmpty) unawaited(_load(playback!, asked));
       });
     }
-    final runs = _lines.isNotEmpty && (playback?.playing ?? false);
+    _syncTick();
+  }
+
+  void _syncTick() {
+    final runs =
+        _line.observed &&
+        _lines.isNotEmpty &&
+        (_playback?.playing ?? false);
     if (runs && _tick == null) {
+      _show();
       _tick = Timer.periodic(const Duration(milliseconds: 250), (_) => _show());
     } else if (!runs) {
       _tick?.cancel();
@@ -59,13 +99,16 @@ class IslandLyricSource implements IslandSubline {
         : lyricAt(_lines, playback.positionAt(DateTime.now()));
   }
 
-  Future<void> _load(String service, int asked) async {
+  Future<void> _load(MprisPlaybackState playback, int asked) async {
     var lines = const <LyricLine>[];
+    final artist = playback.artistLabel;
+    final title = playback.title;
+    final album = playback.album;
     try {
       final client = _client ??= DBusClient.session();
       final found = await DBusRemoteObject(
         client,
-        name: service,
+        name: playback.serviceName,
         path: DBusObjectPath('/org/mpris/MediaPlayer2'),
       )
           .getProperty('org.mpris.MediaPlayer2.Player', 'Metadata')
@@ -88,13 +131,68 @@ class IslandLyricSource implements IslandSubline {
         }
       }
     } on Object {
-      // A player that does not answer, or a file that will not read, is a
-      // track without lyrics.
+      // A player that does not answer, or a file that will not read, falls
+      // through to online lookup below.
+    }
+    if (asked != _asked) return;
+    if (lines.isEmpty && title.trim().isNotEmpty) {
+      lines = await _fetchLrcLib(
+        title: title.trim(),
+        artist: artist.trim(),
+        album: album.trim(),
+        durationSeconds: playback.length.inSeconds,
+      );
     }
     if (asked != _asked) return;
     _lines = lines;
-    follow(_playback);
-    _show();
+    _syncTick();
+    if (_line.observed) _show();
+  }
+
+  static Future<List<LyricLine>> _fetchLrcLib({
+    required String title,
+    required String artist,
+    required String album,
+    required int durationSeconds,
+  }) async {
+    final key = '${artist.toLowerCase()}|${title.toLowerCase()}|$durationSeconds';
+    final cached = _onlineCache[key];
+    if (cached != null) return cached;
+    final client = HttpClient()..connectionTimeout = const Duration(seconds: 3);
+    try {
+      final params = <String, String>{
+        'track_name': title,
+        if (artist.isNotEmpty) 'artist_name': artist,
+        if (album.isNotEmpty) 'album_name': album,
+        if (durationSeconds > 0) 'duration': '$durationSeconds',
+      };
+      final uri = Uri.https('lrclib.net', '/api/get', params);
+      final req = await client.getUrl(uri).timeout(const Duration(seconds: 3));
+      req.headers.set('User-Agent', 'denial-topbar/0.0.0');
+      final res = await req.close().timeout(const Duration(seconds: 3));
+      if (res.statusCode != 200) {
+        _rememberCache(key, const <LyricLine>[]);
+        return const <LyricLine>[];
+      }
+      final body = await res.transform(utf8.decoder).join();
+      final decoded = jsonDecode(body);
+      if (decoded is! Map) return const <LyricLine>[];
+      final synced = decoded['syncedLyrics'];
+      final parsed = synced is String ? parseLrc(synced) : const <LyricLine>[];
+      _rememberCache(key, parsed);
+      return parsed;
+    } catch (_) {
+      return const <LyricLine>[];
+    } finally {
+      client.close(force: true);
+    }
+  }
+
+  static void _rememberCache(String key, List<LyricLine> lines) {
+    if (_onlineCache.length >= _maxCacheEntries) {
+      _onlineCache.remove(_onlineCache.keys.first);
+    }
+    _onlineCache[key] = lines;
   }
 
   void dispose() {

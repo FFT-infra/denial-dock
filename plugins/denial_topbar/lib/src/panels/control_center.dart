@@ -200,11 +200,16 @@ class _ControlCenterPanelState extends ConsumerState<ControlCenterPanel>
 
   ShellServices get services => widget.services;
 
+  void _onTrayNames() {
+    if (mounted) setState(() {});
+  }
+
   @override
   void initState() {
     super.initState();
     NightLight.sync();
     debugCommand.addListener(_debug);
+    trayNames.addListener(_onTrayNames);
     // The keys land here first, so Tab and the arrows have somewhere to
     // start from; Escape still travels up to the layer.
     WidgetsBinding.instance.addPostFrameCallback((_) {
@@ -228,6 +233,7 @@ class _ControlCenterPanelState extends ConsumerState<ControlCenterPanel>
   void dispose() {
     _intercept?.call(null);
     debugCommand.removeListener(_debug);
+    trayNames.removeListener(_onTrayNames);
     _springs.dispose();
     _root.dispose();
     _detailFocus.dispose();
@@ -347,6 +353,9 @@ class _ControlCenterPanelState extends ConsumerState<ControlCenterPanel>
       'timer' => _TimerPage(onBack: () => _go('')),
       _ => null,
     };
+    final layerAnim = context
+        .dependOnInheritedWidgetOfExactType<KitLayer>()
+        ?.animation;
     // In floating mode there is no outer KitCard, so a detail page wraps
     // itself in a complete glass card matching the active surface mode.
     final Widget? detail = rawDetail == null
@@ -357,6 +366,7 @@ class _ControlCenterPanelState extends ConsumerState<ControlCenterPanel>
             tier: KitTier.popover,
             radius: style.outer(theme, BarTokens.popoverRadius),
             blur: _settled,
+            fade: layerAnim,
             child: rawDetail,
           )
         : rawDetail;
@@ -370,6 +380,7 @@ class _ControlCenterPanelState extends ConsumerState<ControlCenterPanel>
                   archetype: archetype,
                   services: services,
                   output: widget.output,
+                  tileKeys: _tileKeys,
                   onOpenPage: _go,
                   onSettings: widget.onSettings,
                   onConfirmPower: widget.onConfirmPower,
@@ -398,6 +409,7 @@ class _ControlCenterPanelState extends ConsumerState<ControlCenterPanel>
             builder: (context, _) => KitMorph(
               key: _morphKey,
               progress: _grow.value,
+              settled: !_springs.moving,
               from: _from,
               fromRadius: _fromRadius,
               toRadius: BarTokens.popoverRadius * style.cornerScale,
@@ -469,16 +481,10 @@ class _ControlCenterPanelState extends ConsumerState<ControlCenterPanel>
   Tile? _tile(
     BuildContext context,
     String id, {
+    required Map<String, TileSize> sizes,
     BarSettings? settings,
     List<String> trayFolded = const <String>[],
   }) {
-    final sizes = parseTileSizes(
-      ref.watch(
-        barSettingsProvider.select(
-          (state) => state.value?.tileSizes ?? const <String>[],
-        ),
-      ),
-    );
     final key = 'cc.$id';
     const toggleSizes = <TileSize>[TileSize(1, 1), TileSize(2, 1)];
     // A toggle is either a capsule with its name or a bare disc; the user
@@ -925,9 +931,22 @@ class _ControlCenterPanelState extends ConsumerState<ControlCenterPanel>
       ...order,
       if (trayFolded.isNotEmpty && !order.contains('tray')) 'tray',
     ];
+    final tileSizes = parseTileSizes(
+      ref.watch(
+        barSettingsProvider.select(
+          (state) => state.value?.tileSizes ?? const <String>[],
+        ),
+      ),
+    );
     final tiles = <Tile>[
       for (final id in effectiveOrder)
-        if (_tile(context, id, settings: settings, trayFolded: trayFolded)
+        if (_tile(
+              context,
+              id,
+              sizes: tileSizes,
+              settings: settings,
+              trayFolded: trayFolded,
+            )
             case final tile?)
           // Keyed so a detail page can find the tile it grows out of.
           Tile(
@@ -1090,6 +1109,9 @@ class _FloatingEditPill extends StatelessWidget {
       radius: style.pill(28),
       grouped: true,
       blur: scope.blur,
+      fade: context
+          .dependOnInheritedWidgetOfExactType<KitLayer>()
+          ?.animation,
       child: child,
     );
   }
@@ -1360,10 +1382,7 @@ class _PowerRow extends ConsumerWidget {
       button(
         context.tr('Lock'),
         BarIcons.lockFill,
-        at(SessionPowerAction.lock, () {
-          onSleep();
-          request(SessionPowerAction.lock);
-        }),
+        at(SessionPowerAction.lock, () => request(SessionPowerAction.lock)),
       ),
     ];
 
@@ -1406,6 +1425,9 @@ class _Tile extends StatelessWidget {
         radius: radius,
         grouped: true,
         blur: scope.blur,
+        fade: context
+          .dependOnInheritedWidgetOfExactType<KitLayer>()
+          ?.animation,
         child: AnimatedContainer(
           duration: KitMotion.duration(
             context,

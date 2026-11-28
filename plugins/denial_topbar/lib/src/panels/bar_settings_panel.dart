@@ -257,6 +257,9 @@ class _BarSettingsPanelState extends ConsumerState<BarSettingsPanel> {
     kitGlassPreset.addListener(_namesChanged);
     kitGlassOpacity.addListener(_namesChanged);
     kitGlassRefraction.addListener(_namesChanged);
+    kitSpeed.addListener(_namesChanged);
+    kitPanelStyle.addListener(_namesChanged);
+    kitWidgetStyle.addListener(_namesChanged);
   }
 
   @override
@@ -268,6 +271,9 @@ class _BarSettingsPanelState extends ConsumerState<BarSettingsPanel> {
     kitGlassPreset.removeListener(_namesChanged);
     kitGlassOpacity.removeListener(_namesChanged);
     kitGlassRefraction.removeListener(_namesChanged);
+    kitSpeed.removeListener(_namesChanged);
+    kitPanelStyle.removeListener(_namesChanged);
+    kitWidgetStyle.removeListener(_namesChanged);
     super.dispose();
   }
 
@@ -332,15 +338,39 @@ class _BarSettingsPanelState extends ConsumerState<BarSettingsPanel> {
               if (_page == 0)
                 _Group(
                   fullWidth: true,
+                  note: context.tr(
+                    'Menu Bar Defaults resets top bar layout and items; Shell Overrides clears surface material, panel style, glass sliders, speed and custom scale.',
+                  ),
                   children: <Widget>[
                     _Row(
                       label: context.tr('Menu Bar'),
-                      trailing: SizedBox(
-                        width: 132,
-                        child: _TextButton(
-                          label: context.tr('Restore Defaults'),
-                          onTap: _restore,
-                        ),
+                      trailing: Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: <Widget>[
+                          SizedBox(
+                            width: 148,
+                            child: _TextButton(
+                              label: context.tr('Reset Shell Overrides'),
+                              onTap: () {
+                                kitSurfaceMode.value = null;
+                                kitPanelStyle.value = null;
+                                kitGlassPreset.value = KitGlassPreset.system;
+                                kitGlassOpacity.value = 0.42;
+                                kitGlassRefraction.value = 1.0;
+                                kitSpeed.value = 1.0;
+                                kitShellScale.value = null;
+                              },
+                            ),
+                          ),
+                          const SizedBox(width: 8),
+                          SizedBox(
+                            width: 152,
+                            child: _TextButton(
+                              label: context.tr('Restore Bar Defaults'),
+                              onTap: _restore,
+                            ),
+                          ),
+                        ],
                       ),
                     ),
                   ],
@@ -449,6 +479,7 @@ class _BarSettingsPanelState extends ConsumerState<BarSettingsPanel> {
               return _Row(
                 label: context.tr('Surface material'),
                 note: note,
+                enabled: !sysOff,
                 trailing: Row(
                   mainAxisSize: MainAxisSize.min,
                   children: <Widget>[
@@ -482,7 +513,8 @@ class _BarSettingsPanelState extends ConsumerState<BarSettingsPanel> {
               );
             },
           ),
-          if (activeStyle.surfaceMode == KitSurfaceMode.liquidGlass) ...<Widget>[
+          if (theme.transparencyMode != ShellTransparencyMode.off &&
+              activeStyle.surfaceMode == KitSurfaceMode.liquidGlass) ...<Widget>[
             _Row(
               label: context.tr('Liquid Glass style'),
               note: context.tr(
@@ -761,6 +793,17 @@ class _BarSettingsPanelState extends ConsumerState<BarSettingsPanel> {
         ),
         children: <Widget>[
           toggle(IslandOption.shown, 'Show Dynamic Island'),
+          _Switch(
+            label: context.tr('Notch-style island'),
+            value: s.islandNotch,
+            enabled: options.present,
+            note: options.present
+                ? context.tr(
+                    'Fuses the island to the top screen edge with curved notch ears.',
+                  )
+                : note(IslandOption.shown),
+            onChanged: (v) => save((s) => s.copyWith(islandNotch: v)),
+          ),
           toggle(IslandOption.hoverPeek, 'Open when the pointer rests on it'),
           toggle(IslandOption.hoverFade, 'Fade away under the pointer'),
           toggle(IslandOption.cursorAbsorb, 'Absorb cursor on hover'),
@@ -773,6 +816,7 @@ class _BarSettingsPanelState extends ConsumerState<BarSettingsPanel> {
               max: BarMetric.islandFadeDelayMsMax,
               step: 50,
               enabled: options[IslandOption.fadeDelay].enabled,
+              why: note(IslandOption.fadeDelay),
               onChanged: (v) => save((s) => s.copyWith(islandFadeDelayMs: v)),
             ),
             _timing(
@@ -783,14 +827,17 @@ class _BarSettingsPanelState extends ConsumerState<BarSettingsPanel> {
               max: BarMetric.islandLongPressMsMax,
               step: 10,
               enabled: options[IslandOption.longPress].enabled,
+              why: note(IslandOption.longPress),
               onChanged: (v) => save((s) => s.copyWith(islandLongPressMs: v)),
             ),
           ),
           _Cell(
             label: context.tr('Width at rest'),
-            detail: s.islandWidth == BarMetric.islandWidth
-                ? context.tr('As the look has it')
-                : '${s.islandWidth}%',
+            detail: options.present
+                ? (s.islandWidth == BarMetric.islandWidth
+                      ? context.tr('As the look has it')
+                      : '${s.islandWidth}%')
+                : (note(IslandOption.shown) ?? ''),
             enabled: options.present,
             child: MacSlider(
               inList: true,
@@ -973,6 +1020,11 @@ class _BarSettingsPanelState extends ConsumerState<BarSettingsPanel> {
           _Row(
             label: context.tr('Style'),
             enabled: shown,
+            note: shown
+                ? null
+                : context.tr(
+                    'Choose where to show the workspace switcher above first.',
+                  ),
             trailing: _Segments<BarWorkspaceStyle>(
               value: s.workspaceStyle,
               options: <(BarWorkspaceStyle, String)>[
@@ -993,6 +1045,11 @@ class _BarSettingsPanelState extends ConsumerState<BarSettingsPanel> {
             label: context.tr('Scroll or swipe on the indicator to switch'),
             value: s.workspaceScroll,
             enabled: shown,
+            note: shown
+                ? null
+                : context.tr(
+                    'Choose where to show the workspace switcher above first.',
+                  ),
             onChanged: (v) => save((s) => s.copyWith(workspaceScroll: v)),
           ),
           _Switch(
@@ -1501,10 +1558,11 @@ Widget _timing(
   required int max,
   required int step,
   required bool enabled,
+  String? why,
   required ValueChanged<int> onChanged,
 }) => _Cell(
   label: label,
-  detail: context.tr('{} ms', value),
+  detail: enabled ? context.tr('{} ms', value) : (why ?? context.tr('{} ms', value)),
   enabled: enabled,
   child: MacSlider(
     inList: true,

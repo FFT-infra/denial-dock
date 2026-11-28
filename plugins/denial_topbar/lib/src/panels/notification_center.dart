@@ -24,6 +24,7 @@ import '../bar_icons.dart';
 import '../bar_panel.dart';
 import '../bar_preferences.dart';
 import '../bar_settings.dart';
+import '../bar_tokens.dart';
 import '../bar_type.dart';
 import '../debug_remote.dart';
 import '../l10n.dart';
@@ -34,6 +35,7 @@ import 'nc_parts.dart';
 import 'tile_grid.dart';
 import 'widget_gallery.dart';
 import 'widgets.dart';
+import 'world_clock_card.dart';
 
 double get notificationCenterWidth => NcLook.layout.width;
 
@@ -62,8 +64,15 @@ void showNotificationCenter({
   }
   final style = kitStyle.value;
   final arch = style.archetype;
-  final sceneWidth =
-      MediaQuery.maybeSizeOf(ref.context)?.width ?? double.infinity;
+  final anchorRect = anchor == null ? null : kitSceneRect(anchor);
+  final fallbackCanvas =
+      Offset.zero & (MediaQuery.maybeSizeOf(ref.context) ?? const Size(1440, 900));
+  final out = kitOutputAt(
+    ref.read(displayLayoutProvider),
+    anchorRect?.center,
+    fallbackCanvas,
+  );
+  final sceneWidth = out.rect.width;
 
   if (anchor != null && arch == KitShellArchetype.gnome) {
     final dualWidth = math.min(640.0, sceneWidth - 24);
@@ -93,8 +102,26 @@ void showNotificationCenter({
       side: side,
       barHeight: barHeight,
       placement: BarPanelAnchor.clock,
+      frameless: true,
       width: math.min(368.0, sceneWidth - 16),
       builder: (context, close) => _WindowsNotificationCenter(
+        services: services,
+        side: side,
+        barHeight: barHeight,
+        onClose: close,
+      ),
+    );
+    return;
+  }
+
+  if (arch == KitShellArchetype.caelestia) {
+    showKitLayer(
+      ref: ref,
+      keyName: kitPanelKey,
+      panelId: panelId,
+      open: KitMotion.settle,
+      close: KitMotion.enter,
+      builder: (context, close) => _CaelestiaNotifSidebar(
         services: services,
         side: side,
         barHeight: barHeight,
@@ -112,17 +139,23 @@ void showNotificationCenter({
       (NcMotion.hangs(square: style.square, anchored: true) ||
           framedArchetype)) {
     // Plasma, COSMIC, HyprPanel, Material, and Noctalia natively include a
-    // Do Not Disturb switch in their notification surfaces; Caelestia's
-    // NotifDock.qml and Omarchy do not.
+    // Do Not Disturb switch in their notification surfaces; Omarchy does not.
     final showDnd =
         arch == KitShellArchetype.plasma ||
         arch == KitShellArchetype.cosmic ||
         arch == KitShellArchetype.hyprpanel ||
         arch == KitShellArchetype.material ||
         arch == KitShellArchetype.noctalia;
+    // Plasma, COSMIC, HyprPanel, and Omarchy are notification-focused surfaces
+    // without a macOS desktop-widget grid inside the notification flyout.
+    final includeWidgets =
+        widgets &&
+        arch != KitShellArchetype.plasma &&
+        arch != KitShellArchetype.cosmic &&
+        arch != KitShellArchetype.hyprpanel &&
+        arch != KitShellArchetype.omarchy;
     final placement =
         arch == KitShellArchetype.plasma ||
-            arch == KitShellArchetype.caelestia ||
             arch == KitShellArchetype.axshell
         ? BarPanelAnchor.clock
         : BarPanelAnchor.centred;
@@ -144,7 +177,7 @@ void showNotificationCenter({
         side: side,
         barHeight: barHeight,
         notifications: notifications,
-        widgets: widgets,
+        widgets: includeWidgets,
         framed: true,
         showDndToggle: showDnd,
         onClose: close,
@@ -421,9 +454,11 @@ class _ColumnState extends ConsumerState<_Column>
       final finish = _finish;
       if (_closing && finish != null) scheduleMicrotask(finish);
     } else if (mounted) {
-      // Lets the build below mark what is listed as read, now that doing so
-      // no longer rebuilds the column while it is moving.
-      setState(() {});
+      // Mark listed notifications as read once the slide settles without
+      // triggering a full redundant rebuild of the entire column.
+      if (_groups.isNotEmpty) {
+        _controller.markAllRead();
+      }
     }
   }
 
@@ -469,6 +504,28 @@ class _ColumnState extends ConsumerState<_Column>
     _resizeTo(id, TileSize(next.w, next.h));
   }
 
+  void _openGallery(
+    List<String> order, {
+    KitCustomWidgetDef? editingCustom,
+  }) {
+    showWidgetGalleryDialog(
+      ref: ref,
+      services: services,
+      activeIds: order,
+      editingCustom: editingCustom,
+      onAdd: (id, size) {
+        _resizeTo(id, TileSize(size.w, size.h));
+        if (!order.contains(id)) {
+          _save(<String>[...order, id]);
+        }
+      },
+      onRemoveFromGrid: (id) => _save(<String>[
+        for (final other in order)
+          if (other != id) other,
+      ]),
+    );
+  }
+
   void _showWidgetMenu(
     BuildContext context,
     String id,
@@ -480,12 +537,13 @@ class _ColumnState extends ConsumerState<_Column>
     if (spec == null) return;
     final cur = resolveWidgetSize(id, sizes) ?? spec.defaultSize;
     final items = <NcMenuItem>[
-      for (final sz in spec.supportedSizes)
-        NcMenuItem(
-          label:
-              '${sz == cur ? '✓ ' : '   '}${context.tr(sz.label)} (${sz.gridLabel})',
-          onTap: () => _resizeTo(id, TileSize(sz.w, sz.h)),
-        ),
+      if (spec.supportedSizes.length > 1)
+        for (final sz in spec.supportedSizes)
+          NcMenuItem(
+            label:
+                '${sz == cur ? '✓ ' : '   '}${context.tr(sz.label)} (${sz.gridLabel})',
+            onTap: () => _resizeTo(id, TileSize(sz.w, sz.h)),
+          ),
       if (id == 'clock')
         NcMenuItem(
           label: context.tr(
@@ -493,6 +551,39 @@ class _ColumnState extends ConsumerState<_Column>
           ),
           onTap: () => setWidgetClockDigital(!widgetClockDigital.value),
         ),
+      if (id == 'worldclock')
+        NcMenuItem(
+          label: context.tr('Cycle World Clock Cities'),
+          onTap: () {
+            final curCities = worldClockCities.value;
+            final startIdx = worldClockCatalog.indexWhere(
+              (e) => e.$2 == curCities.first.$2,
+            );
+            final nextStart = (startIdx + 1) % worldClockCatalog.length;
+            final nextList = <(String, String)>[
+              for (var i = 0; i < 4; i++)
+                worldClockCatalog[(nextStart + i) % worldClockCatalog.length],
+            ];
+            setWorldClockCities(nextList);
+          },
+        ),
+      if (spec.custom != null) ...<NcMenuItem>[
+        NcMenuItem(
+          label: context.tr('Edit Widget'),
+          onTap: () => _openGallery(order, editingCustom: spec.custom),
+        ),
+        NcMenuItem(
+          label: context.tr('Delete Custom Widget'),
+          onTap: () {
+            _save(<String>[
+              for (final other in order)
+                if (other != id) other,
+            ]);
+            kitWidgetRegistry.removeCustom(id);
+            persistCustomWidgets();
+          },
+        ),
+      ],
       NcMenuItem(
         label: context.tr(
           kitWidgetStyle.value == KitWidgetStyle.glass
@@ -505,8 +596,8 @@ class _ColumnState extends ConsumerState<_Column>
             : KitWidgetStyle.glass,
       ),
       NcMenuItem(
-        label: context.tr('Edit Widgets'),
-        onTap: () => setState(() => _editing = true),
+        label: context.tr(_editing ? 'Done' : 'Edit Widgets'),
+        onTap: () => setState(() => _editing = !_editing),
       ),
       NcMenuItem(
         label: context.tr('Remove Widget'),
@@ -591,27 +682,17 @@ class _ColumnState extends ConsumerState<_Column>
     }
     return <Widget>[
       grid,
-      if (_ready)
-        Reveal(
-          open: _editing,
-          child: Padding(
-            padding: const EdgeInsets.only(top: gap),
-            child: _Surface(
-              child: WidgetGallery(
-                activeIds: order,
-                onAdd: (id, size) {
-                  _resizeTo(id, TileSize(size.w, size.h));
-                  _save(<String>[...order, id]);
-                },
-              ),
-            ),
-          ),
-        ),
       const SizedBox(height: 14),
       Row(
         mainAxisAlignment: MainAxisAlignment.center,
         children: <Widget>[
           if (_editing) ...<Widget>[
+            NcChip(
+              label: context.tr('+ Widget'),
+              large: true,
+              onTap: () => _openGallery(order),
+            ),
+            const SizedBox(width: 8),
             NcChip(
               label: context.tr('Reset'),
               large: true,
@@ -1044,8 +1125,13 @@ class _ColumnState extends ConsumerState<_Column>
     final width = plate + NcCard.reach * 2;
     final inset = NcLook.layout.edge - NcCard.reach;
     final onLeft = side == PanelEdge.left;
-    _travel = width + 24;
-    _place();
+    final nextTravel = width + 24;
+    if ((nextTravel - _travel).abs() > 0.5) {
+      _travel = nextTravel;
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted) _place();
+      });
+    }
 
     final staying = <DesktopNotificationGroup>[
       for (final group in groups)
@@ -1812,8 +1898,8 @@ class _GnomeDateMenu extends ConsumerWidget {
   }
 }
 
-/// Windows 11 Fluent Notification Centre: stacked notifications with DND and
-/// Clear All controls above a collapsible month calendar card.
+/// Windows 11 Fluent Notification Centre: two separate stacked Fluent cards —
+/// Notifications (with DND + Clear All) above a collapsible month calendar card.
 class _WindowsNotificationCenter extends ConsumerStatefulWidget {
   const _WindowsNotificationCenter({
     required this.services,
@@ -1835,80 +1921,320 @@ class _WindowsNotificationCenter extends ConsumerStatefulWidget {
 class _WindowsNotificationCenterState
     extends ConsumerState<_WindowsNotificationCenter> {
   bool _calendarOpen = true;
+  late DateTime _now = DateTime.now();
+  Timer? _dayTick;
+
+  @override
+  void initState() {
+    super.initState();
+    _dayTick = Timer.periodic(const Duration(seconds: 30), (_) {
+      final cur = DateTime.now();
+      if (cur.day != _now.day || cur.month != _now.month || cur.year != _now.year) {
+        if (mounted) setState(() => _now = cur);
+      }
+    });
+  }
+
+  @override
+  void dispose() {
+    _dayTick?.cancel();
+    super.dispose();
+  }
 
   @override
   Widget build(BuildContext context) {
     final theme = context.shellTheme;
-    final now = DateTime.now();
+    final style = KitStyle.of(context);
+    final material = kitMaterialOf(context, KitTier.popover);
+    final radius = style.outer(theme, BarTokens.popoverRadius);
     final zh = Localizations.maybeLocaleOf(context)?.languageCode == 'zh';
     final dateTitle = zh
-        ? '${now.month}月${now.day}日'
-        : '${_enMonths[now.month - 1]} ${now.day}';
-    return Column(
-      mainAxisSize: MainAxisSize.min,
-      crossAxisAlignment: CrossAxisAlignment.stretch,
-      children: <Widget>[
-        ConstrainedBox(
-          constraints: const BoxConstraints(maxHeight: 320),
-          child: _Column(
-            services: widget.services,
-            side: widget.side,
-            barHeight: widget.barHeight,
-            notifications: true,
-            widgets: false,
-            framed: true,
-            showDndToggle: true,
-            onClose: widget.onClose,
+        ? '${_now.month}月${_now.day}日'
+        : '${_enMonths[_now.month - 1]} ${_now.day}';
+    return BackdropGroup(
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: <Widget>[
+          KitGlass(
+            material: material,
+            tier: KitTier.popover,
+            radius: radius,
+            grouped: true,
+            child: ConstrainedBox(
+              constraints: const BoxConstraints(maxHeight: 330),
+              child: _Column(
+                services: widget.services,
+                side: widget.side,
+                barHeight: widget.barHeight,
+                notifications: true,
+                widgets: false,
+                framed: true,
+                showDndToggle: true,
+                onClose: widget.onClose,
+              ),
+            ),
           ),
-        ),
-        Container(height: 1, color: theme.colors.hairline),
-        Padding(
-          padding: const EdgeInsets.fromLTRB(14, 10, 10, 8),
-          child: Row(
-            children: <Widget>[
-              Expanded(
-                child: Text(
-                  dateTitle,
-                  style: BarType.title.copyWith(
-                    fontSize: 13.5,
-                    color: theme.colors.textPrimary,
+          const SizedBox(height: 10),
+          KitGlass(
+            material: material,
+            tier: KitTier.popover,
+            radius: radius,
+            grouped: true,
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: <Widget>[
+                Padding(
+                  padding: const EdgeInsets.fromLTRB(14, 10, 10, 10),
+                  child: Row(
+                    children: <Widget>[
+                      Expanded(
+                        child: Text(
+                          dateTitle,
+                          style: BarType.title.copyWith(
+                            fontSize: 13.5,
+                            color: theme.colors.textPrimary,
+                          ),
+                        ),
+                      ),
+                      Pressable(
+                        onTap: () =>
+                            setState(() => _calendarOpen = !_calendarOpen),
+                        shape: BorderRadius.circular(5),
+                        child: Container(
+                          width: 26,
+                          height: 26,
+                          alignment: Alignment.center,
+                          decoration: BoxDecoration(
+                            color: theme.colors.surfaceContainerHigh,
+                            borderRadius: BorderRadius.circular(5),
+                            border: Border.all(
+                              color: theme.colors.hairline,
+                              width: 0.8,
+                            ),
+                          ),
+                          child: AnimatedRotation(
+                            turns: _calendarOpen ? 0 : 0.5,
+                            duration: KitMotion.duration(
+                              context,
+                              KitMotion.enter,
+                            ),
+                            child: BarGlyph(
+                              BarIcons.chevronDown,
+                              size: 11,
+                              color: theme.colors.textPrimary,
+                            ),
+                          ),
+                        ),
+                      ),
+                    ],
                   ),
                 ),
-              ),
-              Pressable(
-                onTap: () => setState(() => _calendarOpen = !_calendarOpen),
-                shape: BorderRadius.circular(5),
-                child: Container(
-                  width: 26,
-                  height: 26,
-                  alignment: Alignment.center,
-                  decoration: BoxDecoration(
-                    color: theme.colors.surfaceContainerHigh,
-                    borderRadius: BorderRadius.circular(5),
-                    border: Border.all(color: theme.colors.hairline, width: 0.8),
+                Reveal(
+                  open: _calendarOpen,
+                  child: const Padding(
+                    padding: EdgeInsets.fromLTRB(14, 0, 14, 14),
+                    child: _CompactMonthCalendar(showHeader: false),
                   ),
-                  child: AnimatedRotation(
-                    turns: _calendarOpen ? 0 : 0.5,
-                    duration: KitMotion.duration(context, KitMotion.enter),
-                    child: BarGlyph(
-                      BarIcons.chevronDown,
-                      size: 11,
-                      color: theme.colors.textPrimary,
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+/// Caelestia full-height right-edge M3 notification sidebar
+/// (`caelestia/modules/sidebar/NotifDock.qml`): notification count header,
+/// "All up to date!" empty state, bottom-right Clear All FAB, no macOS widgets.
+class _CaelestiaNotifSidebar extends ConsumerWidget {
+  const _CaelestiaNotifSidebar({
+    required this.services,
+    required this.side,
+    required this.barHeight,
+    required this.onClose,
+  });
+
+  final ShellServices services;
+  final PanelEdge side;
+  final double barHeight;
+  final VoidCallback onClose;
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final theme = context.shellTheme;
+    final style = KitStyle.of(context);
+    final accent = style.accent(theme);
+    final onAccent = style.onAccent(theme);
+    final state = ref.watch(desktopNotificationsProvider);
+    final groups = state.groups;
+    final total = groups.fold<int>(0, (acc, g) => acc + g.members.length);
+    final clearable = groups.any((g) => g.clearable);
+    final topPad = side == PanelEdge.top ? barHeight + 8 : 12.0;
+    final bottomPad = side == PanelEdge.bottom ? barHeight + 8 : 12.0;
+
+    return Align(
+      alignment: side == PanelEdge.left
+          ? Alignment.centerLeft
+          : Alignment.centerRight,
+      child: Padding(
+        padding: EdgeInsets.fromLTRB(
+          side == PanelEdge.left ? barHeight + 8 : 12,
+          topPad,
+          side == PanelEdge.right ? barHeight + 8 : 12,
+          bottomPad,
+        ),
+        child: SizedBox(
+          width: 360,
+          child: KitGlass(
+            material: kitMaterialOf(context, KitTier.popover),
+            tier: KitTier.popover,
+            radius: style.outer(theme, 24),
+            child: Stack(
+              children: <Widget>[
+                Column(
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: <Widget>[
+                    Padding(
+                      padding: const EdgeInsets.fromLTRB(18, 16, 14, 10),
+                      child: Row(
+                        children: <Widget>[
+                          Text(
+                            context.tr('Notifications'),
+                            style: BarType.title.copyWith(
+                              fontSize: 16,
+                              fontWeight: FontWeight.w700,
+                              color: theme.colors.textPrimary,
+                            ),
+                          ),
+                          const SizedBox(width: 8),
+                          Container(
+                            padding: const EdgeInsets.symmetric(
+                              horizontal: 8,
+                              vertical: 2,
+                            ),
+                            decoration: BoxDecoration(
+                              color: accent.withValues(alpha: 0.18),
+                              borderRadius: BorderRadius.circular(10),
+                            ),
+                            child: Text(
+                              '$total',
+                              style: BarType.caption.copyWith(
+                                fontSize: 11,
+                                fontWeight: FontWeight.w700,
+                                color: accent,
+                              ),
+                            ),
+                          ),
+                          const Spacer(),
+                          Pressable(
+                            onTap: onClose,
+                            shape: BorderRadius.circular(14),
+                            wash: true,
+                            child: Padding(
+                              padding: const EdgeInsets.all(6),
+                              child: BarGlyph(
+                                BarIcons.xmark,
+                                size: 12,
+                                color: theme.colors.textSecondary,
+                              ),
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                    Container(height: 1, color: theme.colors.hairline),
+                    Expanded(
+                      child: groups.isEmpty
+                          ? Center(
+                              child: Column(
+                                mainAxisSize: MainAxisSize.min,
+                                children: <Widget>[
+                                  Container(
+                                    width: 48,
+                                    height: 48,
+                                    decoration: BoxDecoration(
+                                      color: accent.withValues(alpha: 0.14),
+                                      borderRadius: BorderRadius.circular(24),
+                                    ),
+                                    alignment: Alignment.center,
+                                    child: BarGlyph(
+                                      BarIcons.bell,
+                                      size: 20,
+                                      color: accent,
+                                    ),
+                                  ),
+                                  const SizedBox(height: 10),
+                                  Text(
+                                    context.tr('All up to date!'),
+                                    style: BarType.title.copyWith(
+                                      fontSize: 13.5,
+                                      color: theme.colors.textSecondary,
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            )
+                          : _Column(
+                              services: services,
+                              side: side,
+                              barHeight: barHeight,
+                              notifications: true,
+                              widgets: false,
+                              framed: true,
+                              showDndToggle: false,
+                              showHeader: false,
+                              onClose: onClose,
+                            ),
+                    ),
+                  ],
+                ),
+                if (clearable)
+                  Positioned(
+                    right: 16,
+                    bottom: 16,
+                    child: Pressable(
+                      onTap: () => ref
+                          .read(desktopNotificationsProvider.notifier)
+                          .clearAll(),
+                      shape: BorderRadius.circular(18),
+                      child: Container(
+                        height: 36,
+                        padding: const EdgeInsets.symmetric(horizontal: 14),
+                        decoration: BoxDecoration(
+                          color: accent,
+                          borderRadius: BorderRadius.circular(18),
+                        ),
+                        child: Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: <Widget>[
+                            BarGlyph(
+                              BarIcons.trash,
+                              size: 13,
+                              color: onAccent,
+                            ),
+                            const SizedBox(width: 6),
+                            Text(
+                              context.tr('Clear All'),
+                              style: BarType.caption.copyWith(
+                                fontSize: 12,
+                                fontWeight: FontWeight.w600,
+                                color: onAccent,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
                     ),
                   ),
-                ),
-              ),
-            ],
+              ],
+            ),
           ),
         ),
-        Reveal(
-          open: _calendarOpen,
-          child: const Padding(
-            padding: EdgeInsets.fromLTRB(14, 0, 14, 14),
-            child: _CompactMonthCalendar(showHeader: false),
-          ),
-        ),
-      ],
+      ),
     );
   }
 }
@@ -1943,6 +2269,11 @@ class _CompactMonthCalendarState extends State<_CompactMonthCalendar> {
   void _step(int delta) =>
       setState(() => _month = DateTime(_month.year, _month.month + delta));
 
+  void _jumpToday() {
+    final now = DateTime.now();
+    setState(() => _month = DateTime(now.year, now.month));
+  }
+
   @override
   Widget build(BuildContext context) {
     final theme = context.shellTheme;
@@ -1951,13 +2282,14 @@ class _CompactMonthCalendarState extends State<_CompactMonthCalendar> {
     final zh = Localizations.maybeLocaleOf(context)?.languageCode == 'zh';
     final first = DateTime(_month.year, _month.month, 1);
     final daysInMonth = DateTime(_month.year, _month.month + 1, 0).day;
-    final leadBlanks = first.weekday % 7; // Sun = 0 .. Sat = 6
+    // Monday-first to stay consistent with CalendarWidget across all panels.
+    final leadBlanks = first.weekday - 1; // Mon = 0 .. Sun = 6
     final monthTitle = zh
         ? '${_month.year}年${_month.month}月'
         : '${_enMonths[_month.month - 1]} ${_month.year}';
     final weekdays = zh
-        ? const <String>['日', '一', '二', '三', '四', '五', '六']
-        : const <String>['S', 'M', 'T', 'W', 'T', 'F', 'S'];
+        ? const <String>['一', '二', '三', '四', '五', '六', '日']
+        : const <String>['M', 'T', 'W', 'T', 'F', 'S', 'S'];
     final accent = style.accent(theme);
     final onAccent = style.onAccent(theme);
 
@@ -1966,12 +2298,22 @@ class _CompactMonthCalendarState extends State<_CompactMonthCalendar> {
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: <Widget>[
         if (widget.showHeader) ...<Widget>[
-          Text(
-            zh ? '${today.month}月${today.day}日' : '${_enMonths[today.month - 1]} ${today.day}',
-            style: BarType.title.copyWith(
-              fontSize: 20,
-              fontWeight: FontWeight.w700,
-              color: theme.colors.textPrimary,
+          Pressable(
+            onTap: _jumpToday,
+            shape: BorderRadius.circular(8),
+            wash: true,
+            child: Padding(
+              padding: const EdgeInsets.symmetric(vertical: 2),
+              child: Text(
+                zh
+                    ? '${today.month}月${today.day}日'
+                    : '${_enMonths[today.month - 1]} ${today.day}',
+                style: BarType.title.copyWith(
+                  fontSize: 20,
+                  fontWeight: FontWeight.w700,
+                  color: theme.colors.textPrimary,
+                ),
+              ),
             ),
           ),
           const SizedBox(height: 10),

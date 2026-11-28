@@ -320,19 +320,19 @@ class MacDisc extends StatelessWidget {
     final style = KitStyle.of(context);
     final dark = theme.brightness == Brightness.dark;
     final arch = style.archetype;
-    // Authentic macOS 26 Tahoe active discs use vibrant system accent plates
-    // with crisp white glyphs and a delicate glossy sheen, while inactive discs
-    // sit on a subtle translucent glass well.
+    // Authentic macOS 26 Tahoe active discs use a crisp white plate with an
+    // accent-colored glyph (matching 1x1 round toggles in ControlAction.qml),
+    // while inactive discs sit on a subtle translucent glass well.
     final isMacGlass =
         arch == KitShellArchetype.macos &&
         style.panelStyle == KitPanelStyle.floating;
     final fillColor = isMacGlass
-        ? colour
+        ? const Color(0xffffffff)
         : style.plate(theme, colour, meaning: meaning);
     final glyphColor = !on
         ? theme.colors.textPrimary
         : isMacGlass
-        ? const Color(0xffffffff)
+        ? colour
         : style.onPlate(theme, meaning: meaning);
     final BorderRadius shape = switch (arch) {
       KitShellArchetype.omarchy => BorderRadius.zero,

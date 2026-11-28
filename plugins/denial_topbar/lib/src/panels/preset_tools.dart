@@ -250,6 +250,14 @@ class _PresetToolsState extends ConsumerState<PresetTools> {
               label: context.tr('Save as…'),
               onTap: () => _open(_Tool.naming),
             ),
+            if (widget.modified)
+              SmallButton(
+                label: context.tr('Reset preset'),
+                onTap: () {
+                  applyShellPreset(ref, current, fresh: true);
+                  _done(context.tr('Reset “{}”.', current.label));
+                },
+              ),
             if (mine)
               SmallButton(
                 label: context.tr('Update “{}”', current.label),

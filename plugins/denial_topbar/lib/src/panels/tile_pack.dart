@@ -47,11 +47,13 @@ class TileSize {
   return (cells: cells, rows: taken.length);
 }
 
+final RegExp _tileSizePattern = RegExp(r'^(.+):([1-4])x([1-4])$');
+
 /// Sizes the user chose, stored as `id:WxH`. Malformed entries are dropped.
 Map<String, TileSize> parseTileSizes(List<String> entries) {
   final sizes = <String, TileSize>{};
   for (final entry in entries) {
-    final match = RegExp(r'^(.+):([1-4])x([1-4])$').firstMatch(entry);
+    final match = _tileSizePattern.firstMatch(entry);
     if (match == null) continue;
     sizes[match.group(1)!] = TileSize(
       int.parse(match.group(2)!),

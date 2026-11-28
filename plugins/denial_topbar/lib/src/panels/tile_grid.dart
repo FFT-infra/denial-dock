@@ -4,6 +4,7 @@ import 'package:denial_flutter_sdk/theme.dart';
 import 'package:denial_shell_kit/kit_entrance.dart';
 import 'package:denial_shell_kit/kit_motion.dart';
 import 'package:denial_shell_kit/kit_style.dart';
+import 'package:denial_shell_kit/kit_widgets.dart';
 import 'package:flutter/gestures.dart';
 import 'package:flutter/widgets.dart';
 
@@ -187,6 +188,24 @@ class _TileGridState extends State<TileGrid>
   TileSize _snapSize(Tile tile, Offset delta) {
     final supported = tile.supportedSizes;
     if (supported == null || supported.length <= 1) return tile.size;
+    // Use kit magnetic snapWidgetResize for standard 2-column widget grids.
+    final curKit = KitWidgetSize.fromDims(tile.size.w, tile.size.h);
+    if (widget.columns == 2 && curKit != null) {
+      final kitSupported = <KitWidgetSize>[
+        for (final s in supported) ?KitWidgetSize.fromDims(s.w, s.h),
+      ];
+      if (kitSupported.length > 1) {
+        final snapped = snapWidgetResize(
+          current: curKit,
+          supported: kitSupported,
+          dx: delta.dx,
+          dy: delta.dy,
+          cell: widget.cell.width,
+          gap: widget.gap,
+        );
+        return TileSize(snapped.w, snapped.h);
+      }
+    }
     final startW = _span(tile.size.w, widget.cell.width);
     final startH = _span(tile.size.h, widget.cell.height);
     final targetW = math.max(widget.cell.width * 0.5, startW + delta.dx);
@@ -257,17 +276,19 @@ class _TileGridState extends State<TileGrid>
       final rect = rects[tile.id]!;
       final dragging = _dragId == tile.id;
       final resizing = _resizeId == tile.id;
-      Widget body = IgnorePointer(ignoring: widget.editing, child: tile.child);
-      if (!widget.editing && tile.onSecondaryTap != null) {
-        body = GestureDetector(
-          behavior: HitTestBehavior.translucent,
-          onSecondaryTapUp: (details) {
-            final pos = details.globalPosition;
-            tile.onSecondaryTap!(Rect.fromLTWH(pos.dx, pos.dy, 1, 1));
-          },
-          child: body,
-        );
-      }
+      // Lay out child at its target footprint and clip during AnimatedPositioned
+      // transitions so S<->M<->L resizes never trigger intermediate RenderFlex
+      // overflows while the box animates smoothly.
+      Widget body = ClipRect(
+        child: OverflowBox(
+          alignment: Alignment.topLeft,
+          minWidth: rect.width,
+          maxWidth: rect.width,
+          minHeight: rect.height,
+          maxHeight: rect.height,
+          child: IgnorePointer(ignoring: widget.editing, child: tile.child),
+        ),
+      );
       if (widget.editing) {
         final canResize =
             tile.onResize != null ||
@@ -326,8 +347,8 @@ class _TileGridState extends State<TileGrid>
               ),
             if (!dragging && canResize)
               Positioned(
-                right: -6,
-                bottom: -6,
+                right: -10,
+                bottom: -10,
                 child: tile.onResizeTo != null &&
                         (tile.supportedSizes?.length ?? 0) > 1
                     ? _MagneticResizeHandle(
@@ -350,6 +371,17 @@ class _TileGridState extends State<TileGrid>
                     : _Badge(icon: BarIcons.resize, onTap: tile.onResize!),
               ),
           ],
+        );
+      }
+      // Support right-click / context menu in both normal and edit modes.
+      if (tile.onSecondaryTap != null) {
+        body = GestureDetector(
+          behavior: HitTestBehavior.translucent,
+          onSecondaryTapUp: (details) {
+            final pos = details.globalPosition;
+            tile.onSecondaryTap!(Rect.fromLTWH(pos.dx, pos.dy, 1, 1));
+          },
+          child: body,
         );
       }
       // Inside a surface that stages its entrance the tiles arrive row by
@@ -424,6 +456,28 @@ class _TileGridState extends State<TileGrid>
                       border: Border.all(
                         color: accent.withValues(alpha: 0.85),
                         width: 2,
+                      ),
+                    ),
+                    child: Center(
+                      child: Container(
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 10,
+                          vertical: 4,
+                        ),
+                        decoration: BoxDecoration(
+                          color: accent,
+                          borderRadius: BorderRadius.circular(12),
+                        ),
+                        child: Text(
+                          '${_resizePreview!.w}×${_resizePreview!.h}',
+                          style: BarType.caption.copyWith(
+                            fontSize: 11.5,
+                            fontWeight: FontWeight.w700,
+                            color: KitStyle.of(
+                              context,
+                            ).onAccent(context.shellTheme),
+                          ),
+                        ),
                       ),
                     ),
                   ),
@@ -538,7 +592,7 @@ class _MagneticResizeHandleState extends State<_MagneticResizeHandle> {
           ),
         },
         child: Padding(
-          padding: const EdgeInsets.all(3),
+          padding: const EdgeInsets.all(6),
           child: Container(
             width: 22,
             height: 22,

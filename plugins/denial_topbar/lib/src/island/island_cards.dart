@@ -676,7 +676,7 @@ class IslandHomeCard extends StatelessWidget {
                 IslandRoundButton(
                   icon: action.icon,
                   label: action.label,
-                  size: 46,
+                  size: actions.length > 6 ? 38 : 46,
                   fill: action.on ? skin.accent : null,
                   ink: action.on ? skin.onAccent : null,
                   onTap: action.onTap,

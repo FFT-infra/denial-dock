@@ -706,10 +706,46 @@ class _LookPageState extends State<LookPage> {
                 ),
                 SettingGroup(
                   title: context.tr('Material'),
-                  note: context.tr(
-                    'Each kind of surface has its own material. A change here is made to its light and its dark form alike.',
-                  ),
+                  note: kitSurfaceMode.value != null
+                      ? context.tr(
+                          'Surface material override is active in Appearance; clear it to see per-look material edits live.',
+                        )
+                      : context.tr(
+                          'Each kind of surface has its own material. A change here is made to its light and its dark form alike.',
+                        ),
                   children: <Widget>[
+                    if (kitSurfaceMode.value != null)
+                      Padding(
+                        padding: const EdgeInsets.fromLTRB(12, 8, 12, 4),
+                        child: Row(
+                          children: <Widget>[
+                            Expanded(
+                              child: Text(
+                                context.tr(
+                                  'Appearance currently overrides Surface material.',
+                                ),
+                                style: BarType.caption.copyWith(
+                                  color: style.accent(theme),
+                                  fontWeight: FontWeight.w600,
+                                ),
+                              ),
+                            ),
+                            Pressable(
+                              onTap: () => setState(() {
+                                kitSurfaceMode.value = null;
+                              }),
+                              scale: 0.96,
+                              child: Text(
+                                context.tr('As look'),
+                                style: BarType.caption.copyWith(
+                                  color: style.accent(theme),
+                                  fontWeight: FontWeight.w700,
+                                ),
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
                     SettingSwitch(
                       label: context.tr('Solid panels, nothing blurred'),
                       value: draft.opaque,

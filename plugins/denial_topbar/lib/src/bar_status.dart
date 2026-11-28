@@ -539,8 +539,12 @@ class BarStatusCluster extends ConsumerWidget {
         ),
     };
     final recording = ref.watch(screenRecordingProvider);
-    if (settings.showMic) micWatch.start();
-    unawaited(clipboardWatch.setRunning(settings.showClipboard));
+    final wantMic = settings.showMic || settings.activityStatus;
+    final wantClip = settings.showClipboard;
+    scheduleMicrotask(() {
+      micWatch.setRunning(wantMic);
+      unawaited(clipboardWatch.setRunning(wantClip));
+    });
     final micUsers = settings.showMic
         ? ref.watch(_micProvider)
         : const <String>[];

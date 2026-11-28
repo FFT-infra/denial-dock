@@ -3,6 +3,7 @@ import 'dart:math' as math;
 
 import 'package:denial_flutter_sdk/theme.dart';
 import 'package:denial_shell_kit/detached_run.dart';
+import 'package:denial_shell_kit/kit_store.dart';
 import 'package:denial_shell_kit/kit_widgets.dart';
 import 'package:flutter/widgets.dart';
 
@@ -10,11 +11,52 @@ import '../bar_type.dart';
 import '../l10n.dart';
 import 'nc_parts.dart';
 
+/// Curated city catalog users can cycle/toggle for World Clock.
+const List<(String, String)> worldClockCatalog = <(String, String)>[
+  ('Cupertino', 'America/Los_Angeles'),
+  ('New York', 'America/New_York'),
+  ('London', 'Europe/London'),
+  ('Beijing', 'Asia/Shanghai'),
+  ('Tokyo', 'Asia/Tokyo'),
+  ('Paris', 'Europe/Paris'),
+  ('Berlin', 'Europe/Berlin'),
+  ('Singapore', 'Asia/Singapore'),
+  ('Sydney', 'Australia/Sydney'),
+  ('Seoul', 'Asia/Seoul'),
+  ('Dubai', 'Asia/Dubai'),
+  ('Toronto', 'America/Toronto'),
+];
+
+/// Persisted list of `(city, zone)` pairs shown by World Clock (max 4).
+final ValueNotifier<List<(String, String)>> worldClockCities =
+    ValueNotifier<List<(String, String)>>(_loadStoredWorldCities());
+
+List<(String, String)> _loadStoredWorldCities() {
+  final raw = kitStore.read()['widgetWorldCities'];
+  if (raw is List) {
+    final parsed = <(String, String)>[];
+    for (final entry in raw) {
+      if (entry is Map && entry['c'] is String && entry['z'] is String) {
+        parsed.add((entry['c'] as String, entry['z'] as String));
+      }
+    }
+    if (parsed.isNotEmpty) return parsed.take(4).toList(growable: false);
+  }
+  return WorldClock.defaultCities;
+}
+
+void setWorldClockCities(List<(String, String)> next) {
+  final list = next.isEmpty
+      ? WorldClock.defaultCities
+      : next.take(4).toList(growable: false);
+  worldClockCities.value = list;
+  WorldClock.invalidate();
+  kitStore.put('widgetWorldCities', <Map<String, String>>[
+    for (final (city, zone) in list) <String, String>{'c': city, 'z': zone},
+  ]);
+}
+
 /// One city's local time, read through the host's own zoneinfo.
-///
-/// Dart has no timezone database, so the clock asks `date` with `TZ` set —
-/// the same source the rest of the session uses, DST included. A zone the
-/// host does not ship is simply absent from the list.
 @immutable
 class WorldClock {
   const WorldClock({
@@ -31,56 +73,71 @@ class WorldClock {
   /// −1 for yesterday, 1 for tomorrow, 0 for the same day.
   final int dayDelta;
 
-  static const List<(String, String)> cities = <(String, String)>[
+  static const List<(String, String)> defaultCities = <(String, String)>[
     ('Cupertino', 'America/Los_Angeles'),
     ('New York', 'America/New_York'),
     ('London', 'Europe/London'),
     ('Beijing', 'Asia/Shanghai'),
   ];
 
+  static List<(String, String)> get cities => worldClockCities.value;
+
   /// What the last read found, so a card that opens again shows its rows
   /// in its first frame.
   static List<WorldClock> last = const <WorldClock>[];
   static int _lastMinuteKey = -1;
 
-  /// Reads every city (cached per wall-clock minute), using detached helpers
-  /// so opening Notification Centre repeatedly does not fork `date` 4× each
-  /// time or spawn attached children.
+  static void invalidate() {
+    last = const <WorldClock>[];
+    _lastMinuteKey = -1;
+  }
+
+  /// Reads all configured cities in one batched detached `sh` command (cached
+  /// per wall-clock minute; never caches an empty failure result).
   static Future<List<WorldClock>> read(DateTime now) async {
     final minuteKey = now.millisecondsSinceEpoch ~/ 60000;
     if (last.isNotEmpty && minuteKey == _lastMinuteKey) return last;
+    final list = cities;
     final localDay = DateTime(now.year, now.month, now.day);
-    final results = await Future.wait(<Future<DetachedResult>>[
-      for (final (_, zone) in cities)
-        runDetached(
-          'date',
-          const <String>['+%H:%M %Y-%m-%d'],
-          environment: <String, String>{'TZ': zone},
-        ),
-    ]);
+    final script = <String>[
+      for (final (_, zone) in list)
+        'TZ=${_shQuote(zone)} date "+%H:%M %Y-%m-%d" || echo ""',
+    ].join('; ');
+    final res = await runDetached(
+      'sh',
+      <String>['-c', script],
+      timeout: const Duration(seconds: 3),
+    );
     final clocks = <WorldClock>[];
-    for (var i = 0; i < cities.length; i++) {
-      final result = results[i];
-      if (result.exitCode != 0) continue;
-      final parts = result.stdout.trim().split(' ');
-      if (parts.length != 2) continue;
-      final day = DateTime.tryParse(parts[1]);
-      clocks.add(
-        WorldClock(
-          city: cities[i].$1,
-          zone: cities[i].$2,
-          time: parts[0],
-          dayDelta: day == null ? 0 : day.difference(localDay).inDays,
-        ),
-      );
+    if (res.exitCode == 0) {
+      final lines = res.stdout.split('\n');
+      for (var i = 0; i < list.length && i < lines.length; i++) {
+        final parts = lines[i].trim().split(' ');
+        if (parts.length != 2) continue;
+        final day = DateTime.tryParse(parts[1]);
+        clocks.add(
+          WorldClock(
+            city: list[i].$1,
+            zone: list[i].$2,
+            time: parts[0],
+            dayDelta: day == null ? 0 : day.difference(localDay).inDays,
+          ),
+        );
+      }
     }
-    _lastMinuteKey = minuteKey;
-    return last = clocks;
+    if (clocks.isNotEmpty) {
+      _lastMinuteKey = minuteKey;
+      last = clocks;
+    }
+    return last;
   }
+
+  static String _shQuote(String value) =>
+      "'${value.replaceAll("'", "'\\''")}'";
 }
 
-/// The World Clock widget: Medium (2×1) shows 4 compact dials in a row;
-/// Large (2×2) shows a 2×2 grid of larger dials with day/night faces.
+/// The World Clock widget: Small (1×1) shows the primary city dial; Medium
+/// (2×1) shows up to 4 compact dials in a row; Large (2×2) shows a 2×2 grid.
 class WorldClockCard extends StatefulWidget {
   const WorldClockCard({
     this.size = KitWidgetSize.medium,
@@ -102,6 +159,7 @@ class _WorldClockCardState extends State<WorldClockCard> {
   @override
   void initState() {
     super.initState();
+    worldClockCities.addListener(_onCitiesChanged);
     _refresh();
     // Minute resolution is enough: the dials have no second hand.
     _tick = Timer.periodic(const Duration(seconds: 30), (_) => _refresh());
@@ -109,8 +167,13 @@ class _WorldClockCardState extends State<WorldClockCard> {
 
   @override
   void dispose() {
+    worldClockCities.removeListener(_onCitiesChanged);
     _tick?.cancel();
     super.dispose();
+  }
+
+  void _onCitiesChanged() {
+    if (mounted) unawaited(_refresh());
   }
 
   Future<void> _refresh() async {
@@ -121,12 +184,48 @@ class _WorldClockCardState extends State<WorldClockCard> {
 
   @override
   Widget build(BuildContext context) {
-    if (_clocks.isEmpty) return const SizedBox.shrink();
     final theme = context.shellTheme;
     final primary = widget.glass ? theme.colors.textPrimary : NcLook.onNight;
     final secondary = widget.glass
         ? theme.colors.textSecondary
         : NcLook.onNightDim;
+    if (_clocks.isEmpty) {
+      final now = DateTime.now();
+      final placeholder = <WorldClock>[
+        for (final (city, zone) in WorldClock.cities)
+          WorldClock(
+            city: city,
+            zone: zone,
+            time:
+                '${now.hour.toString().padLeft(2, '0')}:${now.minute.toString().padLeft(2, '0')}',
+            dayDelta: 0,
+          ),
+      ];
+      return Opacity(
+        opacity: 0.45,
+        child: _buildLayout(context, placeholder, primary, secondary),
+      );
+    }
+    return _buildLayout(context, _clocks, primary, secondary);
+  }
+
+  Widget _buildLayout(
+    BuildContext context,
+    List<WorldClock> clocks,
+    Color primary,
+    Color secondary,
+  ) {
+    if (widget.size == KitWidgetSize.small) {
+      return Padding(
+        padding: const EdgeInsets.all(14),
+        child: _Dial(
+          clock: clocks.first,
+          primary: primary,
+          secondary: secondary,
+          large: true,
+        ),
+      );
+    }
     if (widget.size == KitWidgetSize.large) {
       return Padding(
         padding: const EdgeInsets.all(14),
@@ -135,7 +234,7 @@ class _WorldClockCardState extends State<WorldClockCard> {
             Expanded(
               child: Row(
                 children: <Widget>[
-                  for (final clock in _clocks.take(2))
+                  for (final clock in clocks.take(2))
                     Expanded(
                       child: Padding(
                         padding: const EdgeInsets.all(6),
@@ -153,7 +252,7 @@ class _WorldClockCardState extends State<WorldClockCard> {
             Expanded(
               child: Row(
                 children: <Widget>[
-                  for (final clock in _clocks.skip(2).take(2))
+                  for (final clock in clocks.skip(2).take(2))
                     Expanded(
                       child: Padding(
                         padding: const EdgeInsets.all(6),
@@ -177,7 +276,7 @@ class _WorldClockCardState extends State<WorldClockCard> {
       child: Row(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: <Widget>[
-          for (final clock in _clocks)
+          for (final clock in clocks)
             Expanded(
               child: Padding(
                 padding: const EdgeInsets.symmetric(horizontal: 5),

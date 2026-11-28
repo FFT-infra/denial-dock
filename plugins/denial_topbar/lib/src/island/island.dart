@@ -472,11 +472,16 @@ class _IslandState extends ConsumerState<Island> with TickerProviderStateMixin {
   ShellServices get _services => widget.services;
   DateTime get _now => DateTime.now();
 
+  void _onNightLight() {
+    if (mounted) setState(() {});
+  }
+
   @override
   void initState() {
     super.initState();
     kitOpenPanel.addListener(_onPanel);
     islandHomeActions.addListener(_onHomeActions);
+    NightLight.enabled.addListener(_onNightLight);
     _timerSeen = islandTimer.finishedAt;
     islandTimer.addListener(_onTimer);
     micWatch.addListener(_onMic);
@@ -507,6 +512,7 @@ class _IslandState extends ConsumerState<Island> with TickerProviderStateMixin {
     _lyrics.dispose();
     kitOpenPanel.removeListener(_onPanel);
     islandHomeActions.removeListener(_onHomeActions);
+    NightLight.enabled.removeListener(_onNightLight);
     islandTimer.removeListener(_onTimer);
     micWatch.removeListener(_onMic);
     debugCommand.removeListener(_debug);
@@ -515,6 +521,7 @@ class _IslandState extends ConsumerState<Island> with TickerProviderStateMixin {
     _clock?.cancel();
     _outside?.cancel();
     _cursor?.cancel();
+    _absorbRelease?.cancel();
     for (final timer in <Timer?>[
       _deadline,
       _intent,
@@ -622,9 +629,10 @@ class _IslandState extends ConsumerState<Island> with TickerProviderStateMixin {
       });
     }
     final open = _engine.expanded;
-    if (open != (_progress != null)) {
+    final needsProgress = open && _engine.card == IslandKind.media;
+    if (needsProgress != (_progress != null)) {
       _progress?.cancel();
-      _progress = open
+      _progress = needsProgress
           ? Timer.periodic(const Duration(seconds: 1), (_) {
               if (mounted) setState(() {});
             })
@@ -700,7 +708,12 @@ class _IslandState extends ConsumerState<Island> with TickerProviderStateMixin {
   void _hud(IconData icon, double level) {
     if (kitOpenPanel.value != null) return;
     final next = level.clamp(0.0, 1.0);
-    if (icon != _hudIcon || next != _hudLevel) _hudStep++;
+    if (icon != _hudIcon ||
+        next != _hudLevel ||
+        next <= 0.001 ||
+        next >= 0.999) {
+      _hudStep++;
+    }
     if (icon == _hudIcon && next != _hudLevel) {
       _hudTurn = next > _hudLevel ? 1 : -1;
     }
@@ -709,12 +722,14 @@ class _IslandState extends ConsumerState<Island> with TickerProviderStateMixin {
     if (next <= 0.001) {
       // Elastic left-edge squash/bounce when volume/brightness hits 0% or mute.
       _hudEdge.velocity -= 18;
+      _pullX.velocity -= 6;
       _w.velocity += 110;
       _kick(_shape);
       _kick(_feel);
     } else if (next >= 0.999) {
       // Elastic right-edge stretch/bounce when hitting 100%.
       _hudEdge.velocity += 18;
+      _pullX.velocity += 6;
       _w.velocity += 110;
       _kick(_shape);
       _kick(_feel);
@@ -1035,15 +1050,37 @@ class _IslandState extends ConsumerState<Island> with TickerProviderStateMixin {
     _sync();
   }
 
+  Timer? _absorbRelease;
+
   void _exit(PointerExitEvent event) {
     // Faded, the island has handed its region to the window underneath, and
     // the compositor ends the shell's pointer there without the pointer
     // having moved. It has left only once it is somewhere else.
     if (_yields && _within(event.position)) return;
+    // Cursor absorption: require a tiny extra bit of travel (~5 px) beyond
+    // the pill edge before releasing the absorbed state — without mutating
+    // hit-region Padding or shifting layout.
+    final absorb =
+        !_engine.expanded &&
+        !_yields &&
+        !widget.settings.islandHoverFade &&
+        widget.settings.islandCursorAbsorb;
+    if (absorb && _within(event.position, slack: 5.5)) {
+      _cursor ??= ref.read(denialBridgeProvider).cursorPositions.listen((at) {
+        if (_hovered && !_within(at, slack: 5.5)) _left();
+      });
+      _absorbRelease?.cancel();
+      _absorbRelease = Timer(const Duration(milliseconds: 240), () {
+        if (mounted && _hovered) _left();
+      });
+      return;
+    }
     _left();
   }
 
   void _left() {
+    _absorbRelease?.cancel();
+    _absorbRelease = null;
     if (!_hovered) return;
     final lastPull = _pull;
     _hovered = false;
@@ -1441,7 +1478,7 @@ class _IslandState extends ConsumerState<Island> with TickerProviderStateMixin {
             settings.islandCursorAbsorb;
         final hover = _hoverFeel.value * (1 - tc);
         final absorbElongation = absorbActive
-            ? 6.0 * hover.clamp(0.0, 1.2)
+            ? 4.0 * hover.clamp(0.0, 1.2)
             : 0.0;
         final width = math.max(h, _w.value + 14 * charge + absorbElongation);
         final height = math.max(h * 0.9, _h.value + 5 * charge);
