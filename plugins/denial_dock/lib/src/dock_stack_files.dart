@@ -1,5 +1,7 @@
 import 'dart:io';
 
+import 'package:denial_shell_kit/detached_run.dart';
+
 import 'dock_settings.dart' show DockStackSortMode;
 
 /// How a folder stack orders its entries. `added` is the Finder default for a
@@ -74,6 +76,48 @@ abstract final class DockStackFiles {
         final FileStat stat;
         try {
           stat = entity.statSync();
+        } on FileSystemException {
+          continue;
+        }
+        final isDirectory = stat.type == FileSystemEntityType.directory;
+        entries.add(
+          DockStackEntry(
+            path: entity.path,
+            name: name,
+            isDirectory: isDirectory,
+            addedAt: isDirectory ? stat.modified : stat.changed,
+            modifiedAt: stat.modified,
+          ),
+        );
+      }
+    } on FileSystemException {
+      return const [];
+    }
+    sortEntries(entries, sort, order: order);
+    return entries.length > limit ? entries.sublist(0, limit) : entries;
+  }
+
+  /// Non-blocking variant of [list] for background dock icon refreshes and
+  /// folder-watch reloads so large folders never block UI frames.
+  static Future<List<DockStackEntry>> listAsync(
+    String path, {
+    DockStackSort sort = DockStackSort.added,
+    List<String> order = const [],
+    int limit = maxEntries,
+  }) async {
+    final directory = Directory(path);
+    final entries = <DockStackEntry>[];
+    try {
+      await for (final entity in directory.list(followLinks: false)) {
+        final name = entity.uri.pathSegments.lastWhere(
+          (segment) => segment.isNotEmpty,
+          orElse: () => '',
+        );
+        if (name.isEmpty || name.startsWith('.')) continue;
+        if (entries.length >= maxEntries) break;
+        final FileStat stat;
+        try {
+          stat = await entity.stat();
         } on FileSystemException {
           continue;
         }
@@ -231,6 +275,29 @@ abstract final class DockStackFiles {
     List<DockStackEntry> entries, {
     DateTime? now,
   }) {
+    final live = _livePartialPaths(entries, now: now);
+    if (live.isEmpty) return null;
+    final sparse = allocatedFraction(live);
+    return DockDownloadProgress(files: live.length, fraction: sparse);
+  }
+
+  /// Non-blocking variant of [progress] for UI callers: inspects sparse-file
+  /// allocation via bounded detached `stat(1)` instead of blocking the UI
+  /// isolate with `Process.runSync`.
+  static Future<DockDownloadProgress?> progressAsync(
+    List<DockStackEntry> entries, {
+    DateTime? now,
+  }) async {
+    final live = _livePartialPaths(entries, now: now);
+    if (live.isEmpty) return null;
+    final sparse = await allocatedFractionAsync(live);
+    return DockDownloadProgress(files: live.length, fraction: sparse);
+  }
+
+  static List<String> _livePartialPaths(
+    List<DockStackEntry> entries, {
+    DateTime? now,
+  }) {
     final clock = now ?? DateTime.now();
     final live = <String>[];
     for (final entry in entries) {
@@ -238,9 +305,7 @@ abstract final class DockStackFiles {
       if (clock.difference(entry.modifiedAt).inSeconds.abs() > 10) continue;
       live.add(entry.path);
     }
-    if (live.isEmpty) return null;
-    final sparse = allocatedFraction(live);
-    return DockDownloadProgress(files: live.length, fraction: sparse);
+    return live;
   }
 
   /// The written share of each file's reserved size, summed, or null when no
@@ -251,7 +316,6 @@ abstract final class DockStackFiles {
   /// per poll while a download is live, never per file.
   static double? allocatedFraction(List<String> paths) {
     if (paths.isEmpty) return null;
-    final List<String> lines;
     try {
       final result = Process.runSync('stat', [
         '--printf',
@@ -259,10 +323,25 @@ abstract final class DockStackFiles {
         ...paths,
       ], runInShell: false);
       if (result.exitCode != 0) return null;
-      lines = '${result.stdout}'.split('\n');
+      return _parseAllocatedFraction('${result.stdout}'.split('\n'));
     } on ProcessException {
       return null;
     }
+  }
+
+  /// Non-blocking [allocatedFraction] using [runDetached].
+  static Future<double?> allocatedFractionAsync(List<String> paths) async {
+    if (paths.isEmpty) return null;
+    final result = await runDetached(
+      'stat',
+      ['--printf', '%s %b %B\n', ...paths],
+      timeout: const Duration(seconds: 2),
+    );
+    if (result.exitCode != 0) return null;
+    return _parseAllocatedFraction(result.stdout.split('\n'));
+  }
+
+  static double? _parseAllocatedFraction(List<String> lines) {
     var written = 0.0;
     var reserved = 0.0;
     var anySparse = false;

@@ -52,7 +52,12 @@ Future<void> main() async {
 
     final custom = [trash.path, '${sandbox.path}/missing'];
     _expect(DockExtras.countTrash(custom) == 2, 'trash count');
+    _expect(await DockExtras.countTrashAsync(custom) == 2, 'trash count async');
     _expect(DockExtras.countTrash(const ['/nonexistent']) == 0, 'missing root');
+    _expect(
+      await DockExtras.countTrashAsync(const ['/nonexistent']) == 0,
+      'missing root async',
+    );
 
     final removed = await DockExtras.emptyTrash(custom);
     _expect(removed == 2, 'removed $removed');
@@ -111,9 +116,16 @@ Future<void> main() async {
       '/dev/sdb1 /mnt/My\\040Disk ext4 rw 0 0\n',
     );
     final points = DockExtras.readMountPoints(path: mounts.path);
+    final asyncPoints = await DockExtras.readMountPointsAsync(
+      path: mounts.path,
+    );
     // The kernel-only filesystems are dropped; /run (tmpfs) is kept because
     // tmpfs is a real mount a user could open.
     _expect(_same(points, ['/run', '/mnt/My Disk']), 'mounts $points');
+    _expect(
+      _same(asyncPoints, ['/run', '/mnt/My Disk']),
+      'mounts async $asyncPoints',
+    );
   } finally {
     if (mounts.existsSync()) mounts.deleteSync();
   }

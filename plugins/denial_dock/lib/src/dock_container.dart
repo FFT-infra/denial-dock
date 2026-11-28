@@ -142,6 +142,7 @@ class _DockContainerState extends ConsumerState<DockContainer>
 
   Timer? _hideTimer;
   Timer? _revealTimer;
+  Timer? _settingsPollTimer;
 
   bool _edgeTapHold = false;
   Timer? _edgeTapTimer;
@@ -494,6 +495,7 @@ class _DockContainerState extends ConsumerState<DockContainer>
     });
     _hideTimer?.cancel();
     _revealTimer?.cancel();
+    _settingsPollTimer?.cancel();
     _labelTimer?.cancel();
     _edgeTapTimer?.cancel();
     _audioTimer?.cancel();
@@ -846,9 +848,13 @@ class _DockContainerState extends ConsumerState<DockContainer>
     _evaluateHide();
     // The popup has no completion callback; poll the popup list so the hold
     // is released once the window has finished its closing transition.
-    Timer.periodic(const Duration(milliseconds: 120), (timer) {
+    _settingsPollTimer?.cancel();
+    _settingsPollTimer = Timer.periodic(const Duration(milliseconds: 120), (
+      timer,
+    ) {
       if (!mounted) {
         timer.cancel();
+        if (identical(_settingsPollTimer, timer)) _settingsPollTimer = null;
         return;
       }
       final open = ref
@@ -856,6 +862,7 @@ class _DockContainerState extends ConsumerState<DockContainer>
           .any((popup) => popup.keyName == kitSettingsKey);
       if (open) return;
       timer.cancel();
+      if (identical(_settingsPollTimer, timer)) _settingsPollTimer = null;
       if (!mounted) return;
       _settingsOpen = false;
       _evaluateHide();

@@ -2,7 +2,7 @@ import 'dart:io';
 
 import 'package:denial_dock/src/dock_stack_files.dart';
 
-void main() {
+Future<void> main() async {
   // Name order reads digit runs as numbers, the way Finder does.
   final names = ['shot 10.png', 'shot 2.png', 'Shot 1.png', 'notes.txt'];
   names.sort(DockStackFiles.naturalCompare);
@@ -22,6 +22,15 @@ void main() {
     final byName = DockStackFiles.list(
       directory.path,
       sort: DockStackSort.name,
+    );
+    final byNameAsync = await DockStackFiles.listAsync(
+      directory.path,
+      sort: DockStackSort.name,
+    );
+    _expect(
+      byNameAsync.map((entry) => entry.name).join('|') ==
+          byName.map((entry) => entry.name).join('|'),
+      'async listing matches sync listing',
     );
     _expect(
       byName.map((entry) => entry.name).join('|') ==
@@ -117,6 +126,13 @@ void main() {
     _expect(
       fraction != null && fraction >= 0 && fraction <= 1,
       'a sparse file reports a fraction: $fraction',
+    );
+    final asyncFraction = await DockStackFiles.allocatedFractionAsync([
+      sparse.path,
+    ]);
+    _expect(
+      asyncFraction != null && asyncFraction >= 0 && asyncFraction <= 1,
+      'async sparse file reports a fraction: $asyncFraction',
     );
   } finally {
     scratch.deleteSync(recursive: true);

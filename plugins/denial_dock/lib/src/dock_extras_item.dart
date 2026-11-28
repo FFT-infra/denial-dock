@@ -508,26 +508,34 @@ class _DockTrashItemState extends State<DockTrashItem> {
     super.dispose();
   }
 
-  List<String> _trashRoots() {
+  bool _refreshing = false;
+
+  Future<List<String>> _trashRootsAsync() async {
     final cached = _roots;
     if (cached != null) return cached;
     final env = Platform.environment;
-    final uid = DockExtras.readUid() ?? 1000;
+    final uid = await DockExtras.readUidAsync() ?? 1000;
+    final mounts = await DockExtras.readMountPointsAsync();
     final roots = DockExtras.trashRoots(
       env: env,
       uid: uid,
-      mountPoints: DockExtras.readMountPoints(),
+      mountPoints: mounts,
     );
     _roots = roots;
     return roots;
   }
 
   Future<void> _refresh() async {
-    final count = await Future<int>.sync(
-      () => DockExtras.countTrash(_trashRoots()),
-    );
-    if (!mounted) return;
-    if (count != _count) setState(() => _count = count);
+    if (_refreshing) return;
+    _refreshing = true;
+    try {
+      final roots = await _trashRootsAsync();
+      final count = await DockExtras.countTrashAsync(roots);
+      if (!mounted) return;
+      if (count != _count) setState(() => _count = count);
+    } finally {
+      _refreshing = false;
+    }
   }
 
   String get _label => widget.zh ? '回收站' : 'Trash';
@@ -535,7 +543,7 @@ class _DockTrashItemState extends State<DockTrashItem> {
   Future<void> _open() async {
     final opened = await DockExtras.openTrash();
     if (!opened) {
-      final roots = _trashRoots();
+      final roots = await _trashRootsAsync();
       if (roots.isNotEmpty) {
         await DockExtras.openPath('${roots.first}/files');
       }
@@ -550,7 +558,7 @@ class _DockTrashItemState extends State<DockTrashItem> {
       return;
     }
     setState(() => _emptyRequested = false);
-    await DockExtras.emptyTrash(_trashRoots());
+    await DockExtras.emptyTrash(await _trashRootsAsync());
     await _refresh();
   }
 
@@ -972,18 +980,20 @@ class _DockFolderItemState extends State<DockFolderItem> {
     }
   }
 
-  /// Re-reads the folder for the icon and the download bar.
-  void _refresh() {
-    final entries = DockStackFiles.list(
+  /// Re-reads the folder for the icon and the download bar off the UI thread.
+  Future<void> _refresh() async {
+    final entries = await DockStackFiles.listAsync(
       widget.folder.path,
       sort: widget.folder.sort,
       order: widget.folder.order,
     );
+    if (!mounted) return;
     _requestPileThumbs(entries);
     final preview = entries.isEmpty
         ? null
         : DockStackThumbs.preview(entries.first.path);
-    final download = DockStackFiles.progress(entries);
+    final download = await DockStackFiles.progressAsync(entries);
+    if (!mounted) return;
     // The stacked icon draws the newest few entries, so the list has to be
     // kept here too, not only when the fan opens. A card in the pile can
     // change while the first and last names stay put.
@@ -1041,18 +1051,20 @@ class _DockFolderItemState extends State<DockFolderItem> {
 
   /// Re-reads the listing for an open stack: called on a sort change and by
   /// the folder watch when a file lands or leaves.
-  void _reloadEntries() {
+  Future<void> _reloadEntries() async {
     if (!mounted) return;
-    final entries = DockStackFiles.list(
+    final entries = await DockStackFiles.listAsync(
       widget.folder.path,
       sort: widget.folder.sort,
       order: widget.folder.order,
     );
+    if (!mounted) return;
     _requestPileThumbs(entries, all: _fanOpen);
     final preview = entries.isEmpty
         ? null
         : DockStackThumbs.preview(entries.first.path);
-    final download = DockStackFiles.progress(entries);
+    final download = await DockStackFiles.progressAsync(entries);
+    if (!mounted) return;
     setState(() {
       _entries = entries;
       _preview = preview;
@@ -1086,10 +1098,15 @@ class _DockFolderItemState extends State<DockFolderItem> {
       _preview = entries.isEmpty
           ? null
           : DockStackThumbs.preview(entries.first.path);
-      _download = DockStackFiles.progress(entries);
       _fanOpen = true;
     });
-    _watchDownloads(_download);
+    unawaited(
+      DockStackFiles.progressAsync(entries).then((download) {
+        if (!mounted || _sameDownload(download, _download)) return;
+        setState(() => _download = download);
+        _watchDownloads(download);
+      }),
+    );
     // The folder is watched only while it is open: a stack nobody is looking
     // at has nothing to update.
     (_watch ??= DockStackWatch(widget.folder.path, _reloadEntries)).start();
@@ -1116,14 +1133,11 @@ class _DockFolderItemState extends State<DockFolderItem> {
 
   /// A dragged order keeps the stack open, so the user sees the result and can
   /// keep dragging. The reorder is applied to the listing in place rather than
-  /// waiting for the settings write to come back around.
+  /// re-walking the directory on disk.
   void _reorder(List<String> order) {
     widget.onReorder(order);
-    final reordered = DockStackFiles.list(
-      widget.folder.path,
-      sort: DockStackSortMode.manual,
-      order: order,
-    );
+    final reordered = List<DockStackEntry>.of(_entries);
+    DockStackFiles.applyOrder(reordered, order);
     setState(() {
       _entries = reordered;
       _preview = reordered.isEmpty

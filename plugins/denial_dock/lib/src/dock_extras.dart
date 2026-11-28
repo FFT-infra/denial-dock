@@ -52,14 +52,25 @@ abstract final class DockExtras {
   /// mounts are keyed by it.
   static int? readUid({String path = '/proc/self/status'}) {
     try {
-      for (final line in const LineSplitter().convert(
-        File(path).readAsStringSync(),
-      )) {
-        final match = RegExp(r'^Uid:\s+(\d+)').firstMatch(line);
-        if (match != null) return int.parse(match.group(1)!);
-      }
+      return _parseUid(File(path).readAsStringSync());
     } on FileSystemException {
       return null;
+    }
+  }
+
+  /// Non-blocking [readUid] for UI callers.
+  static Future<int?> readUidAsync({String path = '/proc/self/status'}) async {
+    try {
+      return _parseUid(await File(path).readAsString());
+    } on FileSystemException {
+      return null;
+    }
+  }
+
+  static int? _parseUid(String contents) {
+    for (final line in const LineSplitter().convert(contents)) {
+      final match = RegExp(r'^Uid:\s+(\d+)').firstMatch(line);
+      if (match != null) return int.parse(match.group(1)!);
     }
     return null;
   }
@@ -91,12 +102,27 @@ abstract final class DockExtras {
   /// Unreadable or unparsable lines are skipped; a missing file yields an empty
   /// list.
   static List<String> readMountPoints({String path = '/proc/self/mounts'}) {
-    final String contents;
     try {
-      contents = File(path).readAsStringSync();
+      return _parseMountPoints(File(path).readAsStringSync());
     } on FileSystemException {
       return const [];
     }
+  }
+
+  /// Non-blocking [readMountPoints] for UI callers.
+  static Future<List<String>> readMountPointsAsync({
+    String path = '/proc/self/mounts',
+  }) async {
+    try {
+      return _parseMountPoints(await File(path).readAsString());
+    } on FileSystemException {
+      return const [];
+    }
+  }
+
+  static final RegExp _octalEscape = RegExp(r'\\([0-7]{3})');
+
+  static List<String> _parseMountPoints(String contents) {
     final points = <String>[];
     for (final line in const LineSplitter().convert(contents)) {
       final parts = line.split(' ');
@@ -104,7 +130,7 @@ abstract final class DockExtras {
       if (parts.length >= 3 && _pseudoFilesystems.contains(parts[2])) continue;
       // Octal escapes (\040 for a space) are part of the mounts format.
       final mount = parts[1].replaceAllMapped(
-        RegExp(r'\\([0-7]{3})'),
+        _octalEscape,
         (match) => String.fromCharCode(int.parse(match[1]!, radix: 8)),
       );
       if (!points.contains(mount)) points.add(mount);
@@ -123,6 +149,22 @@ abstract final class DockExtras {
         // returns false.
         if (!files.existsSync()) continue;
         count += files.listSync(followLinks: false).length;
+      } on FileSystemException {
+        continue;
+      }
+    }
+    return count;
+  }
+
+  /// Non-blocking [countTrash] for periodic dock polling so large trash folders
+  /// never stall UI frames.
+  static Future<int> countTrashAsync(Iterable<String> roots) async {
+    var count = 0;
+    for (final root in roots) {
+      final files = Directory('$root/files');
+      try {
+        if (!await files.exists()) continue;
+        count += await files.list(followLinks: false).length;
       } on FileSystemException {
         continue;
       }
