@@ -276,18 +276,23 @@ class KitWidgetRegistry {
       description: 'Multiple city dials with day/night faces',
       category: KitWidgetCategory.essentials,
       supportedSizes: <KitWidgetSize>[
+        KitWidgetSize.small,
         KitWidgetSize.medium,
         KitWidgetSize.large,
       ],
       defaultSize: KitWidgetSize.medium,
     ),
     KitWidgetSpec(
-      id: 'date',
-      title: 'Date',
-      description: 'Compact today date tile',
+      id: 'weather',
+      title: 'Weather',
+      description: 'Current conditions and forecast for your city',
       category: KitWidgetCategory.essentials,
-      supportedSizes: <KitWidgetSize>[KitWidgetSize.small],
-      defaultSize: KitWidgetSize.small,
+      supportedSizes: <KitWidgetSize>[
+        KitWidgetSize.small,
+        KitWidgetSize.medium,
+        KitWidgetSize.large,
+      ],
+      defaultSize: KitWidgetSize.medium,
     ),
     KitWidgetSpec(
       id: 'battery',

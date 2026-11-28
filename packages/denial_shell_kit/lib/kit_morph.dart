@@ -25,10 +25,15 @@ class KitMorph extends MultiChildRenderObjectWidget {
     required this.rim,
     required Widget home,
     Widget? detail,
+    this.settled,
     super.key,
   }) : super(children: <Widget>[home, ?detail]);
 
   final double progress;
+
+  /// When provided, prevents an overshooting spring from flickering across
+  /// `_arrived` before the animation settles.
+  final bool? settled;
 
   /// Null grows the detail out of the whole home face: a plain cross-fade.
   final Rect? from;
@@ -48,6 +53,7 @@ class KitMorph extends MultiChildRenderObjectWidget {
     toRadius: toRadius,
     plate: plate,
     rim: rim,
+    isSettled: settled,
   );
 
   @override
@@ -58,7 +64,8 @@ class KitMorph extends MultiChildRenderObjectWidget {
       ..fromRadius = fromRadius
       ..toRadius = toRadius
       ..plate = plate
-      ..rim = rim;
+      ..rim = rim
+      ..settled = settled;
   }
 }
 
@@ -75,7 +82,15 @@ class _RenderKitMorph extends RenderBox
     required this._toRadius,
     required this._plate,
     required this._rim,
-  });
+    bool? isSettled,
+  }) : _settled = isSettled;
+
+  bool? _settled;
+  set settled(bool? value) {
+    if (value == _settled) return;
+    _settled = value;
+    markNeedsPaint();
+  }
 
   double _progress;
   set progress(double value) {
@@ -163,7 +178,8 @@ class _RenderKitMorph extends RenderBox
     (detail.parentData! as _MorphParentData).offset = _frame.topLeft;
   }
 
-  bool get _arrived => (_progress - 1).abs() < 0.0005;
+  bool get _arrived =>
+      (_settled ?? true) && (_progress - 1).abs() < 0.0005;
 
   @override
   void paint(PaintingContext context, Offset offset) {

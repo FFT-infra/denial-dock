@@ -6,21 +6,8 @@ void _expect(bool ok, String what) {
 
 bool _near(double a, double b, [double by = 1e-9]) => (a - b).abs() <= by;
 
-List<double> _apply(List<double> m, List<double> rgb) => <double>[
-  for (var row = 0; row < 3; row++)
-    m[row * 5] * rgb[0] +
-        m[row * 5 + 1] * rgb[1] +
-        m[row * 5 + 2] * rgb[2] +
-        m[row * 5 + 4],
-];
-
 void main() {
-  // A strength is a share of the shell's sigma, never above 1, and the
-  // shell snaps it to one of 32 steps with one step as the least.
-  _expect(KitBlurMath.strengthFor(3, 6) == 0.5, 'half of the base');
-  _expect(KitBlurMath.strengthFor(13, 6) == 1, 'capped at the base');
-  _expect(KitBlurMath.strengthFor(1.6, 0) == 0, 'no base, no blur');
-  _expect(KitBlurMath.strengthFor(0, 6) == 0, 'no sigma, no blur');
+  // The shell snaps backdrop strength to one of 32 steps with one step as the least.
   _expect(_near(KitBlurMath.sigmaAt(1, 14), 14), 'full strength');
   _expect(
     _near(KitBlurMath.sigmaAt(1.6 / 6, 6), 6 * 9 / 32),
@@ -40,7 +27,7 @@ void main() {
       glass: false,
       base: base,
     );
-    _expect(plan.direct && plan.sigma == 13 && !plan.capped, 'direct at $base');
+    _expect(plan.direct && plan.sigma == 13, 'direct at $base');
   }
   _expect(
     KitBlurMath.plan(menu, enabled: true, glass: false, base: 6, scale: 0.5)
@@ -53,10 +40,34 @@ void main() {
   for (final base in const <double>[0, 10, 26]) {
     final lens = KitBlurMath.plan(menu, enabled: true, glass: true, base: base);
     _expect(
-      lens.direct && lens.sigma == menu.sigma && !lens.capped,
+      lens.direct && lens.sigma == menu.sigma,
       'glass at $base leaves a measured sigma alone',
     );
   }
+
+  // Liquid Glass mode produces a direct plan with tier-scaled strength & sigma.
+  final lg = KitBlurMath.plan(
+    shell,
+    enabled: true,
+    glass: true,
+    base: 10,
+    mode: KitSurfaceMode.liquidGlass,
+    tier: KitTier.popover,
+  );
+  _expect(
+    lg.direct && lg.blurs && lg.mode == KitSurfaceMode.liquidGlass && lg.sigma > 0,
+    'liquid glass direct plan',
+  );
+
+  // Solid mode disables blur even when system transparency is enabled.
+  final solid = KitBlurMath.plan(
+    menu,
+    enabled: true,
+    glass: true,
+    base: 14,
+    mode: KitSurfaceMode.solid,
+  );
+  _expect(!solid.blurs && solid.sigma == 0, 'solid mode never blurs');
 
   // Transparency off: nothing blurs, whatever the material asks.
   for (final material in const <KitMaterial>[menu, shell]) {
@@ -90,34 +101,6 @@ void main() {
         .blurs,
     'a share of nothing',
   );
-
-  // Saturation: greys stay, a pure colour moves by the gain, 1 is identity.
-  for (final s in const <double>[0, 1, 1.7, 2.4]) {
-    final m = kitSaturationMatrix(s);
-    _expect(m.length == 20, 'a 5 by 4 matrix');
-    for (final grey in const <double>[0, 0.5, 1]) {
-      final out = _apply(m, <double>[grey, grey, grey]);
-      _expect(out.every((v) => _near(v, grey)), 'grey $grey stays at $s');
-    }
-    _expect(
-      m[15] == 0 && m[16] == 0 && m[17] == 0 && m[18] == 1 && m[19] == 0,
-      'alpha passes',
-    );
-  }
-  final one = kitSaturationMatrix(1);
-  _expect(
-    _apply(one, <double>[0.2, 0.5, 0.9]).toString() ==
-        <double>[0.2, 0.5, 0.9].toString(),
-    '1 is the identity',
-  );
-  // Pure red at gain 2: luma 0.2126, so 0.2126 + 2 * (c - 0.2126).
-  final red = _apply(kitSaturationMatrix(2), <double>[1, 0, 0]);
-  _expect(
-    _near(red[0], 1.7874) && _near(red[1], -0.2126) && _near(red[2], -0.2126),
-    'pure red by the gain',
-  );
-  final dull = _apply(kitSaturationMatrix(0), <double>[0, 1, 0]);
-  _expect(dull.every((v) => _near(v, 0.7152)), 'no saturation is luma');
 
   // Every table has every tier in both appearances, with numbers that draw.
   for (final table in KitMaterials.all) {

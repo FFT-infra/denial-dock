@@ -67,21 +67,4 @@ enum KitShellArchetype {
     }
     return null;
   }
-
-  /// Resolves the default archetype for a look [id] (or its [base] look id).
-  static KitShellArchetype forLookId(String id) => switch (id) {
-    'mac' || 'macos' => KitShellArchetype.macos,
-    'cutefish' => KitShellArchetype.cutefish,
-    'gnome' => KitShellArchetype.gnome,
-    'windows' => KitShellArchetype.windows,
-    'plasma' => KitShellArchetype.plasma,
-    'material' => KitShellArchetype.material,
-    'noctalia' => KitShellArchetype.noctalia,
-    'hyprpanel' => KitShellArchetype.hyprpanel,
-    'caelestia' => KitShellArchetype.caelestia,
-    'axshell' => KitShellArchetype.axshell,
-    'omarchy' || 'terminal' => KitShellArchetype.omarchy,
-    'cosmic' => KitShellArchetype.cosmic,
-    _ => KitShellArchetype.denial,
-  };
 }

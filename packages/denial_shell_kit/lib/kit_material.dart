@@ -1418,7 +1418,6 @@ class KitBlurPlan {
     required this.strength,
     required this.sigma,
     this.mode = KitSurfaceMode.system,
-    this.capped = false,
   });
 
   static const KitBlurPlan none = KitBlurPlan(
@@ -1439,9 +1438,6 @@ class KitBlurPlan {
   /// The effective surface mode resolved against system transparency.
   final KitSurfaceMode mode;
 
-  /// The shell could not blur as far as the material asked.
-  final bool capped;
-
   /// A glass with no frost of its own still bends and lights the backdrop.
   bool get blurs => switch (mode) {
     KitSurfaceMode.solid => false,
@@ -1450,25 +1446,15 @@ class KitBlurPlan {
   };
 }
 
-/// The arithmetic between a sigma in pixels and the shell's blur.
+/// The arithmetic between a material's blur request and the shell's backdrop.
 ///
-/// The shell knows a blur only as a share of the level the user chose:
-/// `sigma = base * strength`, with the strength snapped to one of 32 steps
-/// and never above 1. So a material that names a sigma can reach it through
-/// the shell only up to that base (6 on three of the four levels, 14 on the
-/// best). In the shell's blur mode the kit therefore builds the same engine
-/// filter itself, at the material's own sigma and the level's own sampling
-/// quality, and nothing is capped. In glass mode the shell's filter is a
-/// lens with refraction and lighting the user tuned, which the kit must not
-/// replace: there the sigma becomes a share of the glass's own, capped at
-/// it. With transparency off nothing blurs, whatever the material says.
+/// In `system` mode, blur follows the shell's backdrop strength (`sigma = base
+/// * strength`, snapped to 32 steps). In `glass`, `blur`, and `liquidGlass`
+/// modes, the kit builds the engine filter directly at the resolved sigma and
+/// saturation. With system transparency off, nothing blurs.
 abstract final class KitBlurMath {
   /// The steps the shell snaps a strength to.
   static const int steps = 32;
-
-  /// The share of [base] that gives [sigma], as the shell will take it.
-  static double strengthFor(double sigma, double base) =>
-      base > 0 && sigma > 0 ? (sigma / base).clamp(0.0, 1.0).toDouble() : 0;
 
   /// The sigma the shell draws for [strength] of [base].
   static double sigmaAt(double strength, double base) {
@@ -1539,25 +1525,4 @@ abstract final class KitBlurMath {
         );
     }
   }
-}
-
-/// The 5 by 4 colour matrix, row by row, that multiplies a colour's distance
-/// from its own grey by [saturation]. Greys stay as they are; the weights
-/// are Rec. 709 luma, applied to encoded values as the measurements were.
-List<double> kitSaturationMatrix(double saturation) {
-  const weights = <double>[0.2126, 0.7152, 0.0722];
-  final rest = 1 - saturation;
-  return <double>[
-    for (var row = 0; row < 3; row++) ...[
-      for (var column = 0; column < 3; column++)
-        rest * weights[column] + (row == column ? saturation : 0),
-      0,
-      0,
-    ],
-    0,
-    0,
-    0,
-    1,
-    0,
-  ];
 }

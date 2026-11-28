@@ -6,8 +6,9 @@
 /// [bar] holds the top bar's layout settings under the keys its own
 /// preferences file uses, and [dock] the dock's layout under its keys.
 /// Applying a preset writes those keys and leaves every other setting alone,
-/// such as which status items show or which applications are pinned.
-/// Whether the dock shows is a switch of its own and no preset touches it.
+/// such as which status items show or which applications are pinned. Each
+/// built-in preset also declares whether the dock shows via [dockVisible],
+/// while user edits to the dock switch are remembered per preset.
 ///
 /// A preset the user made is the same data, kept in the kit's store and
 /// written out as one JSON file to pass around; see [ShellPresetFile].

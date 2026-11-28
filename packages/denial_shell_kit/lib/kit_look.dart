@@ -363,6 +363,7 @@ class KitLook {
     this.opaque = false,
     this.surfaceMode,
     this.panelStyle,
+    this.archetype = KitShellArchetype.denial,
     this.shadow = 1,
     this.materials = KitMaterials.shell,
     this.liquid = false,
@@ -410,6 +411,7 @@ class KitLook {
     scaleCorners: false,
     surfaceMode: KitSurfaceMode.liquidGlass,
     panelStyle: KitPanelStyle.floating,
+    archetype: KitShellArchetype.macos,
     panelGrow: KitSpringTuning(620, 1),
     panelShrink: KitSpringTuning(900, 1),
     beadWidth: 0.96,
@@ -453,6 +455,7 @@ class KitLook {
     borderWidth: 2,
     borderTone: KitBorderTone.accent,
     opaque: true,
+    archetype: KitShellArchetype.omarchy,
     shadow: 0,
     switchTuning: KitSpringTuning(1000, 1),
     pace: 1.6,
@@ -474,6 +477,7 @@ class KitLook {
     borderWidth: 0,
     opaque: true,
     panelStyle: KitPanelStyle.anchored,
+    archetype: KitShellArchetype.omarchy,
     materials: KitMaterials.omarchy,
     shadow: 0,
     accentMenuRows: true,
@@ -612,7 +616,7 @@ class KitLook {
   KitPanelStyle get effectivePanelStyle => panelStyle ?? KitPanelStyle.framed;
 
   /// Shell-wide Control Centre / Notification Centre / popover archetype.
-  KitShellArchetype get archetype => KitShellArchetype.forLookId(base ?? id);
+  final KitShellArchetype archetype;
 
   /// How much of the usual shadow a panel casts, 0 to 1.
   final double shadow;
@@ -701,6 +705,7 @@ class KitLook {
     'opaque': opaque,
     'surfaceMode': effectiveSurfaceMode.name,
     'panelStyle': effectivePanelStyle.name,
+    'archetype': archetype.name,
     'shadow': shadow,
     'materials': KitMaterialJson.table(materials),
     'motion': <String, Object?>{
@@ -808,6 +813,8 @@ class KitLook {
       surfaceMode: resolvedSurfaceMode,
       panelStyle:
           KitPanelStyle.tryParse(json['panelStyle']) ?? base.panelStyle,
+      archetype:
+          KitShellArchetype.tryParse(json['archetype']) ?? base.archetype,
       shadow: _number(json['shadow'], 0, 1, base.shadow),
       materials: KitMaterialJson.parseTable(json['materials'], base.materials),
       liquid: liquid is bool ? liquid : base.liquid,

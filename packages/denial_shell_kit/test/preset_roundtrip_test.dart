@@ -149,13 +149,25 @@ void main() {
     _expect(KitGlassPreset.tryParse(gp.name) == gp, 'glass preset ${gp.name} round-trips');
   }
 
-  // 5. All reference looks carry non-default per-family material tables.
+  // 5. All reference looks carry non-default per-family material tables and
+  // explicit data-driven archetypes that round-trip through JSON.
   for (final look in kitReferenceLooks) {
     _expect(
       !identical(look.materials, KitMaterials.shell),
       'reference look ${look.id} uses its own dedicated KitMaterials table',
     );
+    final roundTripped = KitLook.fromJson(look.toJson());
+    _expect(
+      roundTripped.archetype == look.archetype &&
+          look.archetype != KitShellArchetype.denial,
+      'reference look ${look.id} preserves explicit archetype ${look.archetype}',
+    );
   }
+  final customMac = KitLook.mac.change(<String, Object?>{'id': 'user-mac-clone'});
+  _expect(
+    customMac.archetype == KitShellArchetype.macos,
+    'custom look cloned from mac retains macos archetype via data field',
+  );
 
   if (exitCode == 0) {
     stdout.writeln('All Batch 6 preset round-trip & light/dark tests passed.');

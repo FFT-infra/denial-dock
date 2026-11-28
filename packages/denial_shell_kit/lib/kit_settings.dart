@@ -108,7 +108,9 @@ void openKitSettingsPage(String pageId) {
 /// name for that plugin's first page. An open window turns to the page.
 void showKitSettings({required WidgetRef ref, String? page}) {
   _wanted.value = page;
-  if (_open > 0) return;
+  if (_activeSettingsWindow != null && !_activeSettingsWindow!._closing) {
+    return;
+  }
   final sceneWidth = MediaQuery.maybeSizeOf(ref.context)?.width ?? 1440.0;
   showKitDialog(
     ref: ref,
@@ -123,8 +125,9 @@ void showKitSettings({required WidgetRef ref, String? page}) {
   );
 }
 
-/// How many settings windows are mounted; one at most outside a hand-over.
-int _open = 0;
+/// Active mounted settings window, if any. Reopening while it is mid-close
+/// replaces it cleanly instead of dropping the request.
+_KitSettingsWindowState? _activeSettingsWindow;
 
 class _KitSettingsWindow extends StatefulWidget {
   const _KitSettingsWindow({
@@ -145,12 +148,34 @@ class _KitSettingsWindowState extends State<_KitSettingsWindow> {
   String? _page = _wanted.value;
   final TextEditingController _search = TextEditingController();
   String _query = '';
-  late double _winWidth = _readDim('settingsWidth', _settingsWidth);
-  late double _winHeight = _readDim('settingsHeight', 680.0);
+  bool _closing = false;
+  late double _winWidth = _readDim(
+    'settingsWidth',
+    _settingsWidth,
+    min: _settingsMinWidth,
+    max: math.max(_settingsMinWidth, widget.maxWidth),
+  );
+  late double _winHeight = _readDim(
+    'settingsHeight',
+    680.0,
+    min: _settingsMinHeight,
+    max: math.max(_settingsMinHeight, widget.maxHeight),
+  );
 
-  static double _readDim(String key, double fallback) {
+  static double _readDim(
+    String key,
+    double fallback, {
+    required double min,
+    required double max,
+  }) {
     final v = kitStore.read()[key];
-    return v is num && v.isFinite ? v.toDouble() : fallback;
+    final raw = v is num && v.isFinite ? v.toDouble() : fallback;
+    return raw.clamp(min, max).toDouble();
+  }
+
+  void _closeWindow() {
+    _closing = true;
+    widget.onClose();
   }
 
   void _resizeBy(double dx, double dy) {
@@ -206,7 +231,7 @@ class _KitSettingsWindowState extends State<_KitSettingsWindow> {
   @override
   void initState() {
     super.initState();
-    _open++;
+    _activeSettingsWindow = this;
     _wanted.addListener(_turn);
     kitSettingsPages.addListener(_changed);
     _search.addListener(_searched);
@@ -214,7 +239,9 @@ class _KitSettingsWindowState extends State<_KitSettingsWindow> {
 
   @override
   void dispose() {
-    _open--;
+    if (identical(_activeSettingsWindow, this)) {
+      _activeSettingsWindow = null;
+    }
     _wanted.removeListener(_turn);
     kitSettingsPages.removeListener(_changed);
     _search
@@ -573,7 +600,7 @@ class _KitSettingsWindowState extends State<_KitSettingsWindow> {
                           ),
                         ),
                         const SizedBox(width: 12),
-                        _CloseButton(onTap: widget.onClose),
+                        _CloseButton(onTap: _closeWindow),
                       ],
                     ),
                   ),
