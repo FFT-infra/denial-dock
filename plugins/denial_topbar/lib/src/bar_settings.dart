@@ -283,11 +283,15 @@ enum BarTrayFold {
     for (final id in trayIds)
       if (!listed(settings.trayNever, id) && !tucked.contains(id)) id,
   ];
+  if (settings.collapseItems) {
+    final allFolded = <String>[
+      for (final id in trayIds)
+        if (!listed(settings.trayNever, id)) id,
+    ];
+    return (visible: const <String>[], folded: allFolded);
+  }
   if (tucked.isNotEmpty) {
     return (visible: shown, folded: tucked);
-  }
-  if (settings.collapseItems) {
-    return (visible: const <String>[], folded: shown);
   }
   return (visible: shown, folded: const <String>[]);
 }

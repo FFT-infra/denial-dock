@@ -24,9 +24,15 @@ class TrayUsageTracker {
 
   void record(String key) {
     final clean = key.trim();
-    if (clean.isEmpty) return;
+    // Skip ephemeral D-Bus unique bus names (e.g. `:1.123/StatusNotifierItem`)
+    // that change across sessions.
+    if (clean.isEmpty || clean.startsWith(':')) return;
     final map = _ensure();
     map[clean] = (map[clean] ?? 0) + 1;
+    if (map.length > 128) {
+      final lowest = map.entries.reduce((a, b) => a.value <= b.value ? a : b);
+      map.remove(lowest.key);
+    }
     writer?.call(map);
     for (final fn in List<void Function()>.of(_listeners)) {
       fn();

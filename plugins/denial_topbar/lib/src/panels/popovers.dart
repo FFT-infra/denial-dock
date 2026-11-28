@@ -194,9 +194,10 @@ class _WifiPopoverState extends ConsumerState<WifiPopover> {
       );
     }
 
-    return _Popover(
-      children: <Widget>[
-        MacHeader(
+    return SingleChildScrollView(
+      child: _Popover(
+        children: <Widget>[
+          MacHeader(
           title: 'Wi-Fi',
           onBack: widget.onBack,
           trailing: MacSwitch(
@@ -207,13 +208,16 @@ class _WifiPopoverState extends ConsumerState<WifiPopover> {
         ),
         Reveal(
           open: on,
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.stretch,
-            children: <Widget>[
-              const MacDivider(),
-              if (known.isNotEmpty) ...<Widget>[
+          child: AnimatedSize(
+            duration: KitMotion.duration(context, KitMotion.reveal),
+            curve: KitMotion.outCubic,
+            alignment: Alignment.topCenter,
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: <Widget>[
+                const MacDivider(),
                 MacSection(
-                  context.tr('Known Networks'),
+                  context.tr(known.isEmpty ? 'Networks' : 'Known Networks'),
                   trailing: Pressable(
                     onTap: state.scanning ? null : controller.scan,
                     scale: Pressable.small,
@@ -238,11 +242,12 @@ class _WifiPopoverState extends ConsumerState<WifiPopover> {
                     ),
                   ),
                 ),
-                for (final network in known) row(network),
-                const MacDivider(),
-              ],
-              MacRow(
-                title: context.tr('Other Networks'),
+                if (known.isNotEmpty) ...<Widget>[
+                  for (final network in known) row(network),
+                  const MacDivider(),
+                ],
+                MacRow(
+                  title: context.tr('Other Networks'),
                 height: 32,
                 onTap: () => setState(() => _others = !_others),
                 trailing: AnimatedRotation(
@@ -276,6 +281,7 @@ class _WifiPopoverState extends ConsumerState<WifiPopover> {
             ],
           ),
         ),
+        ),
         const MacDivider(),
         MacRow(
           title: context.tr('Wi-Fi Settings…'),
@@ -283,6 +289,7 @@ class _WifiPopoverState extends ConsumerState<WifiPopover> {
           onTap: widget.onSettings,
         ),
       ],
+    ),
     );
   }
 }
@@ -314,21 +321,24 @@ class _BluetoothPopoverState extends ConsumerState<BluetoothPopover> {
   /// The controller is kept from initState because a ref may not be read
   /// while the widget is being disposed.
   late final _bluetooth = ref.read(bluetoothProvider.notifier);
+  bool _startedScan = false;
 
   @override
   void initState() {
     super.initState();
-    final controller = _bluetooth;
-    Future<void>.microtask(() {
-      if (!mounted) return;
-      final state = ref.read(bluetoothProvider);
-      if (state.available && state.powered) controller.scan();
-    });
+    final state = ref.read(bluetoothProvider);
+    if (state.available && state.powered) {
+      _startedScan = true;
+      Future<void>.microtask(() {
+        if (!mounted) return;
+        _bluetooth.scan();
+      });
+    }
   }
 
   @override
   void dispose() {
-    _bluetooth.stopScan();
+    if (_startedScan) _bluetooth.stopScan();
     super.dispose();
   }
 
@@ -407,9 +417,10 @@ class _BluetoothPopoverState extends ConsumerState<BluetoothPopover> {
       );
     }
 
-    return _Popover(
-      children: <Widget>[
-        MacHeader(
+    return SingleChildScrollView(
+      child: _Popover(
+        children: <Widget>[
+          MacHeader(
           title: context.tr('Bluetooth'),
           onBack: widget.onBack,
           trailing: MacSwitch(
@@ -450,7 +461,7 @@ class _BluetoothPopoverState extends ConsumerState<BluetoothPopover> {
                 onTap: state.scanning ? null : controller.scan,
               ),
               Reveal(
-                open: found.isNotEmpty || state.scanning,
+                open: found.isNotEmpty || state.scanning || _startedScan,
                 child: found.isEmpty
                     ? _Note(context.tr('Looking for devices…'))
                     : _Scroll(
@@ -476,6 +487,7 @@ class _BluetoothPopoverState extends ConsumerState<BluetoothPopover> {
           onTap: widget.onSettings,
         ),
       ],
+    ),
     );
   }
 }
@@ -735,9 +747,12 @@ class SoundPopover extends ConsumerWidget {
         .where((device) => device.available || device.active)
         .toList();
     final streams = ref.watch(appAudioProvider).streams;
+    final liveIds = <int>{for (final s in streams) s.id};
+    _preMuteLevel.removeWhere((id, _) => !liveIds.contains(id));
     final apps = ref.read(appAudioProvider.notifier);
     final masterMuted = volume <= 0.001;
-    return _Popover(
+    return SingleChildScrollView(
+      child: _Popover(
       children: <Widget>[
         MacHeader(
           title: context.tr('Sound'),
@@ -925,6 +940,7 @@ class SoundPopover extends ConsumerWidget {
           onTap: onSettings,
         ),
       ],
+    ),
     );
   }
 }
@@ -951,9 +967,10 @@ class DisplayPopover extends ConsumerWidget {
     final layout = ref.watch(displayLayoutProvider);
     final outputs = layout?.outputs ?? <DisplayOutput>[output];
     final mainLevel = brightnessState.levels[output.monitorId];
-    return _Popover(
-      children: <Widget>[
-        MacHeader(
+    return SingleChildScrollView(
+      child: _Popover(
+        children: <Widget>[
+          MacHeader(
           title: context.tr('Display'),
           onBack: onBack,
           trailing: mainLevel != null
@@ -1075,6 +1092,7 @@ class DisplayPopover extends ConsumerWidget {
           onTap: onSettings,
         ),
       ],
+    ),
     );
   }
 }
@@ -1093,10 +1111,13 @@ class BatteryPopover extends ConsumerWidget {
   Widget build(BuildContext context, WidgetRef ref) {
     final theme = context.shellTheme;
     final battery = ref.watch(services.battery);
+    final upower = ref.watch(upowerProvider);
     final power = ref.watch(desktopPowerModesProvider);
-    return _Popover(
-      children: <Widget>[
-        MacHeader(
+    final onAc = battery.charging || upower.snapshot?.onBattery == false;
+    return SingleChildScrollView(
+      child: _Popover(
+        children: <Widget>[
+          MacHeader(
           title: context.tr('Battery'),
           trailing: Padding(
             padding: const EdgeInsets.only(right: 4),
@@ -1114,9 +1135,7 @@ class BatteryPopover extends ConsumerWidget {
           padding: const EdgeInsets.fromLTRB(8, 0, 8, 4),
           child: Text(
             context.tr(
-              battery.charging
-                  ? 'Power Source: Power Adapter'
-                  : 'Power Source: Battery',
+              onAc ? 'Power Source: Power Adapter' : 'Power Source: Battery',
             ),
             style: BarType.caption.copyWith(
               fontSize: 12,
@@ -1148,6 +1167,7 @@ class BatteryPopover extends ConsumerWidget {
           onTap: onSettings,
         ),
       ],
+    ),
     );
   }
 }

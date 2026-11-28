@@ -36,11 +36,14 @@ import 'world_clock_card.dart';
 bool _customLoaded = false;
 
 /// Ensures custom widgets stored in `denial_shell_kit.json` are loaded into
-/// [kitWidgetRegistry] once per session.
+/// [kitWidgetRegistry] once per session without firing build-time listeners.
 void ensureCustomWidgetsLoaded() {
   if (_customLoaded) return;
   _customLoaded = true;
-  kitWidgetRegistry.loadCustomJson(kitStore.read()['customWidgets']);
+  kitWidgetRegistry.loadCustomJson(
+    kitStore.read()['customWidgets'],
+    notify: false,
+  );
 }
 
 /// Persists the current custom widgets from [kitWidgetRegistry] to `kitStore`.
@@ -130,7 +133,11 @@ Widget buildBarWidget(
   ensureCustomWidgetsLoaded();
   final spec = kitWidgetRegistry.byId(id);
   if (spec?.custom != null) {
-    return _CustomWidgetCard(def: spec!.custom!, size: size);
+    return _CustomWidgetCard(
+      def: spec!.custom!,
+      size: size,
+      onClosePanel: onClosePanel,
+    );
   }
   return switch (id) {
     'calendar' => CalendarWidget(size: size),
@@ -405,7 +412,11 @@ class _ClockPainter extends CustomPainter {
 
   @override
   bool shouldRepaint(_ClockPainter old) =>
-      old.now.second != now.second || old.ink != ink;
+      old.now.second != now.second ||
+      old.now.minute != now.minute ||
+      old.now.hour != now.hour ||
+      old.ink != ink ||
+      old.dim != dim;
 }
 
 // ── Shared Ring & Gauge ──
@@ -695,7 +706,7 @@ class _BatteryWidget extends ConsumerWidget {
                             ? context.tr('This Device')
                             : dev.displayName,
                         pct: (dev.percentage ?? capacity ?? 0).round(),
-                        charging: dev.state.name == 'charging' || plugged,
+                        charging: dev.state.name == 'charging',
                         detail: dev.energyRate != null && dev.energyRate! > 0
                             ? '${dev.energyRate!.toStringAsFixed(1)} W'
                             : null,
@@ -935,7 +946,7 @@ class _SysStats {
 
   static Future<_SysStats> read() async {
     final now = DateTime.now();
-    if (now.difference(_lastRead).inSeconds < 3) return cached;
+    if (now.difference(_lastRead).inMilliseconds < 2500) return cached;
     _lastRead = now;
     double memRatio = 0;
     String memText = '--';
@@ -1474,24 +1485,35 @@ class _TimerWidget extends StatefulWidget {
 }
 
 class _TimerWidgetState extends State<_TimerWidget> {
-  late final Timer _tick = Timer.periodic(const Duration(seconds: 1), (_) {
-    if (islandTimer.active && !islandTimer.paused) setState(() {});
-  });
+  Timer? _tick;
+
+  void _syncTimer() {
+    final running = islandTimer.active && !islandTimer.paused;
+    if (running && _tick == null) {
+      _tick = Timer.periodic(const Duration(seconds: 1), (_) {
+        if (mounted) setState(() {});
+      });
+    } else if (!running && _tick != null) {
+      _tick?.cancel();
+      _tick = null;
+    }
+  }
 
   void _changed() {
+    _syncTimer();
     if (mounted) setState(() {});
   }
 
   @override
   void initState() {
     super.initState();
-    _tick;
+    _syncTimer();
     islandTimer.addListener(_changed);
   }
 
   @override
   void dispose() {
-    _tick.cancel();
+    _tick?.cancel();
     islandTimer.removeListener(_changed);
     super.dispose();
   }
@@ -2007,10 +2029,15 @@ class _QuickActionsWidget extends ConsumerWidget {
 // ── Extensible Custom Widget Card (Command / Shortcut / Note) ──
 
 class _CustomWidgetCard extends StatefulWidget {
-  const _CustomWidgetCard({required this.def, required this.size});
+  const _CustomWidgetCard({
+    required this.def,
+    required this.size,
+    this.onClosePanel,
+  });
 
   final KitCustomWidgetDef def;
   final KitWidgetSize size;
+  final VoidCallback? onClosePanel;
 
   @override
   State<_CustomWidgetCard> createState() => _CustomWidgetCardState();
@@ -2018,39 +2045,120 @@ class _CustomWidgetCard extends StatefulWidget {
 
 class _CustomWidgetCardState extends State<_CustomWidgetCard> {
   static final Map<String, String> _outputCache = <String, String>{};
+  static const Duration _commandTimeout = Duration(seconds: 3);
+  static const int _commandMaxBytes = 16384;
+
   String _output = '';
+  bool _failed = false;
+  bool _running = false;
+  int? _runningPid;
   Timer? _tick;
 
   @override
   void initState() {
     super.initState();
     _output = _outputCache[widget.def.id] ?? '';
+    _startIfCommand();
+  }
+
+  @override
+  void didUpdateWidget(covariant _CustomWidgetCard oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.def.id != widget.def.id ||
+        oldWidget.def.kind != widget.def.kind ||
+        oldWidget.def.command != widget.def.command ||
+        oldWidget.def.refreshSeconds != widget.def.refreshSeconds) {
+      _tick?.cancel();
+      _tick = null;
+      _killRunning();
+      _output = _outputCache[widget.def.id] ?? '';
+      _failed = false;
+      _startIfCommand();
+    }
+  }
+
+  void _startIfCommand() {
     if (widget.def.kind == KitCustomWidgetKind.command &&
         widget.def.command.isNotEmpty) {
       _runCommand();
-      if (widget.def.refreshSeconds > 0) {
+      final refresh = widget.def.refreshSeconds;
+      if (refresh > 0) {
         _tick = Timer.periodic(
-          Duration(seconds: widget.def.refreshSeconds),
+          Duration(seconds: math.max(5, refresh)),
           (_) => _runCommand(),
         );
       }
     }
   }
 
+  void _killRunning() {
+    final pid = _runningPid;
+    _runningPid = null;
+    if (pid == null) return;
+    try {
+      Process.killPid(pid, ProcessSignal.sigterm);
+    } catch (_) {}
+  }
+
   @override
   void dispose() {
     _tick?.cancel();
+    _killRunning();
     super.dispose();
   }
 
+  Future<void> _onTap() async {
+    final def = widget.def;
+    if (def.kind == KitCustomWidgetKind.shortcut) {
+      if (def.command.isEmpty) return;
+      await spawnDetachedFireAndForget('sh', <String>['-c', def.command]);
+      widget.onClosePanel?.call();
+      return;
+    }
+    if (def.kind == KitCustomWidgetKind.command) {
+      await _runCommand();
+    }
+  }
+
   Future<void> _runCommand() async {
-    if (widget.def.command.isEmpty) return;
+    if (widget.def.command.isEmpty || _running) return;
+    _running = true;
+    final id = widget.def.id;
     try {
-      final res = await runDetached('sh', <String>['-c', widget.def.command]);
+      final res = await runDetached(
+        'sh',
+        <String>['-c', widget.def.command],
+        timeout: _commandTimeout,
+        maxOutputBytes: _commandMaxBytes,
+        onStart: (pid) => _runningPid = pid,
+      );
+      _runningPid = null;
+      if (!mounted || widget.def.id != id) return;
+      if (res.exitCode == 124) {
+        setState(() {
+          _failed = true;
+          _output = res.stdout.trim().isNotEmpty
+              ? res.stdout.trim()
+              : context.tr('Timed out');
+        });
+        return;
+      }
       final text = res.stdout.trim();
-      _outputCache[widget.def.id] = text;
-      if (mounted) setState(() => _output = text);
-    } catch (_) {}
+      final ok = res.exitCode == 0;
+      if (ok && text.isNotEmpty) {
+        _outputCache[id] = text;
+      }
+      setState(() {
+        _failed = !ok;
+        _output = text.isNotEmpty
+            ? text
+            : (ok ? '' : 'exit ${res.exitCode}');
+      });
+    } catch (_) {
+      _runningPid = null;
+    } finally {
+      _running = false;
+    }
   }
 
   @override
@@ -2068,7 +2176,7 @@ class _CustomWidgetCardState extends State<_CustomWidgetCard> {
         def.noteText.isNotEmpty ? def.noteText : context.tr('Empty note'),
     };
     return Pressable(
-      onTap: def.kind == KitCustomWidgetKind.note ? null : _runCommand,
+      onTap: def.kind == KitCustomWidgetKind.note ? null : _onTap,
       scale: Pressable.large,
       wash: def.kind != KitCustomWidgetKind.note,
       child: Padding(
@@ -2111,7 +2219,9 @@ class _CustomWidgetCardState extends State<_CustomWidgetCard> {
                 style: BarType.caption.copyWith(
                   fontSize: 12.5,
                   height: 1.35,
-                  color: theme.colors.textSecondary,
+                  color: _failed
+                      ? const Color(0xffff453a)
+                      : theme.colors.textSecondary,
                 ),
               ),
             ),

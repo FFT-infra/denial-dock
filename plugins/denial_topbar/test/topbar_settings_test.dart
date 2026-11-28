@@ -50,8 +50,26 @@ Future<void> main() async {
       resolveKey: (id) => id,
     );
     _expect(
-      partMixed.visible.single == 'a' && partMixed.folded.single == 'b',
-      'explicit trayHidden keeps other icons visible',
+      partMixed.visible.isEmpty &&
+          partMixed.folded.length == 2 &&
+          partMixed.folded.contains('a') &&
+          partMixed.folded.contains('b') &&
+          !partMixed.folded.contains('c'),
+      'collapseItems folds all non-never icons even when trayHidden is set',
+    );
+    final partHiddenOnly = partitionTrayIds(
+      const <String>['a', 'b', 'c'],
+      settings: const BarSettings(
+        collapseItems: false,
+        trayHidden: <String>['b'],
+        trayNever: <String>['c'],
+      ),
+      resolveKey: (id) => id,
+    );
+    _expect(
+      partHiddenOnly.visible.single == 'a' &&
+          partHiddenOnly.folded.single == 'b',
+      'explicit trayHidden keeps other icons visible when collapseItems is off',
     );
 
   // Every value that comes from outside is clamped on the way in, so a hand

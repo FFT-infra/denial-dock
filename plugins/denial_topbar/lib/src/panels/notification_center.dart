@@ -111,13 +111,19 @@ void showNotificationCenter({
   if (anchor != null &&
       (NcMotion.hangs(square: style.square, anchored: true) ||
           framedArchetype)) {
+    // Plasma, COSMIC, HyprPanel, Material, and Noctalia natively include a
+    // Do Not Disturb switch in their notification surfaces; Caelestia's
+    // NotifDock.qml and Omarchy do not.
     final showDnd =
+        arch == KitShellArchetype.plasma ||
+        arch == KitShellArchetype.cosmic ||
         arch == KitShellArchetype.hyprpanel ||
         arch == KitShellArchetype.material ||
-        arch == KitShellArchetype.noctalia ||
-        arch == KitShellArchetype.caelestia;
+        arch == KitShellArchetype.noctalia;
     final placement =
-        arch == KitShellArchetype.plasma || arch == KitShellArchetype.axshell
+        arch == KitShellArchetype.plasma ||
+            arch == KitShellArchetype.caelestia ||
+            arch == KitShellArchetype.axshell
         ? BarPanelAnchor.clock
         : BarPanelAnchor.centred;
     showBarPanel(
@@ -180,14 +186,19 @@ class _Column extends ConsumerStatefulWidget {
     required this.onClose,
     this.framed = false,
     this.showDndToggle = false,
+    this.showHeader = true,
   });
 
   /// Hung in a framed panel under a bar item; see [NcHost.framed].
   final bool framed;
 
-  /// Only shown for shell archetypes that natively place a DND switch in NC
-  /// (e.g. HyprPanel / Material / Noctalia / Caelestia); never on macOS/Denial.
+  /// Only shown for shell archetypes that natively place a DND switch in NC.
   final bool showDndToggle;
+
+  /// Whether to render the top "Notification Center" title / Clear header.
+  /// Disabled when embedded inside `_GnomeDateMenu` which renders its own
+  /// bottom Do Not Disturb + Clear bar per `gnome-shell/js/ui/dateMenu.js`.
+  final bool showHeader;
   final ShellServices services;
   final PanelEdge side;
   final double barHeight;
@@ -298,10 +309,29 @@ class _ColumnState extends ConsumerState<_Column>
     });
   }
 
+  KitLayer? _hostLayer;
+
+  bool _handleBack() {
+    if (_menu != null) {
+      _closeMenu();
+      return true;
+    }
+    if (_editing) {
+      setState(() => _editing = false);
+      return true;
+    }
+    return false;
+  }
+
   @override
   void didChangeDependencies() {
     super.didChangeDependencies();
     final layer = KitLayer.of(context);
+    if (_hostLayer != layer) {
+      _hostLayer?.interceptBack?.call(null);
+      _hostLayer = layer;
+      layer.interceptBack?.call(_handleBack);
+    }
     _finish = layer.finish;
     if (layer.animation != _layer) {
       _layer?.removeStatusListener(_onStatus);
@@ -312,6 +342,7 @@ class _ColumnState extends ConsumerState<_Column>
 
   @override
   void dispose() {
+    _hostLayer?.interceptBack?.call(null);
     debugCommand.removeListener(_debug);
     _layer?.removeStatusListener(_onStatus);
     _clearTimer?.cancel();
@@ -584,7 +615,18 @@ class _ColumnState extends ConsumerState<_Column>
             NcChip(
               label: context.tr('Reset'),
               large: true,
-              onTap: () => _save(defaultWidgets),
+              onTap: () {
+                ref.read(barSettingsProvider.notifier).save((s) {
+                  final keptSizes = <String>[
+                    for (final entry in s.tileSizes)
+                      if (!entry.startsWith('w.')) entry,
+                  ];
+                  return s.copyWith(
+                    widgets: defaultWidgets,
+                    tileSizes: keptSizes,
+                  );
+                });
+              },
             ),
             const SizedBox(width: 8),
           ],
@@ -731,6 +773,14 @@ class _ColumnState extends ConsumerState<_Column>
     final key = event.logicalKey;
     // Escape belongs to the layer, which closes the column.
     if (key == LogicalKeyboardKey.escape || _closing) {
+      return KeyEventResult.ignored;
+    }
+    // Never hijack Space/Tab/Arrows/Backspace while the user is typing in a
+    // widget TextField (e.g. Reminders or Custom Widget creator).
+    final focusedCtx = FocusManager.instance.primaryFocus?.context;
+    if (focusedCtx != null &&
+        (focusedCtx.widget is EditableText ||
+            focusedCtx.findAncestorWidgetOfExactType<EditableText>() != null)) {
       return KeyEventResult.ignored;
     }
     final arrow =
@@ -1004,7 +1054,7 @@ class _ColumnState extends ConsumerState<_Column>
     final canClear = !_clearing && staying.any((group) => group.clearable);
 
     final rows = <Widget>[
-      if (notifications)
+      if (notifications && widget.showHeader)
         KeyedSubtree(
           key: const ValueKey<String>('title'),
           child: _title(context, canClear),
@@ -1688,6 +1738,7 @@ class _GnomeDateMenu extends ConsumerWidget {
                     notifications: true,
                     widgets: false,
                     framed: true,
+                    showHeader: false,
                     onClose: onClose,
                   ),
                 ),
@@ -1702,7 +1753,7 @@ class _GnomeDateMenu extends ConsumerWidget {
                   child: Row(
                     children: <Widget>[
                       Text(
-                        context.tr('Focus'),
+                        context.tr('Do Not Disturb'),
                         style: BarType.menuRow.copyWith(
                           color: theme.colors.textPrimary,
                         ),
@@ -1850,11 +1901,13 @@ class _WindowsNotificationCenterState
             ],
           ),
         ),
-        if (_calendarOpen)
-          const Padding(
+        Reveal(
+          open: _calendarOpen,
+          child: const Padding(
             padding: EdgeInsets.fromLTRB(14, 0, 14, 14),
             child: _CompactMonthCalendar(showHeader: false),
           ),
+        ),
       ],
     );
   }

@@ -45,7 +45,9 @@ void showBarPanel({
   // The control centre is a sheet of round tiles and text, so it grows evenly
   // from the corner under its icon; an uneven start would squash both.
   final sheet = placement == BarPanelAnchor.trailing;
-  final bead = kitStyle.value.panelBead;
+  final style = kitStyle.value;
+  final bead = style.panelBead;
+  final useBead = sheet && style.entry == KitPanelEntry.grow;
   showKitPanel(
     ref: ref,
     panelId: panelId,
@@ -71,10 +73,10 @@ void showBarPanel({
     glass: glass,
     frameless: frameless,
     fill: fill,
-    bead: sheet
+    bead: useBead
         ? Size.square(math.max(0.94, math.max(bead.width, bead.height)))
         : null,
-    cornerOrigin: sheet,
+    cornerOrigin: useBead,
     builder: builder,
   );
 }

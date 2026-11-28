@@ -70,8 +70,21 @@ class TrayNames extends ValueNotifier<Map<String, TrayIdentity>> {
 
 final TrayNames trayNames = TrayNames();
 
+Timer? _trayUsageWriteTimer;
+Map<String, int>? _pendingTrayUsage;
+
+void _scheduleTrayUsageWrite(Map<String, int> counts) {
+  _pendingTrayUsage = Map<String, int>.of(counts);
+  _trayUsageWriteTimer?.cancel();
+  _trayUsageWriteTimer = Timer(const Duration(milliseconds: 500), () {
+    final pending = _pendingTrayUsage;
+    _pendingTrayUsage = null;
+    if (pending != null) kitStore.put('trayUsage', pending);
+  });
+}
+
 /// Persisted system-tray click frequency tracker stored in `denial_shell_kit.json`.
 final TrayUsageTracker trayUsage = TrayUsageTracker(
   reader: () => parseTrayUsageMap(kitStore.read()['trayUsage']),
-  writer: (counts) => kitStore.put('trayUsage', counts),
+  writer: _scheduleTrayUsageWrite,
 );

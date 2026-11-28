@@ -471,18 +471,22 @@ class _CompactDay extends StatelessWidget {
             ? KitStyle.of(context).plate(theme, calendarRed)
             : Colors.transparent,
       ),
-      child: Text(
-        '${value.day}',
-        style:
-            BarType.bare(
-              size < 16 ? 10 : (size > 22 ? 12 : 11),
-              isToday ? FontWeight.w700 : FontWeight.w400,
-            ).copyWith(
-              height: 1,
-              color: isToday
-                  ? KitStyle.of(context).onPlate(theme)
-                  : theme.colors.textPrimary,
-            ),
+      child: FittedBox(
+        fit: BoxFit.scaleDown,
+        child: Text(
+          '${value.day}',
+          maxLines: 1,
+          style:
+              BarType.bare(
+                size < 16 ? 10 : (size > 22 ? 12 : 11),
+                isToday ? FontWeight.w700 : FontWeight.w400,
+              ).copyWith(
+                height: 1,
+                color: isToday
+                    ? KitStyle.of(context).onPlate(theme)
+                    : theme.colors.textPrimary,
+              ),
+        ),
       ),
     );
   }

@@ -502,29 +502,36 @@ class NcPlate extends StatelessWidget {
     final panel = material.fill.fixed
         ? kitToneColor(material.fill, theme, style)
         : style.panelFill(GlassCard.fillOf(theme));
-    final fill = framed ? NcLook.framedFill(theme, panel) : panel;
-    final glassMode = theme.transparencyMode == ShellTransparencyMode.glass;
-    final requestedMode = style.surfaceMode;
-    final systemEnabled =
-        theme.backdropBlurEnabled &&
-        theme.transparencyMode != ShellTransparencyMode.off;
-    final plan = KitBlurMath.plan(
-      material,
-      enabled: systemEnabled,
-      glass: glassMode,
-      base: requestedMode == KitSurfaceMode.liquidGlass || glassMode
-          ? theme.glass.blurSigma
-          : theme.backdropBlurSigma,
-      mode: requestedMode,
-      tier: KitTier.card,
-    );
+    var fill = framed ? NcLook.framedFill(theme, panel) : panel;
+    final resolved = framed
+        ? (plan: KitBlurPlan.none, directConfig: null)
+        : KitGlass.resolveBackdrop(
+            context,
+            material: material,
+            radius: radius,
+            tier: KitTier.card,
+          );
+    final plan = resolved.plan;
+    if (!framed && blur && plan.mode == KitSurfaceMode.liquidGlass) {
+      final preset = kitGlassPreset.value;
+      final cap = KitGlass.liquidGlassOpacity(theme, tier: KitTier.card);
+      if (preset == KitGlassPreset.custom || preset == KitGlassPreset.tinted) {
+        fill = fill.withValues(alpha: cap);
+      } else if (fill.a > cap) {
+        fill = fill.withValues(alpha: cap);
+      }
+    }
     final solid = plan.mode == KitSurfaceMode.solid
         ? fill.withValues(alpha: 1)
         : fill.a < material.solid
         ? fill.withValues(alpha: material.solid)
         : fill;
     final blurs =
-        blur && fill.a < 1 && plan.blurs && plan.mode != KitSurfaceMode.solid;
+        !framed &&
+        blur &&
+        fill.a < 1 &&
+        plan.blurs &&
+        plan.mode != KitSurfaceMode.solid;
     final suppressLine =
         blurs && plan.mode == KitSurfaceMode.liquidGlass && !framed;
     final repaint = Listenable.merge(<Listenable>[unfold, glass]);
@@ -552,28 +559,7 @@ class NcPlate extends StatelessWidget {
       ring: ring ? style.accent(theme) : null,
       repaint: repaint,
     );
-    final ImageFilterConfig? directConfig = !blurs || !plan.direct
-        ? null
-        : switch (plan.mode) {
-            KitSurfaceMode.liquidGlass => KitGlass.liquidGlassFilterFor(
-              theme,
-              sigma: plan.sigma,
-              cornerRadius: radius,
-              strength: plan.strength,
-            ),
-            KitSurfaceMode.blur => KitGlass.filterFor(
-              theme,
-              sigma: plan.sigma,
-              saturation: 1,
-              cornerRadius: radius,
-            ),
-            _ => KitGlass.filterFor(
-              theme,
-              sigma: plan.sigma,
-              saturation: material.saturation,
-              cornerRadius: radius,
-            ),
-          };
+    final ImageFilterConfig? directConfig = blurs ? resolved.directConfig : null;
     return CustomPaint(
       painter: layer(true),
       foregroundPainter: layer(false),
@@ -593,6 +579,7 @@ class NcPlate extends StatelessWidget {
             )
           : ShellBackdropBlur(
               grouped: true,
+              strength: plan.strength.clamp(0.0, 1.0),
               borderRadius: BorderRadius.circular(radius),
               // Faded by the blur itself; at nothing it is not composited.
               opacity: glass,

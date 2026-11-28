@@ -827,37 +827,34 @@ final _trayUsageProvider = Provider.autoDispose<Map<String, int>>((ref) {
   return trayUsage.counts;
 });
 
-/// A colour matrix that paints every pixel in [ink] at the source's own alpha,
-/// the way macOS renders a template image in a menu-bar extra.
-List<double> _templateMatrix(Color ink) {
-  // Luminance keeps antialiased edges smooth before the tint replaces the
-  // colour; the last row leaves the source alpha untouched.
+/// A colour matrix that desaturates full-colour Linux SNI icons into clean
+/// monochrome while preserving internal luminance contrast (avoiding the
+/// solid-black-blob artifact when [ink] is black on light bars).
+///
+/// Symbolic icons already receive [ink] via `foregroundColor`; full-colour
+/// opaque icons keep their internal highlights/shadows as crisp greyscale (or
+/// subtly tinted toward [ink] when accent-tinted).
+List<double> _templateMatrix(Color ink, {bool accentTint = false}) {
   const lr = 0.2126, lg = 0.7152, lb = 0.0722;
-  final r = ink.r, g = ink.g, b = ink.b, a = ink.a;
+  final a = ink.a;
+  if (!accentTint) {
+    return <double>[
+      lr, lg, lb, 0, 0,
+      lr, lg, lb, 0, 0,
+      lr, lg, lb, 0, 0,
+      0, 0, 0, a, 0,
+    ];
+  }
+  final r = ink.r, g = ink.g, b = ink.b;
+  const keep = 0.45;
+  const tint = 0.55;
   return <double>[
-    lr * r,
-    lg * r,
-    lb * r,
-    0,
-    0,
-    lr * g,
-    lg * g,
-    lb * g,
-    0,
-    0,
-    lr * b,
-    lg * b,
-    lb * b,
-    0,
-    0,
-    0,
-    0,
-    0,
-    a,
-    0,
+    lr * (keep + tint * r), lg * (keep + tint * r), lb * (keep + tint * r), 0, 0,
+    lr * (keep + tint * g), lg * (keep + tint * g), lb * (keep + tint * g), 0, 0,
+    lr * (keep + tint * b), lg * (keep + tint * b), lb * (keep + tint * b), 0, 0,
+    0, 0, 0, a, 0,
   ];
 }
-
 
 /// Draws [itemIds] from the system tray with the bar's icon tinting rule.
 Widget buildTrayIcons(
@@ -871,6 +868,7 @@ Widget buildTrayIcons(
   double crossExtent = BarTokens.height,
 }) {
   final style = KitStyle.of(context);
+  final accentTint = style.look.iconTint == KitIconTint.accent;
   final Color tintColor = switch (style.look.iconTint) {
     KitIconTint.accent => style.accent(context.shellTheme),
     KitIconTint.original || KitIconTint.mono => ink,
@@ -886,7 +884,7 @@ Widget buildTrayIcons(
     ),
   );
   Widget build({Color? foreground}) {
-    if (settings.trayAutoHideByFreq && itemIds.length > 1) {
+    if (itemIds.length > 1) {
       return Flex(
         direction: horizontal ? Axis.horizontal : Axis.vertical,
         mainAxisSize: MainAxisSize.min,
@@ -917,7 +915,9 @@ Widget buildTrayIcons(
     child: settings.trayColour
         ? build()
         : ColorFiltered(
-            colorFilter: ColorFilter.matrix(_templateMatrix(tintColor)),
+            colorFilter: ColorFilter.matrix(
+              _templateMatrix(tintColor, accentTint: accentTint),
+            ),
             child: build(foreground: tintColor),
           ),
   );

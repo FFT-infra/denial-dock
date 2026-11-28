@@ -24,7 +24,6 @@ import '../bar_tokens.dart';
 import '../bar_type.dart';
 import '../island/island.dart'
     show
-        ensureIslandHomeActionsLoaded,
         islandHomeActionCatalog,
         islandHomeActions,
         setIslandHomeActions;
@@ -510,6 +509,7 @@ class _BarSettingsPanelState extends ConsumerState<BarSettingsPanel> {
                 min: 0.10,
                 max: 0.90,
                 step: 0.02,
+                commitOnRelease: true,
                 text: (v) => '${(v * 100).round()}%',
                 resetLabel: context.tr('Reset'),
                 onReset: (kitGlassOpacity.value - 0.42).abs() > 0.01
@@ -523,6 +523,7 @@ class _BarSettingsPanelState extends ConsumerState<BarSettingsPanel> {
                 min: 0.0,
                 max: 1.5,
                 step: 0.05,
+                commitOnRelease: true,
                 text: (v) => '${(v * 100).round()}%',
                 resetLabel: context.tr('Reset'),
                 onReset: (kitGlassRefraction.value - 1.0).abs() > 0.02
@@ -790,7 +791,7 @@ class _BarSettingsPanelState extends ConsumerState<BarSettingsPanel> {
             detail: s.islandWidth == BarMetric.islandWidth
                 ? context.tr('As the look has it')
                 : '${s.islandWidth}%',
-            enabled: options[IslandOption.shown].on,
+            enabled: options.present,
             child: MacSlider(
               inList: true,
               value:
@@ -857,10 +858,11 @@ class _BarSettingsPanelState extends ConsumerState<BarSettingsPanel> {
           _Row(
             label: context.tr('Timers on the home card'),
             enabled:
-                options[IslandOption.home].on &&
-                options[IslandOption.timer].on,
+                options.inForce(IslandOption.home) &&
+                options.inForce(IslandOption.timer),
             note:
-                options[IslandOption.home].on && options[IslandOption.timer].on
+                options.inForce(IslandOption.home) &&
+                    options.inForce(IslandOption.timer)
                 ? null
                 : context.tr('Needs the home card and the Timer activity.'),
             trailing: _Segments<int>(
@@ -874,14 +876,13 @@ class _BarSettingsPanelState extends ConsumerState<BarSettingsPanel> {
           ),
           _Cell(
             label: context.tr('Home card shortcuts'),
-            detail: options[IslandOption.home].on
+            detail: options.inForce(IslandOption.home)
                 ? context.tr('Pick up to 5')
                 : context.tr('Turn on the home card first.'),
-            enabled: options[IslandOption.home].on,
+            enabled: options.inForce(IslandOption.home),
             child: ValueListenableBuilder<List<String>>(
               valueListenable: islandHomeActions,
               builder: (context, selected, _) {
-                ensureIslandHomeActionsLoaded();
                 final theme = context.shellTheme;
                 final style = KitStyle.of(context);
                 return Wrap(
@@ -892,7 +893,7 @@ class _BarSettingsPanelState extends ConsumerState<BarSettingsPanel> {
                       () {
                         final on = selected.contains(item.$1);
                         return Pressable(
-                          onTap: options[IslandOption.home].on
+                          onTap: options.inForce(IslandOption.home)
                               ? () {
                                   if (on && selected.length <= 1) return;
                                   if (!on && selected.length >= 5) return;

@@ -431,7 +431,9 @@ class _TopBarSurfaceState extends ConsumerState<TopBarSurface>
           Positioned(
             left: 0,
             right: 0,
-            top: margin + (bodyHeight - islandHeight) / 2,
+            top: settings.islandNotch && _side == PanelEdge.top
+                ? 0
+                : margin + (bodyHeight - islandHeight) / 2,
             child: Align(alignment: Alignment.topCenter, child: island),
           ),
         ],
@@ -884,6 +886,10 @@ class _TopBarSurfaceState extends ConsumerState<TopBarSurface>
         ? widget.environment.shellScale
         : 1.0;
     if (widget.environment.isMainOutput) {
+      ref.listen<double?>(
+        barSettingsProvider.select((v) => v.value?.barHeight),
+        (_, _) => _syncReservation(),
+      );
       rememberBarReserveContext(
         hostScale: hostScale,
         barHeight: settings.barHeight,

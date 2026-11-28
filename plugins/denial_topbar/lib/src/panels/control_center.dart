@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:math' as math;
 
 import 'package:denial_flutter_sdk/models.dart';
 import 'package:denial_flutter_sdk/services.dart';
@@ -43,13 +44,14 @@ const double controlCenterWidth = 320;
 
 /// Control Centre width tailored to the active shell archetype.
 double controlCenterWidthFor(KitShellArchetype archetype) => switch (archetype) {
+  KitShellArchetype.cutefish => 408,
+  KitShellArchetype.noctalia => 388,
   KitShellArchetype.gnome ||
   KitShellArchetype.windows ||
   KitShellArchetype.material ||
   KitShellArchetype.hyprpanel => 360,
-  KitShellArchetype.noctalia ||
   KitShellArchetype.caelestia ||
-  KitShellArchetype.axshell => 344,
+  KitShellArchetype.axshell => 348,
   _ => controlCenterWidth,
 };
 
@@ -317,8 +319,7 @@ class _ControlCenterPanelState extends ConsumerState<ControlCenterPanel>
     final archetype = style.archetype;
     final useCustomShell =
         archetype != KitShellArchetype.macos &&
-        archetype != KitShellArchetype.denial &&
-        archetype != KitShellArchetype.cutefish;
+        archetype != KitShellArchetype.denial;
     final floating =
         !useCustomShell && style.panelStyle == KitPanelStyle.floating;
     final width = controlCenterWidthFor(archetype);
@@ -711,7 +712,8 @@ class _ControlCenterPanelState extends ConsumerState<ControlCenterPanel>
         final audible = ref.watch(services.volumeAvailable);
         final style = KitStyle.of(context);
         final macFloat =
-            style.id == 'mac' && style.panelStyle == KitPanelStyle.floating;
+            style.archetype == KitShellArchetype.macos &&
+            style.panelStyle == KitPanelStyle.floating;
         return Tile(
           id: id,
           size: const TileSize(4, 1),
@@ -940,9 +942,11 @@ class _ControlCenterPanelState extends ConsumerState<ControlCenterPanel>
             ),
           ),
     ];
+    final batteryAvailable = ref.watch(services.battery).capacity != null;
     final spare = <TileChoice>[
       for (final choice in _library)
-        if (!order.contains(choice.id))
+        if (!order.contains(choice.id) &&
+            (choice.id != 'battery' || batteryAvailable))
           TileChoice(
             id: choice.id,
             icon: choice.icon,
@@ -950,7 +954,9 @@ class _ControlCenterPanelState extends ConsumerState<ControlCenterPanel>
           ),
     ];
     final density = KitStyle.of(context).density.clamp(0.75, 1.35);
-    final pad = floating ? 6.0 * density : _C.inset * density;
+    final basePad = floating ? 6.0 * density : _C.inset * density;
+    final pad = _editing ? math.max(8.0, basePad) : basePad;
+    final gap = _C.gap * density;
     // On a short screen, or with every control added, the sheet is taller
     // than the room above a dock: it scrolls then, and only then, so a tile
     // dragged while editing is not taken for a scroll when all of it fits.
@@ -960,22 +966,34 @@ class _ControlCenterPanelState extends ConsumerState<ControlCenterPanel>
         mainAxisSize: MainAxisSize.min,
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: <Widget>[
-          TileGrid(
-            tiles: tiles,
-            columns: 4,
-            cell: const Size.square(_C.row),
-            gap: _C.gap * density,
-            editing: _editing,
-            onReorder: (next) => _saveControls(<String>[
-              for (final id in next)
-                if (id != 'tray') id,
-            ]),
-            onRemove: (id) {
-              if (id == 'tray') return;
-              _saveControls(<String>[
-                for (final other in order)
-                  if (other != id) other,
-              ]);
+          LayoutBuilder(
+            builder: (context, constraints) {
+              // Compute column width from actual available width (matching
+              // MacShell/tahoekde) so density > 1.0 never clips and floating
+              // mode is symmetrically centered.
+              final avail = constraints.maxWidth.isFinite
+                  ? constraints.maxWidth
+                  : controlCenterWidth - pad * 2;
+              final cw = math.max(48.0, (avail - 3 * gap) / 4);
+              return TileGrid(
+                tiles: tiles,
+                columns: 4,
+                cell: Size(cw, _C.row),
+                gap: gap,
+                editing: _editing,
+                showEntrance: !floating,
+                onReorder: (next) => _saveControls(<String>[
+                  for (final id in next)
+                    if (id != 'tray') id,
+                ]),
+                onRemove: (id) {
+                  if (id == 'tray') return;
+                  _saveControls(<String>[
+                    for (final other in order)
+                      if (other != id) other,
+                  ]);
+                },
+              );
             },
           ),
           Reveal(
@@ -1019,7 +1037,18 @@ class _ControlCenterPanelState extends ConsumerState<ControlCenterPanel>
                   _FloatingEditPill(
                     child: TileEditButton(
                       label: context.tr('Reset'),
-                      onTap: () => _saveControls(defaultControls),
+                      onTap: () {
+                        ref.read(barSettingsProvider.notifier).save((s) {
+                          final kept = <String>[
+                            for (final entry in s.tileSizes)
+                              if (entry.startsWith('w.')) entry,
+                          ];
+                          return s.copyWith(
+                            controls: defaultControls,
+                            tileSizes: kept,
+                          );
+                        });
+                      },
                     ),
                   ),
                   const SizedBox(width: 8),
@@ -1611,7 +1640,8 @@ class _Round extends StatelessWidget {
     final scope = _CcGlassScope.of(context);
     final radius = style.pill(_C.row);
     final shape = style.disc(_C.row);
-    final macWhiteDisc = on && style.id == 'mac' && scope.floating;
+    final macWhiteDisc =
+        on && style.archetype == KitShellArchetype.macos && scope.floating;
     final activeFill = macWhiteDisc
         ? const Color(0xffffffff)
         : style.plate(theme, colour);
@@ -1802,21 +1832,34 @@ class _MediaProgress extends StatefulWidget {
 }
 
 class _MediaProgressState extends State<_MediaProgress> {
-  late final Timer _tick = Timer.periodic(const Duration(milliseconds: 500), (
-    _,
-  ) {
-    if (widget.playing) setState(() {});
-  });
+  Timer? _tick;
+
+  void _syncTick() {
+    if (widget.playing && _tick == null) {
+      _tick = Timer.periodic(const Duration(milliseconds: 500), (_) {
+        if (mounted) setState(() {});
+      });
+    } else if (!widget.playing && _tick != null) {
+      _tick?.cancel();
+      _tick = null;
+    }
+  }
 
   @override
   void initState() {
     super.initState();
-    _tick;
+    _syncTick();
+  }
+
+  @override
+  void didUpdateWidget(covariant _MediaProgress oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.playing != widget.playing) _syncTick();
   }
 
   @override
   void dispose() {
-    _tick.cancel();
+    _tick?.cancel();
     super.dispose();
   }
 
@@ -1956,22 +1999,35 @@ class _TimerWatch extends StatefulWidget {
 }
 
 class _TimerWatchState extends State<_TimerWatch> {
-  late final Timer _tick = Timer.periodic(const Duration(seconds: 1), (_) {
-    if (islandTimer.active && !islandTimer.paused) setState(() {});
-  });
+  Timer? _tick;
 
-  void _changed() => setState(() {});
+  void _syncTick() {
+    final running = islandTimer.active && !islandTimer.paused;
+    if (running && _tick == null) {
+      _tick = Timer.periodic(const Duration(seconds: 1), (_) {
+        if (mounted) setState(() {});
+      });
+    } else if (!running && _tick != null) {
+      _tick?.cancel();
+      _tick = null;
+    }
+  }
+
+  void _changed() {
+    _syncTick();
+    if (mounted) setState(() {});
+  }
 
   @override
   void initState() {
     super.initState();
-    _tick;
+    _syncTick();
     islandTimer.addListener(_changed);
   }
 
   @override
   void dispose() {
-    _tick.cancel();
+    _tick?.cancel();
     islandTimer.removeListener(_changed);
     super.dispose();
   }

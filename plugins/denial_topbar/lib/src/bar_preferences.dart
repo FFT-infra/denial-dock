@@ -95,7 +95,9 @@ void applyShellPreset(WidgetRef ref, ShellPreset preset, {bool fresh = false}) {
   var nextMode = KitBarMode.parse(next.barMode);
   if (next.dockVisible != null) {
     kitDockEnabled.value = next.dockVisible!;
-    if (nextMode != KitBarMode.shown && !kitDockEnabled.value) {
+    // Only rescue a completely empty shell (neither bar nor dock visible);
+    // keep islandOnly intact when the user chose it.
+    if (nextMode == KitBarMode.hidden && !kitDockEnabled.value) {
       nextMode = KitBarMode.shown;
     }
   }

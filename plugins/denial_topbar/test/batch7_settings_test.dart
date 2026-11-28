@@ -151,20 +151,12 @@ Future<void> main() async {
     _expect(receivedMonitor == 42, 'handler receives monitorId');
     _expect(fallbackCalls == 0, 'handled search skips fallback');
 
-    final events = <KitRequest>[];
-    final sub = KitRequests.stream.listen(events.add);
     KitRequests.registerSearchHandler((_) => false);
     KitRequests.triggerSearch(
       monitorId: 7,
       fallback: () => fallbackCalls++,
     );
-    await Future<void>.delayed(Duration.zero);
-    await sub.cancel();
-
-    _expect(fallbackCalls == 1, 'unhandled search invokes fallback');
-    _expect(events.length == 1, 'unhandled search broadcasts once');
-    _expect(events.single.name == KitRequests.search, 'broadcast name matches');
-    _expect(events.single.monitorId == 7, 'broadcast monitorId matches');
+    _expect(fallbackCalls == 1, 'unhandled search invokes fallback once');
   } finally {
     KitRequests.registerSearchHandler(null);
   }

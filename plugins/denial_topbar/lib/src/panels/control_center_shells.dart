@@ -14,6 +14,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../bar_icons.dart';
 import '../bar_type.dart';
 import '../l10n.dart';
+import '../media_art.dart';
 import '../night_light.dart';
 import 'mac_kit.dart';
 
@@ -46,7 +47,8 @@ class ShellControlCenterView extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    return switch (archetype) {
+    final child = switch (archetype) {
+      KitShellArchetype.cutefish => _buildCutefish(context, ref),
       KitShellArchetype.gnome => _buildGnome(context, ref),
       KitShellArchetype.windows => _buildWindows(context, ref),
       KitShellArchetype.hyprpanel => _buildHyprPanel(context, ref),
@@ -54,11 +56,12 @@ class ShellControlCenterView extends ConsumerWidget {
       KitShellArchetype.omarchy || KitShellArchetype.cosmic =>
         _buildFlatCompact(context, ref),
       KitShellArchetype.plasma => _buildPlasma(context, ref),
-      KitShellArchetype.noctalia ||
-      KitShellArchetype.caelestia ||
-      KitShellArchetype.axshell => _buildAttachedDashboard(context, ref),
+      KitShellArchetype.noctalia => _buildNoctalia(context, ref),
+      KitShellArchetype.caelestia => _buildCaelestia(context, ref),
+      KitShellArchetype.axshell => _buildAxShell(context, ref),
       _ => const SizedBox.shrink(),
     };
+    return SingleChildScrollView(child: child);
   }
 
   _ShellLiveState _readState(BuildContext context, WidgetRef ref) {
@@ -326,7 +329,9 @@ class ShellControlCenterView extends ConsumerWidget {
             icon: s.volume <= 0.001 ? BarIcons.speakerSlashFill : BarIcons.speaker3Fill,
             value: s.volume,
             enabled: s.audible,
+            onChangeStart: services.beginVolumeInteraction,
             onChanged: services.setVolume,
+            onChangeEnd: services.commitVolume,
             onDetail: () => onOpenPage('sound'),
           ),
           const SizedBox(height: 8),
@@ -587,7 +592,9 @@ class ShellControlCenterView extends ConsumerWidget {
                     : BarIcons.speaker3Fill,
                 value: s.volume,
                 enabled: s.audible,
+                onChangeStart: services.beginVolumeInteraction,
                 onChanged: services.setVolume,
+                onChangeEnd: services.commitVolume,
                 onDetail: () => onOpenPage('sound'),
               ),
             ],
@@ -812,10 +819,14 @@ class ShellControlCenterView extends ConsumerWidget {
             child: Column(
               children: <Widget>[
                 _SliderRow(
-                  icon: BarIcons.speaker3Fill,
+                  icon: s.volume <= 0.001
+                      ? BarIcons.speakerSlashFill
+                      : BarIcons.speaker3Fill,
                   value: s.volume,
                   enabled: s.audible,
+                  onChangeStart: services.beginVolumeInteraction,
                   onChanged: services.setVolume,
+                  onChangeEnd: services.commitVolume,
                   onDetail: () => onOpenPage('sound'),
                 ),
                 const SizedBox(height: 8),
@@ -1049,7 +1060,9 @@ class ShellControlCenterView extends ConsumerWidget {
             value: s.volume,
             enabled: s.audible,
             height: 28,
+            onChangeStart: services.beginVolumeInteraction,
             onChanged: services.setVolume,
+            onChangeEnd: services.commitVolume,
             onDetail: () => onOpenPage('sound'),
           ),
         ],
@@ -1244,10 +1257,14 @@ class ShellControlCenterView extends ConsumerWidget {
           ),
           const SizedBox(height: 10),
           _SliderRow(
-            icon: BarIcons.speaker3Fill,
+            icon: s.volume <= 0.001
+                ? BarIcons.speakerSlashFill
+                : BarIcons.speaker3Fill,
             value: s.volume,
             enabled: s.audible,
+            onChangeStart: services.beginVolumeInteraction,
             onChanged: services.setVolume,
+            onChangeEnd: services.commitVolume,
             onDetail: () => onOpenPage('sound'),
           ),
           const SizedBox(height: 6),
@@ -1464,11 +1481,15 @@ class ShellControlCenterView extends ConsumerWidget {
           ),
           const SizedBox(height: 12),
           _SliderRow(
-            icon: BarIcons.speaker3Fill,
+            icon: s.volume <= 0.001
+                ? BarIcons.speakerSlashFill
+                : BarIcons.speaker3Fill,
             value: s.volume,
             enabled: s.audible,
             showPercent: true,
+            onChangeStart: services.beginVolumeInteraction,
             onChanged: services.setVolume,
+            onChangeEnd: services.commitVolume,
             onDetail: () => onOpenPage('sound'),
           ),
           const SizedBox(height: 8),
@@ -1505,9 +1526,756 @@ class ShellControlCenterView extends ConsumerWidget {
     );
   }
 
-  // ── 7. Noctalia / Caelestia / Ax-Shell Attached Drawer Dashboard ──────────
+  // ── 7. Cutefish Control Center (`cutefish-statusbar/qml/ControlCenter.qml`)
 
-  Widget _buildAttachedDashboard(BuildContext context, WidgetRef ref) {
+  Widget _buildCutefish(BuildContext context, WidgetRef ref) {
+    final theme = context.shellTheme;
+    final style = KitStyle.of(context);
+    final s = _readState(context, ref);
+    final accent = style.accent(theme);
+    final onAccent = style.onAccent(theme);
+    final cardBg = theme.colors.surfaceContainerHigh.withValues(alpha: 0.72);
+    final r = style.corner(14);
+    final now = DateTime.now();
+    final dateStr = '${now.year}-${now.month.toString().padLeft(2, '0')}-${now.day.toString().padLeft(2, '0')}';
+
+    Widget cardItem({
+      required IconData icon,
+      required String label,
+      required bool on,
+      required VoidCallback onTap,
+      VoidCallback? onLongPress,
+    }) {
+      return Expanded(
+        child: GestureDetector(
+          onSecondaryTap: onLongPress,
+          onLongPress: onLongPress,
+          child: Pressable(
+            onTap: onTap,
+            scale: Pressable.small,
+            shape: BorderRadius.circular(12),
+            child: Padding(
+              padding: const EdgeInsets.symmetric(vertical: 8, horizontal: 4),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: <Widget>[
+                  Container(
+                    width: 44,
+                    height: 44,
+                    decoration: BoxDecoration(
+                      color: on
+                          ? accent
+                          : theme.colors.textPrimary.withValues(alpha: 0.09),
+                      shape: BoxShape.circle,
+                    ),
+                    child: Center(
+                      child: BarGlyph(
+                        icon,
+                        size: 18,
+                        color: on ? onAccent : theme.colors.textPrimary,
+                      ),
+                    ),
+                  ),
+                  const SizedBox(height: 6),
+                  Text(
+                    label,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    textAlign: TextAlign.center,
+                    style: BarType.caption.copyWith(
+                      fontSize: 11,
+                      color: theme.colors.textPrimary,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+        ),
+      );
+    }
+
+    Widget sliderCard({
+      required IconData icon,
+      required double value,
+      required bool enabled,
+      VoidCallback? onChangeStart,
+      required ValueChanged<double> onChanged,
+      ValueChanged<double>? onChangeEnd,
+      VoidCallback? onDetail,
+    }) {
+      return Container(
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+        decoration: BoxDecoration(
+          color: cardBg,
+          borderRadius: BorderRadius.circular(r),
+        ),
+        child: _SliderRow(
+          icon: icon,
+          value: value,
+          enabled: enabled,
+          onChangeStart: onChangeStart,
+          onChanged: onChanged,
+          onChangeEnd: onChangeEnd,
+          onDetail: onDetail,
+        ),
+      );
+    }
+
+    return Padding(
+      padding: const EdgeInsets.all(14),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: <Widget>[
+          Row(
+            children: <Widget>[
+              Text(
+                context.tr('Control Centre'),
+                style: BarType.title.copyWith(
+                  fontSize: 16,
+                  fontWeight: FontWeight.w700,
+                  color: theme.colors.textPrimary,
+                ),
+              ),
+              const Spacer(),
+              Pressable(
+                onTap: onSettings,
+                scale: Pressable.small,
+                wash: true,
+                shape: style.disc(30),
+                child: SizedBox(
+                  width: 30,
+                  height: 30,
+                  child: Center(
+                    child: BarGlyph(
+                      BarIcons.gear,
+                      size: 15,
+                      color: theme.colors.textPrimary,
+                    ),
+                  ),
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 12),
+          // 4-column Cutefish CardItem grid inside a single inner frosted plate
+          Container(
+            padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 8),
+            decoration: BoxDecoration(
+              color: cardBg,
+              borderRadius: BorderRadius.circular(r),
+            ),
+            child: Column(
+              children: <Widget>[
+                Row(
+                  children: <Widget>[
+                    cardItem(
+                      icon: s.wifiOn ? BarIcons.wifi : BarIcons.wifiSlash,
+                      label: 'Wi-Fi',
+                      on: s.wifiOn,
+                      onTap: () => _toggleWifi(ref, s.wifiOn),
+                      onLongPress: () => onOpenPage('wifi'),
+                    ),
+                    cardItem(
+                      icon: BarIcons.bluetooth,
+                      label: context.tr('Bluetooth'),
+                      on: s.btOn,
+                      onTap: () => _toggleBt(ref, s.btAvailable),
+                      onLongPress: () => onOpenPage('bluetooth'),
+                    ),
+                    cardItem(
+                      icon: BarIcons.circleHalf,
+                      label: context.tr('Dark Mode'),
+                      on: s.dark,
+                      onTap: () => _toggleDark(ref, s.dark),
+                    ),
+                    cardItem(
+                      icon: BarIcons.moonFill,
+                      label: context.tr('Do Not Disturb'),
+                      on: s.focus,
+                      onTap: () => _toggleDnd(ref),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 4),
+                Row(
+                  children: <Widget>[
+                    cardItem(
+                      icon: BarIcons.camera,
+                      label: context.tr('Screenshot'),
+                      on: false,
+                      onTap: () => _screenshot(ref),
+                    ),
+                    ValueListenableBuilder<bool>(
+                      valueListenable: NightLight.enabled,
+                      builder: (context, night, _) => cardItem(
+                        icon: BarIcons.sunMaxFill,
+                        label: context.tr('Night Light'),
+                        on: night,
+                        onTap: NightLight.toggle,
+                      ),
+                    ),
+                    cardItem(
+                      icon: BarIcons.bolt,
+                      label: _powerLabel(context, s.powerProfile),
+                      on: s.powerAvailable && s.powerProfile != PowerProfile.balanced,
+                      onTap: () => _cyclePower(ref, s),
+                    ),
+                    cardItem(
+                      icon: BarIcons.lockFill,
+                      label: context.tr('Lock Screen'),
+                      on: false,
+                      onTap: () => _lock(ref),
+                    ),
+                  ],
+                ),
+              ],
+            ),
+          ),
+          const SizedBox(height: 10),
+          _DrawerMediaStrip(services: services, radius: r, padBg: cardBg),
+          const SizedBox(height: 10),
+          sliderCard(
+            icon: BarIcons.sunMaxFill,
+            value: s.brightness ?? 0.5,
+            enabled: s.brightness != null,
+            onChanged: (v) => _setBrightness(ref, v),
+            onChangeEnd: (v) => _setBrightness(ref, v, commit: true),
+            onDetail: () => onOpenPage('display'),
+          ),
+          const SizedBox(height: 8),
+          sliderCard(
+            icon: s.volume <= 0.001
+                ? BarIcons.speakerSlashFill
+                : BarIcons.speaker3Fill,
+            value: s.volume,
+            enabled: s.audible,
+            onChangeStart: services.beginVolumeInteraction,
+            onChanged: services.setVolume,
+            onChangeEnd: services.commitVolume,
+            onDetail: () => onOpenPage('sound'),
+          ),
+          const SizedBox(height: 10),
+          // Footer: Date on left, Battery percentage on right (ControlCenter.qml:431-491)
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 4),
+            child: Row(
+              children: <Widget>[
+                Text(
+                  dateStr,
+                  style: BarType.caption.copyWith(
+                    fontSize: 12,
+                    color: theme.colors.textSecondary,
+                    fontFeatures: const <FontFeature>[
+                      FontFeature.tabularFigures(),
+                    ],
+                  ),
+                ),
+                const Spacer(),
+                if (s.batteryPercent != null) ...<Widget>[
+                  BarGlyph(
+                    s.charging ? BarIcons.boltFill : BarIcons.battery75,
+                    size: 14,
+                    color: s.charging ? accent : theme.colors.textSecondary,
+                  ),
+                  const SizedBox(width: 4),
+                  Text(
+                    '${s.batteryPercent}%',
+                    style: BarType.caption.copyWith(
+                      fontSize: 12,
+                      fontWeight: FontWeight.w600,
+                      color: theme.colors.textPrimary,
+                      fontFeatures: const <FontFeature>[
+                        FontFeature.tabularFigures(),
+                      ],
+                    ),
+                  ),
+                ],
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  // ── 8. Noctalia Sidebar + Bento Home (`noctalia/tabs/home_tab.cpp`) ───────
+
+  Widget _buildNoctalia(BuildContext context, WidgetRef ref) {
+    final theme = context.shellTheme;
+    final style = KitStyle.of(context);
+    final s = _readState(context, ref);
+    final accent = style.accent(theme);
+    final onAccent = style.onAccent(theme);
+    final r = style.corner(14);
+    final cardBg = theme.colors.surfaceContainerHigh;
+
+    Widget railBtn(IconData icon, VoidCallback? onTap, {bool active = false}) =>
+        Pressable(
+          onTap: onTap,
+          scale: Pressable.small,
+          shape: BorderRadius.circular(10),
+          child: Container(
+            width: 34,
+            height: 34,
+            decoration: BoxDecoration(
+              color: active ? accent : const Color(0x00000000),
+              borderRadius: BorderRadius.circular(10),
+            ),
+            child: Center(
+              child: BarGlyph(
+                icon,
+                size: 15,
+                color: active ? onAccent : theme.colors.textSecondary,
+              ),
+            ),
+          ),
+        );
+
+    Widget shortcutTile(IconData icon, bool on, VoidCallback onTap, {VoidCallback? onDetail}) =>
+        GestureDetector(
+          onSecondaryTap: onDetail,
+          child: Pressable(
+            onTap: onTap,
+            scale: Pressable.small,
+            shape: BorderRadius.circular(r),
+            child: Container(
+              height: 46,
+              decoration: BoxDecoration(
+                color: on ? accent : cardBg,
+                borderRadius: BorderRadius.circular(r),
+              ),
+              child: Center(
+                child: BarGlyph(
+                  icon,
+                  size: 17,
+                  color: on ? onAccent : theme.colors.textPrimary,
+                ),
+              ),
+            ),
+          ),
+        );
+
+    return Padding(
+      padding: const EdgeInsets.all(12),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: <Widget>[
+          // Left vertical icon rail (Noctalia control_center_panel.cpp)
+          Container(
+            padding: const EdgeInsets.symmetric(vertical: 6, horizontal: 4),
+            decoration: BoxDecoration(
+              color: cardBg,
+              borderRadius: BorderRadius.circular(r),
+            ),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: <Widget>[
+                railBtn(BarIcons.squareGrid, null, active: true),
+                const SizedBox(height: 6),
+                railBtn(BarIcons.wifi, () => onOpenPage('wifi')),
+                const SizedBox(height: 6),
+                railBtn(BarIcons.bluetooth, () => onOpenPage('bluetooth')),
+                const SizedBox(height: 6),
+                railBtn(BarIcons.speaker3Fill, () => onOpenPage('sound')),
+                const SizedBox(height: 6),
+                railBtn(BarIcons.sunMaxFill, () => onOpenPage('display')),
+                const SizedBox(height: 12),
+                railBtn(BarIcons.gear, onSettings),
+              ],
+            ),
+          ),
+          const SizedBox(width: 10),
+          // Right bento main pane: status banner + split (media/power | 2x3 shortcuts)
+          Expanded(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: <Widget>[
+                _CompactPowerFooter(
+                  batteryPercent: s.batteryPercent,
+                  charging: s.charging,
+                  radius: r,
+                  onSettings: onSettings,
+                  onLock: () => _lock(ref),
+                  onReboot: () {
+                    onClose();
+                    onConfirmPower(SessionPowerAction.reboot);
+                  },
+                  onShutdown: () {
+                    onClose();
+                    onConfirmPower(SessionPowerAction.powerOff);
+                  },
+                ),
+                const SizedBox(height: 8),
+                Row(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: <Widget>[
+                    // Left column: Media + Power/Status card
+                    Expanded(
+                      flex: 3,
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.stretch,
+                        children: <Widget>[
+                          _DrawerMediaStrip(
+                            services: services,
+                            radius: r,
+                            padBg: cardBg,
+                            compact: true,
+                          ),
+                          const SizedBox(height: 8),
+                          Pressable(
+                            onTap: () => _cyclePower(ref, s),
+                            shape: BorderRadius.circular(r),
+                            child: Container(
+                              padding: const EdgeInsets.symmetric(
+                                horizontal: 10,
+                                vertical: 10,
+                              ),
+                              decoration: BoxDecoration(
+                                color: cardBg,
+                                borderRadius: BorderRadius.circular(r),
+                              ),
+                              child: Row(
+                                children: <Widget>[
+                                  BarGlyph(BarIcons.bolt, size: 15, color: accent),
+                                  const SizedBox(width: 8),
+                                  Expanded(
+                                    child: Text(
+                                      _powerLabel(context, s.powerProfile),
+                                      maxLines: 1,
+                                      overflow: TextOverflow.ellipsis,
+                                      style: BarType.title.copyWith(
+                                        fontSize: 12,
+                                        color: theme.colors.textPrimary,
+                                      ),
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                    const SizedBox(width: 8),
+                    // Right column: 2×3 square Shortcuts grid
+                    Expanded(
+                      flex: 2,
+                      child: Column(
+                        children: <Widget>[
+                          Row(
+                            children: <Widget>[
+                              Expanded(
+                                child: shortcutTile(
+                                  s.wifiOn ? BarIcons.wifi : BarIcons.wifiSlash,
+                                  s.wifiOn,
+                                  () => _toggleWifi(ref, s.wifiOn),
+                                  onDetail: () => onOpenPage('wifi'),
+                                ),
+                              ),
+                              const SizedBox(width: 6),
+                              Expanded(
+                                child: shortcutTile(
+                                  BarIcons.bluetooth,
+                                  s.btOn,
+                                  () => _toggleBt(ref, s.btAvailable),
+                                  onDetail: () => onOpenPage('bluetooth'),
+                                ),
+                              ),
+                            ],
+                          ),
+                          const SizedBox(height: 6),
+                          Row(
+                            children: <Widget>[
+                              Expanded(
+                                child: shortcutTile(
+                                  BarIcons.moonFill,
+                                  s.focus,
+                                  () => _toggleDnd(ref),
+                                ),
+                              ),
+                              const SizedBox(width: 6),
+                              Expanded(
+                                child: ValueListenableBuilder<bool>(
+                                  valueListenable: NightLight.enabled,
+                                  builder: (context, night, _) => shortcutTile(
+                                    BarIcons.sunMaxFill,
+                                    night,
+                                    NightLight.toggle,
+                                  ),
+                                ),
+                              ),
+                            ],
+                          ),
+                          const SizedBox(height: 6),
+                          Row(
+                            children: <Widget>[
+                              Expanded(
+                                child: shortcutTile(
+                                  BarIcons.circleHalf,
+                                  s.dark,
+                                  () => _toggleDark(ref, s.dark),
+                                ),
+                              ),
+                              const SizedBox(width: 6),
+                              Expanded(
+                                child: shortcutTile(
+                                  BarIcons.camera,
+                                  false,
+                                  () => _screenshot(ref),
+                                ),
+                              ),
+                            ],
+                          ),
+                        ],
+                      ),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 10),
+                _SliderRow(
+                  icon: BarIcons.sunMaxFill,
+                  value: s.brightness ?? 0.5,
+                  enabled: s.brightness != null,
+                  onChanged: (v) => _setBrightness(ref, v),
+                  onChangeEnd: (v) => _setBrightness(ref, v, commit: true),
+                  onDetail: () => onOpenPage('display'),
+                ),
+                const SizedBox(height: 6),
+                _SliderRow(
+                  icon: s.volume <= 0.001
+                      ? BarIcons.speakerSlashFill
+                      : BarIcons.speaker3Fill,
+                  value: s.volume,
+                  enabled: s.audible,
+                  onChangeStart: services.beginVolumeInteraction,
+                  onChanged: services.setVolume,
+                  onChangeEnd: services.commitVolume,
+                  onDetail: () => onOpenPage('sound'),
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  // ── 9. Caelestia Utilities Drawer (`caelestia/modules/utilities/Content.qml`)
+
+  Widget _buildCaelestia(BuildContext context, WidgetRef ref) {
+    final theme = context.shellTheme;
+    final style = KitStyle.of(context);
+    final s = _readState(context, ref);
+    final accent = style.accent(theme);
+    final onAccent = style.onAccent(theme);
+    final r = style.corner(18);
+    final padBg = theme.colors.surfaceContainerHigh;
+
+    Widget pillToggle(
+      IconData icon,
+      bool on,
+      VoidCallback onTap, {
+      VoidCallback? onDetail,
+    }) => Expanded(
+      child: GestureDetector(
+        onSecondaryTap: onDetail,
+        child: Pressable(
+          onTap: onTap,
+          scale: Pressable.small,
+          shape: BorderRadius.circular(20),
+          child: Container(
+            height: 40,
+            decoration: BoxDecoration(
+              color: on ? accent : padBg,
+              borderRadius: BorderRadius.circular(20),
+            ),
+            child: Center(
+              child: BarGlyph(
+                icon,
+                size: 16,
+                color: on ? onAccent : theme.colors.textPrimary,
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+
+    return Padding(
+      padding: const EdgeInsets.all(14),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: <Widget>[
+          _DrawerMediaStrip(services: services, radius: r, padBg: padBg),
+          const SizedBox(height: 10),
+          // Signature Caelestia M3 pill ButtonRow (cards/Toggles.qml)
+          Container(
+            padding: const EdgeInsets.all(6),
+            decoration: BoxDecoration(
+              color: theme.colors.surfaceContainerLow,
+              borderRadius: BorderRadius.circular(24),
+            ),
+            child: Row(
+              children: <Widget>[
+                pillToggle(
+                  s.wifiOn ? BarIcons.wifi : BarIcons.wifiSlash,
+                  s.wifiOn,
+                  () => _toggleWifi(ref, s.wifiOn),
+                  onDetail: () => onOpenPage('wifi'),
+                ),
+                const SizedBox(width: 6),
+                pillToggle(
+                  BarIcons.bluetooth,
+                  s.btOn,
+                  () => _toggleBt(ref, s.btAvailable),
+                  onDetail: () => onOpenPage('bluetooth'),
+                ),
+                const SizedBox(width: 6),
+                pillToggle(
+                  BarIcons.moonFill,
+                  s.focus,
+                  () => _toggleDnd(ref),
+                ),
+                const SizedBox(width: 6),
+                ValueListenableBuilder<bool>(
+                  valueListenable: NightLight.enabled,
+                  builder: (context, night, _) => pillToggle(
+                    BarIcons.sunMaxFill,
+                    night,
+                    NightLight.toggle,
+                  ),
+                ),
+                const SizedBox(width: 6),
+                pillToggle(
+                  BarIcons.circleHalf,
+                  s.dark,
+                  () => _toggleDark(ref, s.dark),
+                ),
+                const SizedBox(width: 6),
+                pillToggle(
+                  BarIcons.camera,
+                  false,
+                  () => _screenshot(ref),
+                ),
+              ],
+            ),
+          ),
+          const SizedBox(height: 10),
+          // Caelestia status & power profile pill strip
+          Row(
+            children: <Widget>[
+              Expanded(
+                child: Pressable(
+                  onTap: () => onOpenPage('wifi'),
+                  shape: BorderRadius.circular(r),
+                  child: Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+                    decoration: BoxDecoration(
+                      color: padBg,
+                      borderRadius: BorderRadius.circular(r),
+                    ),
+                    child: Row(
+                      children: <Widget>[
+                        BarGlyph(BarIcons.wifi, size: 14, color: accent),
+                        const SizedBox(width: 8),
+                        Expanded(
+                          child: Text(
+                            s.wifiLabel,
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: BarType.caption.copyWith(
+                              color: theme.colors.textPrimary,
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+              ),
+              const SizedBox(width: 8),
+              Expanded(
+                child: Pressable(
+                  onTap: () => _cyclePower(ref, s),
+                  shape: BorderRadius.circular(r),
+                  child: Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+                    decoration: BoxDecoration(
+                      color: padBg,
+                      borderRadius: BorderRadius.circular(r),
+                    ),
+                    child: Row(
+                      children: <Widget>[
+                        BarGlyph(BarIcons.bolt, size: 14, color: accent),
+                        const SizedBox(width: 8),
+                        Expanded(
+                          child: Text(
+                            _powerLabel(context, s.powerProfile),
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: BarType.caption.copyWith(
+                              color: theme.colors.textPrimary,
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 10),
+          _SliderRow(
+            icon: BarIcons.sunMaxFill,
+            value: s.brightness ?? 0.5,
+            enabled: s.brightness != null,
+            height: 24,
+            onChanged: (v) => _setBrightness(ref, v),
+            onChangeEnd: (v) => _setBrightness(ref, v, commit: true),
+            onDetail: () => onOpenPage('display'),
+          ),
+          const SizedBox(height: 8),
+          _SliderRow(
+            icon: s.volume <= 0.001
+                ? BarIcons.speakerSlashFill
+                : BarIcons.speaker3Fill,
+            value: s.volume,
+            enabled: s.audible,
+            height: 24,
+            onChangeStart: services.beginVolumeInteraction,
+            onChanged: services.setVolume,
+            onChangeEnd: services.commitVolume,
+            onDetail: () => onOpenPage('sound'),
+          ),
+          const SizedBox(height: 10),
+          _CompactPowerFooter(
+            batteryPercent: s.batteryPercent,
+            charging: s.charging,
+            radius: r,
+            onSettings: onSettings,
+            onLock: () => _lock(ref),
+            onReboot: () {
+              onClose();
+              onConfirmPower(SessionPowerAction.reboot);
+            },
+            onShutdown: () {
+              onClose();
+              onConfirmPower(SessionPowerAction.powerOff);
+            },
+          ),
+        ],
+      ),
+    );
+  }
+
+  // ── 10. Ax-Shell Notch Dashboard (`ax-shell/modules/widgets.py`) ──────────
+
+  Widget _buildAxShell(BuildContext context, WidgetRef ref) {
     final theme = context.shellTheme;
     final style = KitStyle.of(context);
     final s = _readState(context, ref);
@@ -1516,7 +2284,7 @@ class ShellControlCenterView extends ConsumerWidget {
     final r = style.corner(14);
     final padBg = theme.colors.surfaceContainerHigh;
 
-    Widget pad({
+    Widget splitBtn({
       required IconData icon,
       required String title,
       required bool on,
@@ -1525,7 +2293,7 @@ class ShellControlCenterView extends ConsumerWidget {
     }) {
       final fg = on ? onAccent : theme.colors.textPrimary;
       return Container(
-        height: 50,
+        height: 46,
         decoration: BoxDecoration(
           color: on ? accent : padBg,
           borderRadius: BorderRadius.circular(r),
@@ -1537,20 +2305,17 @@ class ShellControlCenterView extends ConsumerWidget {
                 onTap: onToggle,
                 shape: BorderRadius.circular(r),
                 child: Padding(
-                  padding: const EdgeInsets.symmetric(horizontal: 12),
+                  padding: const EdgeInsets.symmetric(horizontal: 11),
                   child: Row(
                     children: <Widget>[
-                      BarGlyph(icon, size: 16, color: fg),
+                      BarGlyph(icon, size: 15, color: fg),
                       const SizedBox(width: 8),
                       Expanded(
                         child: Text(
                           title,
                           maxLines: 1,
                           overflow: TextOverflow.ellipsis,
-                          style: BarType.title.copyWith(
-                            fontSize: 12.5,
-                            color: fg,
-                          ),
+                          style: BarType.title.copyWith(fontSize: 12, color: fg),
                         ),
                       ),
                     ],
@@ -1563,8 +2328,8 @@ class ShellControlCenterView extends ConsumerWidget {
                 onTap: onDetail,
                 shape: BorderRadius.horizontal(right: Radius.circular(r)),
                 child: SizedBox(
-                  width: 28,
-                  height: 50,
+                  width: 26,
+                  height: 46,
                   child: Center(
                     child: BarGlyph(BarIcons.chevronRight, size: 11, color: fg),
                   ),
@@ -1581,6 +2346,89 @@ class ShellControlCenterView extends ConsumerWidget {
         mainAxisSize: MainAxisSize.min,
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: <Widget>[
+          _DrawerMediaStrip(services: services, radius: r, padBg: padBg),
+          const SizedBox(height: 10),
+          Row(
+            children: <Widget>[
+              Expanded(
+                child: splitBtn(
+                  icon: s.wifiOn ? BarIcons.wifi : BarIcons.wifiSlash,
+                  title: s.wifiLabel,
+                  on: s.wifiOn,
+                  onToggle: () => _toggleWifi(ref, s.wifiOn),
+                  onDetail: () => onOpenPage('wifi'),
+                ),
+              ),
+              const SizedBox(width: 8),
+              Expanded(
+                child: splitBtn(
+                  icon: BarIcons.bluetooth,
+                  title: context.tr('Bluetooth'),
+                  on: s.btOn,
+                  onToggle: () => _toggleBt(ref, s.btAvailable),
+                  onDetail: () => onOpenPage('bluetooth'),
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 8),
+          Row(
+            children: <Widget>[
+              Expanded(
+                child: splitBtn(
+                  icon: BarIcons.moonFill,
+                  title: context.tr('Do Not Disturb'),
+                  on: s.focus,
+                  onToggle: () => _toggleDnd(ref),
+                ),
+              ),
+              const SizedBox(width: 8),
+              Expanded(
+                child: ValueListenableBuilder<bool>(
+                  valueListenable: NightLight.enabled,
+                  builder: (context, night, _) => splitBtn(
+                    icon: BarIcons.sunMaxFill,
+                    title: context.tr('Night Light'),
+                    on: night,
+                    onToggle: NightLight.toggle,
+                  ),
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 10),
+          Container(
+            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+            decoration: BoxDecoration(
+              color: padBg,
+              borderRadius: BorderRadius.circular(r),
+            ),
+            child: Column(
+              children: <Widget>[
+                _SliderRow(
+                  icon: s.volume <= 0.001
+                      ? BarIcons.speakerSlashFill
+                      : BarIcons.speaker3Fill,
+                  value: s.volume,
+                  enabled: s.audible,
+                  onChangeStart: services.beginVolumeInteraction,
+                  onChanged: services.setVolume,
+                  onChangeEnd: services.commitVolume,
+                  onDetail: () => onOpenPage('sound'),
+                ),
+                const SizedBox(height: 6),
+                _SliderRow(
+                  icon: BarIcons.sunMaxFill,
+                  value: s.brightness ?? 0.5,
+                  enabled: s.brightness != null,
+                  onChanged: (v) => _setBrightness(ref, v),
+                  onChangeEnd: (v) => _setBrightness(ref, v, commit: true),
+                  onDetail: () => onOpenPage('display'),
+                ),
+              ],
+            ),
+          ),
+          const SizedBox(height: 10),
           _CompactPowerFooter(
             batteryPercent: s.batteryPercent,
             charging: s.charging,
@@ -1595,98 +2443,6 @@ class ShellControlCenterView extends ConsumerWidget {
               onClose();
               onConfirmPower(SessionPowerAction.powerOff);
             },
-          ),
-          const SizedBox(height: 10),
-          _DrawerMediaStrip(services: services, radius: r, padBg: padBg),
-          const SizedBox(height: 10),
-          Row(
-            children: <Widget>[
-              Expanded(
-                child: pad(
-                  icon: s.wifiOn ? BarIcons.wifi : BarIcons.wifiSlash,
-                  title: 'Wi-Fi',
-                  on: s.wifiOn,
-                  onToggle: () => _toggleWifi(ref, s.wifiOn),
-                  onDetail: () => onOpenPage('wifi'),
-                ),
-              ),
-              const SizedBox(width: 8),
-              Expanded(
-                child: pad(
-                  icon: BarIcons.bluetooth,
-                  title: context.tr('Bluetooth'),
-                  on: s.btOn,
-                  onToggle: () => _toggleBt(ref, s.btAvailable),
-                  onDetail: () => onOpenPage('bluetooth'),
-                ),
-              ),
-            ],
-          ),
-          const SizedBox(height: 8),
-          Row(
-            children: <Widget>[
-              Expanded(
-                child: pad(
-                  icon: BarIcons.moonFill,
-                  title: context.tr('Focus'),
-                  on: s.focus,
-                  onToggle: () => _toggleDnd(ref),
-                ),
-              ),
-              const SizedBox(width: 8),
-              Expanded(
-                child: ValueListenableBuilder<bool>(
-                  valueListenable: NightLight.enabled,
-                  builder: (context, night, _) => pad(
-                    icon: BarIcons.sunMaxFill,
-                    title: context.tr('Night Light'),
-                    on: night,
-                    onToggle: NightLight.toggle,
-                  ),
-                ),
-              ),
-            ],
-          ),
-          const SizedBox(height: 8),
-          Row(
-            children: <Widget>[
-              Expanded(
-                child: pad(
-                  icon: BarIcons.circleHalf,
-                  title: context.tr('Dark Mode'),
-                  on: s.dark,
-                  onToggle: () => _toggleDark(ref, s.dark),
-                ),
-              ),
-              const SizedBox(width: 8),
-              Expanded(
-                child: pad(
-                  icon: BarIcons.bolt,
-                  title: _powerLabel(context, s.powerProfile),
-                  on: s.powerAvailable && s.powerProfile != PowerProfile.balanced,
-                  onToggle: () => _cyclePower(ref, s),
-                ),
-              ),
-            ],
-          ),
-          const SizedBox(height: 12),
-          _SliderRow(
-            icon: BarIcons.sunMaxFill,
-            value: s.brightness ?? 0.5,
-            enabled: s.brightness != null,
-            onChanged: (v) => _setBrightness(ref, v),
-            onChangeEnd: (v) => _setBrightness(ref, v, commit: true),
-            onDetail: () => onOpenPage('display'),
-          ),
-          const SizedBox(height: 8),
-          _SliderRow(
-            icon: s.volume <= 0.001
-                ? BarIcons.speakerSlashFill
-                : BarIcons.speaker3Fill,
-            value: s.volume,
-            enabled: s.audible,
-            onChanged: services.setVolume,
-            onDetail: () => onOpenPage('sound'),
           ),
         ],
       ),
@@ -1706,11 +2462,13 @@ class _DrawerMediaStrip extends ConsumerWidget {
     required this.services,
     required this.radius,
     required this.padBg,
+    this.compact = false,
   });
 
   final ShellServices services;
   final double radius;
   final Color padBg;
+  final bool compact;
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
@@ -1721,26 +2479,38 @@ class _DrawerMediaStrip extends ConsumerWidget {
     final hasTrack = playback != null && playback.title.trim().isNotEmpty;
     final playing = playback?.playing ?? false;
     final accent = style.accent(theme);
+    final artSize = compact ? 32.0 : 38.0;
+    final artFallback = Container(
+      width: artSize,
+      height: artSize,
+      decoration: BoxDecoration(
+        color: accent.withValues(alpha: 0.16),
+        borderRadius: BorderRadius.circular(style.corner(8)),
+      ),
+      child: Center(
+        child: BarGlyph(BarIcons.playFill, size: 15, color: accent),
+      ),
+    );
 
     Widget btn(IconData icon, VoidCallback? onTap, {bool primary = false}) =>
         Pressable(
           onTap: onTap,
           scale: Pressable.small,
           wash: !primary,
-          shape: style.disc(28),
+          shape: style.disc(26),
           child: Container(
-            width: 28,
-            height: 28,
+            width: 26,
+            height: 26,
             decoration: primary
                 ? BoxDecoration(
                     color: accent,
-                    borderRadius: style.disc(28),
+                    borderRadius: style.disc(26),
                   )
                 : null,
             child: Center(
               child: BarGlyph(
                 icon,
-                size: primary ? 12 : 13,
+                size: primary ? 11 : 12,
                 color: primary
                     ? style.onAccent(theme)
                     : theme.colors.textPrimary.withValues(
@@ -1752,29 +2522,23 @@ class _DrawerMediaStrip extends ConsumerWidget {
         );
 
     return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+      padding: EdgeInsets.symmetric(horizontal: compact ? 9 : 12, vertical: 9),
       decoration: BoxDecoration(
         color: padBg,
         borderRadius: BorderRadius.circular(radius),
       ),
       child: Row(
         children: <Widget>[
-          Container(
-            width: 34,
-            height: 34,
-            decoration: BoxDecoration(
-              color: accent.withValues(alpha: 0.16),
-              borderRadius: BorderRadius.circular(style.corner(8)),
-            ),
-            child: Center(
-              child: BarGlyph(
-                BarIcons.playFill,
-                size: 15,
-                color: accent,
-              ),
-            ),
-          ),
-          const SizedBox(width: 10),
+          if (hasTrack && playback.artUrl.trim().isNotEmpty)
+            MediaArtwork(
+              url: playback.artUrl,
+              size: artSize,
+              radius: style.corner(8),
+              fallback: artFallback,
+            )
+          else
+            artFallback,
+          const SizedBox(width: 9),
           Expanded(
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
@@ -1785,7 +2549,7 @@ class _DrawerMediaStrip extends ConsumerWidget {
                   maxLines: 1,
                   overflow: TextOverflow.ellipsis,
                   style: BarType.title.copyWith(
-                    fontSize: 12.5,
+                    fontSize: 12,
                     color: theme.colors.textPrimary,
                   ),
                 ),
@@ -1802,22 +2566,26 @@ class _DrawerMediaStrip extends ConsumerWidget {
               ],
             ),
           ),
-          const SizedBox(width: 6),
-          btn(
-            BarIcons.backward,
-            playback?.canGoPrevious == true ? commands.previous : null,
-          ),
-          const SizedBox(width: 2),
+          const SizedBox(width: 4),
+          if (!compact) ...<Widget>[
+            btn(
+              BarIcons.backward,
+              playback?.canGoPrevious == true ? commands.previous : null,
+            ),
+            const SizedBox(width: 2),
+          ],
           btn(
             playing ? BarIcons.pauseFill : BarIcons.playFill,
             playback?.available == true ? commands.playPause : null,
             primary: hasTrack,
           ),
-          const SizedBox(width: 2),
-          btn(
-            BarIcons.forward,
-            playback?.canGoNext == true ? commands.next : null,
-          ),
+          if (!compact) ...<Widget>[
+            const SizedBox(width: 2),
+            btn(
+              BarIcons.forward,
+              playback?.canGoNext == true ? commands.next : null,
+            ),
+          ],
         ],
       ),
     );
@@ -1864,6 +2632,7 @@ class _SliderRow extends StatelessWidget {
     required this.value,
     required this.enabled,
     required this.onChanged,
+    this.onChangeStart,
     this.onChangeEnd,
     this.onDetail,
     this.height = 20,
@@ -1873,6 +2642,7 @@ class _SliderRow extends StatelessWidget {
   final IconData icon;
   final double value;
   final bool enabled;
+  final VoidCallback? onChangeStart;
   final ValueChanged<double> onChanged;
   final ValueChanged<double>? onChangeEnd;
   final VoidCallback? onDetail;
@@ -1900,6 +2670,7 @@ class _SliderRow extends StatelessWidget {
             value: value,
             enabled: enabled,
             height: height,
+            onChangeStart: onChangeStart,
             onChanged: onChanged,
             onChangeEnd: onChangeEnd,
           ),

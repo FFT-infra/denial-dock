@@ -40,15 +40,20 @@ class MediaArtwork extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final provider = _provider;
+    final dpr = MediaQuery.maybeDevicePixelRatioOf(context) ?? 2.0;
+    final px = (size * dpr).round().clamp(32, 512);
+    final resized = provider == null
+        ? null
+        : ResizeImage.resizeIfNeeded(px, px, provider);
     return ClipRRect(
       borderRadius: BorderRadius.circular(radius),
       child: SizedBox(
         width: size,
         height: size,
-        child: provider == null
+        child: resized == null
             ? fallback
             : Image(
-                image: provider,
+                image: resized,
                 fit: BoxFit.cover,
                 filterQuality: FilterQuality.medium,
                 errorBuilder: (context, _, _) => fallback,

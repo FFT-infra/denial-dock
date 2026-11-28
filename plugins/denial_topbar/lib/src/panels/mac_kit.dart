@@ -248,6 +248,7 @@ class _MacSwitchState extends State<MacSwitch>
                   radius: BorderRadius.circular(style.pill(26)),
                   child: Container(
                     foregroundDecoration: BoxDecoration(
+                      borderRadius: BorderRadius.circular(style.pill(26)),
                       border: style.controlLine(theme),
                     ),
                     padding: const EdgeInsets.all(_pad),
@@ -323,7 +324,8 @@ class MacDisc extends StatelessWidget {
     // with crisp white glyphs and a delicate glossy sheen, while inactive discs
     // sit on a subtle translucent glass well.
     final isMacGlass =
-        style.id == 'mac' && style.panelStyle == KitPanelStyle.floating;
+        arch == KitShellArchetype.macos &&
+        style.panelStyle == KitPanelStyle.floating;
     final fillColor = isMacGlass
         ? colour
         : style.plate(theme, colour, meaning: meaning);
@@ -807,7 +809,8 @@ class _MacSliderState extends State<MacSlider>
             !widget.inList &&
             !style.square &&
             !style.flat &&
-            (style.id == 'mac' || style.id == 'denial'),
+            (style.archetype == KitShellArchetype.macos ||
+                style.archetype == KitShellArchetype.denial),
         dark: theme.brightness == Brightness.dark,
       ),
       child: SizedBox(height: widget.height + 14, width: double.infinity),
@@ -1115,16 +1118,22 @@ class Reveal extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return ClipRect(
-      child: AnimatedAlign(
-        duration: KitMotion.duration(context, KitMotion.reveal),
-        curve: KitMotion.outCubic,
-        alignment: Alignment.topCenter,
-        heightFactor: open ? 1 : 0,
-        child: AnimatedOpacity(
-          duration: KitMotion.duration(context, KitMotion.enter),
-          opacity: open ? 1 : 0,
-          child: child,
+    return IgnorePointer(
+      ignoring: !open,
+      child: ExcludeFocus(
+        excluding: !open,
+        child: ClipRect(
+          child: AnimatedAlign(
+            duration: KitMotion.duration(context, KitMotion.reveal),
+            curve: KitMotion.outCubic,
+            alignment: Alignment.topCenter,
+            heightFactor: open ? 1 : 0,
+            child: AnimatedOpacity(
+              duration: KitMotion.duration(context, KitMotion.enter),
+              opacity: open ? 1 : 0,
+              child: child,
+            ),
+          ),
         ),
       ),
     );

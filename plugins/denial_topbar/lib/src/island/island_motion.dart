@@ -317,33 +317,32 @@ class IslandBlobPainter extends CustomPainter {
   final IslandSkin skin;
   final bool notch;
 
+  /// Builds a single continuous notch perimeter matching `DynamicNotchKit` /
+  /// `Atoll` `NotchShape.swift`: top concave ears curving seamlessly into the
+  /// vertical walls and rounded bottom corners, with zero internal vertical
+  /// seams. When [closed] is false, omits the top screen-bezel edge for crisp
+  /// perimeter stroking.
+  static Path notchPath(Rect body, double radius, {bool closed = true}) {
+    final r = radius.clamp(0.0, math.min(body.width, body.height) / 2);
+    final flare = math.min(12.0, math.min(body.height * 0.45, r * 0.55 + 4.0));
+    final path = Path()
+      ..moveTo(body.left - flare, body.top)
+      ..quadraticBezierTo(body.left, body.top, body.left, body.top + flare)
+      ..lineTo(body.left, body.bottom - r)
+      ..quadraticBezierTo(body.left, body.bottom, body.left + r, body.bottom)
+      ..lineTo(body.right - r, body.bottom)
+      ..quadraticBezierTo(body.right, body.bottom, body.right, body.bottom - r)
+      ..lineTo(body.right, body.top + flare)
+      ..quadraticBezierTo(body.right, body.top, body.right + flare, body.top);
+    if (closed) path.close();
+    return path;
+  }
+
   @override
   void paint(Canvas canvas, Size size) {
-    final Path bodyPath;
-    if (notch) {
-      final r = radius.clamp(0.0, math.min(body.width, body.height) / 2);
-      final flare = math.min(14.0, r * 0.55 + 5.0);
-      bodyPath = Path()
-        ..addRRect(
-          RRect.fromRectAndCorners(
-            body,
-            bottomLeft: Radius.circular(r),
-            bottomRight: Radius.circular(r),
-          ),
-        )
-        ..moveTo(body.left - flare, body.top)
-        ..lineTo(body.left, body.top)
-        ..lineTo(body.left, body.top + flare)
-        ..quadraticBezierTo(body.left, body.top, body.left - flare, body.top)
-        ..close()
-        ..moveTo(body.right + flare, body.top)
-        ..lineTo(body.right, body.top)
-        ..lineTo(body.right, body.top + flare)
-        ..quadraticBezierTo(body.right, body.top, body.right + flare, body.top)
-        ..close();
-    } else {
-      bodyPath = continuousRoundedRectPath(body, radius);
-    }
+    final Path bodyPath = notch
+        ? notchPath(body, radius, closed: true)
+        : continuousRoundedRectPath(body, radius);
     var shape = bodyPath;
     for (final drop in drops) {
       final box = drop.box;
@@ -388,8 +387,11 @@ class IslandBlobPainter extends CustomPainter {
     }
     canvas.drawPath(shape, Paint()..color = skin.fill);
     if (skin.edgeWidth <= 0) return;
+    final strokePath = notch && drops.isEmpty
+        ? notchPath(body, radius, closed: false)
+        : shape;
     canvas.drawPath(
-      shape,
+      strokePath,
       Paint()
         ..style = PaintingStyle.stroke
         ..strokeWidth = skin.edgeWidth

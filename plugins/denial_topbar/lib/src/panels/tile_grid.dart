@@ -53,6 +53,7 @@ class TileGrid extends StatefulWidget {
     required this.editing,
     required this.onReorder,
     required this.onRemove,
+    this.showEntrance = true,
     super.key,
   });
 
@@ -63,6 +64,7 @@ class TileGrid extends StatefulWidget {
   final bool editing;
   final ValueChanged<List<String>> onReorder;
   final ValueChanged<String> onRemove;
+  final bool showEntrance;
 
   @override
   State<TileGrid> createState() => _TileGridState();
@@ -149,8 +151,10 @@ class _TileGridState extends State<TileGrid>
   void _dragMove(Offset delta, Map<String, Rect> rects) {
     final id = _dragId;
     if (id == null) return;
+    final dragRect = rects[id];
+    if (dragRect == null) return;
     _dragAt += delta;
-    final centre = _dragAt + rects[id]!.size.center(Offset.zero);
+    final centre = _dragAt + dragRect.size.center(Offset.zero);
     final order = List<String>.of(_order ?? rects.keys);
     final now = DateTime.now();
     if (now.difference(_swapped).inMilliseconds < 220) {
@@ -161,6 +165,7 @@ class _TileGridState extends State<TileGrid>
       if (entry.key == id || !entry.value.contains(centre)) continue;
       final from = order.indexOf(id);
       final to = order.indexOf(entry.key);
+      if (from < 0 || to < 0) continue;
       order
         ..removeAt(from)
         ..insert(to, id);
@@ -350,7 +355,9 @@ class _TileGridState extends State<TileGrid>
       // Inside a surface that stages its entrance the tiles arrive row by
       // row; anywhere else this is the tile itself.
       final cell = packed.cells[index];
-      body = KitEntranceItem(row: cell.row, col: cell.col, child: body);
+      if (widget.showEntrance) {
+        body = KitEntranceItem(row: cell.row, col: cell.col, child: body);
+      }
       final at = dragging ? _dragAt : rect.topLeft;
       return AnimatedPositioned(
         key: ValueKey<String>(tile.id),
@@ -368,16 +375,22 @@ class _TileGridState extends State<TileGrid>
 
     final dragIndex = tiles.indexWhere((t) => t.id == _dragId);
     final resizeIndex = tiles.indexWhere((t) => t.id == _resizeId);
+    final totalW = _span(widget.columns, widget.cell.width);
     final previewRect = resizeIndex >= 0 && _resizePreview != null
-        ? Rect.fromLTWH(
-            rects[tiles[resizeIndex].id]!.left,
-            rects[tiles[resizeIndex].id]!.top,
-            _span(
+        ? (() {
+            final pw = _span(
               math.min(_resizePreview!.w, widget.columns),
               widget.cell.width,
-            ),
-            _span(_resizePreview!.h, widget.cell.height),
-          )
+            );
+            final rawLeft = rects[tiles[resizeIndex].id]!.left;
+            final clampedLeft = math.min(rawLeft, math.max(0.0, totalW - pw));
+            return Rect.fromLTWH(
+              clampedLeft,
+              rects[tiles[resizeIndex].id]!.top,
+              pw,
+              _span(_resizePreview!.h, widget.cell.height),
+            );
+          })()
         : null;
     final accent = KitStyle.of(context).accent(context.shellTheme);
     return AnimatedSize(
@@ -385,7 +398,7 @@ class _TileGridState extends State<TileGrid>
       curve: KitMotion.outCubic,
       alignment: Alignment.topCenter,
       child: SizedBox(
-        width: _span(widget.columns, widget.cell.width),
+        width: totalW,
         height: height,
         child: Stack(
           clipBehavior: Clip.none,

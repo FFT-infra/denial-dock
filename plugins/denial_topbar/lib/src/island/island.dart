@@ -68,15 +68,7 @@ const List<(String, String)> islandHomeActionCatalog = <(String, String)>[
   ('lock', 'Lock Screen'),
 ];
 
-/// Persisted list of quick-action ids shown on [IslandHomeCard].
-final ValueNotifier<List<String>> islandHomeActions =
-    ValueNotifier<List<String>>(defaultIslandHomeActions);
-
-bool _homeActionsLoaded = false;
-
-void ensureIslandHomeActionsLoaded() {
-  if (_homeActionsLoaded) return;
-  _homeActionsLoaded = true;
+List<String> _readIslandHomeActions() {
   final raw = kitStore.read()['islandHomeActions'];
   if (raw is List) {
     final valid = <String>{for (final item in islandHomeActionCatalog) item.$1};
@@ -84,8 +76,20 @@ void ensureIslandHomeActionsLoaded() {
       for (final id in raw)
         if (id is String && valid.contains(id)) id,
     ];
-    if (parsed.isNotEmpty) islandHomeActions.value = parsed;
+    if (parsed.isNotEmpty) return parsed;
   }
+  return defaultIslandHomeActions;
+}
+
+/// Persisted list of quick-action ids shown on [IslandHomeCard], hydrated once
+/// at initialization so `build()` never performs I/O or mutates a notifier.
+final ValueNotifier<List<String>> islandHomeActions =
+    ValueNotifier<List<String>>(_readIslandHomeActions());
+
+void ensureIslandHomeActionsLoaded() {
+  // Touch the lazy global once so startup hydration is deterministic without
+  // mutating ValueNotifier state during widget build.
+  islandHomeActions.value;
 }
 
 void setIslandHomeActions(List<String> ids) {
@@ -719,13 +723,21 @@ class _IslandState extends ConsumerState<Island> with TickerProviderStateMixin {
   }
 
   /// Scroll wheel over the collapsed pill adjusts master volume, or display
-  /// brightness while Shift is held.
+  /// brightness while Shift is held. Yields to in-island workspace scrolling
+  /// when the resting pill is displaying workspace dots.
   void _onScroll(PointerScrollEvent event) {
     if (_engine.expanded || _yields || !widget.settings.activityHud) return;
     final dy = event.scrollDelta.dy;
     if (dy.abs() < 0.1) return;
+    final shift = HardwareKeyboard.instance.isShiftPressed;
+    if (!shift &&
+        _engine.kind == IslandKind.home &&
+        widget.workspace != null &&
+        widget.settings.workspaceScroll) {
+      return;
+    }
     final step = dy < 0 ? 0.05 : -0.05;
-    if (HardwareKeyboard.instance.isShiftPressed) {
+    if (shift) {
       final layout = ref.read(displayLayoutProvider);
       final output = layout?.outputs
           .where((o) => o.monitorId == widget.monitorId)
@@ -734,13 +746,17 @@ class _IslandState extends ConsumerState<Island> with TickerProviderStateMixin {
       final cur =
           ref.read(displayBrightnessProvider).levels[widget.monitorId];
       if (cur == null) return;
-      final next = (cur + step).clamp(0.0, 1.0);
-      ref.read(displayBrightnessProvider.notifier).commitLevel(output, next);
+      final next = (cur + step).clamp(0.05, 1.0);
+      final notifier = ref.read(displayBrightnessProvider.notifier);
+      notifier.setLevel(output, next);
+      notifier.commitLevel(output, next);
       _hud(BarIcons.sunMaxFill, next);
     } else {
       if (!ref.read(_services.volumeAvailable)) return;
       final cur = ref.read(_services.volume);
       final next = (cur + step).clamp(0.0, 1.0);
+      _services.beginVolumeInteraction();
+      _services.setVolume(next);
       _services.commitVolume(next);
       _hud(
         next <= 0.001
@@ -995,7 +1011,7 @@ class _IslandState extends ConsumerState<Island> with TickerProviderStateMixin {
       final dx = (event.localPosition.dx / w * 2 - 1).clamp(-1.0, 1.0);
       final dy = (event.localPosition.dy / h * 2 - 1).clamp(-1.0, 1.0);
       _pull = Offset(dx, dy);
-      if (settings.islandCursorAbsorb) {
+      if (settings.islandCursorAbsorb && KitStyle.of(context).liquid) {
         _pullX.velocity += dx * 12;
         _pullY.velocity += dy * 6;
         _pop.velocity += 0.95;
@@ -1034,7 +1050,8 @@ class _IslandState extends ConsumerState<Island> with TickerProviderStateMixin {
     _pull = Offset.zero;
     if (!widget.settings.islandHoverFade &&
         widget.settings.islandCursorAbsorb &&
-        !_engine.expanded) {
+        !_engine.expanded &&
+        KitStyle.of(context).liquid) {
       // Elastic release rebound as the cursor emerges from the pill.
       _pullX.velocity -= lastPull.dx * 14;
       _pop.velocity -= 0.7;
@@ -1541,11 +1558,13 @@ class _IslandState extends ConsumerState<Island> with TickerProviderStateMixin {
           ),
         );
 
-        // When the cursor is absorbed inside the resting pill, expand the hit
-        // region slightly (6 px horizontally, 5 px downward) so the pointer
-        // must travel a tiny bit further past the edge before escaping.
-        final double escapeX = absorbActive && _hovered ? 6.0 : 0.0;
-        final double escapeY = absorbActive && _hovered ? 5.0 : 0.0;
+        // Hide the OS cursor inside the resting pill only when it isn't
+        // showing interactive workspace dots (so dot selection is never blind).
+        // Keep hit-region geometry constant across hover transitions (no
+        // dynamic Padding relayout or bubble-gap overlap).
+        final overWorkspaces =
+            _engine.kind == IslandKind.home && widget.workspace != null;
+        final hideCursor = absorbActive && !overWorkspaces;
         final body = ShellInputRegion(
           debugLabel: 'denial_topbar.island',
           // Faded, the island gives its place up: the window underneath
@@ -1559,7 +1578,7 @@ class _IslandState extends ConsumerState<Island> with TickerProviderStateMixin {
             // Not opaque while faded, so the bar under the island is hit
             // too; the region itself still sees the pointer come and go.
             opaque: !yields,
-            cursor: absorbActive
+            cursor: hideCursor
                 ? SystemMouseCursors.none
                 : !expanded && _engine.canExpand
                 ? SystemMouseCursors.click
@@ -1569,7 +1588,7 @@ class _IslandState extends ConsumerState<Island> with TickerProviderStateMixin {
             onHover: expanded
                 ? null
                 : (event) {
-                    final at = event.localPosition - Offset(escapeX, 0);
+                    final at = event.localPosition;
                     final pull = Offset(
                       (at.dx / width * 2 - 1).clamp(-1.15, 1.15),
                       (at.dy / h * 2 - 1).clamp(-1.15, 1.15),
@@ -1580,60 +1599,57 @@ class _IslandState extends ConsumerState<Island> with TickerProviderStateMixin {
                     _aimPull();
                     _kick(_feel);
                   },
-            child: Padding(
-              padding: EdgeInsets.fromLTRB(escapeX, 0, escapeX, escapeY),
-              child: IgnorePointer(
-                ignoring: yields,
-                child: Focus(
-                  focusNode: _focus,
-                  canRequestFocus: pinned,
-                  skipTraversal: true,
-                  onKeyEvent: _key,
-                  child: Listener(
-                    onPointerSignal: (signal) {
-                      if (signal is PointerScrollEvent) _onScroll(signal);
-                    },
-                    onPointerDown: (_) {
-                      if (!_engine.expanded) return;
-                      // A press inside a preview keeps it.
-                      if (!_engine.pinned) {
-                        _engine.pin();
-                        _takeKeys();
-                        _sync();
-                      }
-                    },
-                    child: GestureDetector(
-                      behavior: HitTestBehavior.opaque,
-                      onTapDown: expanded ? null : (_) => _pressDown(),
-                      // Open, a press where the pill was puts it back.
-                      onTapUp: expanded
-                          ? (details) {
-                              final at = details.localPosition;
-                              if (at.dy <= h &&
-                                  (at.dx - width / 2).abs() <= compact / 2) {
-                                _setOpen(false);
-                              }
+            child: IgnorePointer(
+              ignoring: yields,
+              child: Focus(
+                focusNode: _focus,
+                canRequestFocus: pinned,
+                skipTraversal: true,
+                onKeyEvent: _key,
+                child: Listener(
+                  onPointerSignal: (signal) {
+                    if (signal is PointerScrollEvent) _onScroll(signal);
+                  },
+                  onPointerDown: (_) {
+                    if (!_engine.expanded) return;
+                    // A press inside a preview keeps it.
+                    if (!_engine.pinned) {
+                      _engine.pin();
+                      _takeKeys();
+                      _sync();
+                    }
+                  },
+                  child: GestureDetector(
+                    behavior: HitTestBehavior.opaque,
+                    onTapDown: expanded ? null : (_) => _pressDown(),
+                    // Open, a press where the pill was puts it back.
+                    onTapUp: expanded
+                        ? (details) {
+                            final at = details.localPosition;
+                            if (at.dy <= h &&
+                                (at.dx - width / 2).abs() <= compact / 2) {
+                              _setOpen(false);
                             }
-                          : (_) => _pressUp(),
-                      onTapCancel: expanded ? null : _pressUp,
-                      onTap: expanded ? null : _tap,
-                      onVerticalDragStart: _dragStart,
-                      onVerticalDragUpdate: _dragUpdate,
-                      onVerticalDragEnd: _dragEnd,
-                      onHorizontalDragStart: swipes ? (_) => _swiped = 0 : null,
-                      onHorizontalDragUpdate: swipes
-                          ? (details) => _swiped += details.primaryDelta ?? 0
-                          : null,
-                      onHorizontalDragEnd: swipes
-                          ? (details) => _turn(
-                              islandSwipeStep(
-                                _swiped,
-                                details.primaryVelocity ?? 0,
-                              ),
-                            )
-                          : null,
-                      child: KeyedSubtree(key: _bodyKey, child: content),
-                    ),
+                          }
+                        : (_) => _pressUp(),
+                    onTapCancel: expanded ? null : _pressUp,
+                    onTap: expanded ? null : _tap,
+                    onVerticalDragStart: _dragStart,
+                    onVerticalDragUpdate: _dragUpdate,
+                    onVerticalDragEnd: _dragEnd,
+                    onHorizontalDragStart: swipes ? (_) => _swiped = 0 : null,
+                    onHorizontalDragUpdate: swipes
+                        ? (details) => _swiped += details.primaryDelta ?? 0
+                        : null,
+                    onHorizontalDragEnd: swipes
+                        ? (details) => _turn(
+                            islandSwipeStep(
+                              _swiped,
+                              details.primaryVelocity ?? 0,
+                            ),
+                          )
+                        : null,
+                    child: KeyedSubtree(key: _bodyKey, child: content),
                   ),
                 ),
               ),
@@ -1692,10 +1708,10 @@ class _IslandState extends ConsumerState<Island> with TickerProviderStateMixin {
                 ),
               ),
               Positioned(
-                left: reach - escapeX,
+                left: reach,
                 top: 0,
-                width: width + escapeX * 2,
-                height: height + escapeY,
+                width: width,
+                height: height,
                 child: body,
               ),
               if (hasBubble) bubbleAtop(bubbleAt, split, rightBubble),
@@ -1989,13 +2005,12 @@ class _IslandState extends ConsumerState<Island> with TickerProviderStateMixin {
             child: baseGlyph,
           );
         } else {
-          animatedGlyph = TweenAnimationBuilder<double>(
-            key: ValueKey<int>(_hudStep),
-            tween: Tween<double>(begin: 1.18, end: 1.0),
-            duration: KitMotion.duration(context, KitMotion.tap),
-            curve: Curves.easeOutCubic,
-            builder: (context, scale, child) =>
-                Transform.scale(scale: scale, child: child),
+          // Keep IslandSwap identity stable across volume ticks so crossing
+          // mute/low/high thresholds morphs smoothly instead of unmounting.
+          animatedGlyph = Sprung(
+            target: _hudLevel,
+            tuning: IslandFeel.of(KitStyle.of(context)).level,
+            builder: (context, _, child) => child!,
             child: baseGlyph,
           );
         }
@@ -2008,7 +2023,8 @@ class _IslandState extends ConsumerState<Island> with TickerProviderStateMixin {
               Expanded(
                 child: IslandLevel(
                   level: _hudLevel,
-                  edgeBump: _hudEdge.value,
+                  edgeRepaint: _feel,
+                  edgeBumpOf: () => _hudEdge.value,
                 ),
               ),
               const SizedBox(width: 9),

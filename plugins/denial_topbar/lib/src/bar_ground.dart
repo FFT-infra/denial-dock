@@ -2,6 +2,7 @@ import 'package:denial_flutter_sdk/effects.dart';
 import 'package:denial_flutter_sdk/models.dart' show PanelEdge;
 import 'package:denial_flutter_sdk/theme.dart';
 import 'package:denial_shell_kit/kit_glass.dart';
+import 'package:denial_shell_kit/kit_material.dart';
 import 'package:denial_shell_kit/kit_style.dart';
 import 'package:flutter/widgets.dart';
 
@@ -103,46 +104,27 @@ class BarGroundLayer extends StatelessWidget {
     required Widget child,
     BorderRadius? borderRadius,
   }) {
-    final theme = context.shellTheme;
-    final style = KitStyle.of(context);
-    final mode = style.surfaceMode;
-    final sysEnabled =
-        theme.backdropBlurEnabled &&
-        theme.transparencyMode != ShellTransparencyMode.off;
-    if (!sysEnabled || mode == KitSurfaceMode.solid) return child;
     final radius = borderRadius?.topLeft.x ?? 0.0;
-    if (mode == KitSurfaceMode.system) {
+    final material = kitMaterialOf(context, KitTier.card);
+    final resolved = KitGlass.resolveBackdrop(
+      context,
+      material: material,
+      radius: radius,
+      tier: KitTier.card,
+      blurScale: 0.75,
+    );
+    final plan = resolved.plan;
+    if (!plan.blurs || plan.mode == KitSurfaceMode.solid) return child;
+    if (!plan.direct || resolved.directConfig == null) {
       return ShellBackdropBlur(
+        strength: plan.strength.clamp(0.0, 1.0),
         borderRadius: borderRadius,
         blendMode: BlendMode.srcOver,
         child: child,
       );
     }
-    final sigma = mode == KitSurfaceMode.liquidGlass
-        ? (theme.glass.blurSigma > 0 ? theme.glass.blurSigma : 10.0) * 0.55
-        : (theme.backdropBlurSigma > 0 ? theme.backdropBlurSigma : 10.0);
-    final config = switch (mode) {
-      KitSurfaceMode.liquidGlass => KitGlass.liquidGlassFilterFor(
-        theme,
-        sigma: sigma,
-        cornerRadius: radius,
-        strength: 0.72,
-      ),
-      KitSurfaceMode.blur => KitGlass.filterFor(
-        theme,
-        sigma: sigma,
-        saturation: 1,
-        cornerRadius: radius,
-      ),
-      _ => KitGlass.filterFor(
-        theme,
-        sigma: sigma,
-        saturation: 1.5,
-        cornerRadius: radius,
-      ),
-    };
     final blurWidget = BackdropFilter(
-      filterConfig: config,
+      filterConfig: resolved.directConfig!,
       blendMode: BlendMode.srcOver,
       child: child,
     );
@@ -158,10 +140,16 @@ class BarGroundLayer extends StatelessWidget {
     final theme = context.shellTheme;
     final style = KitStyle.of(context);
     final base = fill ?? baseFor(backdrop, settings, theme);
-    final effectiveOpacity =
-        ground == BarGround.glass && style.surfaceMode == KitSurfaceMode.solid
-        ? 1.0
-        : settings.groundOpacity;
+    final double effectiveOpacity;
+    if (ground == BarGround.glass && style.surfaceMode == KitSurfaceMode.solid) {
+      effectiveOpacity = 1.0;
+    } else if (ground == BarGround.glass &&
+        style.surfaceMode == KitSurfaceMode.liquidGlass &&
+        kitGlassPreset.value != KitGlassPreset.system) {
+      effectiveOpacity = KitGlass.liquidGlassOpacity(theme, tier: KitTier.card);
+    } else {
+      effectiveOpacity = settings.groundOpacity;
+    }
     final colour = base.withValues(alpha: effectiveOpacity);
     final dark = isDark(base);
     final line = settings.borderColour == BarBorderColour.accent

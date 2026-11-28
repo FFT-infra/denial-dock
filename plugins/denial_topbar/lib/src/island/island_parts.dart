@@ -184,6 +184,8 @@ class IslandLevel extends StatelessWidget {
     this.height = 6,
     this.colour,
     this.edgeBump = 0,
+    this.edgeRepaint,
+    this.edgeBumpOf,
     super.key,
   });
 
@@ -193,45 +195,63 @@ class IslandLevel extends StatelessWidget {
   /// The fill's colour; the skin's ink unless given.
   final Color? colour;
 
-  /// Elastic boundary stretch (-1 at 0%, +1 at 100%).
+  /// Static elastic boundary stretch (-1 at 0%, +1 at 100%).
   final double edgeBump;
+
+  /// Optional live spring listenable so boundary squash/stretch animates even
+  /// when the surrounding HUD face is built once outside the spring builder.
+  final Listenable? edgeRepaint;
+  final double Function()? edgeBumpOf;
 
   @override
   Widget build(BuildContext context) {
     final skin = IslandSkin.of(context);
     final radius = BorderRadius.circular(skin.corner(height / 2, height));
     final fill = colour ?? skin.ink;
-    final stretchX = 1.0 + edgeBump.abs().clamp(0.0, 1.5) * 0.045;
-    final squashY = 1.0 - edgeBump.abs().clamp(0.0, 1.5) * 0.09;
-    final align = edgeBump < 0 ? Alignment.centerRight : Alignment.centerLeft;
-    return Transform(
-      alignment: align,
-      transform: Matrix4.diagonal3Values(stretchX, squashY, 1),
-      child: LayoutBuilder(
-        builder: (context, constraints) => Container(
-          height: height,
-          alignment: Alignment.centerLeft,
-          decoration: BoxDecoration(color: skin.faint, borderRadius: radius),
-          // The fill follows its level on a spring, so a level that keeps
-          // changing is one motion and not a run of restarted eases.
-          child: Sprung(
-            target: level.clamp(0.0, 1.0),
-            tuning: IslandFeel.of(skin.style).level,
-            builder: (context, shown, _) => Container(
-              width: math.max(
-                height,
-                constraints.maxWidth * shown.clamp(0.0, 1.0),
-              ),
-              height: height,
-              decoration: BoxDecoration(
-                color: shown <= 0.001 ? const Color(0x00000000) : fill,
-                borderRadius: radius,
-              ),
+    final bar = LayoutBuilder(
+      builder: (context, constraints) => Container(
+        height: height,
+        alignment: Alignment.centerLeft,
+        decoration: BoxDecoration(color: skin.faint, borderRadius: radius),
+        // The fill follows its level on a spring, so a level that keeps
+        // changing is one motion and not a run of restarted eases.
+        child: Sprung(
+          target: level.clamp(0.0, 1.0),
+          tuning: IslandFeel.of(skin.style).level,
+          builder: (context, shown, _) => Container(
+            width: math.max(
+              height,
+              constraints.maxWidth * shown.clamp(0.0, 1.0),
+            ),
+            height: height,
+            decoration: BoxDecoration(
+              color: shown <= 0.001 ? const Color(0x00000000) : fill,
+              borderRadius: radius,
             ),
           ),
         ),
       ),
     );
+    Widget wrap(double bump) {
+      final mag = bump.abs().clamp(0.0, 1.5);
+      if (mag < 1e-4) return bar;
+      final stretchX = 1.0 + mag * 0.055;
+      final squashY = 1.0 - mag * 0.10;
+      final align = bump < 0 ? Alignment.centerRight : Alignment.centerLeft;
+      return Transform(
+        alignment: align,
+        transform: Matrix4.diagonal3Values(stretchX, squashY, 1),
+        child: bar,
+      );
+    }
+
+    if (edgeRepaint != null && edgeBumpOf != null) {
+      return AnimatedBuilder(
+        animation: edgeRepaint!,
+        builder: (_, _) => wrap(edgeBumpOf!()),
+      );
+    }
+    return wrap(edgeBump);
   }
 }
 

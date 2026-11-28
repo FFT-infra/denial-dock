@@ -883,9 +883,6 @@ class _LayoutPageState extends ConsumerState<_LayoutPage> {
         ),
         _Group(
           title: context.tr('Measures'),
-          note: context.tr(
-            'The height of the bar is set in the system settings.',
-          ),
           children: <Widget>[
             _Pair(
               slider(
@@ -1160,7 +1157,7 @@ class _LayoutPageState extends ConsumerState<_LayoutPage> {
           ),
         _Group(
           note: context.tr(
-            'The Dock is a plugin of its own. This switch works under every preset, and no preset changes it.',
+            'The Dock is a plugin of its own. Presets set their recommended default, and you can override it anytime.',
           ),
           children: <Widget>[
             _Switch(
@@ -1461,7 +1458,9 @@ class _PresetCard extends StatelessWidget {
           ),
           const SizedBox(height: 5),
           Text(
-            context.tr(preset.label),
+            preset.group == ShellPresetGroup.user
+                ? preset.label
+                : context.tr(preset.label),
             textAlign: TextAlign.center,
             maxLines: 1,
             overflow: TextOverflow.ellipsis,
