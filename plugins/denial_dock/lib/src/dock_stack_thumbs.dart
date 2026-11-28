@@ -131,10 +131,46 @@ abstract final class DockStackThumbs {
   /// Memory table: preview image path → clamped width/height ratio.
   static final Map<String, double?> _aspectCache = <String, double?>{};
 
+  static const int _maxCacheEntries = 512;
+  static const int _maxQueueLength = 64;
+  static const int _maxPngTextBytes = 65536;
+  static const int _maxPngScanBytes = 262144;
+
+  static void _putRecord(String file, _ThumbRecord record) {
+    _records.remove(file);
+    _records[file] = record;
+    while (_records.length > _maxCacheEntries) {
+      _records.remove(_records.keys.first);
+    }
+  }
+
+  static void _putAspect(String path, double? ratio) {
+    _aspectCache.remove(path);
+    _aspectCache[path] = ratio;
+    while (_aspectCache.length > _maxCacheEntries) {
+      _aspectCache.remove(_aspectCache.keys.first);
+    }
+  }
+
   /// Active + queued thumbnail jobs deduplicated by `key`.
   static final Set<String> _inFlightKeys = <String>{};
   static final Queue<_PendingJob> _queue = Queue<_PendingJob>();
   static int _activeJobs = 0;
+  static int _generation = 0;
+  static bool _loggedMissingBwrap = false;
+
+  /// Drops queued (not yet started) thumbnail jobs, e.g. when a stack closes.
+  static void cancelPending() {
+    _generation++;
+    for (final job in _queue) {
+      _inFlightKeys.remove(job.key);
+      final rec = _records[job.filePath];
+      if (rec != null && rec.status == DockThumbStatus.pending) {
+        _records.remove(job.filePath);
+      }
+    }
+    _queue.clear();
+  }
 
   /// Optional test overrides.
   static DockThumbRunner? processRunnerOverride;
@@ -184,13 +220,19 @@ abstract final class DockStackThumbs {
   static Future<void> request(Iterable<String> paths) {
     final list = paths.toList(growable: false);
     if (list.isEmpty) return Future<void>.value();
+    final gen = _generation;
     return Future<void>(() async {
       if (stale) await warm();
+      if (gen != _generation) return;
       final registry = _ensureRegistry();
       var changed = false;
-      for (final file in list) {
-        final didChange = _resolveOne(file, registry);
+      for (var i = 0; i < list.length; i++) {
+        if (gen != _generation) return;
+        final didChange = _resolveOne(list[i], registry);
         if (didChange) changed = true;
+        if ((i & 15) == 15) {
+          await Future<void>.delayed(Duration.zero);
+        }
       }
       if (changed) dockThumbsRevision._bump();
       _pumpQueue();
@@ -217,7 +259,7 @@ abstract final class DockStackThumbs {
       if (existing.status == DockThumbStatus.ready &&
           existing.thumbPath != null &&
           !_aspectCache.containsKey(existing.thumbPath)) {
-        _aspectCache[existing.thumbPath!] = _readAspectRatio(existing.thumbPath!);
+        _putAspect(existing.thumbPath!, _readAspectRatio(existing.thumbPath!));
         return true;
       }
       return false;
@@ -227,12 +269,15 @@ abstract final class DockStackThumbs {
     final ext = _extension(file);
     if (_imageExtensions.contains(ext)) {
       final ratio = _readAspectRatio(file);
-      _aspectCache[file] = ratio;
-      _records[file] = _ThumbRecord(
-        key: key,
-        status: DockThumbStatus.ready,
-        thumbPath: file,
-        aspectRatio: ratio,
+      _putAspect(file, ratio);
+      _putRecord(
+        file,
+        _ThumbRecord(
+          key: key,
+          status: DockThumbStatus.ready,
+          thumbPath: file,
+          aspectRatio: ratio,
+        ),
       );
       return true;
     }
@@ -241,12 +286,15 @@ abstract final class DockStackThumbs {
     final shared = _lookupShared(file, stat.modified);
     if (shared != null) {
       final ratio = _readAspectRatio(shared);
-      _aspectCache[shared] = ratio;
-      _records[file] = _ThumbRecord(
-        key: key,
-        status: DockThumbStatus.ready,
-        thumbPath: shared,
-        aspectRatio: ratio,
+      _putAspect(shared, ratio);
+      _putRecord(
+        file,
+        _ThumbRecord(
+          key: key,
+          status: DockThumbStatus.ready,
+          thumbPath: shared,
+          aspectRatio: ratio,
+        ),
       );
       return true;
     }
@@ -261,12 +309,15 @@ abstract final class DockStackThumbs {
         final made = outFile.statSync().modified;
         if (!made.isBefore(stat.modified)) {
           final ratio = _readAspectRatio(outFile.path);
-          _aspectCache[outFile.path] = ratio;
-          _records[file] = _ThumbRecord(
-            key: key,
-            status: DockThumbStatus.ready,
-            thumbPath: outFile.path,
-            aspectRatio: ratio,
+          _putAspect(outFile.path, ratio);
+          _putRecord(
+            file,
+            _ThumbRecord(
+              key: key,
+              status: DockThumbStatus.ready,
+              thumbPath: outFile.path,
+              aspectRatio: ratio,
+            ),
           );
           return true;
         }
@@ -279,18 +330,28 @@ abstract final class DockStackThumbs {
     final failFile = File('$cacheDir/fail/$name.fail');
     final versionStamp = '$mtimeMs|${stat.size}';
     if (_matchesFailMarker(failFile, versionStamp)) {
-      _records[file] = _ThumbRecord(key: key, status: DockThumbStatus.failed);
+      _putRecord(file, _ThumbRecord(key: key, status: DockThumbStatus.failed));
       return false;
     }
 
-    // 5. Check whether any thumbnailer or fallback supports this file.
+    // 5. Check whether any sandboxed thumbnailer or fallback supports this file.
+    if (!registry.hasBwrap) {
+      if (!_loggedMissingBwrap) {
+        _loggedMissingBwrap = true;
+        stderr.writeln(
+          'denial_dock: bubblewrap (bwrap) not found; skipping unsandboxed thumbnail generation.',
+        );
+      }
+      return false;
+    }
     if (!_hasGeneratorFor(file, ext, registry)) {
-      _records[file] = _ThumbRecord(key: key, status: DockThumbStatus.failed);
+      _putRecord(file, _ThumbRecord(key: key, status: DockThumbStatus.failed));
       return false;
     }
 
-    // 6. Enqueue async generation (deduplicated by key).
-    _records[file] = _ThumbRecord(key: key, status: DockThumbStatus.pending);
+    // 6. Enqueue async generation (deduplicated by key, bounded queue).
+    if (_queue.length >= _maxQueueLength) return false;
+    _putRecord(file, _ThumbRecord(key: key, status: DockThumbStatus.pending));
     if (_inFlightKeys.add(key)) {
       _queue.add(
         _PendingJob(
@@ -310,9 +371,8 @@ abstract final class DockStackThumbs {
     ThumbnailerRegistry registry,
   ) {
     if (registry.match(file) != null) return true;
-    if (_videoExtensions.contains(ext) || _pdfExtensions.contains(ext)) {
-      return true;
-    }
+    if (_videoExtensions.contains(ext)) return registry.hasExec('ffmpeg');
+    if (_pdfExtensions.contains(ext)) return registry.hasExec('mutool');
     return false;
   }
 
@@ -335,67 +395,78 @@ abstract final class DockStackThumbs {
     if (cacheDir == null) return;
     final name = _stableName(job.filePath);
     final outPath = '$cacheDir/$name.png';
-    final tmpPath = '$cacheDir/$name.${DateTime.now().microsecondsSinceEpoch}.tmp.png';
+    final nonce = DateTime.now().microsecondsSinceEpoch;
+    final jobDir = Directory('$cacheDir/.job-$name-$nonce');
+    final tmpPath = '${jobDir.path}/out.png';
     final failPath = '$cacheDir/fail/$name.fail';
     final stamp = '${job.mtime.millisecondsSinceEpoch}|${job.size}';
 
     try {
-      Directory(cacheDir).createSync(recursive: true);
+      jobDir.createSync(recursive: true);
     } on FileSystemException {
       _markFailed(job, failPath, stamp);
       return;
     }
 
-    final registry = _ensureRegistry();
-    final ok = await _generateThumbnail(
-      registry: registry,
-      inputPath: job.filePath,
-      tmpOutputPath: tmpPath,
-      outputDir: cacheDir,
-    );
+    try {
+      final registry = _ensureRegistry();
+      final ok = await _generateThumbnail(
+        registry: registry,
+        inputPath: job.filePath,
+        tmpOutputPath: tmpPath,
+        outputDir: jobDir.path,
+      );
 
-    if (ok) {
-      try {
-        final tmpFile = File(tmpPath);
-        if (tmpFile.existsSync() && tmpFile.lengthSync() > 0) {
-          tmpFile.renameSync(outPath);
-          try {
-            File(outPath).setLastModifiedSync(job.mtime);
-          } on FileSystemException {
-            // Best-effort mtime sync.
+      if (ok) {
+        try {
+          final tmpFile = File(tmpPath);
+          if (tmpFile.existsSync() && tmpFile.lengthSync() > 0) {
+            tmpFile.renameSync(outPath);
+            // Keep generation timestamp as mtime so the 60-day sweep does not
+            // delete freshly generated thumbnails of older files; only advance
+            // if the source mtime is in the future (clock skew / tests).
+            if (job.mtime.isAfter(DateTime.now())) {
+              try {
+                File(outPath).setLastModifiedSync(job.mtime);
+              } on FileSystemException {
+                // Best-effort mtime sync.
+              }
+            }
+            try {
+              final fail = File(failPath);
+              if (fail.existsSync()) fail.deleteSync();
+            } on FileSystemException {
+              // Ignore cleanup failure.
+            }
+            final ratio = _readAspectRatio(outPath);
+            _putAspect(outPath, ratio);
+            final current = _records[job.filePath];
+            if (current == null || current.key == job.key) {
+              _putRecord(
+                job.filePath,
+                _ThumbRecord(
+                  key: job.key,
+                  status: DockThumbStatus.ready,
+                  thumbPath: outPath,
+                  aspectRatio: ratio,
+                ),
+              );
+              dockThumbsRevision._bump();
+            }
+            return;
           }
-          try {
-            final fail = File(failPath);
-            if (fail.existsSync()) fail.deleteSync();
-          } on FileSystemException {
-            // Ignore cleanup failure.
-          }
-          final ratio = _readAspectRatio(outPath);
-          _aspectCache[outPath] = ratio;
-          final current = _records[job.filePath];
-          if (current == null || current.key == job.key) {
-            _records[job.filePath] = _ThumbRecord(
-              key: job.key,
-              status: DockThumbStatus.ready,
-              thumbPath: outPath,
-              aspectRatio: ratio,
-            );
-            dockThumbsRevision._bump();
-          }
-          return;
+        } on FileSystemException {
+          // Fall through to markFailed.
         }
+      }
+      _markFailed(job, failPath, stamp);
+    } finally {
+      try {
+        if (jobDir.existsSync()) jobDir.deleteSync(recursive: true);
       } on FileSystemException {
-        // Fall through to markFailed.
+        // Ignore temp job dir cleanup failure.
       }
     }
-
-    try {
-      final tmpFile = File(tmpPath);
-      if (tmpFile.existsSync()) tmpFile.deleteSync();
-    } on FileSystemException {
-      // Ignore cleanup failure.
-    }
-    _markFailed(job, failPath, stamp);
   }
 
   static void _markFailed(_PendingJob job, String failPath, String stamp) {
@@ -447,13 +518,14 @@ abstract final class DockStackThumbs {
         inputPath: inputPath,
         outputDir: outputDir,
       );
+      if (!cmd.sandboxed || cmd.program.isEmpty) return false;
       return await runner(cmd.program, cmd.args) == 0;
     }
 
     // 2. Explicit fallbacks for video (ffmpeg) and PDF (mutool draw),
     // still wrapped in bwrap when available.
     final ext = _extension(inputPath);
-    if (_videoExtensions.contains(ext)) {
+    if (_videoExtensions.contains(ext) && registry.hasExec('ffmpeg')) {
       final cmd = registry.buildCommand(
         <String>[
           'ffmpeg',
@@ -474,9 +546,10 @@ abstract final class DockStackThumbs {
         inputPath: inputPath,
         outputDir: outputDir,
       );
+      if (!cmd.sandboxed || cmd.program.isEmpty) return false;
       return await runner(cmd.program, cmd.args) == 0;
     }
-    if (_pdfExtensions.contains(ext)) {
+    if (_pdfExtensions.contains(ext) && registry.hasExec('mutool')) {
       final cmd = registry.buildCommand(
         <String>[
           'mutool',
@@ -493,6 +566,7 @@ abstract final class DockStackThumbs {
         inputPath: inputPath,
         outputDir: outputDir,
       );
+      if (!cmd.sandboxed || cmd.program.isEmpty) return false;
       return await runner(cmd.program, cmd.args) == 0;
     }
     return false;
@@ -665,9 +739,12 @@ abstract final class DockStackThumbs {
   static Future<void> warm() {
     if (!stale) return Future<void>.value();
     return _warming ??= Future(() {
-      _ensureRegistry();
-      _loadIndex();
-      _warming = null;
+      try {
+        _ensureRegistry();
+        _loadIndex();
+      } finally {
+        _warming = null;
+      }
     });
   }
 
@@ -767,14 +844,32 @@ abstract final class DockStackThumbs {
     RandomAccessFile? file;
     try {
       file = File(path).openSync();
+      final fileLen = file.lengthSync();
+      if (fileLen < 24) return out;
       final signature = file.readSync(8);
-      if (signature.length != 8) return out;
-      while (true) {
+      if (signature.length != 8 ||
+          signature[0] != 0x89 ||
+          signature[1] != 0x50 ||
+          signature[2] != 0x4E ||
+          signature[3] != 0x47) {
+        return out;
+      }
+      var scanned = 8;
+      while (scanned + 12 <= fileLen && scanned < _maxPngScanBytes) {
         final header = file.readSync(8);
         if (header.length != 8) break;
         final length = ByteData.sublistView(header).getUint32(0);
         final type = String.fromCharCodes(header.sublist(4));
+        final pos = file.positionSync();
+        final remaining = fileLen - pos;
+        // Guard against corrupt/malicious 32-bit chunk lengths causing OOM.
+        if (length > remaining - 4) break;
+        scanned += 8 + length + 4;
         if (type == 'tEXt') {
+          if (length > _maxPngTextBytes) {
+            file.setPositionSync(pos + length + 4);
+            continue;
+          }
           final data = file.readSync(length);
           final zero = data.indexOf(0);
           if (zero > 0) {
@@ -784,10 +879,17 @@ abstract final class DockStackThumbs {
           file.readSync(4);
           continue;
         }
-        if (type != 'IHDR') break;
-        file.setPositionSync(file.positionSync() + length + 4);
+        if (type == 'IEND') break;
+        if (type == 'IDAT') {
+          // Stop scanning once image data starts if we already found metadata,
+          // or skip bounded IDAT? Skip only pre-IDAT metadata chunks.
+          break;
+        }
+        file.setPositionSync(pos + length + 4);
       }
     } on FileSystemException {
+      return out;
+    } on RangeError {
       return out;
     } finally {
       file?.closeSync();

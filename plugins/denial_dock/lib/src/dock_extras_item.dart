@@ -89,7 +89,6 @@ class DockAccessoryItem extends StatefulWidget {
 
 class _DockAccessoryItemState extends State<DockAccessoryItem> {
   final OverlayPortalController _portal = OverlayPortalController();
-  final FocusNode _focus = FocusNode(debugLabel: 'Dock accessory menu');
   bool _menuOpen = false;
   bool _pressed = false;
   Timer? _longPressTimer;
@@ -116,7 +115,6 @@ class _DockAccessoryItemState extends State<DockAccessoryItem> {
     unawaited(_debug?.cancel());
     _longPressTimer?.cancel();
     if (_menuOpen) widget.onOverlayChanged(false);
-    _focus.dispose();
     super.dispose();
   }
 
@@ -133,7 +131,6 @@ class _DockAccessoryItemState extends State<DockAccessoryItem> {
     if (_menuOpen) return;
     setState(() => _menuOpen = true);
     if (!_portal.isShowing) _portal.show();
-    _focus.requestFocus();
     widget.onOverlayChanged(true);
   }
 
@@ -571,7 +568,12 @@ class _DockTrashItemState extends State<DockTrashItem> {
       // of it would be a second, redundant badge.
       badge: mac ? 0 : _count,
       onTap: _open,
-      onOverlayChanged: widget.onOverlayChanged,
+      onOverlayChanged: (open) {
+        if (!open && _emptyRequested) {
+          setState(() => _emptyRequested = false);
+        }
+        widget.onOverlayChanged(open);
+      },
       monitorBounds: widget.monitorBounds,
       face: mac
           ? (pressed) =>

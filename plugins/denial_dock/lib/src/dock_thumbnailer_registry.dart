@@ -282,6 +282,9 @@ class ThumbnailerRegistry {
   bool _hasExec(String exe) =>
       _execCache.putIfAbsent(exe, () => _executableExists(exe));
 
+  /// Whether [exe] exists on `PATH` (cached).
+  bool hasExec(String exe) => _hasExec(exe);
+
   /// Finds the first runnable `.thumbnailer` entry matching [filePath].
   ThumbnailerEntry? match(String filePath) {
     final mime = mimeFor(filePath);
@@ -295,30 +298,29 @@ class ThumbnailerRegistry {
     return null;
   }
 
-  /// Wraps [argv] in `timeout 10 bwrap ...` when `bwrap` is installed.
+  /// Wraps [argv] in `timeout --kill-after=2 <timeoutSeconds> bwrap ...` when
+  /// `bwrap` is installed.
+  ///
+  /// When `bwrap` is absent, refuses to execute untrusted thumbnailers bare
+  /// (`program: ''`, `sandboxed: false`) so downloads are never parsed
+  /// unsandboxed with full compositor user rights.
   ///
   /// The sandbox exposes `/usr`, `/lib`, `/lib64` (if present), `/etc`, and
-  /// [inputPath] read-only, binds [outputDir] read-write, isolates network,
-  /// and dies with parent.
+  /// [inputPath] read-only, binds [outputDir] read-write, clears the inherited
+  /// environment, isolates network/PID/IPC namespaces, and dies with parent.
   ({String program, List<String> args, bool sandboxed}) buildCommand(
     List<String> argv, {
     required String inputPath,
     required String outputDir,
     int timeoutSeconds = 10,
   }) {
-    if (argv.isEmpty) {
+    if (argv.isEmpty || !hasBwrap) {
       return (program: '', args: const <String>[], sandboxed: false);
-    }
-    if (!hasBwrap) {
-      return (
-        program: 'timeout',
-        args: <String>['$timeoutSeconds', ...argv],
-        sandboxed: false,
-      );
     }
     return (
       program: 'timeout',
       args: <String>[
+        '--kill-after=2',
         '$timeoutSeconds',
         'bwrap',
         '--ro-bind',
@@ -343,7 +345,16 @@ class ThumbnailerRegistry {
         '/dev',
         '--tmpfs',
         '/tmp',
+        '--clearenv',
+        '--setenv',
+        'PATH',
+        '/usr/bin:/bin',
+        '--setenv',
+        'LANG',
+        'C.UTF-8',
         '--unshare-net',
+        '--unshare-pid',
+        '--unshare-ipc',
         '--die-with-parent',
         '--',
         ...argv,

@@ -727,7 +727,7 @@ class _DockContainerState extends ConsumerState<DockContainer>
   }
 
   void _onEdgeEnter(PointerEnterEvent event) {
-    if (_reveal > 0.5 && !_look.shape.name.contains('bar')) {
+    if (_reveal > 0.5 && _look.shape != DockShape.bar) {
       _insideCapsule = true;
     }
     if (_edgeHover) return;

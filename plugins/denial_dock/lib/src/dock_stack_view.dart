@@ -304,6 +304,7 @@ class _DockStackViewState extends State<DockStackView>
 
   @override
   void dispose() {
+    DockStackThumbs.cancelPending();
     dockThumbsRevision.removeListener(_onThumbsReady);
     _gridControllerInstance?.dispose();
     _query.dispose();
@@ -319,17 +320,29 @@ class _DockStackViewState extends State<DockStackView>
     // moment later; redrawing then is what puts the previews in.
     if (!_awaitingThumbs && DockStackThumbs.stale) {
       _awaitingThumbs = true;
-      DockStackThumbs.warm().then((_) {
-        if (!mounted || _closing) return;
-        setState(() {
-          _layout = null;
+      DockStackThumbs.warm().then(
+        (_) {
+          if (!mounted || _closing) return;
+          setState(() {
+            _layout = null;
+            _awaitingThumbs = false;
+          });
+        },
+        onError: (_) {
+          if (!mounted) return;
           _awaitingThumbs = false;
-        });
-      });
+        },
+      );
     }
     return CallbackShortcuts(
       bindings: {
         const SingleActivator(LogicalKeyboardKey.escape): _escape,
+        const SingleActivator(LogicalKeyboardKey.slash): () {
+          if (_searchable) _queryFocus.requestFocus();
+        },
+        const SingleActivator(LogicalKeyboardKey.keyF, control: true): () {
+          if (_searchable) _queryFocus.requestFocus();
+        },
         const SingleActivator(LogicalKeyboardKey.arrowUp): () =>
             _arrow(up: true),
         const SingleActivator(LogicalKeyboardKey.arrowDown): () =>
@@ -949,12 +962,9 @@ class _DockStackViewState extends State<DockStackView>
         DockStackFan.padX * 2 -
         DockStackFan.thumbGap -
         28;
-    // Keep fan pills elegant and legible instead of spanning half the screen
-    // on long book/PDF titles; middle-ellipsizing preserves both prefix and
-    // file extension.
-    return DockStackFan.maxLabelFor(
-      availableWidth: math.min(free, 280.0),
-    );
+    // Let long filenames expand cleanly into the free space beside the dock
+    // (macOS Fan stack parity), truncating only at the actual screen edge.
+    return DockStackFan.maxLabelFor(availableWidth: free);
   }
 
   double _rowWidth(
@@ -1698,7 +1708,7 @@ TextStyle _plateStyle(ShellThemeData theme) => theme.text.systemBarCaption.inLoo
   double hover,
 ) {
   final style = KitStyle.of(context);
-  final mac = style.look.id == 'mac';
+  final mac = style.archetype == KitShellArchetype.macos;
   final baseFill = mac
       ? _plateFill
       : theme.panelColor(theme.colors.surfaceContainerHigh).withValues(alpha: 0.92);

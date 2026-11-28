@@ -139,11 +139,47 @@ MimeType=application/pdf;image/tiff;
     _expect(
       sandboxed.sandboxed &&
           sandboxed.program == 'timeout' &&
+          sandboxed.args.contains('--kill-after=2') &&
           sandboxed.args.contains('bwrap') &&
           sandboxed.args.contains('--unshare-net') &&
+          sandboxed.args.contains('--unshare-pid') &&
+          sandboxed.args.contains('--unshare-ipc') &&
+          sandboxed.args.contains('--clearenv') &&
           sandboxed.args.contains('--die-with-parent'),
-      'wraps thumbnailer in bwrap sandbox with timeout',
+      'wraps thumbnailer in strict bwrap sandbox with timeout escalation',
     );
+    final noBwrapRegistry = ThumbnailerRegistry(
+      entries: <ThumbnailerEntry>[entry],
+      extToMime: globs,
+      hasBwrap: false,
+      hasLib64: true,
+      executableExists: (exe) => exe == 'papers-thumbnailer',
+    );
+    final refused = noBwrapRegistry.buildCommand(
+      argv,
+      inputPath: '/tmp/a.pdf',
+      outputDir: cacheDir,
+    );
+    _expect(
+      !refused.sandboxed && refused.program.isEmpty && refused.args.isEmpty,
+      'refuses unsandboxed thumbnailer execution when bwrap is absent',
+    );
+
+    // 3b. Corrupt PNG with malicious 32-bit chunk length must never OOM
+    final corruptPng = File('${dir.path}/corrupt.png')
+      ..writeAsBytesSync(<int>[
+        0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A,
+        0x00, 0x00, 0x00, 0x0D, 0x49, 0x48, 0x44, 0x52,
+        0, 0, 0, 1, 0, 0, 0, 1, 8, 2, 0, 0, 0, 0, 0, 0, 0,
+        // tEXt chunk claiming 0xFFFFFFF0 bytes:
+        0xFF, 0xFF, 0xFF, 0xF0, 0x74, 0x45, 0x58, 0x74,
+        0x41, 0x00, 0x42,
+      ]);
+    _expect(
+      DockStackThumbs.aspectRatio(corruptPng.path) != null,
+      'corrupt PNG header does not throw or OOM',
+    );
+    DockStackThumbs.cancelPending();
 
     // 4. Dedup, failure memory (memory + disk), mtime retry, cache hit
     DockStackThumbs.invalidate();

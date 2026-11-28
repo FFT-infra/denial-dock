@@ -150,7 +150,7 @@ abstract final class DockRecentDocs {
           .toLowerCase()
           .replaceFirst(RegExp(r'\.desktop$'), '')
           .replaceAll(RegExp(r'[\s._-]+'), '');
-      if (clean.length >= 2) out.add(clean);
+      if (clean.length >= 3) out.add(clean);
     }
 
     add(appId);
@@ -168,8 +168,9 @@ abstract final class DockRecentDocs {
           .replaceFirst(RegExp(r'\.desktop$'), '')
           .replaceAll(RegExp(r'[\s._-]+'), '');
       if (norm.isEmpty) continue;
+      if (needles.contains(norm)) return true;
       for (final needle in needles) {
-        if (norm == needle || norm.contains(needle) || needle.contains(norm)) {
+        if (needle.length >= 4 && norm.contains(needle)) {
           return true;
         }
       }
