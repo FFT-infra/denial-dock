@@ -328,7 +328,9 @@ class KitGlass extends StatelessWidget {
     final style = KitStyle.of(context);
     final material = this.material;
     final fade = this.fade;
-    final separate = this.separate ?? fade == null;
+    // Keep foreground controls out of the backdrop filter's intermediate layer
+    // (matching Denial SDK's ShellBackdropBlur.separateChild guidance).
+    final separate = this.separate ?? true;
     final resolved = resolveBackdrop(
       context,
       material: material,
@@ -405,13 +407,17 @@ class KitGlass extends StatelessWidget {
             style,
           )
         : _lineOf(material.inner, theme, style);
+    final corners = BorderRadius.circular(radius);
+    // Vulkan Liquid Glass renders circular RRect lenses natively via
+    // ImageFilterConfig.glass; clipping with ClipRRect instead of a 68-vertex
+    // ClipPath matches the shader bevel and avoids Stagecraft split_draws.
+    final useContinuous =
+        material.continuous && !(filtered && plan.mode == KitSurfaceMode.liquidGlass);
     Widget under = DecoratedBox(
       decoration: ShapeDecoration(
-        shape: material.continuous
-            ? ContinuousCorners(radius: radius)
-            : RoundedRectangleBorder(
-                borderRadius: BorderRadius.circular(radius),
-              ),
+        // Always use a hardware RRect shape for soft blurred drop shadows so
+        // Impeller uses its analytical RRect shadow fast path.
+        shape: RoundedRectangleBorder(borderRadius: corners),
         shadows: shadows,
       ),
       child: outer == null
@@ -419,7 +425,7 @@ class KitGlass extends StatelessWidget {
           : CustomPaint(
               painter: _OuterLinePainter(
                 radius: radius,
-                continuous: material.continuous,
+                continuous: useContinuous,
                 line: outer,
               ),
             ),
@@ -429,13 +435,12 @@ class KitGlass extends StatelessWidget {
     final Widget surface = CustomPaint(
       painter: _SurfacePainter(
         radius: radius,
-        continuous: material.continuous,
+        continuous: useContinuous,
         fill: tone,
         line: inner,
       ),
       child: child ?? const SizedBox.expand(),
     );
-    final corners = BorderRadius.circular(radius);
     Widget plate;
     if (filtered && plan.direct && resolved.directConfig != null) {
       final config = resolved.directConfig!;
@@ -461,7 +466,7 @@ class KitGlass extends StatelessWidget {
               ],
             )
           : faded(backdrop);
-      if (!material.continuous) {
+      if (!useContinuous) {
         plate = ClipRRect(
           borderRadius: corners,
           clipBehavior: Clip.antiAlias,
@@ -483,7 +488,7 @@ class KitGlass extends StatelessWidget {
       fit: StackFit.passthrough,
       children: [
         Positioned.fill(child: IgnorePointer(child: under)),
-        if (material.continuous)
+        if (useContinuous)
           ClipPath(
             clipper: ContinuousCornersClipper(radius: radius),
             child: plate,
@@ -577,9 +582,16 @@ class _SurfacePainter extends CustomPainter {
   @override
   void paint(Canvas canvas, Size size) {
     final rect = Offset.zero & size;
+    final line = this.line;
+    if (!continuous && line == null) {
+      canvas.drawRRect(
+        RRect.fromRectAndRadius(rect, Radius.circular(radius)),
+        Paint()..color = fill,
+      );
+      return;
+    }
     final shape = _shape(rect, radius, continuous);
     canvas.drawPath(shape, Paint()..color = fill);
-    final line = this.line;
     if (line == null) return;
     if (line.tail > 0 && line.reach > 0 && line.edges == KitEdges.topBottom) {
       // The glow behind a rim: from each long side inward.

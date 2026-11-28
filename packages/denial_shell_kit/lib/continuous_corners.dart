@@ -1,7 +1,31 @@
 import 'dart:math' as math;
+import 'dart:typed_data';
 import 'dart:ui' show lerpDouble;
 
 import 'package:flutter/rendering.dart';
+
+const int _defaultSegments = 16;
+const double _defaultExponent = 3;
+
+final ({Float64List along, Float64List across}) _defaultArc = _buildArcTable(
+  _defaultExponent,
+  _defaultSegments,
+);
+
+({Float64List along, Float64List across}) _buildArcTable(
+  double exponent,
+  int segments,
+) {
+  final along = Float64List(segments + 1);
+  final across = Float64List(segments + 1);
+  final power = 2 / exponent;
+  for (var index = 0; index <= segments; index++) {
+    final t = index / segments * math.pi / 2;
+    along[index] = math.pow(math.cos(t), power).toDouble();
+    across[index] = math.pow(math.sin(t), power).toDouble();
+  }
+  return (along: along, across: across);
+}
 
 /// Continuous corners, the way macOS and iOS draw them.
 ///
@@ -21,8 +45,8 @@ import 'package:flutter/rendering.dart';
 Path continuousRoundedRectPath(
   Rect rect,
   double radius, {
-  double exponent = 3,
-  int segments = 16,
+  double exponent = _defaultExponent,
+  int segments = _defaultSegments,
 }) {
   final r = math.max(
     0.0,
@@ -35,9 +59,11 @@ Path continuousRoundedRectPath(
 
   // `cos(t)^(2/n)` runs 1 → 0 and `sin(t)^(2/n)` runs 0 → 1; together they
   // walk one corner from its horizontal edge to its vertical edge.
-  final power = 2 / exponent;
-  double along(double t) => math.pow(math.cos(t), power).toDouble();
-  double across(double t) => math.pow(math.sin(t), power).toDouble();
+  final table = exponent == _defaultExponent && segments == _defaultSegments
+      ? _defaultArc
+      : _buildArcTable(exponent, segments);
+  final along = table.along;
+  final across = table.across;
 
   final left = rect.left, top = rect.top;
   final right = rect.right, bottom = rect.bottom;
@@ -45,23 +71,19 @@ Path continuousRoundedRectPath(
   path.moveTo(left + r, top);
   path.lineTo(right - r, top);
   for (var index = 0; index <= segments; index++) {
-    final t = index / segments * math.pi / 2;
-    path.lineTo(right - r + r * across(t), top + r - r * along(t));
+    path.lineTo(right - r + r * across[index], top + r - r * along[index]);
   }
   path.lineTo(right, bottom - r);
   for (var index = 0; index <= segments; index++) {
-    final t = index / segments * math.pi / 2;
-    path.lineTo(right - r + r * along(t), bottom - r + r * across(t));
+    path.lineTo(right - r + r * along[index], bottom - r + r * across[index]);
   }
   path.lineTo(left + r, bottom);
   for (var index = 0; index <= segments; index++) {
-    final t = index / segments * math.pi / 2;
-    path.lineTo(left + r - r * across(t), bottom - r + r * along(t));
+    path.lineTo(left + r - r * across[index], bottom - r + r * along[index]);
   }
   path.lineTo(left, top + r);
   for (var index = 0; index <= segments; index++) {
-    final t = index / segments * math.pi / 2;
-    path.lineTo(left + r - r * along(t), top + r - r * across(t));
+    path.lineTo(left + r - r * along[index], top + r - r * across[index]);
   }
   return path..close();
 }
