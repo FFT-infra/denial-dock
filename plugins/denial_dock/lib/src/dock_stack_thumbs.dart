@@ -792,7 +792,7 @@ abstract final class DockStackThumbs {
     final cached = _index;
     if (cached != null &&
         _indexedAt != null &&
-        now.difference(_indexedAt!).inSeconds.abs() < 30) {
+        now.difference(_indexedAt!).inSeconds.abs() < 120) {
       return cached.entries;
     }
     final entries = <String, String>{};
@@ -854,8 +854,10 @@ abstract final class DockStackThumbs {
           signature[3] != 0x47) {
         return out;
       }
-      var scanned = 8;
-      while (scanned + 12 <= fileLen && scanned < _maxPngScanBytes) {
+      var scannedChunks = 0;
+      var textBytesRead = 0;
+      while (file.positionSync() + 12 <= fileLen && scannedChunks < 64) {
+        scannedChunks++;
         final header = file.readSync(8);
         if (header.length != 8) break;
         final length = ByteData.sublistView(header).getUint32(0);
@@ -864,12 +866,13 @@ abstract final class DockStackThumbs {
         final remaining = fileLen - pos;
         // Guard against corrupt/malicious 32-bit chunk lengths causing OOM.
         if (length > remaining - 4) break;
-        scanned += 8 + length + 4;
         if (type == 'tEXt') {
-          if (length > _maxPngTextBytes) {
+          if (length > _maxPngTextBytes ||
+              textBytesRead + length > _maxPngScanBytes) {
             file.setPositionSync(pos + length + 4);
             continue;
           }
+          textBytesRead += length;
           final data = file.readSync(length);
           final zero = data.indexOf(0);
           if (zero > 0) {
@@ -880,11 +883,8 @@ abstract final class DockStackThumbs {
           continue;
         }
         if (type == 'IEND') break;
-        if (type == 'IDAT') {
-          // Stop scanning once image data starts if we already found metadata,
-          // or skip bounded IDAT? Skip only pre-IDAT metadata chunks.
-          break;
-        }
+        // Seek past IDAT/other chunks in O(1) so thumbnails that store
+        // Thumb::URI after IDAT still hit the cache without reading pixels.
         file.setPositionSync(pos + length + 4);
       }
     } on FileSystemException {

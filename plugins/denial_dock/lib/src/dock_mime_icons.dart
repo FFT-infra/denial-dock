@@ -133,7 +133,6 @@ abstract final class DockMimeIcons {
   }
 
   static Future<void> _loadIconThemes() async {
-    final themes = await _discoverThemes();
     final home = Platform.environment['HOME'];
     final roots = <String>[
       if (home != null && home.startsWith('/')) '$home/.local/share/icons',
@@ -141,14 +140,19 @@ abstract final class DockMimeIcons {
       '/usr/local/share/icons',
       '/usr/share/icons',
     ];
+    final themes = await _discoverThemes(roots);
     const sizes = <String>[
       '64x64/mimetypes',
       '48x48/mimetypes',
       '128x128/mimetypes',
       '32x32/mimetypes',
+      'scalable/mimetypes',
       'mimetypes/64',
       'mimetypes/48',
+      'mimetypes/scalable',
     ];
+    // Prefer raster PNG first, then SVG as fallback if no PNG exists.
+    final svgFallback = <String, String>{};
     for (final theme in themes) {
       for (final root in roots) {
         for (final sub in sizes) {
@@ -157,10 +161,17 @@ abstract final class DockMimeIcons {
             if (!await dir.exists()) continue;
             await for (final entity in dir.list(followLinks: true)) {
               final path = entity.path;
-              if (!path.endsWith('.png')) continue;
               final base = path.split('/').last;
-              final name = base.substring(0, base.length - 4);
-              _iconIndex.putIfAbsent(name, () => path);
+              if (path.endsWith('.png')) {
+                final name = base.substring(0, base.length - 4);
+                _iconIndex.putIfAbsent(name, () => path);
+              } else if (path.endsWith('.svg')) {
+                final name = base.substring(0, base.length - 4);
+                svgFallback.putIfAbsent(name, () => path);
+              } else if (path.endsWith('.svgz')) {
+                final name = base.substring(0, base.length - 5);
+                svgFallback.putIfAbsent(name, () => path);
+              }
             }
           } on FileSystemException {
             continue;
@@ -168,22 +179,35 @@ abstract final class DockMimeIcons {
         }
       }
     }
+    for (final entry in svgFallback.entries) {
+      _iconIndex.putIfAbsent(entry.key, () => entry.value);
+    }
   }
 
-  static Future<List<String>> _discoverThemes() async {
-    final ordered = <String>[];
-    void add(String? name) {
+  static Future<List<String>> _discoverThemes(List<String> roots) async {
+    final seeds = <String>[];
+    void addSeed(String? name) {
       final clean = name?.trim();
-      if (clean != null && clean.isNotEmpty && !ordered.contains(clean)) {
-        ordered.add(clean);
+      if (clean != null && clean.isNotEmpty && !seeds.contains(clean)) {
+        seeds.add(clean);
       }
     }
 
     final home = Platform.environment['HOME'];
     if (home != null && home.startsWith('/')) {
-      add(await _readIniValue('$home/.config/gtk-3.0/settings.ini', 'gtk-icon-theme-name'));
-      add(await _readIniValue('$home/.config/gtk-4.0/settings.ini', 'gtk-icon-theme-name'));
-      add(await _readIniValue('$home/.config/kdeglobals', 'Theme'));
+      addSeed(
+        await _readIniValue(
+          '$home/.config/gtk-3.0/settings.ini',
+          'gtk-icon-theme-name',
+        ),
+      );
+      addSeed(
+        await _readIniValue(
+          '$home/.config/gtk-4.0/settings.ini',
+          'gtk-icon-theme-name',
+        ),
+      );
+      addSeed(await _readIniValue('$home/.config/kdeglobals', 'Theme'));
     }
     for (final fallback in const <String>[
       'Papirus',
@@ -195,7 +219,28 @@ abstract final class DockMimeIcons {
       'Tela',
       'hicolor',
     ]) {
-      add(fallback);
+      addSeed(fallback);
+    }
+    // Walk `Inherits=` chains in each theme's `index.theme` (BFS, cycle-safe).
+    final ordered = <String>[];
+    final visited = <String>{};
+    final queue = List<String>.of(seeds);
+    while (queue.isNotEmpty) {
+      final theme = queue.removeAt(0);
+      if (!visited.add(theme)) continue;
+      ordered.add(theme);
+      for (final root in roots) {
+        final parents = await _readIniValue(
+          '$root/$theme/index.theme',
+          'Inherits',
+        );
+        if (parents == null || parents.isEmpty) continue;
+        for (final parent in parents.split(',')) {
+          final p = parent.trim();
+          if (p.isNotEmpty && !visited.contains(p)) queue.add(p);
+        }
+        break;
+      }
     }
     return ordered;
   }

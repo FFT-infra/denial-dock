@@ -1357,17 +1357,19 @@ class _DockContainerState extends ConsumerState<DockContainer>
           for (var i = 0; i < shrunk.length; i++)
             if (shrunk[i].kind == _SlotKind.app) i,
         ];
-        if (appIndices.length > 2) {
+        if (appIndices.isNotEmpty) {
+          final firstAppPos = appIndices.first;
           final foldedEntries = <int>[];
           final mutable = List<_SlotSpec>.of(shrunk);
           while (totalWidth(mutable) + fitted + _look.gap > available &&
-              appIndices.length > 1) {
+              appIndices.isNotEmpty) {
             final dropAt = appIndices.removeLast();
             final removed = mutable.removeAt(dropAt);
             if (removed.entry != null) foldedEntries.insert(0, removed.entry!);
           }
           if (foldedEntries.isNotEmpty) {
-            final insertPos = appIndices.last + 1;
+            final insertPos =
+                appIndices.isEmpty ? firstAppPos : appIndices.last + 1;
             mutable.insert(
               insertPos,
               _SlotSpec(
@@ -3443,49 +3445,61 @@ class _OverflowAppsItemState extends State<_OverflowAppsItem> {
                     child: GlassCard(
                       tier: KitTier.popover,
                       radius: 16,
-                      child: Padding(
-                        padding: const EdgeInsets.all(10),
-                        child: Wrap(
-                          spacing: 8,
-                          runSpacing: 8,
-                          children: [
-                            for (final entry in widget.entries)
-                              GestureDetector(
-                                behavior: HitTestBehavior.opaque,
-                                onTap: () => _activate(entry),
-                                child: SizedBox(
-                                  width: 56,
-                                  child: Column(
-                                    mainAxisSize: MainAxisSize.min,
-                                    children: [
-                                      SizedBox.square(
-                                        dimension: 38,
-                                        child: widget.services
-                                            .buildApplicationIcon(
-                                              context,
-                                              entry.appId,
-                                            ),
-                                      ),
-                                      const SizedBox(height: 3),
-                                      Text(
-                                        entry.name,
-                                        maxLines: 1,
-                                        overflow: TextOverflow.ellipsis,
-                                        textAlign: TextAlign.center,
-                                        style: theme
-                                            .text
-                                            .systemBarCaption
-                                            .inLook
-                                            .copyWith(
-                                              fontSize: 10,
-                                              color: theme.colors.textPrimary,
-                                            ),
-                                      ),
-                                    ],
+                      child: ConstrainedBox(
+                        constraints: BoxConstraints(
+                          maxWidth: math.min(
+                            320.0,
+                            math.max(160.0, layout.overlaySize.width - 32),
+                          ),
+                          maxHeight: math.max(
+                            160.0,
+                            layout.overlaySize.height * 0.6,
+                          ),
+                        ),
+                        child: SingleChildScrollView(
+                          padding: const EdgeInsets.all(10),
+                          child: Wrap(
+                            spacing: 8,
+                            runSpacing: 8,
+                            children: [
+                              for (final entry in widget.entries)
+                                GestureDetector(
+                                  behavior: HitTestBehavior.opaque,
+                                  onTap: () => _activate(entry),
+                                  child: SizedBox(
+                                    width: 56,
+                                    child: Column(
+                                      mainAxisSize: MainAxisSize.min,
+                                      children: [
+                                        SizedBox.square(
+                                          dimension: 38,
+                                          child: widget.services
+                                              .buildApplicationIcon(
+                                                context,
+                                                entry.appId,
+                                              ),
+                                        ),
+                                        const SizedBox(height: 3),
+                                        Text(
+                                          entry.name,
+                                          maxLines: 1,
+                                          overflow: TextOverflow.ellipsis,
+                                          textAlign: TextAlign.center,
+                                          style: theme
+                                              .text
+                                              .systemBarCaption
+                                              .inLook
+                                              .copyWith(
+                                                fontSize: 10,
+                                                color: theme.colors.textPrimary,
+                                              ),
+                                        ),
+                                      ],
+                                    ),
                                   ),
                                 ),
-                              ),
-                          ],
+                            ],
+                          ),
                         ),
                       ),
                     ),

@@ -425,6 +425,7 @@ class _DockSettingsPanelState extends ConsumerState<DockSettingsPanel> {
     final fit = dockMetricsNow(settings, look.shape);
     final followLabel = _zh ? '跟随外观' : 'Follow the look';
     final floating = look.shape == DockShape.floating;
+    final radiusLive = floating || look.defloatOnTouch;
     String px(double value) => '${value.round()}';
     String percent(double value) => '${(value * 100).round()}%';
     return [
@@ -1065,18 +1066,18 @@ class _DockSettingsPanelState extends ConsumerState<DockSettingsPanel> {
               _lookSlider(
                 settings,
                 label: _zh ? '圆角' : 'Corner radius',
-                note: floating
+                note: radiusLive
                     ? null
                     : (_zh
-                          ? '仅悬浮圆角形状支持调节圆角。'
-                          : 'Floating shape only.'),
+                          ? '仅悬浮圆角形状（或触窗贴边变形）支持调节圆角。'
+                          : 'Floating shape (or defloat-on-touch) only.'),
                 keyName: DockLook.radiusKey,
                 value: look.radius,
                 min: DockLook.minRadius,
                 max: DockLook.maxRadius,
                 step: DockLook.radiusStep,
                 text: px,
-                enabled: floating,
+                enabled: radiusLive,
               ),
               _ToggleRow(
                 label: _zh ? '描边' : 'Border',
@@ -1138,18 +1139,18 @@ class _DockSettingsPanelState extends ConsumerState<DockSettingsPanel> {
               _lookSlider(
                 settings,
                 label: _zh ? '离屏幕边缘' : 'Distance from the edge',
-                note: floating
+                note: radiusLive
                     ? null
                     : (_zh
-                          ? '仅悬浮圆角形状支持边缘间距。'
-                          : 'Floating shape only.'),
+                          ? '仅悬浮圆角形状（或触窗贴边变形）支持边缘间距。'
+                          : 'Floating shape (or defloat-on-touch) only.'),
                 keyName: DockLook.edgeMarginKey,
                 value: look.edgeMargin,
                 min: DockLook.minEdgeMargin,
                 max: DockLook.maxEdgeMargin,
                 step: DockLook.edgeMarginStep,
                 text: px,
-                enabled: floating,
+                enabled: radiusLive,
               ),
               _ActionRow(
                 icon: Icons.restart_alt,

@@ -209,6 +209,8 @@ abstract final class DockStackFan {
     required List<double> widths,
     required double anchorX,
     required double bottom,
+    double? top,
+    bool downward = false,
     double scale = 1,
     DockFanLean lean = DockFanLean.right,
     double tilt = tiltDegrees,
@@ -218,14 +220,17 @@ abstract final class DockStackFan {
     final step = rowStep * scale;
     final height = rowHeight * scale;
     final half = thumbSize * scale / 2;
+    final originTop = top ?? bottom;
     for (var i = 0; i < widths.length; i++) {
       final rowWidth = widths[i];
       final drift =
           math.min(shiftMax, shift * math.pow(i, shiftPower)) * scale * sign;
-      final centreY = bottom - step * (i + 1) + height / 2;
+      final centreY = downward
+          ? originTop + step * i + height / 2
+          : bottom - step * (i + 1) + height / 2;
       // The preview card is centred on the anchor plus the drift, so the
-      // column starts straight above the dock icon and traces the arc from
-      // there, the labels ragging out to the far side.
+      // column starts straight above (or below for a top dock) the dock icon
+      // and traces the arc from there, the labels ragging out to the far side.
       final column = anchorX + drift;
       final edge = column + half * sign;
       final leading = sign < 0;
@@ -236,10 +241,8 @@ abstract final class DockStackFan {
           top: centreY - height / 2,
           width: rowWidth,
           height: height,
-          // The preview end sinks and the label end lifts, which is the way
-          // the reference's plates hang off the column: a right lean turns
-          // clockwise.
-          angle: tilt * i * sign * math.pi / 180,
+          // Mirror tilt sign when fanning downward from a top dock.
+          angle: tilt * i * sign * (downward ? -1 : 1) * math.pi / 180,
           iconX: column,
           iconY: centreY,
         ),

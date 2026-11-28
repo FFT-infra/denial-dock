@@ -680,9 +680,7 @@ class _DockStackViewState extends State<DockStackView>
     // The fan is what a folder of a few files opens into. `auto` falls back to
     // a grid when it cannot fit; `fan` truncates instead, because a grid is not
     // what the user asked for. A drilled subfolder always stays in Grid view.
-    if (_drillStack.isEmpty &&
-        widget.mode != DockStackMode.grid &&
-        widget.position != DockPosition.top) {
+    if (_drillStack.isEmpty && widget.mode != DockStackMode.grid) {
       final fan = _fanLayout(
         style,
         entries,
@@ -784,11 +782,14 @@ class _DockStackViewState extends State<DockStackView>
       for (final row in rows)
         _rowWidth(row.label, style, maxWidth: leanMaxLabel),
     ];
+    final downward = widget.position == DockPosition.top;
     final geometry = _clampFan(
       DockStackFan.layout(
         widths: rowWidths,
         anchorX: widget.anchor.center.dx,
         bottom: _room.bottom,
+        top: _room.top,
+        downward: downward,
         lean: lean,
       ),
     );
@@ -796,7 +797,7 @@ class _DockStackViewState extends State<DockStackView>
       rows,
       geometry,
       iconLeading: lean == DockFanLean.left,
-      rises: true,
+      rises: !downward,
     );
   }
 

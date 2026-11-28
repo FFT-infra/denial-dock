@@ -334,6 +334,23 @@ void main() {
         ).contains('…'),
     'middleEllipsize preserves extension when truncating',
   );
+
+  // Top-dock downward Fan mirrors vertically: rows descend from top and tilt flips.
+  final down = DockStackFan.layout(
+    widths: const <double>[180, 180, 180],
+    anchorX: 400,
+    bottom: 900,
+    top: 72,
+    downward: true,
+    lean: DockFanLean.right,
+  );
+  _expect(
+    down.length == 3 &&
+        down[0].top < down[1].top &&
+        down[1].top < down[2].top &&
+        down[1].angle < 0,
+    'downward top-dock fan descends from top with mirrored tilt',
+  );
 }
 
 void _expect(bool condition, String message) {

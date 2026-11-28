@@ -76,13 +76,36 @@ class ThumbnailerEntry {
       } else if (token == '%o') {
         out.add(outputPath);
       } else {
-        out.add(
-          token
-              .replaceAll('%s', sizeText)
-              .replaceAll('%u', uri)
-              .replaceAll('%i', inputPath)
-              .replaceAll('%o', outputPath),
-        );
+        // Single-pass field-code expansion (handles `%%` without double-expanding
+        // paths that happen to contain `%s`/`%i`).
+        final buf = StringBuffer();
+        for (var i = 0; i < token.length; i++) {
+          if (token[i] == '%' && i + 1 < token.length) {
+            final next = token[i + 1];
+            switch (next) {
+              case '%':
+                buf.write('%');
+                i++;
+              case 's':
+                buf.write(sizeText);
+                i++;
+              case 'u':
+                buf.write(uri);
+                i++;
+              case 'i':
+                buf.write(inputPath);
+                i++;
+              case 'o':
+                buf.write(outputPath);
+                i++;
+              default:
+                buf.write('%');
+            }
+          } else {
+            buf.write(token[i]);
+          }
+        }
+        out.add(buf.toString());
       }
     }
     return out;
