@@ -106,6 +106,7 @@ class ShellPreset {
     label: 'Denial',
     look: 'denial',
     bar: _bar,
+    dockVisible: true,
   );
 
   static const ShellPreset mac = ShellPreset(
@@ -144,6 +145,7 @@ class ShellPreset {
     id: 'segments',
     label: 'Segments',
     look: 'soft',
+    dockVisible: true,
     bar: _barWith(const <String, Object?>{
       'shape': 'islands',
       'cap': 'arrow',
@@ -178,6 +180,7 @@ class ShellPreset {
     id: 'compact',
     label: 'Compact',
     look: 'soft',
+    dockVisible: true,
     bar: _barWith(const <String, Object?>{
       'shape': 'floating',
       'ground': 'plate',
@@ -768,9 +771,7 @@ class ShellPreset {
     final out = <String, Object?>{};
     if (look != this.look) out['look'] = look;
     if (barMode != this.barMode) out['barMode'] = barMode;
-    if (dockVisible != null &&
-        this.dockVisible != null &&
-        dockVisible != this.dockVisible) {
+    if (dockVisible != null && dockVisible != (this.dockVisible ?? true)) {
       out['dockVisible'] = dockVisible;
     }
     final barDiff = <String, Object?>{};

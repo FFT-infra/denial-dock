@@ -30,10 +30,10 @@ class KitPresetsNotifier extends ValueNotifier<List<ShellPreset>> {
     ]);
   }
 
-  /// Adds [preset], or puts it in place of the one with its id. What the
-  /// shell remembered of the one replaced is dropped: it is a new preset
-  /// under an old name. A preset that ships cannot be replaced.
-  void save(ShellPreset preset) {
+  /// Adds [preset], or puts it in place of the one with its id. Unless
+  /// [keepMemory] is true, what the shell remembered of the replaced preset is
+  /// dropped. A preset that ships cannot be replaced.
+  void save(ShellPreset preset, {bool keepMemory = false}) {
     if (ShellPreset.all.any((one) => one.id == preset.id)) return;
     final replaced = value.any((one) => one.id == preset.id);
     _write(<ShellPreset>[
@@ -41,7 +41,7 @@ class KitPresetsNotifier extends ValueNotifier<List<ShellPreset>> {
         if (one.id == preset.id) preset else one,
       if (!replaced) preset,
     ]);
-    if (replaced) _forget(preset.id);
+    if (replaced && !keepMemory) _forget(preset.id);
   }
 
   /// Drops the preset called [id] and what the shell remembered of it.

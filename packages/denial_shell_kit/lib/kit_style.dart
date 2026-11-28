@@ -1,5 +1,3 @@
-import 'dart:async';
-
 import 'package:denial_flutter_sdk/settings.dart';
 import 'package:denial_flutter_sdk/theme.dart';
 import 'package:flutter/widgets.dart';
@@ -494,6 +492,9 @@ bool kitSystemIsDark(ShellSettings settings) {
 /// Switches system Dark/Light mode atomically across BOTH
 /// `colorSchemePreference` (apps, portals, standard shell theme) AND
 /// `glass.appearance` (Denial Glass-mode shell theme & native glass widgets).
+///
+/// Mirrors Denial's own Settings app (`set_appearance` in `denial-apps`).
+/// Only call from explicit user-initiated Dark Mode toggles, never from `build`.
 void setKitSystemDarkMode(WidgetRef ref, bool dark) {
   final controller = ref.read(shellSettingsProvider.notifier);
   final appearance = ref.read(shellSettingsProvider).appearance;
@@ -503,8 +504,6 @@ void setKitSystemDarkMode(WidgetRef ref, bool dark) {
   final nextGlass = dark
       ? ShellGlassAppearance.dark
       : ShellGlassAppearance.light;
-  _lastSeenColorScheme = nextPref;
-  _lastSeenGlassAppearance = nextGlass;
   if (appearance.colorSchemePreference != nextPref) {
     controller.setColorSchemePreference(nextPref);
   }
@@ -515,104 +514,23 @@ void setKitSystemDarkMode(WidgetRef ref, bool dark) {
   }
 }
 
-DesktopColorSchemePreference? _lastSeenColorScheme;
-ShellGlassAppearance? _lastSeenGlassAppearance;
-bool _syncScheduled = false;
-
 /// Puts the look's colours in force for everything under it: the theme the
 /// shell hands down, as [KitStyle.themed] colours it. Each surface and each
 /// popup of the plugins is built under one.
 ///
-/// Also bridges Denial's split `colorSchemePreference` vs `glass.appearance`
-/// settings so toggling system Dark/Light mode in either Denial Settings or a
-/// plugin Control Centre always switches every preset and surface in lockstep.
-class KitThemed extends ConsumerWidget {
+/// Strictly read-only: Denial's host (`denial_shell.dart`) already resolves
+/// `ShellThemeData.brightness` from `glass.appearance` in glass mode and from
+/// `colorSchemePreference` otherwise, so following `context.shellTheme` stays
+/// in lockstep without writing compositor settings from `build()`.
+class KitThemed extends StatelessWidget {
   const KitThemed({required this.child, super.key});
 
   final Widget child;
 
   @override
-  Widget build(BuildContext context, WidgetRef ref) {
+  Widget build(BuildContext context) {
     final theme = context.shellTheme;
-    final appearance = ref.watch(
-      shellSettingsProvider.select((s) => s.appearance),
-    );
-    final pref = appearance.colorSchemePreference;
-    final glassApp = appearance.glass.appearance;
-    final glassMode =
-        appearance.transparencyMode == ShellTransparencyMode.glass;
-
-    Brightness? effectiveSystemBrightness;
-    if (glassMode) {
-      final prevPref = _lastSeenColorScheme;
-      final prevGlass = _lastSeenGlassAppearance;
-      if (prevPref != null && pref != prevPref) {
-        // User toggled System Dark/Light (colorSchemePreference) while in Glass
-        // mode: immediately adopt its brightness and mirror to glass.appearance
-        // so Denial's native glass & widgets switch together.
-        final wantDark = pref.effectiveBrightness == Brightness.dark;
-        effectiveSystemBrightness = wantDark
-            ? Brightness.dark
-            : Brightness.light;
-        final targetGlass = wantDark
-            ? ShellGlassAppearance.dark
-            : ShellGlassAppearance.light;
-        _lastSeenColorScheme = pref;
-        _lastSeenGlassAppearance = targetGlass;
-        if (glassApp != targetGlass && !_syncScheduled) {
-          _syncScheduled = true;
-          scheduleMicrotask(() {
-            _syncScheduled = false;
-            final current = ref.read(shellSettingsProvider).appearance;
-            if (current.glass.appearance != targetGlass) {
-              ref
-                  .read(shellSettingsProvider.notifier)
-                  .setGlassConfiguration(
-                    current.glass.copyWith(appearance: targetGlass),
-                  );
-            }
-          });
-        }
-      } else if (prevGlass != null && glassApp != prevGlass) {
-        // User toggled Glass Appearance directly: follow it and mirror to
-        // colorSchemePreference so apps/portals match too.
-        final wantDark = glassApp == ShellGlassAppearance.dark;
-        effectiveSystemBrightness = wantDark
-            ? Brightness.dark
-            : Brightness.light;
-        final targetPref = wantDark
-            ? DesktopColorSchemePreference.preferDark
-            : DesktopColorSchemePreference.preferLight;
-        _lastSeenGlassAppearance = glassApp;
-        _lastSeenColorScheme = targetPref;
-        if (pref != targetPref && !_syncScheduled) {
-          _syncScheduled = true;
-          scheduleMicrotask(() {
-            _syncScheduled = false;
-            final current = ref.read(shellSettingsProvider).appearance;
-            if (current.colorSchemePreference != targetPref) {
-              ref
-                  .read(shellSettingsProvider.notifier)
-                  .setColorSchemePreference(targetPref);
-            }
-          });
-        }
-      } else {
-        _lastSeenColorScheme ??= pref;
-        _lastSeenGlassAppearance ??= glassApp;
-        effectiveSystemBrightness = glassApp == ShellGlassAppearance.dark
-            ? Brightness.dark
-            : Brightness.light;
-      }
-    } else {
-      _lastSeenColorScheme = pref;
-      _lastSeenGlassAppearance = glassApp;
-      effectiveSystemBrightness = pref.effectiveBrightness;
-    }
-
-    final themed = KitStyle.of(
-      context,
-    ).themed(theme, systemBrightness: effectiveSystemBrightness);
+    final themed = KitStyle.of(context).themed(theme);
     // The same widgets whatever the look, so going from a look with a
     // palette to one without keeps the state of everything below.
     return ShellTheme(
@@ -747,7 +665,10 @@ class KitLooksNotifier extends ValueNotifier<List<KitStyle>> {
     // from, rather than silently to Denial's the next time it is applied.
     for (final preset in kitPresets.value) {
       if (preset.look == id) {
-        kitPresets.save(preset.renamed(look: KitStyle.byId(gone.look.base).id));
+        kitPresets.save(
+          preset.renamed(look: KitStyle.byId(gone.look.base).id),
+          keepMemory: true,
+        );
       }
     }
   }

@@ -21,6 +21,8 @@ class KitStore {
   /// then.
   final File? file;
 
+  Map<String, dynamic>? _cache;
+
   static File? defaultFile() {
     final env = Platform.environment;
     final configured = env['XDG_CONFIG_HOME'];
@@ -42,13 +44,21 @@ class KitStore {
     return file == null ? null : Directory('${file.parent.path}/presets');
   }
 
+  /// Drops the in-memory cache so the next [read] re-parses from disk.
+  void clearCache() => _cache = null;
+
   Map<String, dynamic> read() {
+    final cached = _cache;
+    if (cached != null) return Map<String, dynamic>.of(cached);
     final file = this.file;
     if (file == null) return <String, dynamic>{};
     try {
       final json = jsonDecode(file.readAsStringSync());
-      return json is Map<String, dynamic> ? json : <String, dynamic>{};
+      final map = json is Map<String, dynamic> ? json : <String, dynamic>{};
+      _cache = map;
+      return Map<String, dynamic>.of(map);
     } on Object {
+      _cache = <String, dynamic>{};
       return <String, dynamic>{};
     }
   }
@@ -66,6 +76,7 @@ class KitStore {
     final json = read()
       ..['version'] = version
       ..[key] = value;
+    _cache = Map<String, dynamic>.of(json);
     try {
       file.parent.createSync(recursive: true);
       final temp = File('${file.path}.$pid.tmp')

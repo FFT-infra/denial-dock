@@ -6,10 +6,7 @@ import 'package:denial_shell_kit/kit_material.dart';
 import 'package:denial_shell_kit/shell_preset.dart';
 
 void _expect(bool cond, String msg) {
-  if (!cond) {
-    stderr.writeln('FAIL: $msg');
-    exitCode = 1;
-  }
+  if (!cond) throw StateError('FAIL: $msg');
 }
 
 void main() {
@@ -82,8 +79,55 @@ void main() {
       bar: curBar,
       dock: curDock,
       barMode: curBarMode,
-    ),
-    'round-trip back to Denial matches cleanly',
+      dockVisible: curDockVis,
+    ) && curDockVis == true,
+    'round-trip back to Denial restores dockVisible and matches cleanly',
+  );
+
+  // 2b. Real user edit A -> B -> A ring (including dock switch + bar key):
+  final memory = <String, Object?>{};
+  var active = ShellPreset.denial;
+  var uLook = active.look;
+  var uBarMode = active.barMode;
+  var uBar = Map<String, Object?>.of(active.bar);
+  var uDock = Map<String, Object?>.of(active.dock);
+  var uDockVis = active.dockVisible ?? true;
+
+  void switchTo(ShellPreset next) {
+    final diff = active.remember(
+      look: uLook,
+      barMode: uBarMode,
+      bar: uBar,
+      dock: uDock,
+      dockVisible: uDockVis,
+      before: memory[active.id],
+    );
+    if (diff.isEmpty) {
+      memory.remove(active.id);
+    } else {
+      memory[active.id] = diff;
+    }
+    final recalled = next.recall(memory[next.id]);
+    active = next;
+    uLook = recalled.look;
+    uBarMode = recalled.barMode;
+    uBar = Map<String, Object?>.of(recalled.bar);
+    uDock = Map<String, Object?>.of(recalled.dock);
+    if (recalled.dockVisible != null) uDockVis = recalled.dockVisible!;
+  }
+
+  // Edit Denial: turn dock OFF and change groundOpacity.
+  uDockVis = false;
+  uBar['groundOpacity'] = 0.77;
+  // Switch to Mac (dockVisible: true), then HyprPanel (dockVisible: false), then back to Denial.
+  switchTo(ShellPreset.mac);
+  _expect(uDockVis == true, 'switching to mac turns dock on');
+  switchTo(ShellPreset.byId('hyprpanel'));
+  _expect(uDockVis == false, 'switching to hyprpanel turns dock off');
+  switchTo(ShellPreset.denial);
+  _expect(
+    uDockVis == false && uBar['groundOpacity'] == 0.77,
+    'A->B->C->A ring preserves custom dockVisible and bar edits on Denial',
   );
 
   // 3. Caelestia preset & Segments split end zone checks.

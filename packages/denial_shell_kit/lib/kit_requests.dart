@@ -34,14 +34,13 @@ abstract final class KitRequests {
   }
 
   /// Dispatches a search request to a registered Spotlight/launcher plugin,
-  /// broadcasting [search] on [stream] and invoking [fallback] if unhandled.
+  /// invoking [fallback] only when no search handler claims it.
   static void triggerSearch({
     required void Function() fallback,
     int? monitorId,
   }) {
     final handler = _searchHandler;
     if (handler != null && handler(monitorId)) return;
-    send(search, monitorId: monitorId);
     fallback();
   }
 

@@ -34,23 +34,33 @@ double _contrast(int a, int b) {
 void main() {
   // Verify canonical upstream palette hex values stay intact.
   _expect(
-    KitPalette.catppuccin.light.accent == 0x8839ef,
-    'Catppuccin Latte keeps official mauve #8839ef',
+    KitPalette.catppuccin.light.accent == 0x8839ef &&
+        KitPalette.catppuccin.dark.surface == 0x1e1e2e &&
+        KitPalette.catppuccin.light.surface == 0xeff1f5,
+    'Catppuccin Mocha/Latte keep official upstream hex values',
   );
   _expect(
     KitPalette.adwaita.dark.accent == 0x3584e4 &&
-        KitPalette.adwaita.light.accent == 0x3584e4,
-    'Adwaita keeps official blue #3584e4',
+        KitPalette.adwaita.light.accent == 0x3584e4 &&
+        KitPalette.adwaita.dark.background == 0x242424 &&
+        KitPalette.adwaita.light.background == 0xfafafa,
+    'Adwaita keeps official libadwaita hex values',
   );
   _expect(
-    KitPalette.tokyoNight.light.text == 0x3760bf,
-    'Tokyo Night Day keeps official fg #3760bf',
+    KitPalette.tokyoNight.light.text == 0x3760bf &&
+        KitPalette.tokyoNight.light.surface == 0xe1e2e7 &&
+        KitPalette.tokyoNight.light.background == 0xd0d5e3 &&
+        KitPalette.tokyoNight.light.subtext == 0x6172b0,
+    'Tokyo Night Day keeps official folke/tokyonight.nvim hex values',
+  );
+  _expect(
+    KitPalette.nord.dark.background == 0x2e3440 &&
+        KitPalette.nord.dark.surface == 0x3b4252,
+    'Nord keeps official Polar Night nord0/nord1 hex values',
   );
 
-  // Verify actual rendered foreground/background pairs remain legible:
-  // primary text on surface/raised >= 4.2 (honoring official upstream Day
-  // palettes) and onAccent chooses the higher-contrast ink against accent
-  // (>= 3.5, with dark/light ink paired properly).
+  // Verify actual rendered foreground/background pairs remain legible across
+  // primary text, subtext, and onAccent ink pairs.
   for (final palette in KitPalette.all) {
     for (final (name, tones) in <(String, KitTones)>[
       ('dark', palette.dark),
@@ -58,6 +68,7 @@ void main() {
     ]) {
       final textOnSurface = _contrast(tones.text, tones.surface);
       final textOnRaised = _contrast(tones.text, tones.raised);
+      final subOnSurface = _contrast(tones.subtext, tones.surface);
       final onAccent = _contrast(tones.onAccent, tones.accent);
       _expect(
         textOnSurface >= 4.2,
@@ -66,6 +77,10 @@ void main() {
       _expect(
         textOnRaised >= 3.5,
         '${palette.id}.$name text/raised contrast too low: $textOnRaised',
+      );
+      _expect(
+        subOnSurface >= 3.0,
+        '${palette.id}.$name subtext/surface contrast too low: $subOnSurface',
       );
       _expect(
         onAccent >= 3.5,

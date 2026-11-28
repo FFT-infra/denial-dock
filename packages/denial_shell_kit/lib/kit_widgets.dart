@@ -387,7 +387,7 @@ class KitWidgetRegistry {
   }
 
   /// Registers or updates a user custom widget.
-  void registerCustom(KitCustomWidgetDef def) {
+  void registerCustom(KitCustomWidgetDef def, {bool notify = true}) {
     _specs[def.id] = KitWidgetSpec(
       id: def.id,
       title: def.title,
@@ -403,7 +403,7 @@ class KitWidgetRegistry {
       defaultSize: def.defaultSize,
       custom: def,
     );
-    _notify();
+    if (notify) _notify();
   }
 
   void removeCustom(String id) {
@@ -414,15 +414,18 @@ class KitWidgetRegistry {
   }
 
   /// Loads persisted custom widget definitions from a JSON list.
-  void loadCustomJson(Object? raw) {
+  ///
+  /// Pass `notify: false` during lazy startup hydration so listeners are not
+  /// triggered synchronously inside a widget `build()`.
+  void loadCustomJson(Object? raw, {bool notify = true}) {
     _specs.removeWhere((_, spec) => spec.isCustom);
     if (raw is List) {
       for (final item in raw) {
         final def = KitCustomWidgetDef.fromJson(item);
-        if (def != null) registerCustom(def);
+        if (def != null) registerCustom(def, notify: false);
       }
     }
-    _notify();
+    if (notify) _notify();
   }
 
   List<Map<String, Object?>> exportCustomJson() => <Map<String, Object?>>[

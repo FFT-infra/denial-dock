@@ -230,7 +230,7 @@ class KitPalette {
     ),
   );
 
-  /// Tokyo Night: Night in the dark, Day in the light.
+  /// Tokyo Night: official `folke/tokyonight.nvim` Night (dark) & Day (light).
   static const KitPalette tokyoNight = KitPalette(
     id: 'tokyo-night',
     label: 'Tokyo Night',
@@ -246,25 +246,26 @@ class KitPalette {
       onAccent: 0x16161e,
     ),
     light: KitTones(
-      background: 0xe6e8ef,
-      surface: 0xf1f3f8,
-      raised: 0xdce0eb,
+      background: 0xd0d5e3,
+      surface: 0xe1e2e7,
+      raised: 0xc4c8da,
       text: 0x3760bf,
-      subtext: 0x5669a3,
-      faint: 0x7c86ad,
-      outline: 0xb6bdd1,
+      subtext: 0x6172b0,
+      faint: 0x848cb5,
+      outline: 0xa8aecb,
       accent: 0x2e7de9,
       onAccent: 0xffffff,
     ),
   );
 
+  /// Official Nord Polar Night (`nord0..3`) & Snow Storm (`nord4..6`) + Frost.
   static const KitPalette nord = KitPalette(
     id: 'nord',
     label: 'Nord',
     dark: KitTones(
-      background: 0x242933,
-      surface: 0x2e3440,
-      raised: 0x3b4252,
+      background: 0x2e3440,
+      surface: 0x3b4252,
+      raised: 0x434c5e,
       text: 0xeceff4,
       subtext: 0xd8dee9,
       faint: 0x7b88a1,
@@ -424,25 +425,25 @@ class KitPalette {
     ),
   );
 
-  /// The greys and the blue of GNOME's Adwaita.
+  /// The greys and the blue of GNOME's libadwaita (`@window_bg_color` / `@card_bg_color`).
   static const KitPalette adwaita = KitPalette(
     id: 'adwaita',
     label: 'Adwaita',
     dark: KitTones(
-      background: 0x1d1d20,
-      surface: 0x2a2a2e,
-      raised: 0x3a3a3f,
+      background: 0x242424,
+      surface: 0x303030,
+      raised: 0x3d3d3d,
       text: 0xffffff,
       subtext: 0xc0bfbc,
       faint: 0x9a9996,
-      outline: 0x47474c,
+      outline: 0x4f4f4f,
       accent: 0x3584e4,
       onAccent: 0xffffff,
     ),
     light: KitTones(
-      background: 0xebebed,
-      surface: 0xfafafb,
-      raised: 0xe1e1e4,
+      background: 0xfafafa,
+      surface: 0xffffff,
+      raised: 0xebebeb,
       text: 0x1f1f23,
       subtext: 0x5e5c64,
       faint: 0x77767b,
