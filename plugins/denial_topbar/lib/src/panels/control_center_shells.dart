@@ -77,15 +77,43 @@ class _ShellControlCenterViewState
   GlobalKey? _keyFor(String id) =>
       widget.tileKeys?.putIfAbsent(id, GlobalKey.new);
 
+  static final RegExp _ws = RegExp(r'\s+');
+  static final String _userHost = _resolveUserHost();
+
+  static String _resolveUserHost() {
+    final user = Platform.environment['USER'] ?? 'user';
+    final host = Platform.localHostname;
+    return host.isEmpty ? user : '$user@$host';
+  }
+
+  bool _sampling = false;
+
+  void _syncStatsTimer() {
+    if (archetype == KitShellArchetype.hyprpanel) {
+      if (_statsTimer == null) {
+        unawaited(_sampleStats());
+        _statsTimer = Timer.periodic(
+          const Duration(seconds: 2),
+          (_) => unawaited(_sampleStats()),
+        );
+      }
+    } else {
+      _statsTimer?.cancel();
+      _statsTimer = null;
+    }
+  }
+
   @override
   void initState() {
     super.initState();
-    if (archetype == KitShellArchetype.hyprpanel) {
-      unawaited(_sampleStats());
-      _statsTimer = Timer.periodic(
-        const Duration(seconds: 2),
-        (_) => unawaited(_sampleStats()),
-      );
+    _syncStatsTimer();
+  }
+
+  @override
+  void didUpdateWidget(covariant ShellControlCenterView oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.archetype != widget.archetype) {
+      _syncStatsTimer();
     }
   }
 
@@ -96,9 +124,11 @@ class _ShellControlCenterViewState
   }
 
   Future<void> _sampleStats() async {
+    if (_sampling) return;
+    _sampling = true;
     try {
       final stat = await File('/proc/stat').readAsString();
-      final line = stat.split('\n').first.trim().split(RegExp(r'\s+'));
+      final line = stat.split('\n').first.trim().split(_ws);
       if (line.length >= 5) {
         final nums = <int>[
           for (var i = 1; i < line.length; i++) int.tryParse(line[i]) ?? 0,
@@ -119,16 +149,19 @@ class _ShellControlCenterViewState
       var memAvail = 0;
       for (final row in mem.split('\n')) {
         if (row.startsWith('MemTotal:')) {
-          memTotal = int.tryParse(row.split(RegExp(r'\s+'))[1]) ?? 0;
+          memTotal = int.tryParse(row.split(_ws)[1]) ?? 0;
         } else if (row.startsWith('MemAvailable:')) {
-          memAvail = int.tryParse(row.split(RegExp(r'\s+'))[1]) ?? 0;
+          memAvail = int.tryParse(row.split(_ws)[1]) ?? 0;
         }
       }
       if (memTotal > 0) {
         _ramLoad = ((memTotal - memAvail) / memTotal).clamp(0.0, 1.0);
       }
       if (mounted) setState(() {});
-    } catch (_) {}
+    } catch (_) {
+    } finally {
+      _sampling = false;
+    }
   }
 
   void _toggleMute(double current) {
@@ -142,12 +175,6 @@ class _ShellControlCenterViewState
       services.setVolume(next);
       services.commitVolume(next);
     }
-  }
-
-  static String get _userHost {
-    final user = Platform.environment['USER'] ?? 'user';
-    final host = Platform.localHostname;
-    return host.isEmpty ? user : '$user@$host';
   }
 
   @override
@@ -176,12 +203,23 @@ class _ShellControlCenterViewState
       ),
     );
     final wifi = ref.watch(services.connectedWifi);
-    final bt = ref.watch(bluetoothProvider);
+    final bt = ref.watch(
+      bluetoothProvider.select((b) {
+        final names = <String>[
+          for (final d in b.devices)
+            if (d.connected) d.name,
+        ];
+        return (
+          available: b.available,
+          powered: b.powered,
+          connected: names.join(', '),
+        );
+      }),
+    );
     final btOn = bt.available && bt.powered;
-    final btConnected = <String>[
-      for (final d in bt.devices)
-        if (d.connected) d.name,
-    ];
+    final btConnected = bt.connected.isEmpty
+        ? const <String>[]
+        : bt.connected.split(', ');
     final focus = ref.watch(
       desktopNotificationsProvider.select((state) => state.doNotDisturb),
     );

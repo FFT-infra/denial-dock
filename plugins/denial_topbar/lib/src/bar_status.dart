@@ -192,28 +192,22 @@ class BarStatusCluster extends ConsumerWidget {
   Widget build(BuildContext context, WidgetRef ref) {
     final trayVisible = ref.watch(services.trayVisible);
     final trayIds = ref.watch(services.trayItemIds);
-    final wifi = ref.watch(services.connectedWifi);
-    final volume = ref.watch(services.volume);
-    final audible = ref.watch(services.volumeAvailable);
-    final battery = ref.watch(services.battery);
-    final plugged = ref.watch(
-      upowerProvider.select((state) => state.snapshot?.onBattery == false),
-    );
-    final bluetooth = ref.watch(bluetoothProvider);
-    final headphones = ref.watch(
-      audioDevicesProvider.select((state) {
-        final active = state.activeDevice;
-        return active != null &&
-            outputDeviceIcon(active) == BarIcons.headphones;
-      }),
-    );
-    final unread = ref.watch(
-      desktopNotificationsProvider.select((state) => state.unreadCount),
-    );
-    final keyboard = ref.watch(
-      keyboardConfigurationProvider.select((state) => state.configuration),
-    );
-    final textInput = ref.watch(_textInputActiveProvider).value;
+    final hasBattery =
+        settings.showBattery &&
+        ref.watch(services.battery.select((b) => b.capacity != null));
+    final btAvailable =
+        settings.showBluetooth &&
+        ref.watch(bluetoothProvider.select((b) => b.available));
+    final keyboard = settings.showKeyboard
+        ? ref.watch(
+            keyboardConfigurationProvider.select(
+              (state) => state.configuration,
+            ),
+          )
+        : null;
+    final textInput = settings.showKeyboard
+        ? ref.watch(_textInputActiveProvider).value
+        : null;
     final keyboardLayouts = keyboard?.layouts ?? const [];
     final activeLayout = keyboardLayouts.isEmpty
         ? null
@@ -315,104 +309,141 @@ class BarStatusCluster extends ConsumerWidget {
           ],
         ),
       if (settings.showWifi)
-        'wifi': BarStatusCell(
-          key: wifiKey,
-          ink: ink,
-          width: span(BarTokens.statusCellWidth),
-          onTap: onWifi,
-          tooltip: wifi?.ssid ?? 'Wi-Fi',
-          open: openPanel == 'wifi',
-          child: wifi == null
-              ? BarGlyph(
-                  BarIcons.wifiSlash,
-                  size: BarTokens.statusGlyphSize,
-                  color: ink.withValues(alpha: 0.55),
-                )
-              : WifiGlyph(
-                  size: BarTokens.statusIconSize,
-                  color: ink,
-                  strength: wifiSignalArcs(wifi.strength),
-                ),
+        'wifi': Consumer(
+          builder: (context, ref, _) {
+            final wifi = ref.watch(services.connectedWifi);
+            return BarStatusCell(
+              key: wifiKey,
+              ink: ink,
+              width: span(BarTokens.statusCellWidth),
+              onTap: onWifi,
+              tooltip: wifi?.ssid ?? 'Wi-Fi',
+              open: openPanel == 'wifi',
+              child: wifi == null
+                  ? BarGlyph(
+                      BarIcons.wifiSlash,
+                      size: BarTokens.statusGlyphSize,
+                      color: ink.withValues(alpha: 0.55),
+                    )
+                  : WifiGlyph(
+                      size: BarTokens.statusIconSize,
+                      color: ink,
+                      strength: wifiSignalArcs(wifi.strength),
+                    ),
+            );
+          },
         ),
-      if (settings.showBluetooth && bluetooth.available)
-        'bluetooth': BarStatusCell(
-          key: bluetoothKey,
-          ink: ink,
-          width: span(BarTokens.statusCellWidth),
-          onTap: onBluetooth,
-          tooltip: context.tr('Bluetooth'),
-          open: openPanel == 'bluetooth',
-          child: BarGlyph(
-            BarIcons.bluetooth,
-            size: BarTokens.statusIconSize,
-            color: ink.withValues(alpha: bluetooth.powered ? 1 : 0.45),
-          ),
+      if (btAvailable)
+        'bluetooth': Consumer(
+          builder: (context, ref, _) {
+            final powered = ref.watch(
+              bluetoothProvider.select((state) => state.powered),
+            );
+            return BarStatusCell(
+              key: bluetoothKey,
+              ink: ink,
+              width: span(BarTokens.statusCellWidth),
+              onTap: onBluetooth,
+              tooltip: context.tr('Bluetooth'),
+              open: openPanel == 'bluetooth',
+              child: BarGlyph(
+                BarIcons.bluetooth,
+                size: BarTokens.statusIconSize,
+                color: ink.withValues(alpha: powered ? 1 : 0.45),
+              ),
+            );
+          },
         ),
       if (settings.showVolume)
-        'volume': Listener(
-          onPointerSignal: (event) {
-            if (event is! PointerScrollEvent || !audible) return;
-            final dy = event.scrollDelta.dy;
-            if (dy == 0) return;
-            final delta = dy < 0 ? 0.05 : -0.05;
-            final next = (volume + delta).clamp(0.0, 1.0).toDouble();
-            services.setVolume(next);
-          },
-          child: BarStatusCell(
-            key: volumeKey,
-            ink: ink,
-            width: span(BarTokens.statusCellWidth),
-            onTap: onVolume,
-            tooltip: audible
-                ? '${context.tr('Sound')} ${(volume * 100).round()}%'
-                : '${context.tr('Sound')} · ${context.tr('Unavailable')}',
-            open: openPanel == 'volume',
-            child: BarGlyph(
-              headphones
-                  ? BarIcons.headphones
-                  : volume <= 0.001
-                  ? BarIcons.speakerSlashFill
-                  : (volume < 0.34 ? BarIcons.volumeDown : BarIcons.volumeUp),
-              size: BarTokens.statusIconSize,
-              // Dim until an audio service has reported a level.
-              color: audible ? ink : ink.withValues(alpha: 0.45),
-            ),
-          ),
-        ),
-      if (settings.showBattery && battery.capacity != null)
-        'battery': Listener(
-          onPointerSignal: (event) {
-            if (event is! PointerScrollEvent) return;
-            final dy = event.scrollDelta.dy;
-            if (dy == 0) return;
-            _stepPrimaryBrightness(ref, dy < 0 ? 0.05 : -0.05);
-          },
-          child: BarStatusCell(
-            key: batteryKey,
-            ink: ink,
-            width: span(percent ? 63 : 39),
-            onTap: onBattery,
-            tooltip: '${context.tr('Battery')} ${battery.capacity}%',
-            open: openPanel == 'battery',
-            child: Row(
-              mainAxisSize: MainAxisSize.min,
-              children: <Widget>[
-                if (percent)
-                  Padding(
-                    padding: const EdgeInsets.only(right: 5),
-                    child: Text(
-                      '${battery.capacity}%',
-                      style: BarType.batteryPercent.copyWith(color: ink),
-                    ),
-                  ),
-                BatteryGlyph(
-                  level: (battery.capacity ?? 0) / 100,
-                  colour: ink,
-                  charging: battery.charging || plugged,
+        'volume': Consumer(
+          builder: (context, ref, _) {
+            final volume = ref.watch(services.volume);
+            final audible = ref.watch(services.volumeAvailable);
+            final headphones = ref.watch(
+              audioDevicesProvider.select((state) {
+                final active = state.activeDevice;
+                return active != null &&
+                    outputDeviceIcon(active) == BarIcons.headphones;
+              }),
+            );
+            return Listener(
+              onPointerSignal: (event) {
+                if (event is! PointerScrollEvent || !audible) return;
+                final dy = event.scrollDelta.dy;
+                if (dy == 0) return;
+                final delta = dy < 0 ? 0.05 : -0.05;
+                final next = (volume + delta).clamp(0.0, 1.0).toDouble();
+                services.setVolume(next);
+              },
+              child: BarStatusCell(
+                key: volumeKey,
+                ink: ink,
+                width: span(BarTokens.statusCellWidth),
+                onTap: onVolume,
+                tooltip: audible
+                    ? '${context.tr('Sound')} ${(volume * 100).round()}%'
+                    : '${context.tr('Sound')} · ${context.tr('Unavailable')}',
+                open: openPanel == 'volume',
+                child: BarGlyph(
+                  headphones
+                      ? BarIcons.headphones
+                      : volume <= 0.001
+                      ? BarIcons.speakerSlashFill
+                      : (volume < 0.34
+                            ? BarIcons.volumeDown
+                            : BarIcons.volumeUp),
+                  size: BarTokens.statusIconSize,
+                  // Dim until an audio service has reported a level.
+                  color: audible ? ink : ink.withValues(alpha: 0.45),
                 ),
-              ],
-            ),
-          ),
+              ),
+            );
+          },
+        ),
+      if (hasBattery)
+        'battery': Consumer(
+          builder: (context, ref, _) {
+            final battery = ref.watch(services.battery);
+            final plugged = ref.watch(
+              upowerProvider.select(
+                (state) => state.snapshot?.onBattery == false,
+              ),
+            );
+            return Listener(
+              onPointerSignal: (event) {
+                if (event is! PointerScrollEvent) return;
+                final dy = event.scrollDelta.dy;
+                if (dy == 0) return;
+                _stepPrimaryBrightness(ref, dy < 0 ? 0.05 : -0.05);
+              },
+              child: BarStatusCell(
+                key: batteryKey,
+                ink: ink,
+                width: span(percent ? 63 : 39),
+                onTap: onBattery,
+                tooltip: '${context.tr('Battery')} ${battery.capacity ?? 0}%',
+                open: openPanel == 'battery',
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: <Widget>[
+                    if (percent)
+                      Padding(
+                        padding: const EdgeInsets.only(right: 5),
+                        child: Text(
+                          '${battery.capacity ?? 0}%',
+                          style: BarType.batteryPercent.copyWith(color: ink),
+                        ),
+                      ),
+                    BatteryGlyph(
+                      level: (battery.capacity ?? 0) / 100,
+                      colour: ink,
+                      charging: battery.charging || plugged,
+                    ),
+                  ],
+                ),
+              ),
+            );
+          },
         ),
       if (showKeyboardCell && activeLayout != null)
         'keyboard': BarStatusCell(
@@ -465,36 +496,43 @@ class BarStatusCluster extends ConsumerWidget {
           ),
         ),
       if (settings.showNotifications && !settings.mergedNotificationCenter)
-        'notifications': BarStatusCell(
-          key: notificationsKey,
-          ink: ink,
-          width: span(BarTokens.statusCellWidth),
-          onTap: onNotifications,
-          tooltip: context.tr('Notifications'),
-          open: openPanel == 'notifications',
-          child: Stack(
-            clipBehavior: Clip.none,
-            children: <Widget>[
-              BarGlyph(
-                unread > 0 ? BarIcons.bellFill : BarIcons.bell,
-                size: BarTokens.statusIconSize,
-                color: ink,
-              ),
-              if (unread > 0)
-                Positioned(
-                  right: -3,
-                  top: -2,
-                  child: Container(
-                    width: 7,
-                    height: 7,
-                    decoration: BoxDecoration(
-                      color: const Color(0xffff453a),
-                      borderRadius: KitStyle.of(context).disc(7),
-                    ),
+        'notifications': Consumer(
+          builder: (context, ref, _) {
+            final unread = ref.watch(
+              desktopNotificationsProvider.select((state) => state.unreadCount),
+            );
+            return BarStatusCell(
+              key: notificationsKey,
+              ink: ink,
+              width: span(BarTokens.statusCellWidth),
+              onTap: onNotifications,
+              tooltip: context.tr('Notifications'),
+              open: openPanel == 'notifications',
+              child: Stack(
+                clipBehavior: Clip.none,
+                children: <Widget>[
+                  BarGlyph(
+                    unread > 0 ? BarIcons.bellFill : BarIcons.bell,
+                    size: BarTokens.statusIconSize,
+                    color: ink,
                   ),
-                ),
-            ],
-          ),
+                  if (unread > 0)
+                    Positioned(
+                      right: -3,
+                      top: -2,
+                      child: Container(
+                        width: 7,
+                        height: 7,
+                        decoration: BoxDecoration(
+                          color: const Color(0xffff453a),
+                          borderRadius: KitStyle.of(context).disc(7),
+                        ),
+                      ),
+                    ),
+                ],
+              ),
+            );
+          },
         ),
       if (settings.showControlCenter)
         'controlcenter': Listener(
@@ -538,13 +576,17 @@ class BarStatusCluster extends ConsumerWidget {
           ),
         ),
     };
-    final recording = ref.watch(screenRecordingProvider);
+    final recording = ref.watch(
+      screenRecordingProvider.select((state) => state.recording),
+    );
     final wantMic = settings.showMic || settings.activityStatus;
     final wantClip = settings.showClipboard;
-    scheduleMicrotask(() {
-      micWatch.setRunning(wantMic);
-      unawaited(clipboardWatch.setRunning(wantClip));
-    });
+    if (micWatch.wanted != wantMic || clipboardWatch.wanted != wantClip) {
+      scheduleMicrotask(() {
+        micWatch.setRunning(wantMic);
+        unawaited(clipboardWatch.setRunning(wantClip));
+      });
+    }
     final micUsers = settings.showMic
         ? ref.watch(_micProvider)
         : const <String>[];
@@ -574,7 +616,7 @@ class BarStatusCluster extends ConsumerWidget {
             ),
           ),
         ),
-      if (settings.showRecording && recording.recording)
+      if (settings.showRecording && recording)
         _wrapCell(
           id: 'recording',
           pill: settings.partPill,

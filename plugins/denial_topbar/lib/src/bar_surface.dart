@@ -338,8 +338,6 @@ class _TopBarSurfaceState extends ConsumerState<TopBarSurface>
     final bodyHeight = math.max(BarTokens.height, thickness - margin * 2);
     final wallpaper = ref.watch(wallpaperAccentProvider).color;
     final ink = BarGroundLayer.inkFor(wallpaper, settings, theme);
-    final now = ref.watch(_services.clock).value ?? DateTime.now();
-    final strings = _services.strings(context);
     final zones = settings.zones;
     // A bar that draws only its island has one whatever the layout says.
     final mode = kitBarModeInForce;
@@ -362,17 +360,21 @@ class _TopBarSurfaceState extends ConsumerState<TopBarSurface>
         ? workspacesExtent(workspaceStatus.count, settings.workspaceStyle) + 4.0
         : 0.0;
 
-    BarClock clockIn(Color ink) => _clockFor(
-      context,
+    void clockTap() => _openClock(settings);
+    Widget clockIn(Color clockInk) => _BarClockPart(
+      clockKey: _clockKey,
+      services: _services,
       settings: settings,
-      ink: ink,
-      now: now,
+      ink: clockInk,
+      vertical: !_horizontal,
       crossExtent: bodyHeight,
+      open: _openPanelId == 'clock',
+      onTap: clockTap,
+      dateLabel: _dateLabel,
     );
-    final clock = clockIn(ink);
 
     BarButton.tips = settings.tooltips && _horizontal;
-    _clockTap = clock.onTap;
+    _clockTap = clockTap;
     final status = _statusFor(
       settings: settings,
       ink: ink,
@@ -398,10 +400,9 @@ class _TopBarSurfaceState extends ConsumerState<TopBarSurface>
             settings: islandOptions.effective,
             height: islandHeight,
             reserved: _islandReserved,
-            timeLabel: strings.time(now),
-            dateLabel: clock.date,
+            dateLabelFor: (ctx, now) => _dateLabel(ctx, settings, now),
             onControlCenter: status.onControlCenter,
-            onNotifications: clock.onTap,
+            onNotifications: clockTap,
             notch: settings.islandNotch && _side == PanelEdge.top,
             workspace: workspaceInIsland
                 ? BarWorkspaces(
@@ -461,7 +462,7 @@ class _TopBarSurfaceState extends ConsumerState<TopBarSurface>
         barHeight: bodyHeight,
       ),
       BarPart.app: (part) => _AppMenuPart(bar: this, ink: part.ink),
-      BarPart.clock: (part) => part.ink == ink ? clock : clockIn(part.ink),
+      BarPart.clock: (part) => clockIn(part.ink),
       BarPart.status: (part) => status.view(ink: part.ink, omit: loneStatus),
       for (final item in barStatusItems)
         BarPart.statusItem(item): (part) =>
@@ -940,6 +941,48 @@ class _TopBarSurfaceState extends ConsumerState<TopBarSurface>
     final segment = appId.split('.').last;
     if (segment.isEmpty) return 'Denial';
     return segment[0].toUpperCase() + segment.substring(1);
+  }
+}
+
+/// Watches [services.clock] in isolation so minute/second ticks only rebuild
+/// the clock widget instead of the entire top bar.
+class _BarClockPart extends ConsumerWidget {
+  const _BarClockPart({
+    required this.clockKey,
+    required this.services,
+    required this.settings,
+    required this.ink,
+    required this.vertical,
+    required this.crossExtent,
+    required this.open,
+    required this.onTap,
+    required this.dateLabel,
+  });
+
+  final GlobalKey clockKey;
+  final ShellServices services;
+  final BarSettings settings;
+  final Color ink;
+  final bool vertical;
+  final double crossExtent;
+  final bool open;
+  final VoidCallback onTap;
+  final String Function(BuildContext, BarSettings, DateTime) dateLabel;
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final now = ref.watch(services.clock).value ?? DateTime.now();
+    return BarClock(
+      key: clockKey,
+      time: services.strings(context).time(now),
+      date: dateLabel(context, settings, now),
+      showDate: settings.showClockDate,
+      vertical: vertical,
+      crossExtent: crossExtent,
+      ink: ink,
+      open: open,
+      onTap: onTap,
+    );
   }
 }
 

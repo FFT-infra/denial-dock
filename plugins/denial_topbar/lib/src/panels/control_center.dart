@@ -201,7 +201,13 @@ class _ControlCenterPanelState extends ConsumerState<ControlCenterPanel>
   ShellServices get services => widget.services;
 
   void _onTrayNames() {
-    if (mounted) setState(() {});
+    if (!mounted) return;
+    final settings =
+        ref.read(barSettingsProvider).value ?? BarSettings.defaults;
+    if (settings.showTray &&
+        settings.trayFoldInForce == BarTrayFold.controlCenter) {
+      setState(() {});
+    }
   }
 
   @override
@@ -370,24 +376,26 @@ class _ControlCenterPanelState extends ConsumerState<ControlCenterPanel>
             child: rawDetail,
           )
         : rawDetail;
+    final Widget homeBody = useCustomShell
+        ? ShellControlCenterView(
+            archetype: archetype,
+            services: services,
+            output: widget.output,
+            tileKeys: _tileKeys,
+            onOpenPage: _go,
+            onSettings: widget.onSettings,
+            onConfirmPower: widget.onConfirmPower,
+            onClose: widget.onClose,
+          )
+        : _grid(context);
     final home = KeyedSubtree(
       key: const ValueKey<String>('home'),
       child: ExcludeFocus(
         excluding: _page.isNotEmpty,
-        child: KitEntrance(
-          child: useCustomShell
-              ? ShellControlCenterView(
-                  archetype: archetype,
-                  services: services,
-                  output: widget.output,
-                  tileKeys: _tileKeys,
-                  onOpenPage: _go,
-                  onSettings: widget.onSettings,
-                  onConfirmPower: widget.onConfirmPower,
-                  onClose: widget.onClose,
-                )
-              : _grid(context),
-        ),
+        // Floating modules carry their own grouped BackdropFilters and scale in
+        // with KitSwell; wrapping them in KitEntrance's Opacity layer triggers
+        // Impeller SetInheritedOpacity validation errors and extra saveLayers.
+        child: floating ? homeBody : KitEntrance(child: homeBody),
       ),
     );
     final page = detail == null
@@ -551,49 +559,73 @@ class _ControlCenterPanelState extends ConsumerState<ControlCenterPanel>
 
     switch (id) {
       case 'wifi':
-        final on = ref.watch(
-          networkConnectivityProvider.select(
-            (state) => state.snapshot.wirelessEnabled,
-          ),
-        );
-        final wifi = ref.watch(services.connectedWifi);
-        return capsule(
-          _Capsule(
-            icon: on ? BarIcons.wifi : BarIcons.wifiSlash,
-            on: on,
-            title: 'Wi-Fi',
-            detail: !on
-                ? context.tr('Off')
-                : (wifi?.ssid ?? context.tr('Not Connected')),
-            onToggle: () => ref
-                .read(networkConnectivityProvider.notifier)
-                .setWirelessEnabled(!on),
-            onOpen: () => _go('wifi'),
+        return sized(
+          const TileSize(2, 1),
+          Consumer(
+            builder: (context, ref, _) {
+              final on = ref.watch(
+                networkConnectivityProvider.select(
+                  (state) => state.snapshot.wirelessEnabled,
+                ),
+              );
+              final wifi = ref.watch(services.connectedWifi);
+              return fit(
+                _Capsule(
+                  icon: on ? BarIcons.wifi : BarIcons.wifiSlash,
+                  on: on,
+                  title: 'Wi-Fi',
+                  detail: !on
+                      ? context.tr('Off')
+                      : (wifi?.ssid ?? context.tr('Not Connected')),
+                  onToggle: () => ref
+                      .read(networkConnectivityProvider.notifier)
+                      .setWirelessEnabled(!on),
+                  onOpen: () => _go('wifi'),
+                ),
+                const TileSize(2, 1),
+              );
+            },
           ),
         );
       case 'bluetooth':
-        final bluetooth = ref.watch(bluetoothProvider);
-        final on = bluetooth.available && bluetooth.powered;
-        final connected = <String>[
-          for (final device in bluetooth.devices)
-            if (device.connected) device.name,
-        ];
-        return capsule(
-          _Capsule(
-            icon: BarIcons.bluetooth,
-            on: on,
-            title: context.tr('Bluetooth'),
-            detail: !bluetooth.available
-                ? context.tr('Unavailable')
-                : !on
-                ? context.tr('Off')
-                : connected.isEmpty
-                ? context.tr('On')
-                : connected.join(', '),
-            onToggle: bluetooth.available
-                ? () => ref.read(bluetoothProvider.notifier).togglePower()
-                : null,
-            onOpen: () => _go('bluetooth'),
+        return sized(
+          const TileSize(2, 1),
+          Consumer(
+            builder: (context, ref, _) {
+              final bt = ref.watch(
+                bluetoothProvider.select((b) {
+                  final names = <String>[
+                    for (final device in b.devices)
+                      if (device.connected) device.name,
+                  ];
+                  return (
+                    available: b.available,
+                    powered: b.powered,
+                    connected: names.join(', '),
+                  );
+                }),
+              );
+              final on = bt.available && bt.powered;
+              return fit(
+                _Capsule(
+                  icon: BarIcons.bluetooth,
+                  on: on,
+                  title: context.tr('Bluetooth'),
+                  detail: !bt.available
+                      ? context.tr('Unavailable')
+                      : !on
+                      ? context.tr('Off')
+                      : bt.connected.isEmpty
+                      ? context.tr('On')
+                      : bt.connected,
+                  onToggle: bt.available
+                      ? () => ref.read(bluetoothProvider.notifier).togglePower()
+                      : null,
+                  onOpen: () => _go('bluetooth'),
+                ),
+                const TileSize(2, 1),
+              );
+            },
           ),
         );
       case 'media':
@@ -603,29 +635,49 @@ class _ControlCenterPanelState extends ConsumerState<ControlCenterPanel>
           child: _MediaTile(services: services),
         );
       case 'focus':
-        final focus = ref.watch(
-          desktopNotificationsProvider.select((state) => state.doNotDisturb),
-        );
-        return capsule(
-          _Capsule(
-            icon: BarIcons.moonFill,
-            on: focus,
-            colour: macPurple,
-            title: context.tr('Focus'),
-            detail: context.tr(focus ? 'On' : 'Off'),
-            onToggle: () => ref
-                .read(desktopNotificationsProvider.notifier)
-                .toggleDoNotDisturb(),
+        return sized(
+          const TileSize(2, 1),
+          Consumer(
+            builder: (context, ref, _) {
+              final focus = ref.watch(
+                desktopNotificationsProvider.select(
+                  (state) => state.doNotDisturb,
+                ),
+              );
+              return fit(
+                _Capsule(
+                  icon: BarIcons.moonFill,
+                  on: focus,
+                  colour: macPurple,
+                  title: context.tr('Focus'),
+                  detail: context.tr(focus ? 'On' : 'Off'),
+                  onToggle: () => ref
+                      .read(desktopNotificationsProvider.notifier)
+                      .toggleDoNotDisturb(),
+                ),
+                const TileSize(2, 1),
+              );
+            },
           ),
         );
       case 'dark':
-        final dark = ref.watch(shellSettingsProvider.select(kitSystemIsDark));
-        return round(
-          _Round(
-            icon: BarIcons.circleHalf,
-            on: dark,
-            colour: const Color(0xff636366),
-            onTap: () => setKitSystemDarkMode(ref, !dark),
+        return sized(
+          const TileSize(1, 1),
+          Consumer(
+            builder: (context, ref, _) {
+              final dark = ref.watch(
+                shellSettingsProvider.select(kitSystemIsDark),
+              );
+              return fit(
+                _Round(
+                  icon: BarIcons.circleHalf,
+                  on: dark,
+                  colour: const Color(0xff636366),
+                  onTap: () => setKitSystemDarkMode(ref, !dark),
+                ),
+                const TileSize(1, 1),
+              );
+            },
           ),
         );
       case 'night':
@@ -655,134 +707,182 @@ class _ControlCenterPanelState extends ConsumerState<ControlCenterPanel>
           ),
         );
       case 'power':
-        final power = ref.watch(desktopPowerModesProvider);
-        final saving = power.systemProfile == PowerProfile.powerSave;
-        final fast = power.systemProfile == PowerProfile.performance;
-        return round(
-          _Round(
-            icon: fast ? BarIcons.boltFill : BarIcons.bolt,
-            on: power.systemAvailable && (saving || fast),
-            colour: saving ? macYellow : macBlue,
-            onTap: power.systemAvailable
-                ? () => ref
-                      .read(desktopPowerModesProvider.notifier)
-                      .selectSystemProfile(
-                        PowerProfile.next(power.systemProfile),
-                      )
-                : null,
+        return sized(
+          const TileSize(1, 1),
+          Consumer(
+            builder: (context, ref, _) {
+              final power = ref.watch(
+                desktopPowerModesProvider.select(
+                  (p) => (
+                    available: p.systemAvailable,
+                    profile: p.systemProfile,
+                  ),
+                ),
+              );
+              final saving = power.profile == PowerProfile.powerSave;
+              final fast = power.profile == PowerProfile.performance;
+              return fit(
+                _Round(
+                  icon: fast ? BarIcons.boltFill : BarIcons.bolt,
+                  on: power.available && (saving || fast),
+                  colour: saving ? macYellow : macBlue,
+                  onTap: power.available
+                      ? () => ref
+                            .read(desktopPowerModesProvider.notifier)
+                            .selectSystemProfile(
+                              PowerProfile.next(power.profile),
+                            )
+                      : null,
+                ),
+                const TileSize(1, 1),
+              );
+            },
           ),
         );
       case 'recording':
-        final recording = ref.watch(screenRecordingProvider);
-        return capsule(
-          _Capsule(
-            icon: BarIcons.circleFill,
-            on: recording.recording,
-            colour: macRed,
-            title: context.tr('Screen Recording'),
-            detail: context.tr(recording.recording ? 'On' : 'Off'),
-            onToggle: recording.available
-                ? () => act(
-                    () => ref.read(screenRecordingProvider.notifier).toggle(),
-                  )
-                : null,
+        return sized(
+          const TileSize(2, 1),
+          Consumer(
+            builder: (context, ref, _) {
+              final rec = ref.watch(
+                screenRecordingProvider.select(
+                  (s) => (recording: s.recording, available: s.available),
+                ),
+              );
+              return fit(
+                _Capsule(
+                  icon: BarIcons.circleFill,
+                  on: rec.recording,
+                  colour: macRed,
+                  title: context.tr('Screen Recording'),
+                  detail: context.tr(rec.recording ? 'On' : 'Off'),
+                  onToggle: rec.available
+                      ? () => act(
+                          () => ref
+                              .read(screenRecordingProvider.notifier)
+                              .toggle(),
+                        )
+                      : null,
+                ),
+                const TileSize(2, 1),
+              );
+            },
           ),
         );
       case 'display':
-        final level = ref.watch(
-          displayBrightnessProvider.select(
-            (state) => state.levels[widget.output.monitorId],
-          ),
-        );
-        final brightness = ref.read(displayBrightnessProvider.notifier);
         return Tile(
           id: id,
           size: const TileSize(4, 1),
-          child: _SliderTile(
-            label: context.tr('Display'),
-            reading: level == null ? null : '${(level * 100).round()}%',
-            // No level until the backlight has been read, and none at all
-            // on a screen that has no backlight to set.
-            value: level ?? 0,
-            enabled: level != null,
-            leading: BarIcons.sunMax,
-            trailing: BarIcons.sunMaxFill,
-            onOpen: () => _go('display'),
-            onChanged: (value) => brightness.setLevel(widget.output, value),
-            onChangeEnd: (value) =>
-                brightness.commitLevel(widget.output, value),
+          child: Consumer(
+            builder: (context, ref, _) {
+              final level = ref.watch(
+                displayBrightnessProvider.select(
+                  (state) => state.levels[widget.output.monitorId],
+                ),
+              );
+              final brightness = ref.read(displayBrightnessProvider.notifier);
+              return _SliderTile(
+                label: context.tr('Display'),
+                reading: level == null ? null : '${(level * 100).round()}%',
+                // No level until the backlight has been read, and none at all
+                // on a screen that has no backlight to set.
+                value: level ?? 0,
+                enabled: level != null,
+                leading: BarIcons.sunMax,
+                trailing: BarIcons.sunMaxFill,
+                onOpen: () => _go('display'),
+                onChanged: (value) => brightness.setLevel(widget.output, value),
+                onChangeEnd: (value) =>
+                    brightness.commitLevel(widget.output, value),
+              );
+            },
           ),
         );
       case 'sound':
-        final volume = ref.watch(services.volume);
-        final audible = ref.watch(services.volumeAvailable);
-        final style = KitStyle.of(context);
-        final macFloat =
-            style.archetype == KitShellArchetype.macos &&
-            style.panelStyle == KitPanelStyle.floating;
         return Tile(
           id: id,
           size: const TileSize(4, 1),
-          child: _SliderTile(
-            label: context.tr('Sound'),
-            reading: audible ? '${(volume * 100).round()}%' : null,
-            value: volume,
-            enabled: audible,
-            leading: volume <= 0.001
-                ? BarIcons.speakerSlashFill
-                : BarIcons.speaker1Fill,
-            trailingWidget: Pressable(
-              onTap: () => _go('sound'),
-              scale: Pressable.small,
-              wash: true,
-              darken: true,
-              shape: style.disc(28),
-              child: Container(
-                width: 28,
-                height: 28,
-                decoration: BoxDecoration(
-                  borderRadius: style.disc(28),
-                  color: macFloat
-                      ? const Color(0xffffffff)
-                      : context.shellTheme.colors.textPrimary.withValues(
-                          alpha: 0.14,
-                        ),
+          child: Consumer(
+            builder: (context, ref, _) {
+              final volume = ref.watch(services.volume);
+              final audible = ref.watch(services.volumeAvailable);
+              final style = KitStyle.of(context);
+              final macFloat =
+                  style.archetype == KitShellArchetype.macos &&
+                  style.panelStyle == KitPanelStyle.floating;
+              return _SliderTile(
+                label: context.tr('Sound'),
+                reading: audible ? '${(volume * 100).round()}%' : null,
+                value: volume,
+                enabled: audible,
+                leading: volume <= 0.001
+                    ? BarIcons.speakerSlashFill
+                    : BarIcons.speaker1Fill,
+                trailingWidget: Pressable(
+                  onTap: () => _go('sound'),
+                  scale: Pressable.small,
+                  wash: true,
+                  darken: true,
+                  shape: style.disc(28),
+                  child: Container(
+                    width: 28,
+                    height: 28,
+                    decoration: BoxDecoration(
+                      borderRadius: style.disc(28),
+                      color: macFloat
+                          ? const Color(0xffffffff)
+                          : context.shellTheme.colors.textPrimary.withValues(
+                              alpha: 0.14,
+                            ),
+                    ),
+                    child: BarGlyph(
+                      BarIcons.speaker3Fill,
+                      size: 14,
+                      color: macFloat
+                          ? macBlue
+                          : context.shellTheme.colors.textPrimary,
+                    ),
+                  ),
                 ),
-                child: BarGlyph(
-                  BarIcons.speaker3Fill,
-                  size: 14,
-                  color: macFloat
-                      ? macBlue
-                      : context.shellTheme.colors.textPrimary,
-                ),
-              ),
-            ),
-            onOpen: () => _go('sound'),
-            onChangeStart: services.beginVolumeInteraction,
-            onChanged: services.setVolume,
-            onChangeEnd: services.commitVolume,
+                onOpen: () => _go('sound'),
+                onChangeStart: services.beginVolumeInteraction,
+                onChanged: services.setVolume,
+                onChangeEnd: services.commitVolume,
+              );
+            },
           ),
         );
       case 'battery':
-        final battery = ref.watch(services.battery);
-        if (battery.capacity == null) return null;
-        final plugged =
-            battery.charging ||
-            ref.watch(
-              upowerProvider.select(
-                (state) => state.snapshot?.onBattery == false,
-              ),
-            );
-        return capsule(
-          _Capsule(
-            icon: plugged ? BarIcons.boltFill : BarIcons.batteryFull,
-            on: plugged,
-            colour: macGreen,
-            title: context.tr('Battery'),
-            detail: plugged
-                ? '${battery.capacity}% · ${context.tr('Charging')}'
-                : '${battery.capacity}%',
-            onToggle: widget.onSettings,
+        final hasBattery = ref.watch(
+          services.battery.select((b) => b.capacity != null),
+        );
+        if (!hasBattery) return null;
+        return sized(
+          const TileSize(2, 1),
+          Consumer(
+            builder: (context, ref, _) {
+              final battery = ref.watch(services.battery);
+              final plugged =
+                  battery.charging ||
+                  ref.watch(
+                    upowerProvider.select(
+                      (state) => state.snapshot?.onBattery == false,
+                    ),
+                  );
+              return fit(
+                _Capsule(
+                  icon: plugged ? BarIcons.boltFill : BarIcons.batteryFull,
+                  on: plugged,
+                  colour: macGreen,
+                  title: context.tr('Battery'),
+                  detail: plugged
+                      ? '${battery.capacity}% · ${context.tr('Charging')}'
+                      : '${battery.capacity}%',
+                  onToggle: widget.onSettings,
+                ),
+                const TileSize(2, 1),
+              );
+            },
           ),
         );
       case 'timer':
@@ -821,26 +921,30 @@ class _ControlCenterPanelState extends ConsumerState<ControlCenterPanel>
           ),
         );
       case 'desktop':
-        final active = ref.watch(services.desktopVisible);
         final currentSize = sizes[key] ?? const TileSize(1, 1);
         final isSquare = currentSize.w == 2 && currentSize.h == 2;
         return sized(
           const TileSize(1, 1),
-          isSquare
-              ? _LargeActionTile(
-                  icon: BarIcons.desktopcomputer,
-                  label: label,
-                  on: active,
-                  onTap: () => act(services.toggleDesktop),
-                )
-              : fit(
-                  _Round(
-                    icon: BarIcons.desktopcomputer,
-                    on: active,
-                    onTap: () => act(services.toggleDesktop),
-                  ),
-                  const TileSize(1, 1),
-                ),
+          Consumer(
+            builder: (context, ref, _) {
+              final active = ref.watch(services.desktopVisible);
+              return isSquare
+                  ? _LargeActionTile(
+                      icon: BarIcons.desktopcomputer,
+                      label: label,
+                      on: active,
+                      onTap: () => act(services.toggleDesktop),
+                    )
+                  : fit(
+                      _Round(
+                        icon: BarIcons.desktopcomputer,
+                        on: active,
+                        onTap: () => act(services.toggleDesktop),
+                      ),
+                      const TileSize(1, 1),
+                    );
+            },
+          ),
           supported: const <TileSize>[
             TileSize(1, 1),
             TileSize(2, 1),
@@ -912,13 +1016,15 @@ class _ControlCenterPanelState extends ConsumerState<ControlCenterPanel>
     final settings =
         ref.watch(barSettingsProvider).value ?? BarSettings.defaults;
     final order = settings.controls;
-    final trayVisible = ref.watch(widget.services.trayVisible);
-    final trayIds = ref.watch(widget.services.trayItemIds);
-    trayNames.resolve(trayIds);
-    final trayFolded =
+    final wantsTray =
         settings.showTray &&
-            trayVisible &&
-            settings.trayFoldInForce == BarTrayFold.controlCenter
+        settings.trayFoldInForce == BarTrayFold.controlCenter;
+    final trayVisible = wantsTray && ref.watch(widget.services.trayVisible);
+    final trayIds = wantsTray && trayVisible
+        ? ref.watch(widget.services.trayItemIds)
+        : const <String>[];
+    if (trayIds.isNotEmpty) trayNames.resolve(trayIds);
+    final trayFolded = trayIds.isNotEmpty
         ? partitionTrayIds(
             trayIds,
             settings: settings,
@@ -931,13 +1037,7 @@ class _ControlCenterPanelState extends ConsumerState<ControlCenterPanel>
       ...order,
       if (trayFolded.isNotEmpty && !order.contains('tray')) 'tray',
     ];
-    final tileSizes = parseTileSizes(
-      ref.watch(
-        barSettingsProvider.select(
-          (state) => state.value?.tileSizes ?? const <String>[],
-        ),
-      ),
-    );
+    final tileSizes = parseTileSizes(settings.tileSizes);
     final tiles = <Tile>[
       for (final id in effectiveOrder)
         if (_tile(
@@ -961,17 +1061,21 @@ class _ControlCenterPanelState extends ConsumerState<ControlCenterPanel>
             ),
           ),
     ];
-    final batteryAvailable = ref.watch(services.battery).capacity != null;
-    final spare = <TileChoice>[
-      for (final choice in _library)
-        if (!order.contains(choice.id) &&
-            (choice.id != 'battery' || batteryAvailable))
-          TileChoice(
-            id: choice.id,
-            icon: choice.icon,
-            label: context.tr(choice.label),
-          ),
-    ];
+    final batteryAvailable = _editing
+        ? ref.watch(services.battery).capacity != null
+        : false;
+    final spare = _editing
+        ? <TileChoice>[
+            for (final choice in _library)
+              if (!order.contains(choice.id) &&
+                  (choice.id != 'battery' || batteryAvailable))
+                TileChoice(
+                  id: choice.id,
+                  icon: choice.icon,
+                  label: context.tr(choice.label),
+                ),
+          ]
+        : const <TileChoice>[];
     final density = KitStyle.of(context).density.clamp(0.75, 1.35);
     final basePad = floating ? 6.0 * density : _C.inset * density;
     final pad = _editing ? math.max(8.0, basePad) : basePad;
@@ -1109,9 +1213,6 @@ class _FloatingEditPill extends StatelessWidget {
       radius: style.pill(28),
       grouped: true,
       blur: scope.blur,
-      fade: context
-          .dependOnInheritedWidgetOfExactType<KitLayer>()
-          ?.animation,
       child: child,
     );
   }
@@ -1425,9 +1526,6 @@ class _Tile extends StatelessWidget {
         radius: radius,
         grouped: true,
         blur: scope.blur,
-        fade: context
-          .dependOnInheritedWidgetOfExactType<KitLayer>()
-          ?.animation,
         child: AnimatedContainer(
           duration: KitMotion.duration(
             context,

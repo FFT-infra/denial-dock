@@ -378,8 +378,7 @@ mixin _BarActions<T extends ConsumerStatefulWidget> on ConsumerState<T> {
         final archetype = style.archetype;
         final useCustomShell =
             archetype != KitShellArchetype.macos &&
-            archetype != KitShellArchetype.denial &&
-            archetype != KitShellArchetype.cutefish;
+            archetype != KitShellArchetype.denial;
         final panelStyle = style.panelStyle;
         final floating =
             !useCustomShell && panelStyle == KitPanelStyle.floating;
@@ -498,26 +497,30 @@ class _HostedBarPartState extends ConsumerState<_HostedBarPart>
       );
     }
     if (id == BarPart.clock) {
-      final now = ref.watch(_services.clock).value ?? DateTime.now();
-      if (tile && _horizontal && part.crossExtent >= 34) {
-        return _TileClock(
-          key: _clockKey,
-          time: _services.strings(context).time(now),
-          date: settings.showClockDate
-              ? _dateLabel(context, settings, now)
-              : '',
-          ink: ink,
-          height: math.min(part.crossExtent, 44),
-          open: _openPanelId == 'clock',
-          onTap: () => _openClock(settings),
-        );
-      }
-      return _clockFor(
-        context,
-        settings: settings,
-        ink: ink,
-        now: now,
-        crossExtent: cross,
+      return Consumer(
+        builder: (context, ref, _) {
+          final now = ref.watch(_services.clock).value ?? DateTime.now();
+          if (tile && _horizontal && part.crossExtent >= 34) {
+            return _TileClock(
+              key: _clockKey,
+              time: _services.strings(context).time(now),
+              date: settings.showClockDate
+                  ? _dateLabel(context, settings, now)
+                  : '',
+              ink: ink,
+              height: math.min(part.crossExtent, 44),
+              open: _openPanelId == 'clock',
+              onTap: () => _openClock(settings),
+            );
+          }
+          return _clockFor(
+            context,
+            settings: settings,
+            ink: ink,
+            now: now,
+            crossExtent: cross,
+          );
+        },
       );
     }
     final status = _statusFor(

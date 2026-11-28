@@ -21,6 +21,7 @@ class ClipboardWatch extends ValueNotifier<List<String>> {
   final ClipboardHistory _history = ClipboardHistory();
   Process? _process;
   bool _wanted = false;
+  bool get wanted => _wanted;
 
   /// False once `wl-paste` turned out to be missing.
   bool available = true;

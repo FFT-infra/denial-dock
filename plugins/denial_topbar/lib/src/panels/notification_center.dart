@@ -58,10 +58,7 @@ void showNotificationCenter({
   bool widgets = true,
   String panelId = 'clock',
 }) {
-  if (kitOpenPanel.value == panelId) {
-    closeKitPanel();
-    return;
-  }
+  if (closeKitPanel(panelId)) return;
   final style = kitStyle.value;
   final arch = style.archetype;
   final anchorRect = anchor == null ? null : kitSceneRect(anchor);
@@ -270,7 +267,7 @@ class _ColumnState extends ConsumerState<_Column>
   final ValueNotifier<bool> _glass = ValueNotifier<bool>(true);
   Animation<double>? _layer;
   VoidCallback? _finish;
-  double _travel = notificationCenterWidth + 24;
+  double _travel = NcLook.layout.width + NcCard.reach * 2 + 24;
   bool _opened = false;
   bool _closing = false;
 
@@ -279,7 +276,7 @@ class _ColumnState extends ConsumerState<_Column>
   /// for them.
   bool _all = false;
   bool _editing = false;
-  final bool _ready = true;
+  late bool _ready = widget.framed;
   bool _readScheduled = false;
   List<DesktopNotificationGroup> _groups = const <DesktopNotificationGroup>[];
   final Set<String> _seen = <String>{};
@@ -329,12 +326,16 @@ class _ColumnState extends ConsumerState<_Column>
     _springs
       ..addListener(_place)
       ..onRest = _rested;
+    // Place the column off-screen synchronously before frame 0 paints so
+    // CompositedTranslation never flashes one frame at Offset.zero.
+    _place();
     // The spring starts once the first frame is out. That frame builds the
     // column, the heaviest one there is, and a motion that begins inside it
     // would spend its opening on a frame nobody sees move.
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (!mounted) return;
       _opened = true;
+      if (!_ready) setState(() => _ready = true);
       _springs.kick(reduceMotion: KitMotion.reduced(context));
       _scope.requestFocus();
       final first = _focusable().firstOrNull;
@@ -455,8 +456,10 @@ class _ColumnState extends ConsumerState<_Column>
       if (_closing && finish != null) scheduleMicrotask(finish);
     } else if (mounted) {
       // Mark listed notifications as read once the slide settles without
-      // triggering a full redundant rebuild of the entire column.
-      if (_groups.isNotEmpty) {
+      // triggering a redundant notification if everything is already read.
+      if (notifications &&
+          _groups.isNotEmpty &&
+          ref.read(desktopNotificationsProvider).unreadCount > 0) {
         _controller.markAllRead();
       }
     }
@@ -1070,16 +1073,20 @@ class _ColumnState extends ConsumerState<_Column>
 
   Widget _body(BuildContext context) {
     final scene = MediaQuery.sizeOf(context);
-    final state = ref.watch(desktopNotificationsProvider);
-    final groups = notifications
-        ? state.groups
-        : const <DesktopNotificationGroup>[];
-    _groups = groups;
+    final (rawGroups, unreadCount) = notifications && !_closing
+        ? ref.watch(
+            desktopNotificationsProvider.select(
+              (s) => (s.groups, s.unreadCount),
+            ),
+          )
+        : (_closing ? _groups : const <DesktopNotificationGroup>[], 0);
+    final groups = rawGroups;
+    if (!_closing) _groups = groups;
     // Whatever is listed here has been seen, including what arrives while
     // the column is open. The state may not change during a build, and the
     // column is not rebuilt for it while it slides.
     if (notifications &&
-        state.unreadCount > 0 &&
+        unreadCount > 0 &&
         !_readScheduled &&
         _opened &&
         !_springs.moving) {
@@ -1128,9 +1135,11 @@ class _ColumnState extends ConsumerState<_Column>
     final nextTravel = width + 24;
     if ((nextTravel - _travel).abs() > 0.5) {
       _travel = nextTravel;
-      WidgetsBinding.instance.addPostFrameCallback((_) {
-        if (mounted) _place();
-      });
+      if (_opened) {
+        WidgetsBinding.instance.addPostFrameCallback((_) {
+          if (mounted) _place();
+        });
+      }
     }
 
     final staying = <DesktopNotificationGroup>[
@@ -1349,16 +1358,13 @@ class _ColumnState extends ConsumerState<_Column>
       );
     }
 
-    return NcScope(
-      host: this,
-      child: FocusScope(
-        node: _scope,
-        onKeyEvent: _onKey,
-        child: FocusTraversalGroup(
-          child: Listener(
-            onPointerDown: (_) => _keys.value = false,
-            child: body,
-          ),
+    return FocusScope(
+      node: _scope,
+      onKeyEvent: _onKey,
+      child: FocusTraversalGroup(
+        child: Listener(
+          onPointerDown: (_) => _keys.value = false,
+          child: body,
         ),
       ),
     );
@@ -2093,6 +2099,7 @@ class _CaelestiaNotifSidebar extends ConsumerWidget {
             material: kitMaterialOf(context, KitTier.popover),
             tier: KitTier.popover,
             radius: style.outer(theme, 24),
+            fade: KitLayer.of(context).animation,
             child: Stack(
               children: <Widget>[
                 Column(

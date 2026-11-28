@@ -146,6 +146,7 @@ class Island extends ConsumerStatefulWidget {
     this.workspaceWidth = 0,
     this.timeLabel = '',
     this.dateLabel = '',
+    this.dateLabelFor,
     this.onControlCenter,
     this.onNotifications,
     this.subline,
@@ -163,9 +164,12 @@ class Island extends ConsumerStatefulWidget {
   final Widget? workspace;
   final double workspaceWidth;
 
-  /// What the home card shows and opens.
+  /// What the home card shows and opens. When [timeLabel] is empty, the home
+  /// card watches [services.clock] directly so clock ticks never rebuild the
+  /// entire top bar.
   final String timeLabel;
   final String dateLabel;
+  final String Function(BuildContext context, DateTime now)? dateLabelFor;
   final VoidCallback? onControlCenter;
   final VoidCallback? onNotifications;
 
@@ -2230,9 +2234,20 @@ class _IslandState extends ConsumerState<Island> with TickerProviderStateMixin {
         final latest = widget.settings.activityNotifications
             ? notices.groups.firstOrNull?.members.firstOrNull?.notification
             : null;
+        final homeNow = widget.timeLabel.isEmpty
+            ? (ref.watch(_services.clock).value ?? DateTime.now())
+            : null;
+        final timeText = widget.timeLabel.isNotEmpty
+            ? widget.timeLabel
+            : _services.strings(context).time(homeNow!);
+        final dateText = widget.dateLabel.isNotEmpty
+            ? widget.dateLabel
+            : (widget.dateLabelFor != null && homeNow != null
+                  ? widget.dateLabelFor!(context, homeNow)
+                  : '');
         return IslandHomeCard(
-          time: widget.timeLabel,
-          date: widget.dateLabel,
+          time: timeText,
+          date: dateText,
           workspace: widget.workspace,
           nothing: context.tr('No Notifications'),
           digest: latest == null
@@ -2352,7 +2367,11 @@ class _IslandState extends ConsumerState<Island> with TickerProviderStateMixin {
                             : BarIcons.sunMax,
                         on: NightLight.enabled.value,
                         onTap: () {
-                          NightLight.toggle();
+                          unawaited(
+                            NightLight.toggle().whenComplete(() {
+                              if (mounted) setState(() {});
+                            }),
+                          );
                           setState(() {});
                         },
                       ),

@@ -86,6 +86,7 @@ class WorldClock {
   /// in its first frame.
   static List<WorldClock> last = const <WorldClock>[];
   static int _lastMinuteKey = -1;
+  static Future<List<WorldClock>>? _inFlight;
 
   static void invalidate() {
     last = const <WorldClock>[];
@@ -93,10 +94,21 @@ class WorldClock {
   }
 
   /// Reads all configured cities in one batched detached `sh` command (cached
-  /// per wall-clock minute; never caches an empty failure result).
-  static Future<List<WorldClock>> read(DateTime now) async {
+  /// per wall-clock minute; coalesces concurrent reads; never caches failure).
+  static Future<List<WorldClock>> read(DateTime now) {
     final minuteKey = now.millisecondsSinceEpoch ~/ 60000;
-    if (last.isNotEmpty && minuteKey == _lastMinuteKey) return last;
+    if (last.isNotEmpty && minuteKey == _lastMinuteKey) {
+      return Future<List<WorldClock>>.value(last);
+    }
+    return _inFlight ??= _readFresh(now, minuteKey).whenComplete(() {
+      _inFlight = null;
+    });
+  }
+
+  static Future<List<WorldClock>> _readFresh(
+    DateTime now,
+    int minuteKey,
+  ) async {
     final list = cities;
     final localDay = DateTime(now.year, now.month, now.day);
     final script = <String>[
@@ -178,7 +190,7 @@ class _WorldClockCardState extends State<WorldClockCard> {
 
   Future<void> _refresh() async {
     final clocks = await WorldClock.read(DateTime.now());
-    if (!mounted) return;
+    if (!mounted || identical(clocks, _clocks)) return;
     setState(() => _clocks = clocks);
   }
 

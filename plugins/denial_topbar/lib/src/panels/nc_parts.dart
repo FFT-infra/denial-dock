@@ -560,6 +560,8 @@ class NcPlate extends StatelessWidget {
       repaint: repaint,
     );
     final ImageFilterConfig? directConfig = blurs ? resolved.directConfig : null;
+    final liquidDirect =
+        directConfig != null && plan.mode == KitSurfaceMode.liquidGlass;
     return CustomPaint(
       painter: layer(true),
       foregroundPainter: layer(false),
@@ -568,14 +570,24 @@ class NcPlate extends StatelessWidget {
           : directConfig != null
           ? FadeTransition(
               opacity: glass,
-              child: ClipPath(
-                clipper: _PlateClip(radius),
-                child: BackdropFilter.grouped(
-                  filterConfig: directConfig,
-                  blendMode: BlendMode.srcOver,
-                  child: const SizedBox.expand(),
-                ),
-              ),
+              child: liquidDirect
+                  ? ClipRRect(
+                      borderRadius: BorderRadius.circular(radius),
+                      clipBehavior: Clip.antiAlias,
+                      child: BackdropFilter.grouped(
+                        filterConfig: directConfig,
+                        blendMode: BlendMode.srcOver,
+                        child: const SizedBox.expand(),
+                      ),
+                    )
+                  : ClipPath(
+                      clipper: _PlateClip(radius),
+                      child: BackdropFilter.grouped(
+                        filterConfig: directConfig,
+                        blendMode: BlendMode.srcOver,
+                        child: const SizedBox.expand(),
+                      ),
+                    ),
             )
           : ShellBackdropBlur(
               grouped: true,

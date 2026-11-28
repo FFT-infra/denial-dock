@@ -17,6 +17,7 @@ class MicWatch extends ValueNotifier<List<String>> {
   Timer? _retry;
   Process? _process;
   bool _wanted = false;
+  bool get wanted => _wanted;
   bool _running = false;
   int _failures = 0;
 

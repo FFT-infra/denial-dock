@@ -45,7 +45,13 @@ class _CalendarWidgetState extends ConsumerState<CalendarWidget> {
   @override
   Widget build(BuildContext context) {
     final theme = context.shellTheme;
-    final now = ref.watch(clockProvider).value ?? DateTime.now();
+    final (year, month, day) = ref.watch(
+      clockProvider.select((async) {
+        final d = async.value ?? DateTime.now();
+        return (d.year, d.month, d.day);
+      }),
+    );
+    final now = DateTime(year, month, day);
 
     if (widget.size == KitWidgetSize.small) {
       return GestureDetector(
